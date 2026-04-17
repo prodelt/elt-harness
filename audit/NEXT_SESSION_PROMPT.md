@@ -1,70 +1,71 @@
-# Prompt для новой сессии (S5)
+# Prompt для новой сессии (S6)
 
 Скопируй текст ниже в новый чат.
 
 ---
 
-Продолжаем Pipeline Audit 2026-04-17. Предыдущие сессии: S1+S2+S3+S4 сделаны, закоммичены.
+Продолжаем Pipeline Audit 2026-04-17. Предыдущие сессии: S1+S2+S3+S4+S5 сделаны, закоммичены.
 
 ## Контекст (прочитай ТОЛЬКО эти файлы, не больше)
 
 1. `C:\Claude playground\Pipiline setupper\PIPELINE_AUDIT_2026-04-17.md` — каталог 19 багов
-2. `C:\Claude playground\Pipiline setupper\audit\S4_hook_bugfixes\CHANGES.md` — что сделано в S4
+2. `C:\Claude playground\Pipiline setupper\audit\S5_skills_refactor\CHANGES.md` — что сделано в S5
 3. `C:\Users\espad\.claude\projects\C--\memory\MEMORY.md` — автопамять
 
-НЕ читай все JSONL и не перечитывай S1/S2/S3 отчёты — они свою работу уже сделали.
+НЕ читай все JSONL и не перечитывай S1/S2/S3/S4 отчёты — они свою работу уже сделали.
 
 ## Что сделано
 
 - **S1** (`c5710f0`): метрики из 3 проектов, найдены паттерны token burn
 - **S2** (`c5710f0`): 19 багов с proof'ами
 - **S3** (`b41d941`): autocompact 65→88, ctxBudget 80k→130k, warning 200→32ch. 80/80
-- **S4**: errors.log жив, tool-results TTL cleanup, pathnorm helper, loop-guardian blockAt, edit-enforcer metrics. 80/80
+- **S4** (`3570047`): errors.log жив, tool-results TTL cleanup, pathnorm helper, loop-guardian blockAt, edit-enforcer metrics. 80/80
+- **S5**: project-docs-gate hard-block с `Skill(init-project)`, /pipeline v3 orchestrator, pipeline-state.json schema + sub-skills integration. 80/80
 
 Git репо: `C:\Claude playground\Pipiline setupper` (локальный, main branch). Ветка C:\ это другой репо — НЕ коммить туда.
 
-## Что делать в S5 (skills + docs automation)
+## Что делать в S6 (architect-first + cto-playbook + file-size discipline)
 
-Скоуп: починить баги, связанные со скиллами и автогенерацией документации.
+Скоуп: organizational rules + скиллы для core development workflow.
 
-- **B04** — `/init-project` не вызывается автоматически: `project-docs-gate.js` только предупреждает. Задача: при отсутствии CLAUDE.md + наличии >10 файлов проекта → автоматически выполнить Skill tool (`/init-project`), не просто warning. Продумать как пробрасывать skill invocation из SessionStart хука. Если Claude Code harness не позволяет хуку запустить skill, то компромисс: hard block (exit 2) с единственно верным next-action.
-- **B08** — `/pipeline` SKILL.md сейчас декларативный: "Step 1: read context ...". Переписать как orchestrator, реально вызывающий под-скиллы через Skill tool: `Skill("architect-first") → Skill("sprint") → Skill("inline-review") → Skill("ship")`. Добавить checkpoint между шагами.
-- **B14** — каждый Skill() добавляет свой SKILL.md в контекст → nested skill = n×SKILL.md. Решение: shared `~/.claude/pipeline-state.json` — один раз пишется orchestrator'ом, sub-skills читают оттуда minimal context вместо re-injection.
-- **B03 (частично)** — правило "файлы >500 LOC = red flag, требуют разбиения перед Edit" в `/architect-first` и `/cto-playbook`. Harness не починить, но организационная мера работает.
+- **B03 (organizational fix)** — Edit tool_result 30K burn: добавить в `/architect-first` и `/cto-playbook` жёсткое правило "файлы >500 LOC = red flag, требуют разбиения ПЕРЕД Edit". В `/pipeline` precheck: если target файл >500 LOC → warn + предложить сначала split. Harness-level fix невозможен, но организационная мера работает.
+- **`/cto-playbook` refactor** — сейчас 76K+ с тяжёлыми промптами. Профайл: что реально используется? Выжать до core 150 строк + ссылки на references (split в sub-docs). Проверить что `ENABLE_TOOL_SEARCH=auto:10` действительно держит его lazy.
+- **`/architect-first` integration с pipeline-state.json** — уже preamble добавлен в S5, но сам skill всё ещё велик. Аудит на overlap с cto-playbook (оба про architecture) — deduplicate.
+- **Real-world тест**: открыть sudovoi или tgbot → запустить `/pipeline` → проверить что `~/.claude/pipeline-state.json` реально создаётся, `Skill(inline-review)` вызывается, checkpoints обновляются. Показать proof.
 
 ## Правила работы
 
-1. **Real testing, не теория.** После правки скилла → реально запустить его в dev-проекте (sudovoi/tgbot), проверить что действительно срабатывают шаги, которые декларирует SKILL.md. Показать proof.
+1. **Real testing, не теория.** После правки скилла → реально запустить в dev-проекте, проверить что отрабатывают декларированные шаги. Показать proof (tool-call traces или metrics).
 2. **Hook тесты тоже.** Если трогаешь хуки — 80/80 должны пройти (test-all, test-behavior, test-codex).
-3. **Trust but verify subagents.** S1 subagent накосячил с тремя FALSE claims.
+3. **Trust but verify subagents.** Reminder из S1: три FALSE claims от subagent'а.
 4. **Windows bash:** `;` вместо `&&`. Forward slashes в путях.
-5. **Не раздувай область.** S5 = скиллы и автогенерация docs. Остальное в S6-S8.
+5. **Не раздувай область.** S6 = architect-first + cto-playbook + file-size rule. Остальное в S7-S8.
 6. **Context7 mandatory** перед любыми незнакомыми API вызовами.
-7. **MEMORY.md >80 строк = warn, >100 = block.** Проверь актуальное состояние.
+7. **MEMORY.md >80 строк = warn, >100 = block.** Сейчас ~82 — аккуратно с добавлениями, предпочесть /learn compression.
 
 ## Структура коммитов
 
-Один коммит на спринт. Снэпшот изменённых файлов в `audit/S5_skills_refactor/`:
+Один коммит на спринт. Снэпшот изменённых файлов в `audit/S6_architect_cto/`:
 
 ```
-audit/S5_skills_refactor/
+audit/S6_architect_cto/
 ├── CHANGES.md
-├── after-<file>.md  ← копии изменённых скиллов/хуков
+├── after-<file>.md
 ```
 
-Commit message: `audit: S5 skills + docs automation (B04, B08, B14)`.
+Commit message: `audit: S6 architect-first + cto-playbook + file-size rule (B03)`.
 
 ## Что НЕ делать
 
-- Не переписывать все 70+ скиллов — точечно B04, B08, B14.
-- Не трогать хуки кроме `project-docs-gate.js` (для B04).
-- Не менять settings.json глобально.
-- `/red-team`, `/cto-playbook` полный рефактор — это S6-S7.
+- Не трогать /pipeline (S5 done).
+- Не менять хуки (S4 done), кроме добавления file-size check в edit-enforcer если критично.
+- Не рефакторить /red-team — это S7.
+- Не трогать `settings.json` / `hooks/config.json` консолидацию — S8.
 
 ## Старт
 
-TaskList → TaskCreate 4 задачи (B04, B08, B14, + commit) → в работу.
+TaskList → TaskCreate 4 задачи (B03 rule, cto-playbook diet, architect-first dedup, real-world test) → в работу.
 
-Когда закончишь S5 — пиши prompt для S6 в `audit/NEXT_SESSION_PROMPT.md` (перезапиши).
+Когда закончишь S6 — пиши prompt для S7 в `audit/NEXT_SESSION_PROMPT.md` (перезапиши).
 
-Цель S5: `/init-project` auto-invocation работает, `/pipeline` реально делегирует через Skill tool, pipeline-state.json внедрён, 80/80 hook тестов зелёные, один коммит.
+Цель S6: file-size rule работает в 2 скиллах, cto-playbook slim, architect-first без overlap с cto, real proof через sudovoi/tgbot, 80/80 hook тестов зелёные, один коммит.
