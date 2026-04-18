@@ -13,9 +13,12 @@
 ## Commands
 ```bash
 # Тесты хуков (три уровня)
-node ~/.claude/hooks/test-all-hooks.js          # sanity: exit 0 + valid JSON (26/26)
-node ~/.codex/test-codex-hooks.js               # codex sync (25/25)
+node ~/.claude/hooks/test-all-hooks.js          # sanity: exit 0 + valid JSON (29/29)
+node ~/.codex/test-codex-hooks.js               # codex sync (28/28)
 node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW поведение (29/29)
+
+# Анализ расхода токенов
+node ~/.claude/hooks/analyze-session.js <jsonl> # разбор затрат по событиям
 
 # Метрики
 node ~/.claude/hooks/hook-stats.js              # статистика вызовов
@@ -31,16 +34,17 @@ cmd /c graphify update .                        # обновить граф (в 
 ## Architecture
 ```
 ~/.claude/
-├── hooks/                    ← 27 хуков (все PASS)
+├── hooks/                    ← 30 хуков (все PASS)
 │   ├── SessionStart (5):     project-docs-gate, session-focus-gate, autoskills-check,
 │   │                         graphify-session-init, memory-discipline
 │   ├── UserPromptSubmit (1): context-budget-gate
-│   ├── PreToolUse (7):       graphify-read-gate[Read], graphify-preuse[Glob|Grep],
+│   ├── PreToolUse (9):       graphify-read-gate[Read], graphify-preuse[Glob|Grep],
+│   │                         settings-schema-guard[Edit|Write], write-over-edit-guard[Write],
 │   │                         config-protection[Edit|Write], domain-agent-gate[Edit|Write],
 │   │                         edit-enforcer[Edit|Write], secret-scanner[Bash], quality-gate-runner[Bash]
-│   ├── PostToolUse (10):     post-edit-combined, context7-reminder, inline-review-gate [Edit|Write]
+│   ├── PostToolUse (11):     post-edit-combined, context7-reminder, inline-review-gate [Edit|Write]
 │   │                         verification-tracker, loop-guardian [Edit|Write|Bash]
-│   │                         secret-output-scanner [Bash]
+│   │                         secret-output-scanner [Bash], bash-output-advisor [Bash]
 │   │                         inline-review-tracker [Agent], scope-guard [TaskCreate],
 │   │                         context7-tracker [Context7], pipeline-tracker [Skill]
 │   ├── Stop (2):             stop-verification, ship-gate
@@ -55,7 +59,7 @@ cmd /c graphify update .                        # обновить граф (в 
 └── projects/C--/memory/      ← shared memory (junction с Codex)
 
 ~/.codex/
-├── hooks.json                ← 25 хуков (те же .js, без FileChanged/Notification)
+├── hooks.json                ← 28 хуков (те же .js, без FileChanged/Notification)
 ├── test-codex-hooks.js       ← динамический тест из hooks.json
 └── memories/ → junction → ~/.claude/projects/C--/memory/
 ```
@@ -72,11 +76,13 @@ cmd /c graphify update .                        # обновить граф (в 
 - **cwd в хуках**: всегда брать из `input.cwd`, не из `process.cwd()` (process.cwd() = ~/.claude/hooks/)
 - **Windows paths**: использовать `path.join()`, не строковую конкатенацию
 
-## Current State (2026-04-16)
-- **Score: ~75/100** (все Zero-Waste спринты A0→C4 завершены)
-- **27 хуков**, test-all-hooks.js **26/26** | test-codex-hooks.js **25/25** | test-hooks-behavior.js **29/29**
-- **Баги сессии**: graphify-read-gate cwd fix, loop-guardian fingerprint fix, memory-discipline NEW
-- **Документация**: `HOOK_SYSTEM.md` — полный справочник системы
+## Current State (2026-04-18, S9 wave 2 complete)
+- **Score: ~82/100** (Zero-Waste A0→C4 + audit S1–S8 + S9 burn wave 2)
+- **30 хуков**, test-all-hooks.js **29/29** | test-codex-hooks.js **28/28** | test-hooks-behavior.js **29/29** = **86/86**
+- **S9 добавил**: settings-schema-guard (блок 223K schema error), write-over-edit-guard, bash-output-advisor, analyze-session.js
+- **S9 изменил**: loop-guardian Layer B → advisory (threshold 5→8), graphify-session-init → silent, rules.md 141→64 LOC
+- **Документация**: `README.md` (GitHub-share), `HOOK_SYSTEM.md`, `audit/S9_burn_wave2/CHANGES.md`
+- **Token burn**: 196K → ~90K / session (≈2.2×). B03 остаётся upstream runtime-bug
 - **Pending**: OPENAI_API_KEY rotation in D:\Ametrin projects
 
 ## Hook Infrastructure
