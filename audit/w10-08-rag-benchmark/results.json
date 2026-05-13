@@ -1,0 +1,162 @@
+[
+  {
+    "id": 1,
+    "project": "pipeline",
+    "question": "Що робить loop-guardian і коли він блокує повторні едити?",
+    "no_rag": {
+      "answer": "",
+      "words": 0,
+      "time_s": 22.7
+    },
+    "rag": {
+      "answer": "Sorry, I'm not able to provide an answer to that question.[no-context]",
+      "words": 11,
+      "time_s": 73.9
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 2,
+    "project": "pipeline",
+    "question": "Яка різниця між PreToolUse BLOCK і Stop BLOCK форматами?",
+    "no_rag": {
+      "answer": "PreToolUse BLOCK використовується для підготовки систем перед основними процесами, зазвичай з параметрами інструментів. Stop BLOCK, з іншого боку, виконує функцію",
+      "words": 20,
+      "time_s": 26.5
+    },
+    "rag": {
+      "answer": "The user's query pertains to the distinction between PreToolUse BLOCK and Stop BLOCK formats, but the provided **Context** contains no relevant information about block formats, programming constructs, or any terminology related to this topic. The only content available is about command-line tools, hooks, and metrics, which do not address the subject matter of block formats. Therefore, it is impossible to answer the question based on the given information.",
+      "words": 68,
+      "time_s": 49.1
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 3,
+    "project": "pipeline",
+    "question": "Яку роль виконує skill-ranker і які 6 критеріїв він використовує?",
+    "no_rag": {
+      "answer": "",
+      "words": 0,
+      "time_s": 24.9
+    },
+    "rag": {
+      "answer": "The query about the role of skill-ranker and its six criteria cannot be addressed based on the provided context. The context contains information related to a World Athlete Championship, code testing hooks, and metrics, but there is no mention of skill-rankers, their criteria, or their functionality. The reference document list also does not include any相关内容 related to skill-rankers.",
+      "words": 58,
+      "time_s": 48.2
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 4,
+    "project": "izi-tracker",
+    "question": "Яка основна архітектура izi-tracker — які модулі і як вони взаємодіють?",
+    "no_rag": {
+      "answer": "",
+      "words": 0,
+      "time_s": 35.4
+    },
+    "rag": {
+      "answer": "The provided context does not contain any information about the architecture or modules of iZi-Tracker. Therefore, it is not possible to answer the question based on the given data. \n\n### References  \n* [1] Document Title One  \n* [2] Document Title Two  \n* [3] Document Title Three",
+      "words": 46,
+      "time_s": 43.5
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 5,
+    "project": "izi-tracker",
+    "question": "Як реалізована авторизація і захист маршрутів у izi-tracker?",
+    "no_rag": {
+      "answer": "Авторизація у izi-tracker реалізована за допомогою токенів (наприклад, JWT) і сесій, щоб підтвердити авторітет користувача. Маршрути захищуються засобами middleware, таких як AuthMiddleware, який перевіряє, чи користувач вже автор",
+      "words": 28,
+      "time_s": 46.7
+    },
+    "rag": {
+      "answer": "I do not have enough information to answer your question about the implementation of authentication and route protection in izi-tracker. The provided context does not contain any relevant information about izi-tracker or its technical implementation details.",
+      "words": 36,
+      "time_s": 44.3
+    },
+    "winner": "tie"
+  },
+  {
+    "id": 6,
+    "project": "izi-tracker",
+    "question": "Які основні моделі даних (entities) є в проекті та їх ключові поля?",
+    "no_rag": {
+      "answer": "Основні моделі даних (entities) в проекті включають:  \n1. **Клієнти** (Customers) – ім'я, електронна пошта, телефон.  \n2. **Замовлення** (Orders",
+      "words": 18,
+      "time_s": 35.4
+    },
+    "rag": {
+      "answer": "### Main Data Models and Key Fields\n\nThe project includes several technical terms as data models, each with specific attributes:  \n1. **SQL-first**: A technical term, but its key fields likely include attributes like **name**, **description**, and **type** (e.g., database system).  \n2. **Carbon-Fiber Spikes**: A sports equipment model with key fields such as **speed**, **traction**, and **material** (carbon-fiber).  \n3. **100m Sprint Record**: A category model with fields like **record holder**, **time**, and **location** (e.g., Tokyo).  \n4. **World Athletics Championship**: An event model with fields such as **host city** (Tokyo), **date**, and **competitors**.  \n5. **Next.js** and **shadcn/ui**: Technical terms likely representing frameworks or libraries, with key fields including **features** (e.g., React integration) and **compatibility**.  \n6. **data apps** and **internal reports**: Technical terms for applications or reports, with fields like **data source**, **output format**, and **usage**.  \n\n### References  \n- [1] SQL-first  \n- [2] Carbon-Fiber Spikes  \n- [3] 100m Sprint Record  \n- [4] World Athletics Championship  \n- [5] Next.js",
+      "words": 155,
+      "time_s": 92.2
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 7,
+    "project": "law-assistant",
+    "question": "Які джерела законодавства використовує law-assistant і як відбувається пошук?",
+    "no_rag": {
+      "answer": "Law-assistant використовує джерела законодавства, такі як конституція, федеральні та місцеві закони, регуляторні документи та рішення судів. Пошук відбувається систематично, за допомогою баз джерел, ключових слов та класифікацій, щоб знайти відповідні норми.",
+      "words": 31,
+      "time_s": 31.0
+    },
+    "rag": {
+      "answer": "Law-assistant (Law-Assistant) використовує **джерела законодавства** зі **засобами аналізу документів** (наприклад, DOCX, PDF) та **репозиторіями законодавчих текстів**. Пошук законодавства відбувається за допомогою спеціалізованих засобів, які включають:\n\n---\n\n### **1. Джерела законодавства**\nLaw-assistant використовує наступні джерела законодавства:\n- **Репозиторії законодавчих текстів**:\n  - **Prodelt/Ukraine-Laws-Mcp.Git** — репозиторій, що містить код, що використовується для аналізу законодавства (наприклад, закони, розпорядження, розпорядки).\n  - **Render** — платформа для деплойнгу Docker-імажів, де засоби аналізу законодавства відбуваються.\n- **Засоби аналізу документів**:\n  - **DOCX Analysis Skill** — аналізує DOCX-файли, щоб виявити щодо законодавства.\n  - **CLAude.md** — документація, яка містить інструкції з використанням засобів аналізу.\n\n---\n\n### **2. Пошук законодавства**\nПошук законодавства відбувається за допомогою наступних процесів:\n1. **Створення Docker-імажів**:\n   - Використовується командна лінія (`Build Command`) для створення Docker-імажів зі спеціалізованими засобами (наприклад, `Dockerfile` зі засобами аналізу).\n   - Імажі відправляються на **Render** для відправки у продуктивній екзіті.\n\n2. **Деплойнг із Render**:\n   - Docker-імажі відправляються на Render, де засоби аналізу законодавства відбуваються.\n   - Використовується метод `Deploy Mcp` для відправки у робочій відповіді.\n\n3. **Контроль якості (Lint)**:\n   - Виконується метод `Lint` для перевірки форматування документів і відповідності стандартам.\n   - Це забезпечує, щоб законодавство було правильно аналізовано і відображено.\n\n4. **Робота з документами**:\n   - Засоби аналізу (наприклад, DOCX Analysis Skill) виконуються на основі репозиторію `Prodelt/Ukraine-Laws-Mcp.Git`, де зберігаються законодавчі тексти.\n\n---\n\n### **3. Ключові елементи**\n- **Репозиторій** `Prodelt/Ukraine-Laws-Mcp.Git` — основа для аналізу законодавства.\n- **Render** — платформа для відправки Docker-імажів зі засобами аналізу.\n- **Dockerfile** — універсальний засіб для створення імажів зі спеціалізованими засобами.\n- **CLAude.md** — документація, яка містить інструкції з використанням засобів аналізу.\n\n---\n\n### **4. Приклади дій**\n- **Створення Docker-імажів**: `Build Command` створює імаж зі засобами аналізу.\n- **Деплойнг**: `Deploy Mcp` відправляє імаж на Render, де засоби аналізу відбуваються.\n- **Контроль якості**: `Lint` перевіряє форматування документів і відповідність стандартам.\n\n---\n\n### **Висновок**\nLaw-assistant використовує **репозиторії законодавчих текстів** (наприклад, `Prodelt/Ukraine-Laws-Mcp.Git`) та **засоби аналізу документів** (наприклад, DOCX Analysis Skill). Пошук законодавства відбувається за допомогою Docker-імажів, деплойнгу на Render та контроль якості за допомогою `Lint`. Це забезпечує ефективний аналіз законодавства зі спеціалізованими засобами.",
+      "words": 327,
+      "time_s": 94.8
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 8,
+    "project": "law-assistant",
+    "question": "Яка технологічна архітектура проекту — backend, frontend, DB?",
+    "no_rag": {
+      "answer": "Технологічна архітектура проекту включає:  \n**Backend** — серверні технології (Node.js, Python, Ruby) для логіки, даних та взаємодії.  \n**Frontend** — клієнтські технології (React, Angular, Vue) для відображення і взаємодії з користувачами.  \n**DB** — бази даних (PostgreSQL, MySQL, MongoDB) для зберігання і відновлення даних.  \nКомбінація backend-",
+      "words": 43,
+      "time_s": 27.5
+    },
+    "rag": {
+      "answer": "The technological architecture of the project is structured as follows:\n\n### **Backend (Server-side):**\n1. **Programming Language:** Python  \n2. **Framework:** Django (core) or Flask (lightweight, flexible)  \n3. **Database:** PostgreSQL (relational database)  \n4. **Orchestration:** Docker (containerization)  \n5. **Deployment:** Kubernetes (for orchestration and scaling)  \n6. **Tools:**  \n   - **Django REST Framework (DRF):** For building APIs.  \n   - **Docker:** For containerizing the application.  \n   - **Kubernetes:** For managing containerized services (e.g., deploying to clusters).  \n\n---\n\n### **Frontend (Client-side):**\n1. **Programming Language:** JavaScript (TypeScript)  \n2. **Framework:** React (with Redux for state management)  \n3. **Database:** PostgreSQL (via PostgreSQL ORM or direct API calls)  \n4. **Orchestration:** Docker (containerizing the frontend app)  \n5. **Tools:**  \n   - **React:** For building the user interface.  \n   - **Redux:** For managing application state.  \n   - **PostgreSQL:** For storing user data, application settings, etc.  \n\n---\n\n### **Database (Shared):**\n- **Database Type:** PostgreSQL (relational)  \n- **Features:**  \n  - **ACID compliance** for transactional data.  \n  - **Role-based access control** (e.g., `roles` and `permissions`).  \n  - **External APIs** (e.g., via Django REST Framework or React hooks) for integration with backend.  \n\n---\n\n### **Key Technologies & Tools:**\n- **Backend:** Python (Django/Flask), PostgreSQL, Docker, Kubernetes.  \n- **Frontend:** React (Redux), TypeScript, PostgreSQL.  \n- **Orchestration:** Docker (for containerization), Kubernetes (for orchestration).  \n\nThis architecture ensures scalability, consistency, and separation of concerns between backend, frontend, and database layers.",
+      "words": 207,
+      "time_s": 83.0
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 9,
+    "project": "sudoviy-master",
+    "question": "Яка основна функція sudoviy-master і яка цільова аудиторія?",
+    "no_rag": {
+      "answer": "Основна функція sudoviy-master — це організація та аналіз правових документів. Цільова аудиторія — законодавці, адвокати та інші прав",
+      "words": 18,
+      "time_s": 29.6
+    },
+    "rag": {
+      "answer": "**Основна функція sudoviy-master:**  \nSudoviy-master виконує функції аудиту та обробки даних, особливо для **Free Pipeline**. Основною метою є **контроль і якість процесів обробки даних**, включно з перевіркою параметрів, відповідністю стандартам та виконанням лімітів (наприклад, 30 записів).  \n\n**Цільова аудиторія:**  \n- **Дані аналітиків** та **інженерів систем** з необхідністю контролю процесів обробки даних.  \n- **Організації, які виконують роботу з тімчасовими даними** (наприклад, календарі, планування, аналіз відповідності).  \n- **Адміністратори систем**, які потрібні до відповідності процесів у відповідності з регуляторами (наприклад, EDRSR, OpenDataBot).  \n\n**Підтримка:**  \n- Використовує Excel-файл **Хронологія Березень.xlsx** для вхідних даних.  \n- Виконується у контексті **Sudovi-Master** та використовує скрипти з **Scripts Directory**.  \n\nЦей інструмент є частиною системи для автоматизованого аудиту та аналізу даних, яка відповідає спеціальним вимогам (наприклад, ліміт 30 записів).",
+      "words": 116,
+      "time_s": 72.4
+    },
+    "winner": "RAG"
+  },
+  {
+    "id": 10,
+    "project": "sudoviy-master",
+    "question": "Які технології використовуються і яка структура проекту?",
+    "no_rag": {
+      "answer": "Технології використовуються: фронтенд — React (або Vue), бекенд — Node.js (або Django), база даних — PostgreSQL (або MongoDB). Структура проекту включає: src (код), public (публічні файли), assets (запасні відтворення), package.json (завантаження залежностей), .gitignore (запасні файли). Версійний контроль — Git. Пі",
+      "words": 40,
+      "time_s": 28.3
+    },
+    "rag": {
+      "answer": "Відповідь:\n\n### **Технології, використовувані в проекті**\n1. **Python** – основна мова програмування, використовується для написання скриптових інструментів (наприклад, `run_free.py`, `run_main.py`, `Audit_Free_Pipeline.Py`).\n2. **Tqdm** – бібліотека для відображення прогрес-барів у скриптах, що допомагає зберігати відчуття при обробці даних.\n3. **pytest** – фреймворк для тестування, використовується для запуску тестів у файлі `Tests/Test_Free_Pipeline.py`.\n4. **pip** – засіб для інсталізації залежностей з файлом `Requirements.txt`.\n5. **Додаткові бібліотеки** – можуть включати `pandas`, `numpy`, `matplotlib` (якщо використовуються для аналізу даних) або інші, залежно від потреб.\n\n---\n\n### **Структура проекту**\n1. **Кореневий каталог**:\n   - `Sudovi-master/` – основна директорія, що містить всі скрипти та конфігурацію.\n   - `src/runners/` – містить скрипти для обробки даних (наприклад, `run_free.py`, `run_main.py`).\n   - `Tests/` – директорія з тестами, включає скрипт `Tests/Test_Free_Pipeline.py`, який виконується за допомогою `Python -m Pytest`.\n\n2. **Каталоги скриптів**:\n   - `scripts/` – містить скрипти для аудиту (наприклад, `Audit_Free_Pipeline.Py`).\n   - `data/` – може містити додаткові даних для аналізу.\n\n3. **Конфігурація**:\n   - `Requirements.txt` – залежності, які інсталуються за допомогою `pip`.\n   - `Limit Parameter` – використовується в `Audit_Free_Pipeline.Py` для регулювання обсягу даних.\n\n---\n\n### **Особливості**\n- **Тестовий відок** – скрипт `Run Free Command` виконується у **separate test channel**, що відокремлює тестову інфраструктуру від виробничого середовища.\n- **Аудит скрипти** – `Audit_Free_Pipeline.Py` є спеціальним скриптом для відлагодження та аудиту системи.\n\n---\n\n### **Приклад структури файлів**\n```\nSudovi-master/\n├── scripts/\n│   └── Audit_Free_Pipeline.py\n│   └── run_free.py\n├── Tests/\n│   └── Test_Free_Pipeline.py\n├── data/\n│   └── example_data.csv\n└── Requirements.txt\n```\n\n---\n\n### **Заключення**\nПроект відповідає на потреби в автоматизації обробки даних, тестуванні та аудиті. Відповідно до структури, скрипти розподілені по категоріям (обробка, тестування, аудит), що забезпечує чітку організацію коду.",
+      "words": 260,
+      "time_s": 109.6
+    },
+    "winner": "RAG"
+  }
+]

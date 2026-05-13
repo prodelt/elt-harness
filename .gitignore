@@ -1,5 +1,5 @@
-# Embedded red-team tool clones (keep local only)
-tools/red-team/sources/
+# Embedded red-team tool clones (keep local only, quarantined 2026-05-13)
+tools/red-team/
 
 # Session artifacts
 *.log
@@ -16,3 +16,7 @@ Thumbs.db
 
 # Audit temp
 audit/S7_redteam_research/repos/
+
+# Auto-generated handoff artifacts
+.planning/AUTO_NEXT_SESSION_PROMPT.md
+.planning/AUTO_HANDOFF_STATUS.md

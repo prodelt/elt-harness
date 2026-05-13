@@ -1,0 +1,67 @@
+{
+  "scenario": {
+    "name": "login-inspect-capture-dry-run",
+    "url": "https://example.com/login",
+    "mode": "dry-run",
+    "steps": [
+      "open login page",
+      "inspect UI controls",
+      "fill placeholder credentials",
+      "submit interaction",
+      "capture state artifact"
+    ]
+  },
+  "options": [
+    {
+      "name": "playwright-cli",
+      "scope": "on-demand",
+      "tokenCost": "low",
+      "setupCost": "low",
+      "reliability": "high",
+      "security": "high",
+      "humanVisibleControl": "medium",
+      "deterministic": true,
+      "dryRunPlan": [
+        "playwright-cli open https://example.com/login",
+        "playwright-cli snapshot",
+        "playwright-cli fill e1 \"user@example.com\"",
+        "playwright-cli tracing-start",
+        "playwright-cli tracing-stop"
+      ]
+    },
+    {
+      "name": "browser-harness",
+      "scope": "on-demand",
+      "tokenCost": "high",
+      "setupCost": "medium",
+      "reliability": "medium",
+      "security": "medium",
+      "humanVisibleControl": "high",
+      "deterministic": false,
+      "dryRunPlan": [
+        "python run.py --url https://example.com/login --dry-run",
+        "python helpers.py --action snapshot --dry-run"
+      ]
+    },
+    {
+      "name": "chrome-devtools-mcp",
+      "scope": "on-demand",
+      "tokenCost": "medium",
+      "setupCost": "medium",
+      "reliability": "medium",
+      "security": "medium",
+      "humanVisibleControl": "high",
+      "deterministic": false,
+      "dryRunPlan": [
+        "npx -y chrome-devtools-mcp@latest --browser-url=http://127.0.0.1:9222",
+        "mcp plan: open->inspect->fill->trace"
+      ]
+    }
+  ],
+  "selection": {
+    "default": "playwright-cli",
+    "fallback": "chrome-devtools-mcp",
+    "policyMode": "project+on-demand",
+    "allowGlobalDefault": false
+  }
+}

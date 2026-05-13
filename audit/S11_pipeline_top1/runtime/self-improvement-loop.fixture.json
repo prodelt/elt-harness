@@ -1,0 +1,72 @@
+{
+  "integrations": {
+    "learn": true,
+    "githubDiscovery": true,
+    "quarantineScan": true,
+    "promotionManifest": true,
+    "projectRagWrite": true,
+    "checkpoint": true
+  },
+  "events": [
+    {
+      "name": "end-of-task",
+      "enabled": true,
+      "output": "proposal"
+    },
+    {
+      "name": "repeated-pattern",
+      "enabled": true,
+      "output": "skill-delta"
+    },
+    {
+      "name": "new-tool-discovered",
+      "enabled": true,
+      "output": "discovery-review"
+    },
+    {
+      "name": "failed-workflow",
+      "enabled": true,
+      "output": "retrospective-note"
+    },
+    {
+      "name": "successful-workflow",
+      "enabled": true,
+      "output": "promotion-candidate"
+    }
+  ],
+  "writeScopes": {
+    "globalDevKnowledge": [
+      "cross-project policy deltas"
+    ],
+    "projectKnowledge": [
+      "repo-specific route decisions",
+      "verified runtime evidence"
+    ],
+    "skillUpdate": [
+      "proposed SKILL.md patch with approval gate"
+    ],
+    "taskLocalNote": [
+      "temporary scratch measurements"
+    ]
+  },
+  "tokenBudget": {
+    "before": 16447,
+    "after": 17390,
+    "maxDelta": 2000
+  },
+  "dryRun": {
+    "sourceTask": "Task 50",
+    "triggerEvent": "end-of-task",
+    "generatedProposal": {
+      "type": "knowledge-sync",
+      "targetScope": "projectKnowledge",
+      "summary": "Append routing outcome and proof commands from completed task.",
+      "autoPromote": false,
+      "requiresQuarantine": true
+    }
+  },
+  "batchPolicy": {
+    "tasksPerBatch": 3,
+    "updateDocsOncePerBatch": true
+  }
+}

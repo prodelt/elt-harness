@@ -1,0 +1,40 @@
+{
+  "opencli": "0.1.0",
+  "info": {
+    "name": "vercel",
+    "summary": "Vercel deployment and project operations CLI.",
+    "website": "https://vercel.com/docs/cli",
+    "scope": "on-demand"
+  },
+  "transport": {
+    "default": "cli",
+    "preferMcpWhen": [
+      "connected app metadata in a supported workspace"
+    ],
+    "preferCliWhen": [
+      "deployment",
+      "logs",
+      "CI usage"
+    ]
+  },
+  "commands": [
+    {
+      "name": "deploy",
+      "command": "vercel deploy",
+      "destructive": true,
+      "outputs": "new deployment"
+    },
+    {
+      "name": "logs",
+      "command": "vercel logs {deployment}",
+      "destructive": false,
+      "outputs": "deployment logs"
+    },
+    {
+      "name": "inspect",
+      "command": "vercel inspect {deployment}",
+      "destructive": false,
+      "outputs": "deployment metadata"
+    }
+  ]
+}
