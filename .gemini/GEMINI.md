@@ -1,4 +1,4 @@
-# Pipeline Setupper — Command Center
+# Pipeline Setupper — Command Center (Antigravity)
 
 ## Overview
 Центральный репозиторий для управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Antigravity. Хранит аудиты, планы апгрейдов и документацию пайплайна.
@@ -127,15 +127,9 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **bun**: v1.3.13 — gstack /browse, /qa, /open-gstack-browser доступні
 - **Token burn**: ~90K / session
 
-## Hook Infrastructure
-- `config.json` — threshold'ы: `loopGuardian.repeatWarn=3`, `editEnforcer.warnAt=3/blockAt=9`, etc.
-- `lib/config.js` — loader для config.json
-- `lib/logger.js` — append-only errors.log
-- `lib/metrics.js` — metrics.inc(hook, event) → metrics.json
-
-## Claude Code Notes
-- PreToolUse BLOCK: `{ hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: '...' } }`
-- SessionStart/PostToolUse advisory: `{ hookSpecificOutput: { additionalContext: '...' } }`
-- Stop BLOCK: `{ decision: 'block', reason: '...' }` → stdout  (формат ДРУГОЙ!)
-- Silent exit: `process.exit(0)` без stdout = разрешить без комментариев
-- Hard block (SessionStart): `process.exit(2)` + stderr message
+## Antigravity Notes
+- Global rules: `~/.gemini/GEMINI.md` (якщо існує)
+- Shared memory: `~/.claude/projects/C--/memory/` через Windows Junction
+- Antigravity наследует все хуки Claude Code автоматически (читает settings.json)
+- Context7: mandatory перед любой библиотекой — блокировка на 9+ edits без него
+- Browser: только через browser-harness (TCP патч для Windows). MCP chrome = запрещено

@@ -46,7 +46,7 @@ real 337-event session:
 
 ### SessionStart (5)
 - `project-docs-gate` — blocks work in a project without CLAUDE.md/AGENTS.md/.gemini/GEMINI.md
-- `session-focus-gate` — forces one-goal-per-session, cleans old tool-results
+- `session-focus-gate` — forces one-goal-per-session, cleans old tool-results, aggregates focus history to `~/.claude/focus-log.jsonl`
 - `autoskills-check` — detects tech stack from package.json, suggests Context7
 - `graphify-session-init` — silent unless graph exists (zero-cost when unused)
 - `memory-discipline` — blocks if MEMORY.md >100 lines

@@ -1,0 +1,34 @@
+{
+  "skill_name": "research-autopilot",
+  "structure_type": "workflow",
+  "title": "/research-autopilot — Startup Research Router",
+  "description": "Startup research router: classifies your query (market size, competitor, pricing, ICP, GTM, regulatory), selects the right tools, shows a plan with token budget, waits for approval, then delivers a structured report. Use when you need research done — not when you want to write code.",
+  "triggers": [
+    "market research", "анализ рынка", "TAM", "рынок",
+    "competitor analysis", "конкурент teardown",
+    "pricing strategy", "монетизация", "pricing model",
+    "ICP", "ideal customer profile", "целевая аудитория",
+    "GTM", "go-to-market", "стратегия запуска",
+    "compliance check", "regulatory", "GDPR", "закон"
+  ],
+  "allowed_tools": ["WebSearch", "WebFetch", "Bash", "Read", "Write"],
+  "phases": [
+    "detect-intent",
+    "select-skills",
+    "plan-sources",
+    "approval-gate",
+    "execute-research",
+    "format-report",
+    "confidence-matrix"
+  ],
+  "skill_md_target_lines": 120,
+  "separate_files": [],
+  "scripts": [],
+  "key_design_decisions": [
+    "Approval gate is hard stop — agent never executes without user confirm",
+    "Max 3 tools per run to keep token budget predictable",
+    "RAG first because it's zero-cost and project-specific",
+    "Each category has a fixed report template to make output scannable",
+    "Confidence matrix is mandatory — tells user how much to trust the output"
+  ]
+}

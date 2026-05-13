@@ -1,0 +1,97 @@
+{
+  "globalBaselineRoot": "C:/Users/user",
+  "templatePath": "C:/Users/user/.claude/templates/project-settings.json",
+  "marketplace": "claude-plugins-official",
+  "templateEnabledPlugins": {
+    "vercel@claude-plugins-official": false,
+    "supabase@claude-plugins-official": false,
+    "playwright@claude-plugins-official": false,
+    "firecrawl@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": false,
+    "chrome-devtools-mcp@claude-plugins-official": false,
+    "frontend-design@claude-plugins-official": false
+  },
+  "projects": [
+    {
+      "root": "C:/Claude playground/Pipiline setupper",
+      "enabled": [
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "C:/Claude playground/CV",
+      "enabled": [
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "D:/Ametrin projects/Izi tracker",
+      "enabled": [
+        "vercel@claude-plugins-official",
+        "supabase@claude-plugins-official",
+        "playwright@claude-plugins-official",
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "typescript-lsp@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "D:/Ametrin projects/Law_assistant",
+      "enabled": [
+        "firecrawl@claude-plugins-official",
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "D:/Ametrin projects/sudoviy master try 3",
+      "enabled": [
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "D:/Ametrin projects/tg_bot_reclamaties-master",
+      "enabled": [
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "D:/Ametrin projects/Ametrin web ecosystem 2",
+      "enabled": [
+        "playwright@claude-plugins-official",
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "typescript-lsp@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    },
+    {
+      "root": "D:/Ametrin projects/Ametrin 1C разраб",
+      "enabled": [
+        "vercel@claude-plugins-official",
+        "code-review@claude-plugins-official",
+        "commit-commands@claude-plugins-official",
+        "typescript-lsp@claude-plugins-official",
+        "github@claude-plugins-official"
+      ]
+    }
+  ],
+  "notes": [
+    "Project-level settings.json supports enabledPlugins per official Claude Code docs.",
+    "Existing project hooks were preserved; only enabledPlugins was created or replaced."
+  ]
+}

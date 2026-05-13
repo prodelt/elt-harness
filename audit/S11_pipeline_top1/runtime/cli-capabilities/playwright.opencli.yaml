@@ -1,0 +1,40 @@
+{
+  "opencli": "0.1.0",
+  "info": {
+    "name": "playwright",
+    "summary": "Deterministic browser testing and automation CLI.",
+    "website": "https://playwright.dev/docs/test-cli",
+    "scope": "on-demand"
+  },
+  "transport": {
+    "default": "cli",
+    "preferMcpWhen": [
+      "interactive browser control in agent session"
+    ],
+    "preferCliWhen": [
+      "deterministic test execution",
+      "codegen",
+      "headed debugging"
+    ]
+  },
+  "commands": [
+    {
+      "name": "test",
+      "command": "npx playwright test {target}",
+      "destructive": false,
+      "outputs": "test run"
+    },
+    {
+      "name": "test-headed",
+      "command": "npx playwright test {target} --headed",
+      "destructive": false,
+      "outputs": "headed test run"
+    },
+    {
+      "name": "codegen",
+      "command": "npx playwright codegen {url}",
+      "destructive": false,
+      "outputs": "generated interactions"
+    }
+  ]
+}

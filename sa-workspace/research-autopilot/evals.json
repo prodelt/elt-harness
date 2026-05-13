@@ -1,0 +1,74 @@
+{
+  "skill": "research-autopilot",
+  "version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "tc-01",
+      "category": "market-research",
+      "input": "анализ рынка B2B SaaS для юридических инструментов в Украине",
+      "expected": {
+        "category_detected": "market-research",
+        "tools_selected": ["RAG:law-assistant", "WebSearch"],
+        "approval_gate_shown": true,
+        "report_sections": ["TAM / SAM / SOM", "Trends", "Key players", "Verdict"]
+      }
+    },
+    {
+      "id": "tc-02",
+      "category": "competitor-teardown",
+      "input": "сравни izi-tracker с Linear и Jira — что они делают лучше нас",
+      "expected": {
+        "category_detected": "competitor-teardown",
+        "tools_selected_includes": "gh search repos",
+        "approval_gate_shown": true,
+        "report_sections": ["Product & tech stack", "Weaknesses / gaps", "Differentiation angle"]
+      }
+    },
+    {
+      "id": "tc-03",
+      "category": "pricing-analysis",
+      "input": "какую pricing модель выбрать для izi-tracker — freemium или seat-based",
+      "expected": {
+        "category_detected": "pricing-analysis",
+        "tools_selected": ["WebSearch", "WebFetch"],
+        "approval_gate_shown": true,
+        "report_sections": ["Competitor benchmark", "Recommended models", "Recommendation"]
+      }
+    },
+    {
+      "id": "tc-04",
+      "category": "regulatory",
+      "input": "какие законы Украины применяются к SaaS с данными пользователей — GDPR нужен?",
+      "expected": {
+        "category_detected": "regulatory",
+        "tools_selected_includes": "RAG:law-assistant",
+        "rag_law_assistant_checked": true,
+        "approval_gate_shown": true,
+        "report_sections": ["Applicable regulations", "Actions required before launch"]
+      }
+    },
+    {
+      "id": "tc-05",
+      "category": "icp-definition",
+      "input": "кто наш идеальный клиент для law-assistant — опиши ICP",
+      "expected": {
+        "category_detected": "icp-definition",
+        "gstack_skill_considered": "office-hours",
+        "approval_gate_shown": true,
+        "report_sections": ["Primary ICP", "Anti-ICP", "Where to find them"]
+      }
+    }
+  ],
+  "trigger_queries": [
+    {"query": "market research ukraine legaltech", "should_trigger": true},
+    {"query": "анализ рынка", "should_trigger": true},
+    {"query": "конкурент teardown", "should_trigger": true},
+    {"query": "pricing strategy freemium", "should_trigger": true},
+    {"query": "ICP definition", "should_trigger": true},
+    {"query": "GTM план запуска", "should_trigger": true},
+    {"query": "GDPR compliance check", "should_trigger": true},
+    {"query": "fix bug in auth module", "should_trigger": false},
+    {"query": "рефакторинг компонента", "should_trigger": false},
+    {"query": "написать тесты для API", "should_trigger": false}
+  ]
+}

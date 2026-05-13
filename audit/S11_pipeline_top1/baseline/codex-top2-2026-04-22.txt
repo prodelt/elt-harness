@@ -1,0 +1,58 @@
+﻿=== SESSION BREAKDOWN ===
+File: C:\Users\user\.codex\sessions\2026\04\22\rollout-2026-04-22T17-05-05-019db582-3efc-7001-8086-48fb0e96654c.jsonl
+Format: codex
+Lines: 738
+Total: 4065.0K
+
+By record type:
+  turn_context                      2604.9K  64.1%
+  event_msg                          732.8K  18.0%
+  response_item                      712.4K  17.5%
+  session_meta                        15.0K  0.4%
+
+By payload type:
+  turn_context/none                 2604.9K  64.1%
+  response_item/message              653.7K  16.1%
+  event_msg/user_message             543.5K  13.4%
+  event_msg/token_count              102.4K  2.5%
+  response_item/reasoning             58.7K  1.4%
+  event_msg/task_complete             37.0K  0.9%
+  event_msg/agent_message             32.6K  0.8%
+  event_msg/task_started              17.2K  0.4%
+  session_meta/none                   15.0K  0.4%
+
+Messages / user-visible content by kind:
+  message:user                       529.7K  13.0%
+  event:user-message                 509.6K  12.5%
+  message:assistant                   20.1K  0.5%
+  message:developer                   14.1K  0.3%
+
+Tool outputs by tool:
+  (none)
+
+Assistant tool-call inputs by tool:
+  (none)
+
+Message role text bytes:
+  user                               529.7K  13.0%
+  assistant                           20.1K  0.5%
+  developer                           14.1K  0.3%
+
+Assistant text: 20.1K | thinking: 0.0K
+System reminders: 0.0K
+Token usage: last=6678945 max=6678945
+
+Top 5 Read() destinations:
+  (none)
+
+Top 10 largest single events:
+     35.4K  type=response_item kind=message:user label=message
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none
+     34.3K  type=turn_context kind=unknown label=none

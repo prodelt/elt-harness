@@ -1,0 +1,77 @@
+﻿=== SESSION BREAKDOWN ===
+File: C:\Users\user\.codex\sessions\2026\04\14\rollout-2026-04-14T22-12-43-019d8d69-04eb-75a2-bfd1-bb1a4d7920ae.jsonl
+Format: codex
+Lines: 1876
+Total: 3838.4K
+
+By record type:
+  response_item                     2077.8K  54.1%
+  event_msg                         1396.0K  36.4%
+  turn_context                       305.6K  8.0%
+  compacted                           46.5K  1.2%
+  session_meta                        12.5K  0.3%
+
+By payload type:
+  event_msg/exec_command_end         895.2K  23.3%
+  response_item/function_call_output   858.1K  22.4%
+  response_item/reasoning            499.8K  13.0%
+  response_item/message              390.5K  10.2%
+  turn_context/none                  305.6K  8.0%
+  event_msg/patch_apply_end          193.8K  5.0%
+  response_item/custom_tool_call     173.9K  4.5%
+  event_msg/token_count              161.2K  4.2%
+  response_item/function_call        115.5K  3.0%
+  event_msg/agent_message             63.6K  1.7%
+  compacted/none                      46.5K  1.2%
+  response_item/custom_tool_call_output    39.9K  1.0%
+  event_msg/mcp_tool_call_end         35.3K  0.9%
+  event_msg/task_complete             24.6K  0.6%
+  event_msg/guardian_assessment       14.1K  0.4%
+  session_meta/none                   12.5K  0.3%
+  event_msg/user_message               5.0K  0.1%
+  event_msg/task_started               2.9K  0.1%
+  event_msg/turn_aborted               0.2K  0.0%
+  event_msg/context_compacted          0.1K  0.0%
+
+Messages / user-visible content by kind:
+  tool-result                        811.8K  21.1%
+  message:developer                   51.0K  1.3%
+  message:assistant                   48.1K  1.3%
+  message:user                        33.9K  0.9%
+  event:user-message                   2.6K  0.1%
+
+Tool outputs by tool:
+  shell_command                      747.5K  19.5%
+  apply_patch                         32.4K  0.8%
+  mcp__context7__query_docs           26.2K  0.7%
+  mcp__context7__resolve_library_id     5.7K  0.1%
+
+Assistant tool-call inputs by tool:
+  apply_patch                        155.9K
+  shell_command                       65.8K
+  mcp__context7__query_docs            1.0K
+  mcp__context7__resolve_library_id     0.4K
+
+Message role text bytes:
+  developer                           51.0K  1.3%
+  assistant                           48.1K  1.3%
+  user                                33.9K  0.9%
+
+Assistant text: 48.1K | thinking: 0.0K
+System reminders: 0.0K
+Token usage: last=32739039 max=32739039
+
+Top 5 Read() destinations:
+  (none)
+
+Top 10 largest single events:
+    233.2K  type=response_item kind=message:user label=message
+     46.5K  type=compacted kind=unknown label=none
+     29.8K  type=response_item kind=reasoning label=reasoning
+     26.5K  type=response_item kind=tool-result label=function_call_output
+     24.2K  type=response_item kind=tool-result label=function_call_output
+     23.0K  type=response_item kind=tool-result label=function_call_output
+     22.1K  type=response_item kind=tool-result label=function_call_output
+     21.8K  type=turn_context kind=unknown label=none
+     21.8K  type=turn_context kind=unknown label=none
+     21.8K  type=turn_context kind=unknown label=none

@@ -1,0 +1,12 @@
+{
+  "planFile": "audit/S11_pipeline_top1/PLAN.md",
+  "memoryFile": "MEMORY.md",
+  "trackedPromptFile": "audit/S11_pipeline_top1/NEXT_SESSION_PROMPT.md",
+  "generatedPromptFile": ".planning/AUTO_NEXT_SESSION_PROMPT.md",
+  "statusFile": ".planning/AUTO_HANDOFF_STATUS.md",
+  "planSectionAnchor": "## Wave 10",
+  "readFirst": [
+    "MEMORY.md"
+  ],
+  "promptTitle": "Pipeline Setupper — Wave 10 Next Session Prompt"
+}

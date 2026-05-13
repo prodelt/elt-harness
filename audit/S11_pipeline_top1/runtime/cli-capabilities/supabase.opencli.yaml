@@ -1,0 +1,40 @@
+{
+  "opencli": "0.1.0",
+  "info": {
+    "name": "supabase",
+    "summary": "Supabase project, database, and type-generation CLI.",
+    "website": "https://supabase.com/docs/reference/cli/introduction",
+    "scope": "on-demand"
+  },
+  "transport": {
+    "default": "cli",
+    "preferMcpWhen": [
+      "connected app/database exploration in a supported workspace"
+    ],
+    "preferCliWhen": [
+      "local init",
+      "db push",
+      "type generation"
+    ]
+  },
+  "commands": [
+    {
+      "name": "init",
+      "command": "supabase init",
+      "destructive": false,
+      "outputs": "local Supabase config"
+    },
+    {
+      "name": "db-push",
+      "command": "supabase db push",
+      "destructive": true,
+      "outputs": "database schema push"
+    },
+    {
+      "name": "gen-types",
+      "command": "supabase gen types typescript --project-id {projectId}",
+      "destructive": false,
+      "outputs": "generated TypeScript types"
+    }
+  ]
+}

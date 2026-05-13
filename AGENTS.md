@@ -1,9 +1,5 @@
 # Pipeline Setupper — Command Center (Codex)
 
-## Shared Rules
-Global rules: `~/.claude/rules/rules.md`
-Windows: use `;` not `&&`. Use `fs.readFileSync(0, 'utf8')` not `/dev/stdin`.
-
 ## Overview
 Центральный репозиторий для управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Antigravity. Хранит аудиты, планы апгрейдов и документацию пайплайна.
 
@@ -11,64 +7,140 @@ Windows: use `;` not `&&`. Use `fs.readFileSync(0, 'utf8')` not `/dev/stdin`.
 - Node.js 18+ (все хуки на .js)
 - Claude Code hooks API (`~/.claude/settings.json`)
 - Codex CLI hooks (`~/.codex/hooks.json`)
-- Graphify (Python, `C:/Users/user/.../graphify.exe`) — knowledge graph
+- Graphify (Python, `C:/Users/user/AppData/Local/Programs/Python/Python311/Scripts/graphify.exe`)
 - Shared memory: `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
 
 ## Commands
 ```bash
-# Запуск тестов хуков
-node ~/.claude/hooks/test-all-hooks.js
+# Тесты хуков (три уровня)
+node ~/.claude/hooks/test-all-hooks.js          # sanity: exit 0 + valid JSON (35/35)
+node ~/.codex/test-codex-hooks.js               # codex sync (45/45)
+node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW поведение (37/37)
 
-# Проверка graphify (ВАЖНО: cmd /c prefix на Windows)
-cmd /c graphify --version
+# Анализ расхода токенов
+node ~/.claude/hooks/analyze-session.js <jsonl> # разбор затрат по событиям
+
+# Метрики
+node ~/.claude/hooks/hook-stats.js              # статистика вызовов
+node ~/.claude/hooks/hook-stats.js --errors     # только ошибки
+node ~/.claude/hooks/hook-stats.js --reset      # сброс
+node ~/.claude/hooks/weekly-analysis.js         # weekly pipeline-proposals из metrics/errors
+
+# Graphify
+cmd /c graphify --help                          # smoke: CLI доступен
 cmd /c graphify query "что делает edit-enforcer?"
-cmd /c graphify update .
-
-# Hook metrics CLI
-node ~/.claude/hooks/hook-stats.js
-node ~/.claude/hooks/hook-stats.js --errors
+cmd /c graphify update .                        # обновить граф (в проекте)
+node tools/doctor.js                            # health: docs, skills, hooks, Graphify, RAG, git, state
+node tools/project-docs.js verify --root .      # verify 6 AI-doc core sections
+node tools/project-docs.test.js                 # init/sync v2 regression tests
+node tools/codemap.js --root .                  # Graphify scope + relevance doctor
+node tools/codemap.js setup --root . --no-relevance # create/update .graphifyignore + scope/stale checks
+node audit/S11_pipeline_top1/skills/pipeline-check.js # verify pipeline v2 runtime skill copies
+node audit/S11_pipeline_top1/skills/architect-first-check.js # verify architect-first v2 runtime skill copies
+python tools/rag-ingest.py --project pipeline-setupper --queue-stats
+doctor.cmd --root .                             # global wrapper from ~/.claude/bin
+skill.cmd "architecture refactor" --top 3       # global skill wrapper from ~/.claude/bin
+node tools/skill-search.js "architecture refactor" --top 5
+node tools/github-research.js "claude code hooks" --limit 5
+python tools/rag-ingest.py --project pipeline --queue AGENTS.md
+python tools/rag-ingest.py --project pipeline --queue-stats
+python tools/rag-ingest.py --project pipeline --quarantine-index-backlog
+python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ```
 
 ## Architecture
 ```
 ~/.claude/
-├── hooks/           ← 24 хука (24/24 PASS в test suite)
-│   ├── SessionStart:    session-focus-gate, project-docs-gate, autoskills-check, graphify-session-init
-│   ├── UserPromptSubmit: context-budget-gate
-│   ├── PreToolUse:      graphify-preuse, config-protection, domain-agent-gate, edit-enforcer,
-│   │                    secret-scanner (+ careful mode), quality-gate-runner
-│   ├── PostToolUse:     post-edit-combined, context7-reminder, inline-review-gate,
-│   │                    verification-tracker, loop-guardian, secret-output-scanner,
-│   │                    inline-review-tracker, pipeline-tracker, scope-guard, context7-tracker
-│   ├── Stop:            stop-verification, ship-gate
-│   ├── Notification:    task-completed-gate
-│   └── FileChanged:     env-change-watcher (.env|.envrc)
-├── hooks/lib/       ← config.js, logger.js, metrics.js
-├── hooks/config.json ← центральные threshold'ы
-├── hooks/hook-stats.js ← CLI метрик
-├── skills/          ← pipeline, ship, sprint, architect-first, careful, freeze, prime, fix-issue, etc.
-└── projects/C--/memory/ ← shared memory (junction с Codex)
+├── hooks/                    ← 48 хуков (все PASS; 48 команд в settings.json)
+│   ├── SessionStart (9):     project-docs-gate, session-focus-gate, autoskills-check,
+│   │                         graphify-session-init, memory-discipline, session-branch-advisor,
+│   │                         harvest-injector, projects-dashboard, handoff-sync
+│   ├── UserPromptSubmit (2): context-budget-gate, session-size-guard
+│   ├── PreToolUse (11):      graphify-read-gate[Read], graphify-preuse[Glob|Grep],
+│   │                         settings-schema-guard[Edit|Write], write-over-edit-guard[Write],
+│   │                         config-protection[Edit|Write], domain-agent-gate[Edit|Write],
+│   │                         edit-enforcer[Edit|Write], secret-scanner[Bash], quality-gate-runner[Bash],
+│   │                         tool-policy-gate[mcp__claude-in-chrome],
+│   │                         skill-selector-gate[Skill] (ranker integration)
+│   ├── PostToolUse (13):     post-edit-combined, context7-reminder, inline-review-gate [Edit|Write]
+│   │                         verification-tracker, loop-guardian [Edit|Write|Bash]
+│   │                         secret-output-scanner [Bash], bash-output-advisor [Bash],
+│   │                         graphify-post-commit [Bash], graphify-auto-update [Edit|Write],
+│   │                         inline-review-tracker [Agent],
+│   │                         scope-guard [TaskCreate], context7-tracker [Context7],
+│   │                         pipeline-tracker [Skill], rag-context-injector
+│   ├── Stop (3):             stop-verification, ship-gate, stop-auto-checkpoint
+│   ├── Notification (1):     task-completed-gate          ← Claude Code only
+│   └── FileChanged (1):      env-change-watcher           ← Claude Code only
+├── hooks/skill-distiller.js  ← дистилляция SKILL.md → digests.jsonl (TTL 48h)
+├── hooks/skill-ranker.js     ← ранжування скилов по 6 критериям
+├── hooks/lib/                ← config.js, logger.js, metrics.js
+├── hooks/config.json         ← все threshold'ы (loopGuardian, editEnforcer, etc.)
+├── bin/doctor.cmd            ← global doctor wrapper to this repo's tools/doctor.js
+├── bin/skill.cmd             ← global skill-search wrapper to tools/skill-search.js
+├── projects-registry.json    ← registered project keys and paths
+├── tools/project-docs*.js     ← init-project v2 / sync-docs v2 section-aware docs engine
+├── tools/codemap*.js          ← Graphify/codemap doctor: setup, scope, stale graph, relevance smoke
+├── hooks/hook-stats.js       ← CLI метрик
+├── skills/                   ← 47 скілів: pipeline/ship/sprint/architect-first/cto-playbook/etc.
+│                                + mattpocock/skills (tdd/grill-me/diagnose/domain-model/zoom-out/
+│                                  caveman/github-triage/to-prd/to-issues/triage-issue/qa/...)
+├── settings.json             ← глобальная конфигурация + разрешения
+└── projects/C--/memory/      ← shared memory (junction с Codex)
+
+~/.codex/
+├── hooks.json                ← 44 hook-команды (те же .js, без FileChanged/Notification)
+├── test-codex-hooks.js       ← динамический тест из hooks.json
+└── memories/ → junction → ~/.claude/projects/C--/memory/
 ```
 
 ## Gotchas
-- **git root = C:\\** — все git команды в хуках должны использовать `-- .` (scope to CWD)
-- **Graphify в bash**: `cmd /c graphify query "..."` (не напрямую)
-- **Codex hooks.json**: ссылается на те же .js файлы что и Claude Code settings.json — изменения в .js propagate автоматически
-- **Shared memory**: Windows Junction — не трогать напрямую
-- **Port 3000 занят** — всегда 3001+
-- **/careful + /freeze**: on-demand гарды — tmpdir state.json TTL 8h
+- **git root = C:\\** — весь C: в одном git-репо. Хуки должны использовать `-- .` для CWD
+- **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
+- **Codex не поддерживает** FileChanged и Notification — это Claude Code only события
+- **loop-guardian**: ловит ОДИНАКОВЫЕ едиты (same old_string), не просто "3 едита одного файла"
+- **graphify-read-gate**: пропускает партиальные рида (limit < 150), для full read >80 строк дает advisory Graphify query, не блокирует
+- **Graphify scope**: noisy corpora excluded via `.graphifyignore`; if old `rationale` nodes persist, delete/regenerate `graphify-out/graph.json` before `cmd /c graphify update .`
+- **memory-discipline**: warn >80 строк MEMORY.md, block >100. Запустить /learn для сжатия
+- **cwd в хуках**: всегда из `input.cwd`, не `process.cwd()`
+- **Windows paths**: использовать `path.join()`, не строковую конкатенацию
+- **Stdout хуков**: только silent exit OR валидный JSON с `hookSpecificOutput`/`decision`
+- **spawnSync timeout = 5000ms**: хуки должны работать <4s. Stat-only для больших коллекций JSONL
+
+- **Codex sandbox**: hook test suites that spawn child `node` processes can fail with `spawnSync node EPERM`; run verification outside sandbox / with approval.
 
 ## Current State
-- Score: ~82/100 (Sprint 1-5 partial выполнены, 2026-04-15)
-- Sprint 4 ✅: graphify-session-init auto-update >6h, domain-agent-gate v2, pipeline-tracker, env-change-watcher
-- Sprint 5 partial ✅: BUG-5 fix, /careful + /freeze + /prime + /fix-issue skills, learn.md dedup
-- test-all-hooks.js: **24/24 PASS**
-- Next: Sprint 5 remaining — integration tests + /check-pipeline-drift
-- Аудит: PIPELINE_AUDIT_2026-04-15.md
+- **Score: ~97/100** (S12 verified: 33/33 sanity, 37/37 behavior, 43/43 codex; WORKING_RULES.md written)
+- **S14 hook/RAG update (2026-04-29)**: live verification outside sandbox: 35/35 Claude sanity PASS, 45/45 Codex hooks PASS, 37/37 behavior PASS.
+- **S15 Sprint 1 doctor (2026-05-08)**: `tools/doctor.js` + `~/.claude/bin/doctor.cmd`/`doctor.ps1` installed; `~/.claude/bin` added to User PATH; `~/.claude/projects-registry.json` created with project key `pipiline-setupper-eb257e8d`; global `skill.cmd`/`skill.ps1` installed. Doctor currently reports known FAIL/WARN for invalid `ship/SKILL.md`, suspicious git ref, invalid global pipeline-state, and red-team Defender-risk files.
+- **S16 Sprint 2 state isolation (2026-05-08)**: active pipeline state moved to `~/.claude/projects/<projectKey>/pipeline-state.json`; `~/.claude/pipeline-state.json` is legacy read-only fallback. `doctor` now reports project state and legacy global state separately, rejects stale/wrong/future state, and accepts UTF-8 BOM in `SKILL.md` frontmatter.
+- **S17 Sprint 3 docs v2 (2026-05-08)**: `tools/project-docs-core.js` + `tools/project-docs.js` added for section-aware `init-project`/`sync-docs`: create/upgrade/noop, protected blocks, `.rag/manifest.json`, `.planning/`, registry registration, and 6-section verification.
+- **S18 Sprint 4 codemap/RAG slice (2026-05-08)**: `tools/codemap-core.js` + `tools/codemap.js` added; `doctor` now routes Graphify checks through codemap scope/relevance. `.graphifyignore` scopes Graphify away from red-team/recon/cache corpora; fresh rebuild is 810 nodes / 1301 edges / 0 noisy nodes. Serena/Aider repo-map preflight saved in `.planning/EVAL-2026-05-08-serena-aider-repomap.md`; Graphify remains primary, Serena is future candidate. `rag-ingest.py` discovers projects from `~/.claude/projects-registry.json`; queue stats now report total/pending/indexed/failed/skipped/processing/stale.
+- **S19 Sprint 5 Graphify automation (2026-05-08)**: `node tools/codemap.js setup --root <project>` now creates/updates project-local `.graphifyignore`, `doctor` includes stale semantic/rationale node detection, and codemap reports a fresh rebuild repair path when old `graphify-out/graph.json` carryover remains.
+- **S20 Sprint 5 skills simplification (2026-05-08)**: `pipeline` and `architect-first` runtime skills upgraded to v2 across Claude/Codex/Gemini. `pipeline v2` now enforces checklist extraction, project guard, minimal route, skill budget, per-project state, and final criteria check. `architect-first v2` now requires `.planning/ARCHITECTURE-<date>-<slug>.md`, acceptance tests before code, sprint slices, and docs/codemap delta. Regression checks added in `audit/S11_pipeline_top1/skills/*-check.js`.
+- **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
+- **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.
+- **auto-branch.js** — создаёт `session/YYYY-MM-DD-HHmm` при первом Edit/Write на main/master
+- **mattpocock/skills**: 22 новых скила (tdd/grill-me/diagnose/zoom-out/caveman/github-triage и др.)
+- **skill-registry**: `~/.claude/skill-registry/digests.jsonl` (89 entries: 47 base + 42 gstack, TTL 48h)
+- **RAG система**: 4 проекти (pipeline 52, izi-tracker 12, law-assistant 30, sudoviy-master 2 chunks); incremental queue: `.rag/queue.json` via `tools/rag-ingest.py --queue/--process-queue --llm ollama`; `rag-queue-enqueue.js` PostToolUse hook only enqueues, never runs LLM extraction. Embeddings still use Google 3072-dim until index rebuild.
+- **bun**: v1.3.13 — gstack /browse, /qa, /open-gstack-browser доступні
+- **Token burn**: ~90K / session
+
+## Shared Rules
+Global rules: `~/.claude/rules/rules.md`
+Windows: use `;` not `&&`. Use `fs.readFileSync(0, 'utf8')` not `/dev/stdin`.
+
+## Hook Infrastructure
+- `config.json` — threshold'ы: `loopGuardian.repeatWarn=3`, `editEnforcer.warnAt=3/blockAt=9`
+- `lib/config.js` — loader для config.json
+- `lib/logger.js` — append-only errors.log
+- `lib/metrics.js` — metrics.inc(hook, event) → metrics.json
 
 ## Codex Notes
 - hooks.json поддерживает: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop
 - НЕ поддерживает: Notification (TaskCompleted), FileChanged — только Claude Code
-- PostToolUse matcher "Skill" — только Claude Code
+- PostToolUse matcher "Skill", "Context7" — только Claude Code (в codex → "Bash")
 - Stop хуки: `{ decision: 'block', reason }` формат — идентично Claude Code
 - config.json загружается через lib/config.js — те же threshold'ы что и в Claude Code хуках
+- secret-scanner: min token length — GitHub ≥36 симв, Bearer ≥20 симв (короткие пропускает)
