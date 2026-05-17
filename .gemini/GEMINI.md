@@ -54,7 +54,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── hooks/                    ← 48 хуков (все PASS; 48 команд в settings.json)
 │   ├── SessionStart (9):     project-docs-gate, session-focus-gate, autoskills-check,
 │   │                         graphify-session-init, memory-discipline, session-branch-advisor,
-│   │                         harvest-injector, projects-dashboard, handoff-sync
+│   │                         harvest-injector, projects-dashboard, rag-context-injector
 │   ├── UserPromptSubmit (2): context-budget-gate, session-size-guard
 │   ├── PreToolUse (11):      graphify-read-gate[Read], graphify-preuse[Glob|Grep],
 │   │                         settings-schema-guard[Edit|Write], write-over-edit-guard[Write],
@@ -68,7 +68,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 │   │                         graphify-post-commit [Bash], graphify-auto-update [Edit|Write],
 │   │                         inline-review-tracker [Agent],
 │   │                         scope-guard [TaskCreate], context7-tracker [Context7],
-│   │                         pipeline-tracker [Skill], rag-context-injector
+│   │                         pipeline-tracker [Skill]
 │   ├── Stop (3):             stop-verification, ship-gate, stop-auto-checkpoint
 │   ├── Notification (1):     task-completed-gate          ← Claude Code only
 │   └── FileChanged (1):      env-change-watcher           ← Claude Code only
@@ -99,7 +99,8 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
 - **Codex не поддерживает** FileChanged и Notification — это Claude Code only события
 - **loop-guardian**: ловит ОДИНАКОВЫЕ едиты (same old_string), не просто "3 едита одного файла"
-- **graphify-read-gate**: пропускает партиальные рида (limit < 150), для full read >80 строк дает advisory Graphify query, не блокирует
+- **rag-context-injector**: SessionStart hook is opt-in/silent by default (`ragContextInjector.enabled=false`) to avoid global startup token burn; use RAG on demand via `python tools/rag-ingest.py --query ...`
+- **graphify-read-gate**: пропускает партиальные рида (any explicit limit), для full read >120 строк дает максимум 1 advisory Graphify query per session, не блокирует
 - **Graphify scope**: noisy corpora excluded via `.graphifyignore`; if old `rationale` nodes persist, delete/regenerate `graphify-out/graph.json` before `cmd /c graphify update .`
 - **memory-discipline**: warn >80 строк MEMORY.md, block >100. Запустить /learn для сжатия
 - **cwd в хуках**: всегда из `input.cwd`, не `process.cwd()`
@@ -118,6 +119,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **S18 Sprint 4 codemap/RAG slice (2026-05-08)**: `tools/codemap-core.js` + `tools/codemap.js` added; `doctor` now routes Graphify checks through codemap scope/relevance. `.graphifyignore` scopes Graphify away from red-team/recon/cache corpora; fresh rebuild is 810 nodes / 1301 edges / 0 noisy nodes. Serena/Aider repo-map preflight saved in `.planning/EVAL-2026-05-08-serena-aider-repomap.md`; Graphify remains primary, Serena is future candidate. `rag-ingest.py` discovers projects from `~/.claude/projects-registry.json`; queue stats now report total/pending/indexed/failed/skipped/processing/stale.
 - **S19 Sprint 5 Graphify automation (2026-05-08)**: `node tools/codemap.js setup --root <project>` now creates/updates project-local `.graphifyignore`, `doctor` includes stale semantic/rationale node detection, and codemap reports a fresh rebuild repair path when old `graphify-out/graph.json` carryover remains.
 - **S20 Sprint 5 skills simplification (2026-05-08)**: `pipeline` and `architect-first` runtime skills upgraded to v2 across Claude/Codex/Gemini. `pipeline v2` now enforces checklist extraction, project guard, minimal route, skill budget, per-project state, and final criteria check. `architect-first v2` now requires `.planning/ARCHITECTURE-<date>-<slug>.md`, acceptance tests before code, sprint slices, and docs/codemap delta. Regression checks added in `audit/S11_pipeline_top1/skills/*-check.js`.
+- **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.
 - **auto-branch.js** — создаёт `session/YYYY-MM-DD-HHmm` при первом Edit/Write на main/master
