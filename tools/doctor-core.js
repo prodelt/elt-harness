@@ -285,6 +285,22 @@ function checkSettingsSecrets(root, home) {
   return [result('pass', 'settings:secrets', 'No secret-like settings entries detected', `${files.length} settings/config files scanned.`, '')];
 }
 
+function checkCodexDefaults(home) {
+  const file = path.join(home, '.codex', 'config.toml');
+  const text = readText(file);
+  if (!text.ok) {
+    return [result('warn', 'codex:defaults', 'Codex config missing', text.error, 'Create ~/.codex/config.toml with model and model_reasoning_effort defaults.')];
+  }
+  const model = (text.value.match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || '';
+  const effort = (text.value.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/m) || [])[1] || '';
+  const expensiveModel = model === 'gpt-5.5';
+  const expensiveEffort = ['high', 'xhigh', 'max'].includes(effort);
+  if (expensiveModel || expensiveEffort) {
+    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Use gpt-5.4 + medium for routine work; reserve high/xhigh for architecture/security/audits.')];
+  }
+  return [result('pass', 'codex:defaults', 'Codex defaults right-sized', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
+}
+
 function checkGraphify(root, enabled) {
   if (!enabled) return [result('warn', 'graphify:skipped', 'Graphify check skipped', '--no-graphify was provided.', 'Run without --no-graphify.')];
   const help = run('cmd.exe', ['/c', 'graphify', '--help'], root, 8000);
@@ -331,9 +347,43 @@ function checkGit(root) {
   return [result('pass', 'git:refs', 'Git refs OK', 'git for-each-ref completed.', '')];
 }
 
+function checkGitHubCli(root, runner = run) {
+  const version = runner('gh', ['--version'], root, 8000);
+  if (version.status !== 0) {
+    return [result('warn', 'github:cli', 'GitHub CLI unavailable', version.error || version.output, 'Install gh or keep GitHub research optional.')];
+  }
+  const versionLine = version.output.split(/\r?\n/).find(Boolean) || 'gh available';
+  const auth = runner('gh', ['auth', 'status'], root, 8000);
+  if (auth.status !== 0) {
+    return [
+      result('pass', 'github:cli', 'GitHub CLI available', versionLine, ''),
+      result('warn', 'github:auth', 'GitHub auth invalid or missing', auth.output || auth.error, 'Run gh auth login before research-router uses authenticated code search.'),
+      result('warn', 'github:code-search', 'GitHub code search skipped', 'Auth is invalid or missing.', 'Re-authenticate gh, then rerun doctor.'),
+    ];
+  }
+  const codeSearch = runner('gh', ['search', 'code', 'package.json', '--limit', '1'], root, 8000);
+  const codeCheck = codeSearch.status === 0
+    ? result('pass', 'github:code-search', 'GitHub code search available', 'gh search code completed.', '')
+    : result('warn', 'github:code-search', 'GitHub code search unavailable', codeSearch.output || codeSearch.error, 'Re-authenticate gh before research-router uses code search.');
+  return [
+    result('pass', 'github:cli', 'GitHub CLI available', versionLine, ''),
+    result('pass', 'github:auth', 'GitHub auth available', 'gh auth status completed.', ''),
+    codeCheck,
+  ];
+}
+
 function validatePipelineState(state, root, now) {
   if (!state || typeof state !== 'object') {
     return { status: 'warn', title: 'Pipeline state invalid', detail: 'State JSON must be an object.', repair: 'Rewrite state via /pipeline.' };
+  }
+  const phase = typeof state.phase === 'string' ? state.phase : '';
+  const closedAt = typeof state.closedAt === 'string' ? new Date(state.closedAt) : null;
+  const closedTsInvalid = closedAt && Number.isNaN(closedAt.getTime());
+  if (['closed', 'shipped'].includes(phase)) {
+    if (closedTsInvalid || !closedAt) {
+      return { status: 'warn', title: 'Pipeline state close timestamp invalid', detail: String(state.closedAt), repair: 'Rewrite closed state with a valid closedAt timestamp.' };
+    }
+    return { status: 'pass', title: 'Pipeline state closed', detail: state.closedAt, repair: '' };
   }
   const stateCwd = state && typeof state.cwd === 'string' ? normalizePath(state.cwd) : '';
   const expected = normalizePath(root);
@@ -436,10 +486,12 @@ function runDoctor(options) {
     ...checkSkillRegistry(home),
     ...checkSkillYaml(home),
     ...checkSettingsSecrets(root, home),
+    ...checkCodexDefaults(home),
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
     ...checkRag(root),
     ...checkGit(root),
+    ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
   ];
@@ -467,6 +519,8 @@ module.exports = {
   projectStatePath,
   parseSkillFrontmatter,
   checkSettingsSecrets,
+  checkCodexDefaults,
+  checkGitHubCli,
   checkPipelineState,
   runDoctor,
   formatText,

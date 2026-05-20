@@ -13,7 +13,7 @@ const installsPath    = path.join(os.homedir(), '.claude', 'skill-registry', 'sk
 const searchCachePath = path.join(os.homedir(), '.claude', 'skill-registry', 'skillsh-search-cache.json');
 
 const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const MARKETPLACE_SCORE_THRESHOLD = 0.3;
+const MARKETPLACE_RELEVANCE_THRESHOLD = 0.3;
 
 function usage() {
   return [
@@ -51,42 +51,99 @@ function loadInstallCountMap() {
   } catch { return {}; }
 }
 
-function searchSkillsSh(query, top) {
-  // Cache-first
+function readCache(cachePath) {
   try {
-    if (fs.existsSync(searchCachePath)) {
-      const cache = JSON.parse(fs.readFileSync(searchCachePath, 'utf8'));
-      const entry = cache[query];
-      if (entry && (Date.now() - entry.ts) < SEARCH_CACHE_TTL_MS) {
-        return entry.results.slice(0, top);
-      }
-    }
+    return fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, 'utf8')) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCache(cachePath, query, entry) {
+  try {
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify({ ...readCache(cachePath), [query]: entry }, null, 2), 'utf8');
   } catch {}
+}
 
-  const r = spawnSync('skills-sh', ['search', query, '--json'],
-    { timeout: 5000, encoding: 'utf8', env: process.env });
-  if (r.status !== 0 || !r.stdout) return [];
+function marketplaceCommands() {
+  if (process.platform === 'win32') {
+    return [
+      { command: 'skills-sh.cmd', args: [] },
+      { command: 'cmd.exe', args: ['/c', 'npx', 'skills-sh'] },
+    ];
+  }
+  return [
+    { command: 'skills-sh', args: [] },
+    { command: 'npx', args: ['skills-sh'] },
+  ];
+}
+
+function runSkillsSh(query, runner) {
+  const attempts = marketplaceCommands().map(({ command, args }) => ({
+    command,
+    completed: runner(command, [...args, 'search', query, '--json'], {
+      timeout: 5000,
+      encoding: 'utf8',
+      env: process.env,
+      windowsHide: true,
+    }),
+  }));
+  return attempts.find(({ completed }) => completed && completed.status === 0 && completed.stdout) || attempts[attempts.length - 1];
+}
+
+function parseMarketplace(stdout, top) {
+  const data = JSON.parse(stdout);
+  return (data.skills || []).slice(0, top).map(s => ({
+    name:        s.skillId || s.name,
+    installs:    s.installs,
+    source:      s.source,
+    marketplace: true,
+  }));
+}
+
+function marketplaceError(result) {
+  const completed = result && result.completed;
+  if (!completed) return 'skills.sh did not run';
+  if (completed.error) return completed.error.message;
+  return (completed.stderr || completed.stdout || `exit ${completed.status || 'unknown'}`).trim();
+}
+
+function searchSkillsSh(query, top, options = {}) {
+  const cachePath = options.cachePath || searchCachePath;
+  const now = options.now || Date.now;
+  const cached = readCache(cachePath)[query];
+  if (cached && (now() - cached.ts) < SEARCH_CACHE_TTL_MS) {
+    return { ...cached, results: (cached.results || []).slice(0, top) };
+  }
 
   try {
-    const data = JSON.parse(r.stdout);
-    const results = (data.skills || []).slice(0, top).map(s => ({
-      name:        s.skillId || s.name,
-      installs:    s.installs,
-      source:      s.source,
-      marketplace: true,
-    }));
+    const result = runSkillsSh(query, options.runner || spawnSync);
+    if (!result || !result.completed || result.completed.status !== 0 || !result.completed.stdout) {
+      const entry = { status: 'error', error: marketplaceError(result), results: [], ts: now(), ttl: SEARCH_CACHE_TTL_MS };
+      writeCache(cachePath, query, entry);
+      return entry;
+    }
+    const entry = { status: 'ok', results: parseMarketplace(result.completed.stdout, top), ts: now(), ttl: SEARCH_CACHE_TTL_MS };
+    writeCache(cachePath, query, entry);
+    return entry;
+  } catch (error) {
+    const entry = { status: 'error', error: error.message, results: [], ts: now(), ttl: SEARCH_CACHE_TTL_MS };
+    writeCache(cachePath, query, entry);
+    return entry;
+  }
+}
 
-    // Persist to cache
-    try {
-      const cache = fs.existsSync(searchCachePath)
-        ? JSON.parse(fs.readFileSync(searchCachePath, 'utf8'))
-        : {};
-      cache[query] = { ts: Date.now(), results };
-      fs.writeFileSync(searchCachePath, JSON.stringify(cache), 'utf8');
-    } catch {}
+function relevanceOf(skill) {
+  return skill && skill.breakdown && typeof skill.breakdown.relevance === 'number'
+    ? skill.breakdown.relevance
+    : 0;
+}
 
-    return results;
-  } catch { return []; }
+function shouldSearchMarketplace(ranked) {
+  if (ranked.length === 0) return true;
+  const relevances = ranked.map(relevanceOf);
+  return relevances[0] < MARKETPLACE_RELEVANCE_THRESHOLD || relevances.every(score => score === 0);
 }
 
 function main() {
@@ -110,16 +167,19 @@ function main() {
   const installCountMap = loadInstallCountMap();
   const ranked         = ranker.rankSkills(digests, args.query, history, {}, installCountMap).slice(0, args.top);
 
-  // Fallback to marketplace if local results are weak
-  const needsMarketplace = ranked.length === 0 || ranked[0].score < MARKETPLACE_SCORE_THRESHOLD;
-  const marketplace = needsMarketplace ? searchSkillsSh(args.query, args.top) : [];
+  // Fallback to marketplace if local relevance is weak.
+  const marketplaceResult = shouldSearchMarketplace(ranked)
+    ? searchSkillsSh(args.query, args.top)
+    : { status: 'skipped', results: [], ts: Date.now(), ttl: SEARCH_CACHE_TTL_MS };
 
   if (args.json) {
     process.stdout.write(JSON.stringify({
       query: args.query,
       total: digests.length,
       ranked,
-      marketplace,
+      marketplace: marketplaceResult.results,
+      marketplaceStatus: marketplaceResult.status,
+      marketplaceError: marketplaceResult.error,
     }, null, 2) + '\n');
     return;
   }
@@ -131,12 +191,21 @@ function main() {
     );
   });
 
-  if (marketplace.length > 0) {
+  if (marketplaceResult.results.length > 0) {
     process.stdout.write(`\nMARKETPLACE (skills.sh) — "${args.query}":\n`);
-    marketplace.forEach((s, i) => {
+    marketplaceResult.results.forEach((s, i) => {
       process.stdout.write(`  ${i + 1}. ${s.name} installs=${s.installs ?? '?'} source=${s.source || '?'}\n`);
     });
+  } else if (marketplaceResult.status === 'error') {
+    process.stdout.write(`\nMARKETPLACE unavailable: ${marketplaceResult.error}\n`);
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  searchSkillsSh,
+  shouldSearchMarketplace,
+};
