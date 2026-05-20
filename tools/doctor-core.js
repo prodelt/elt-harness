@@ -4,9 +4,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
+const {
+  legacyStatePath,
+  normalizePath,
+  projectKey,
+  projectStatePath,
+} = require('./pipeline-state');
 
 const DOCS = ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
 const SECTIONS = ['Overview', 'Stack', 'Commands', 'Architecture', 'Gotchas', 'Current State'];
@@ -25,17 +30,6 @@ const SETTINGS_SECRET_PATTERNS = [
 
 function result(status, id, title, detail, repair, data = {}) {
   return { status, id, title, detail, repair, data };
-}
-
-function normalizePath(value) {
-  return path.resolve(value).replace(/\\/g, '/');
-}
-
-function projectKey(root) {
-  const normalized = normalizePath(root).toLowerCase();
-  const base = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 8);
-  return `${base || 'project'}-${hash}`;
 }
 
 function readText(file) {
@@ -113,14 +107,6 @@ function checkDocs(root) {
 
 function registryPath(home) {
   return path.join(home, '.claude', 'projects-registry.json');
-}
-
-function projectStatePath(root, home) {
-  return path.join(home, '.claude', 'projects', projectKey(root), 'pipeline-state.json');
-}
-
-function legacyStatePath(home) {
-  return path.join(home, '.claude', 'pipeline-state.json');
 }
 
 function registryEntry(root) {

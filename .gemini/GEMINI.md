@@ -31,6 +31,7 @@ cmd /c graphify --help                          # smoke: CLI доступен
 cmd /c graphify query "что делает edit-enforcer?"
 cmd /c graphify update .                        # обновить граф (в проекте)
 node tools/doctor.js                            # health: docs, skills, hooks, Graphify, RAG, git, state
+node tools/pipeline-state.test.js               # pipeline v3 acceptance helpers: state/mode/ledger/closeout
 node tools/project-docs.js verify --root .      # verify 6 AI-doc core sections
 node tools/project-docs.test.js                 # init/sync v2 regression tests
 node tools/codemap.js --root .                  # Graphify scope + relevance doctor
@@ -80,6 +81,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── bin/skill.cmd             ← global skill-search wrapper to tools/skill-search.js
 ├── projects-registry.json    ← registered project keys and paths
 ├── tools/project-docs*.js     ← init-project v2 / sync-docs v2 section-aware docs engine
+├── tools/pipeline-state.js    ← canonical pipeline v3 state/ledger helper + acceptance logic
 ├── tools/codemap*.js          ← Graphify/codemap doctor: setup, scope, stale graph, relevance smoke
 ├── hooks/hook-stats.js       ← CLI метрик
 ├── skills/                   ← 47 скілів: pipeline/ship/sprint/architect-first/cto-playbook/etc.
@@ -119,6 +121,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **S18 Sprint 4 codemap/RAG slice (2026-05-08)**: `tools/codemap-core.js` + `tools/codemap.js` added; `doctor` now routes Graphify checks through codemap scope/relevance. `.graphifyignore` scopes Graphify away from red-team/recon/cache corpora; fresh rebuild is 810 nodes / 1301 edges / 0 noisy nodes. Serena/Aider repo-map preflight saved in `.planning/EVAL-2026-05-08-serena-aider-repomap.md`; Graphify remains primary, Serena is future candidate. `rag-ingest.py` discovers projects from `~/.claude/projects-registry.json`; queue stats now report total/pending/indexed/failed/skipped/processing/stale.
 - **S19 Sprint 5 Graphify automation (2026-05-08)**: `node tools/codemap.js setup --root <project>` now creates/updates project-local `.graphifyignore`, `doctor` includes stale semantic/rationale node detection, and codemap reports a fresh rebuild repair path when old `graphify-out/graph.json` carryover remains.
 - **S20 Sprint 5 skills simplification (2026-05-08)**: `pipeline` and `architect-first` runtime skills upgraded to v2 across Claude/Codex/Gemini. `pipeline v2` now enforces checklist extraction, project guard, minimal route, skill budget, per-project state, and final criteria check. `architect-first v2` now requires `.planning/ARCHITECTURE-<date>-<slug>.md`, acceptance tests before code, sprint slices, and docs/codemap delta. Regression checks added in `audit/S11_pipeline_top1/skills/*-check.js`.
+- **S29 Sprint 1 pipeline v3 closure (2026-05-20)**: `pipeline` runtime skills upgraded to v3 across Claude/Codex/Gemini; `tools/pipeline-state.js` now owns canonical project key/state path, auto vs interview routing, stale-state replacement, session ledger append, and closeout proof validation. Coverage added in `tools/pipeline-state.test.js`; `pipeline-check` now enforces v3 contract fields.
 - **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.
