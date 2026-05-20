@@ -149,6 +149,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **S38 token impact measurement (2026-05-20)**: `tools/token-impact.js` added to measure JSONL/session proxies: tool output chars, file-read events, risky full-file reads, and real token usage when present. Current measured command outputs: `research-router` evidence block 1752 chars / 53 lines; `hook-diet --summary` 3776 chars / 188 lines. Token savings remain unclaimed until matched before/after session telemetry exists.
   - **S39 project bootstrap (2026-05-20)**: `tools/project-bootstrap.js` added. Dry-run scans project size/docs/codemap/RAG and chooses `bounded-grep-first` for small repos. It now detects stack (`Next.js App Router`, `Vite React`, `Electron`, `Node.js`) and emits bounded recommended probes. `--apply` only performs safe setup: AI docs init and `.graphifyignore`; RAG/LLM ingestion remains manual.
   - **S40 bootstrap advisor hook (2026-05-20)**: `project-bootstrap-advisor.js` installed into Claude/Codex SessionStart. It is dry-run only: reports project strategy and bounded probes, and suggests `project-bootstrap --apply` when safe setup is missing. Verified Codex hooks 46/46 PASS.
+  - **S41 Sprint 7 docs/git workflow (2026-05-21)**: `AGENTS.md` is now explicit canonical source for AI docs; `project-docs-core.js` exports `CANONICAL_DOC` and regression coverage proves `AGENTS.md` wins sync ties. `project-docs-gate.js` runtime warning now says `AGENTS.md -> CLAUDE.md + .gemini/GEMINI.md`.
 - **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.
@@ -158,6 +159,14 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **RAG система**: 4 проекти (pipeline 52, izi-tracker 12, law-assistant 30, sudoviy-master 2 chunks); incremental queue: `.rag/queue.json` via `tools/rag-ingest.py --queue/--process-queue --llm ollama`; `rag-queue-enqueue.js` PostToolUse hook only enqueues, never runs LLM extraction. Embeddings still use Google 3072-dim until index rebuild.
 - **bun**: v1.3.13 — gstack /browse, /qa, /open-gstack-browser доступні
 - **Token burn**: ~90K / session
+
+## Git Workflow
+- Work one task per branch; use `system-upgrade/<slug>` or `fix/<slug>`.
+- Commit format: `<type>: <description>`.
+- PR title: under 70 chars.
+- PR body: Summary bullets + Test plan checklist.
+- Never commit `.env`, secrets, `node_modules`, generated caches, or build artifacts.
+- No force-push to main.
 
 ## Hook Infrastructure
 - `config.json` — threshold'ы: `loopGuardian.repeatWarn=3`, `editEnforcer.warnAt=3/blockAt=9`, etc.
