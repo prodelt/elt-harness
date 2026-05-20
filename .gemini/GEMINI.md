@@ -35,13 +35,24 @@ node tools/pipeline-state.test.js               # pipeline v3 acceptance helpers
 node tools/project-docs.js verify --root .      # verify 6 AI-doc core sections
 node tools/project-docs.test.js                 # init/sync v2 regression tests
 node tools/codemap.js --root .                  # Graphify scope + relevance doctor
+node tools/codemap.js --root . --provider codegraph --json # optional CodeGraph provider health
 node tools/codemap.js setup --root . --no-relevance # create/update .graphifyignore + scope/stale checks
+node tools/codemap-benchmark.js --root . --provider graphify --json # 10-question relevance benchmark
+node tools/codemap-measure.js --root . --json   # codemap task-level tool/read measurement plan
+node tools/memory-provider.js status --root . --json # project-rag / agentmemory provider health
+node tools/memory-provider.js recall --root . --json # 20 recall prompts for memory-provider comparison
+node tools/memory-provider.js compare --root . --json # project-rag vs agentmemory promotion report
+node tools/hook-diet.js --summary --out .planning/HOOK-DIET-INVENTORY-2026-05-20.json # hook diet inventory/evidence
+node tools/token-impact.js measure-command --cmd "node tools/research-router.js design research router --root . --github --architecture --json" --json # command output/token proxy
+node tools/project-bootstrap.js --root <project> --json # dry-run bootstrap: docs/codemap strategy and safe actions
+node tools/project-bootstrap.js --root <project> --apply --json # apply safe docs + graphifyignore only
 node audit/S11_pipeline_top1/skills/pipeline-check.js # verify pipeline v2 runtime skill copies
 node audit/S11_pipeline_top1/skills/architect-first-check.js # verify architect-first v2 runtime skill copies
 python tools/rag-ingest.py --project pipeline-setupper --queue-stats
 doctor.cmd --root .                             # global wrapper from ~/.claude/bin
 skill.cmd "architecture refactor" --top 3       # global skill wrapper from ~/.claude/bin
-node tools/skill-search.js "architecture refactor" --top 5
+node tools/skill-search.js "architecture refactor" --top 3
+node tools/research-router.js "design research router" --root . --github --architecture --json
 node tools/github-research.js "claude code hooks" --limit 5
 python tools/rag-ingest.py --project pipeline --queue AGENTS.md
 python tools/rag-ingest.py --project pipeline --queue-stats
@@ -83,6 +94,11 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── tools/project-docs*.js     ← init-project v2 / sync-docs v2 section-aware docs engine
 ├── tools/pipeline-state.js    ← canonical pipeline v3 state/ledger helper + acceptance logic
 ├── tools/codemap*.js          ← Graphify/codemap doctor: setup, scope, stale graph, relevance smoke
+├── tools/memory-provider.js   ← project-rag/agentmemory pilot health, recall prompts, comparison, governance smoke
+├── tools/hook-diet.js          ← hook inventory, classification, failure policy, rollback/evidence fields
+├── tools/token-impact.js       ← JSONL/session and command-output proxy measurement for token/file-read impact
+├── tools/project-bootstrap.js  ← fail-soft project bootstrap: docs/codemap setup and bounded-grep strategy
+├── tools/research-router.js   ← compact research evidence router with provider skip reasons and token budgets
 ├── hooks/hook-stats.js       ← CLI метрик
 ├── skills/                   ← 47 скілів: pipeline/ship/sprint/architect-first/cto-playbook/etc.
 │                                + mattpocock/skills (tdd/grill-me/diagnose/domain-model/zoom-out/
@@ -123,6 +139,16 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **S20 Sprint 5 skills simplification (2026-05-08)**: `pipeline` and `architect-first` runtime skills upgraded to v2 across Claude/Codex/Gemini. `pipeline v2` now enforces checklist extraction, project guard, minimal route, skill budget, per-project state, and final criteria check. `architect-first v2` now requires `.planning/ARCHITECTURE-<date>-<slug>.md`, acceptance tests before code, sprint slices, and docs/codemap delta. Regression checks added in `audit/S11_pipeline_top1/skills/*-check.js`.
 - **S29 Sprint 1 pipeline v3 closure (2026-05-20)**: `pipeline` runtime skills upgraded to v3 across Claude/Codex/Gemini; `tools/pipeline-state.js` now owns canonical project key/state path, auto vs interview routing, stale-state replacement, session ledger append, and closeout proof validation. Coverage added in `tools/pipeline-state.test.js`; `pipeline-check` now enforces v3 contract fields.
 - **S30 Sprint 2 skill-router (2026-05-20)**: `tools/skill-search.js` now acts as skill-router preflight: top-3 budget, hard relevance gate before total score, `no skill` direct-work option, visible marketplace attempted command/errors, cached marketplace status, and optional `--ledger` JSONL router event. Coverage added in `tools/skill-search.test.js`.
+- **S31 Sprint 3 research-router (2026-05-20)**: `tools/research-router.js` added for compact evidence blocks: project-docs/codemap/RAG provider selection, Context7/GitHub health skips with attempted commands, top-5 findings, per-source token budgets, and optional `--ledger` JSONL event. Coverage added in `tools/research-router.test.js`.
+- **S32 Sprint 4 CodeGraph pilot start (2026-05-20)**: `tools/codemap-core.js` now has a codemap provider interface with default `graphify` and optional `codegraph` health checks via `--provider codegraph` / `CODEMAP_PROVIDER=codegraph`; Graphify remains the production fallback. `.graphifyignore` now excludes planning/RAG/tmp/graph output and generated cache corpora from codemap scope.
+- **S33 Sprint 4 CodeGraph pilot closure (2026-05-20)**: CodeGraph wrapper now uses project-local `.tmp/codegraph` cache env and a lock file to serialize CLI calls. `tools/codemap-benchmark.js` adds a 10-question relevance benchmark; current Graphify baseline is 7 PASS / 3 WARN. `tools/codemap-measure.js` records Claude/Codex command-level tool/read measurements. Real CodeGraph promotion is blocked until `codegraph status` is available in PATH.
+- **S34 Sprint 5 agentmemory pilot (2026-05-20)**: `tools/memory-provider.js` added with `MEMORY_PROVIDER=project-rag|agentmemory`, project-rag default health, agentmemory CLI/port checks for 3111/3113, 20 recall prompts, comparison report, and governance smoke. `doctor` now reports memory provider health; keep default `project-rag` until agentmemory CLI/server passes.
+- **S35 Sprint 6 hook diet evidence (2026-05-20, refreshed 2026-05-21)**: `tools/hook-diet.js` added for no-removal inventory. Current inventory: 107 hook registrations; class split is 79 advisory / 14 hard-block / 10 telemetry / 4 background, with 16 duplicate matcher groups. Full inventory written to `.planning/HOOK-DIET-INVENTORY-2026-05-20.json`.
+- **S36 Sprint 6 runtime evidence join (2026-05-20, refreshed 2026-05-21)**: `tools/hook-diet.js` now joins inventory with `~/.claude/hooks/metrics.json` and `errors.log`. Current evidence coverage: 16/107 hook registrations have runtime metrics, 91/107 are missing runtime metrics; `errors.log` has 971 lines and 0 `[ERROR]` lines. No hooks removed yet.
+- **S37 Sprint 6 closure (2026-05-20, refreshed 2026-05-21)**: candidate report written to `.planning/HOOK-DIET-CANDIDATES-2026-05-20.json`. Result: 107 hooks evaluated, 0 eligible for removal, 107 blocked by missing `output_chars`, missing runtime metrics, hard-block status, or safety evidence. Sprint 6 closes with no hook removals.
+- **S38 token impact measurement (2026-05-20)**: `tools/token-impact.js` added to measure JSONL/session proxies: tool output chars, file-read events, risky full-file reads, and real token usage when present. Current measured command outputs: `research-router` evidence block 1752 chars / 53 lines; `hook-diet --summary` 3776 chars / 188 lines. Token savings remain unclaimed until matched before/after session telemetry exists.
+  - **S39 project bootstrap (2026-05-20)**: `tools/project-bootstrap.js` added. Dry-run scans project size/docs/codemap/RAG and chooses `bounded-grep-first` for small repos. It now detects stack (`Next.js App Router`, `Vite React`, `Electron`, `Node.js`) and emits bounded recommended probes. `--apply` only performs safe setup: AI docs init and `.graphifyignore`; RAG/LLM ingestion remains manual.
+  - **S40 bootstrap advisor hook (2026-05-20)**: `project-bootstrap-advisor.js` installed into Claude/Codex SessionStart. It is dry-run only: reports project strategy and bounded probes, and suggests `project-bootstrap --apply` when safe setup is missing. Verified Codex hooks 46/46 PASS.
 - **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.
