@@ -1,0 +1,2069 @@
+{
+  "kind": "hook-diet-candidates",
+  "source_inventory": {
+    "claude": {
+      "file": "C:\\Users\\user\\.claude\\settings.json",
+      "ok": true,
+      "error": ""
+    },
+    "codex": {
+      "file": "C:\\Users\\user\\.codex\\hooks.json",
+      "ok": true,
+      "error": ""
+    },
+    "metrics": {
+      "file": "C:\\Users\\user\\.claude\\hooks\\metrics.json",
+      "ok": true,
+      "error": "",
+      "updated": "2026-05-20T21:17:35.642Z"
+    },
+    "errors": {
+      "file": "C:\\Users\\user\\.claude\\hooks\\errors.log",
+      "ok": true,
+      "error": "",
+      "total_lines": 971,
+      "error_lines": 0
+    }
+  },
+  "summary": {
+    "total": 107,
+    "eligible_for_removal": 0,
+    "blocked": 107,
+    "note": "No hook should be removed until output_chars and runtime metrics are present for the target hook."
+  },
+  "candidates": [
+    {
+      "name": "context-budget-gate",
+      "platform": "claude",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "session-size-guard",
+      "platform": "claude",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "project-docs-gate",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "session-focus-gate",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "session-branch-advisor",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "autoskills-check",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-session-init",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "memory-discipline",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "harvest-injector",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "projects-dashboard",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "background",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "rag-context-injector",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "project-bootstrap-advisor",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-read-gate",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-preuse",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Glob|Grep",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "auto-branch",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "settings-schema-guard",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "write-over-edit-guard",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "config-protection",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "domain-agent-gate",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "edit-enforcer",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "git-branch-guard",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "conventional-commit-validator",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "branch-name-validator",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "pre-commit-gate",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "secret-scanner",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 3,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.641Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "quality-gate-runner",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 3,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.492Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context7-tracker",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 4,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.581Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "coverage-gate",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "tool-policy-gate",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "mcp__claude-in-chrome",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "skill-selector-gate",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Skill",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "verification-tracker",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:24.962Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "loop-guardian",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.145Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "secret-output-scanner",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.010Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "bash-output-advisor",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 2,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.066Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-post-commit",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.013Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "post-edit-combined",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context7-reminder",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "inline-review-gate",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "skill-sync-mirror",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "rag-queue-enqueue",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-auto-update",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "background",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context7-tracker",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 4,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.581Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "scope-guard",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "TaskCreate",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "inline-review-tracker",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Agent",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "pipeline-tracker",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Skill",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "env-change-watcher",
+      "platform": "claude",
+      "event": "FileChanged",
+      "matcher": "\\.env|\\.envrc",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "stop-verification",
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "ship-gate",
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "stop-auto-checkpoint",
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "task-completed-gate",
+      "platform": "claude",
+      "event": "Notification",
+      "matcher": "TaskCompleted",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "Notification",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "SessionEnd",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "PermissionRequest",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "PostToolUseFailure",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "SubagentStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "claude-hook",
+      "platform": "claude",
+      "event": "SubagentStop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "project-docs-gate",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "session-focus-gate",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "session-branch-advisor",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "autoskills-check",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-session-init",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "memory-discipline",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "harvest-injector",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "projects-dashboard",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "background",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "rag-context-injector",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "project-bootstrap-advisor",
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context-budget-gate",
+      "platform": "codex",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "session-size-guard",
+      "platform": "codex",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-read-gate",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-preuse",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Glob|Grep",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "auto-branch",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "settings-schema-guard",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "write-over-edit-guard",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "config-protection",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "domain-agent-gate",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "edit-enforcer",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "git-branch-guard",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "conventional-commit-validator",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "branch-name-validator",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "pre-commit-gate",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "secret-scanner",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 3,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.641Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "quality-gate-runner",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 3,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.492Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context7-tracker",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 4,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.581Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "coverage-gate",
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "post-edit-combined",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context7-reminder",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "inline-review-gate",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "skill-sync-mirror",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "rag-queue-enqueue",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-auto-update",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "class": "background",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "verification-tracker",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:24.962Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "loop-guardian",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.145Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "secret-output-scanner",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.010Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "bash-output-advisor",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 2,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.066Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "graphify-post-commit",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "hard-block",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:25.013Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "hard-block hooks are retained unless replaced by equivalent safety coverage",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "inline-review-tracker",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Agent",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "scope-guard",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "TaskCreate",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "context7-tracker",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 4,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:17:35.581Z",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing output_chars evidence",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "pipeline-tracker",
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Skill",
+      "class": "telemetry",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "stop-verification",
+      "platform": "codex",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "ship-gate",
+      "platform": "codex",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    },
+    {
+      "name": "stop-auto-checkpoint",
+      "platform": "codex",
+      "event": "Stop",
+      "matcher": "",
+      "class": "advisory",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "eligible_for_removal": false,
+      "reason": "missing runtime metrics",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default"
+    }
+  ]
+}
