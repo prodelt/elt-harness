@@ -1,0 +1,3435 @@
+{
+  "kind": "hook-diet-inventory",
+  "sources": {
+    "claude": {
+      "file": "C:\\Users\\user\\.claude\\settings.json",
+      "ok": true,
+      "error": ""
+    },
+    "codex": {
+      "file": "C:\\Users\\user\\.codex\\hooks.json",
+      "ok": true,
+      "error": ""
+    },
+    "metrics": {
+      "file": "C:\\Users\\user\\.claude\\hooks\\metrics.json",
+      "ok": true,
+      "error": "",
+      "updated": "2026-05-20T21:48:00.168Z"
+    },
+    "errors": {
+      "file": "C:\\Users\\user\\.claude\\hooks\\errors.log",
+      "ok": true,
+      "error": "",
+      "total_lines": 971,
+      "error_lines": 0
+    }
+  },
+  "summary": {
+    "total": 107,
+    "by_class": {
+      "advisory": 79,
+      "background": 4,
+      "hard-block": 14,
+      "telemetry": 10
+    },
+    "by_event": {
+      "UserPromptSubmit": 5,
+      "SessionStart": 21,
+      "PreToolUse": 35,
+      "PostToolUse": 31,
+      "FileChanged": 1,
+      "Stop": 7,
+      "Notification": 2,
+      "SessionEnd": 1,
+      "PermissionRequest": 1,
+      "PostToolUseFailure": 1,
+      "SubagentStart": 1,
+      "SubagentStop": 1
+    },
+    "duplicate_groups": [
+      {
+        "count": 3,
+        "hooks": [
+          "context-budget-gate",
+          "session-size-guard",
+          "claude-hook"
+        ]
+      },
+      {
+        "count": 11,
+        "hooks": [
+          "project-docs-gate",
+          "session-focus-gate",
+          "session-branch-advisor",
+          "autoskills-check",
+          "graphify-session-init",
+          "memory-discipline",
+          "harvest-injector",
+          "projects-dashboard",
+          "rag-context-injector",
+          "project-bootstrap-advisor",
+          "claude-hook"
+        ]
+      },
+      {
+        "count": 6,
+        "hooks": [
+          "auto-branch",
+          "settings-schema-guard",
+          "write-over-edit-guard",
+          "config-protection",
+          "domain-agent-gate",
+          "edit-enforcer"
+        ]
+      },
+      {
+        "count": 8,
+        "hooks": [
+          "git-branch-guard",
+          "conventional-commit-validator",
+          "branch-name-validator",
+          "pre-commit-gate",
+          "secret-scanner",
+          "quality-gate-runner",
+          "context7-tracker",
+          "coverage-gate"
+        ]
+      },
+      {
+        "count": 2,
+        "hooks": [
+          "verification-tracker",
+          "loop-guardian"
+        ]
+      },
+      {
+        "count": 4,
+        "hooks": [
+          "secret-output-scanner",
+          "bash-output-advisor",
+          "graphify-post-commit",
+          "context7-tracker"
+        ]
+      },
+      {
+        "count": 6,
+        "hooks": [
+          "post-edit-combined",
+          "context7-reminder",
+          "inline-review-gate",
+          "skill-sync-mirror",
+          "rag-queue-enqueue",
+          "graphify-auto-update"
+        ]
+      },
+      {
+        "count": 4,
+        "hooks": [
+          "stop-verification",
+          "ship-gate",
+          "stop-auto-checkpoint",
+          "claude-hook"
+        ]
+      },
+      {
+        "count": 10,
+        "hooks": [
+          "project-docs-gate",
+          "session-focus-gate",
+          "session-branch-advisor",
+          "autoskills-check",
+          "graphify-session-init",
+          "memory-discipline",
+          "harvest-injector",
+          "projects-dashboard",
+          "rag-context-injector",
+          "project-bootstrap-advisor"
+        ]
+      },
+      {
+        "count": 2,
+        "hooks": [
+          "context-budget-gate",
+          "session-size-guard"
+        ]
+      },
+      {
+        "count": 6,
+        "hooks": [
+          "auto-branch",
+          "settings-schema-guard",
+          "write-over-edit-guard",
+          "config-protection",
+          "domain-agent-gate",
+          "edit-enforcer"
+        ]
+      },
+      {
+        "count": 8,
+        "hooks": [
+          "git-branch-guard",
+          "conventional-commit-validator",
+          "branch-name-validator",
+          "pre-commit-gate",
+          "secret-scanner",
+          "quality-gate-runner",
+          "context7-tracker",
+          "coverage-gate"
+        ]
+      },
+      {
+        "count": 6,
+        "hooks": [
+          "post-edit-combined",
+          "context7-reminder",
+          "inline-review-gate",
+          "skill-sync-mirror",
+          "rag-queue-enqueue",
+          "graphify-auto-update"
+        ]
+      },
+      {
+        "count": 2,
+        "hooks": [
+          "verification-tracker",
+          "loop-guardian"
+        ]
+      },
+      {
+        "count": 4,
+        "hooks": [
+          "secret-output-scanner",
+          "bash-output-advisor",
+          "graphify-post-commit",
+          "context7-tracker"
+        ]
+      },
+      {
+        "count": 3,
+        "hooks": [
+          "stop-verification",
+          "ship-gate",
+          "stop-auto-checkpoint"
+        ]
+      }
+    ]
+  },
+  "evidence_summary": {
+    "hooks_missing_runtime_metrics": 87,
+    "hooks_with_runtime_metrics": 20,
+    "errors_by_hook": {}
+  },
+  "hooks": [
+    {
+      "platform": "claude",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/context-budget-gate.js\"",
+      "statusMessage": "Checking context budget...",
+      "name": "context-budget-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/session-size-guard.js\"",
+      "statusMessage": "Checking session size...",
+      "name": "session-size-guard",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/project-docs-gate.js\"",
+      "statusMessage": "Checking project docs...",
+      "name": "project-docs-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/session-focus-gate.js\"",
+      "statusMessage": "Session focus check...",
+      "name": "session-focus-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:36.612Z",
+        "output_chars": 204
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/session-branch-advisor.js\"",
+      "statusMessage": "Checking git branch...",
+      "name": "session-branch-advisor",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/autoskills-check.js\"",
+      "statusMessage": "Detecting tech stack...",
+      "name": "autoskills-check",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/graphify-session-init.js\"",
+      "statusMessage": "Checking Graphify graph...",
+      "name": "graphify-session-init",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/memory-discipline.js\"",
+      "statusMessage": "Checking memory size...",
+      "name": "memory-discipline",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/harvest-injector.js\"",
+      "statusMessage": "Loading session harvest briefing...",
+      "name": "harvest-injector",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/projects-dashboard.js\"",
+      "statusMessage": "Updating projects dashboard...",
+      "name": "projects-dashboard",
+      "class": "background",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/rag-context-injector.js\"",
+      "statusMessage": "Injecting RAG project context...",
+      "name": "rag-context-injector",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/project-bootstrap-advisor.js\"",
+      "statusMessage": "Checking project bootstrap strategy...",
+      "name": "project-bootstrap-advisor",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "command": "node \"C:/Users/user/.claude/hooks/graphify-read-gate.js\"",
+      "statusMessage": "",
+      "name": "graphify-read-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Glob|Grep",
+      "command": "node \"C:/Users/user/.claude/hooks/graphify-preuse.js\"",
+      "statusMessage": "",
+      "name": "graphify-preuse",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node \"C:/Users/user/.claude/hooks/auto-branch.js\"",
+      "statusMessage": "",
+      "name": "auto-branch",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node \"C:/Users/user/.claude/hooks/settings-schema-guard.js\"",
+      "statusMessage": "",
+      "name": "settings-schema-guard",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node \"C:/Users/user/.claude/hooks/write-over-edit-guard.js\"",
+      "statusMessage": "",
+      "name": "write-over-edit-guard",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node \"C:/Users/user/.claude/hooks/config-protection.js\"",
+      "statusMessage": "",
+      "name": "config-protection",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node \"C:/Users/user/.claude/hooks/domain-agent-gate.js\"",
+      "statusMessage": "",
+      "name": "domain-agent-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node \"C:/Users/user/.claude/hooks/edit-enforcer.js\"",
+      "statusMessage": "",
+      "name": "edit-enforcer",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/git-branch-guard.js\"",
+      "statusMessage": "Checking protected git branch...",
+      "name": "git-branch-guard",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/conventional-commit-validator.js\"",
+      "statusMessage": "Checking commit message format...",
+      "name": "conventional-commit-validator",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/branch-name-validator.js\"",
+      "statusMessage": "Checking branch name format...",
+      "name": "branch-name-validator",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/pre-commit-gate.js\"",
+      "statusMessage": "Running pre-commit quality gate...",
+      "name": "pre-commit-gate",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/secret-scanner.js\"",
+      "statusMessage": "",
+      "name": "secret-scanner",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 15,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:53.794Z",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/quality-gate-runner.js\"",
+      "statusMessage": "",
+      "name": "quality-gate-runner",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 15,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:53.755Z",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/context7-tracker.js\"",
+      "statusMessage": "",
+      "name": "context7-tracker",
+      "class": "telemetry",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 28,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.167Z",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/coverage-gate.js\"",
+      "statusMessage": "Checking coverage threshold...",
+      "name": "coverage-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "mcp__claude-in-chrome",
+      "command": "node \"C:/Users/user/.claude/hooks/tool-policy-gate.js\"",
+      "statusMessage": "Enforcing browser tool policy...",
+      "name": "tool-policy-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "Skill",
+      "command": "node \"C:/Users/user/.claude/hooks/skill-selector-gate.js\"",
+      "statusMessage": "Ranking skill alternatives...",
+      "name": "skill-selector-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PreToolUse",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/verification-tracker.js\"",
+      "statusMessage": "",
+      "name": "verification-tracker",
+      "class": "telemetry",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 13,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.112Z",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/loop-guardian.js\"",
+      "statusMessage": "",
+      "name": "loop-guardian",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 11,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.109Z",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/secret-output-scanner.js\"",
+      "statusMessage": "",
+      "name": "secret-output-scanner",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 13,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.161Z",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/bash-output-advisor.js\"",
+      "statusMessage": "",
+      "name": "bash-output-advisor",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 13,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:58.942Z",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/graphify-post-commit.js\"",
+      "statusMessage": "",
+      "name": "graphify-post-commit",
+      "class": "hard-block",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 11,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.137Z",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node \"C:/Users/user/.claude/hooks/post-edit-combined.js\"",
+      "statusMessage": "",
+      "name": "post-edit-combined",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node \"C:/Users/user/.claude/hooks/context7-reminder.js\"",
+      "statusMessage": "",
+      "name": "context7-reminder",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node \"C:/Users/user/.claude/hooks/inline-review-gate.js\"",
+      "statusMessage": "",
+      "name": "inline-review-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node \"C:/Users/user/.claude/hooks/skill-sync-mirror.js\"",
+      "statusMessage": "",
+      "name": "skill-sync-mirror",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node \"C:/Users/user/.claude/hooks/rag-queue-enqueue.js\"",
+      "statusMessage": "",
+      "name": "rag-queue-enqueue",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node \"C:/Users/user/.claude/hooks/graphify-auto-update.js\"",
+      "statusMessage": "",
+      "name": "graphify-auto-update",
+      "class": "background",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node \"C:/Users/user/.claude/hooks/context7-tracker.js\"",
+      "statusMessage": "",
+      "name": "context7-tracker",
+      "class": "telemetry",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 28,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.167Z",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "TaskCreate",
+      "command": "node \"C:/Users/user/.claude/hooks/scope-guard.js\"",
+      "statusMessage": "",
+      "name": "scope-guard",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Agent",
+      "command": "node \"C:/Users/user/.claude/hooks/inline-review-tracker.js\"",
+      "statusMessage": "",
+      "name": "inline-review-tracker",
+      "class": "telemetry",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "Skill",
+      "command": "node \"C:/Users/user/.claude/hooks/pipeline-tracker.js\"",
+      "statusMessage": "",
+      "name": "pipeline-tracker",
+      "class": "telemetry",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUse",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "FileChanged",
+      "matcher": "\\.env|\\.envrc",
+      "command": "node \"C:/Users/user/.claude/hooks/env-change-watcher.js\"",
+      "statusMessage": "",
+      "name": "env-change-watcher",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/stop-verification.js\"",
+      "statusMessage": "Running session-end verification...",
+      "name": "stop-verification",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/ship-gate.js\"",
+      "statusMessage": "Checking uncommitted changes...",
+      "name": "ship-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node \"C:/Users/user/.claude/hooks/stop-auto-checkpoint.js\"",
+      "statusMessage": "Writing auto-checkpoint if needed...",
+      "name": "stop-auto-checkpoint",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "Notification",
+      "matcher": "TaskCompleted",
+      "command": "node \"C:/Users/user/.claude/hooks/task-completed-gate.js\"",
+      "statusMessage": "",
+      "name": "task-completed-gate",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "Notification",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SessionEnd",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PermissionRequest",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "PostToolUseFailure",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SubagentStart",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "claude",
+      "event": "SubagentStop",
+      "matcher": "",
+      "command": "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+      "statusMessage": "",
+      "name": "claude-hook",
+      "class": "advisory",
+      "owner": "claude",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/project-docs-gate.js",
+      "statusMessage": "Checking project docs...",
+      "name": "project-docs-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/session-focus-gate.js",
+      "statusMessage": "Session focus check...",
+      "name": "session-focus-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 1,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:36.612Z",
+        "output_chars": 204
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/session-branch-advisor.js",
+      "statusMessage": "Checking git branch...",
+      "name": "session-branch-advisor",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/autoskills-check.js",
+      "statusMessage": "Detecting tech stack...",
+      "name": "autoskills-check",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/graphify-session-init.js",
+      "statusMessage": "Checking Graphify graph...",
+      "name": "graphify-session-init",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/memory-discipline.js",
+      "statusMessage": "Checking memory size...",
+      "name": "memory-discipline",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/harvest-injector.js",
+      "statusMessage": "Loading session harvest briefing...",
+      "name": "harvest-injector",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/projects-dashboard.js",
+      "statusMessage": "Updating projects dashboard...",
+      "name": "projects-dashboard",
+      "class": "background",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/rag-context-injector.js",
+      "statusMessage": "Injecting RAG project context...",
+      "name": "rag-context-injector",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/project-bootstrap-advisor.js",
+      "statusMessage": "Checking project bootstrap strategy...",
+      "name": "project-bootstrap-advisor",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/context-budget-gate.js",
+      "statusMessage": "",
+      "name": "context-budget-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/session-size-guard.js",
+      "statusMessage": "",
+      "name": "session-size-guard",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "command": "node C:/Users/user/.claude/hooks/graphify-read-gate.js",
+      "statusMessage": "",
+      "name": "graphify-read-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Glob|Grep",
+      "command": "node C:/Users/user/.claude/hooks/graphify-preuse.js",
+      "statusMessage": "",
+      "name": "graphify-preuse",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node C:/Users/user/.claude/hooks/auto-branch.js",
+      "statusMessage": "",
+      "name": "auto-branch",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node C:/Users/user/.claude/hooks/settings-schema-guard.js",
+      "statusMessage": "",
+      "name": "settings-schema-guard",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node C:/Users/user/.claude/hooks/write-over-edit-guard.js",
+      "statusMessage": "",
+      "name": "write-over-edit-guard",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node C:/Users/user/.claude/hooks/config-protection.js",
+      "statusMessage": "",
+      "name": "config-protection",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node C:/Users/user/.claude/hooks/domain-agent-gate.js",
+      "statusMessage": "",
+      "name": "domain-agent-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit",
+      "command": "node C:/Users/user/.claude/hooks/edit-enforcer.js",
+      "statusMessage": "",
+      "name": "edit-enforcer",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/git-branch-guard.js",
+      "statusMessage": "",
+      "name": "git-branch-guard",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/conventional-commit-validator.js",
+      "statusMessage": "",
+      "name": "conventional-commit-validator",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/branch-name-validator.js",
+      "statusMessage": "",
+      "name": "branch-name-validator",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/pre-commit-gate.js",
+      "statusMessage": "",
+      "name": "pre-commit-gate",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/secret-scanner.js",
+      "statusMessage": "",
+      "name": "secret-scanner",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 15,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:53.794Z",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/quality-gate-runner.js",
+      "statusMessage": "",
+      "name": "quality-gate-runner",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 15,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:53.755Z",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/context7-tracker.js",
+      "statusMessage": "",
+      "name": "context7-tracker",
+      "class": "telemetry",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 28,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.167Z",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/coverage-gate.js",
+      "statusMessage": "",
+      "name": "coverage-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node C:/Users/user/.claude/hooks/post-edit-combined.js",
+      "statusMessage": "",
+      "name": "post-edit-combined",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node C:/Users/user/.claude/hooks/context7-reminder.js",
+      "statusMessage": "",
+      "name": "context7-reminder",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node C:/Users/user/.claude/hooks/inline-review-gate.js",
+      "statusMessage": "",
+      "name": "inline-review-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node C:/Users/user/.claude/hooks/skill-sync-mirror.js",
+      "statusMessage": "",
+      "name": "skill-sync-mirror",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node C:/Users/user/.claude/hooks/rag-queue-enqueue.js",
+      "statusMessage": "",
+      "name": "rag-queue-enqueue",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "node C:/Users/user/.claude/hooks/graphify-auto-update.js",
+      "statusMessage": "",
+      "name": "graphify-auto-update",
+      "class": "background",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "command": "node C:/Users/user/.claude/hooks/verification-tracker.js",
+      "statusMessage": "",
+      "name": "verification-tracker",
+      "class": "telemetry",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 13,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.112Z",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Edit|Write|Bash",
+      "command": "node C:/Users/user/.claude/hooks/loop-guardian.js",
+      "statusMessage": "",
+      "name": "loop-guardian",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 11,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.109Z",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/secret-output-scanner.js",
+      "statusMessage": "",
+      "name": "secret-output-scanner",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 13,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.161Z",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/bash-output-advisor.js",
+      "statusMessage": "",
+      "name": "bash-output-advisor",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 13,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:47:58.942Z",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/graphify-post-commit.js",
+      "statusMessage": "",
+      "name": "graphify-post-commit",
+      "class": "hard-block",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 11,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.137Z",
+        "output_chars": null
+      },
+      "failure_policy": "may block on real safety violation",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Agent",
+      "command": "node C:/Users/user/.claude/hooks/inline-review-tracker.js",
+      "statusMessage": "",
+      "name": "inline-review-tracker",
+      "class": "telemetry",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "TaskCreate",
+      "command": "node C:/Users/user/.claude/hooks/scope-guard.js",
+      "statusMessage": "",
+      "name": "scope-guard",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "command": "node C:/Users/user/.claude/hooks/context7-tracker.js",
+      "statusMessage": "",
+      "name": "context7-tracker",
+      "class": "telemetry",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 28,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "2026-05-20T21:48:00.167Z",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "PostToolUse",
+      "matcher": "Skill",
+      "command": "node C:/Users/user/.claude/hooks/pipeline-tracker.js",
+      "statusMessage": "",
+      "name": "pipeline-tracker",
+      "class": "telemetry",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "metrics only, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/stop-verification.js",
+      "statusMessage": "Running session-end verification...",
+      "name": "stop-verification",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/ship-gate.js",
+      "statusMessage": "Checking uncommitted changes...",
+      "name": "ship-gate",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    },
+    {
+      "platform": "codex",
+      "event": "Stop",
+      "matcher": "",
+      "command": "node C:/Users/user/.claude/hooks/stop-auto-checkpoint.js",
+      "statusMessage": "Writing auto-checkpoint if needed...",
+      "name": "stop-auto-checkpoint",
+      "class": "advisory",
+      "owner": "codex",
+      "evidence": {
+        "run_count": 0,
+        "warn_count": 0,
+        "block_count": 0,
+        "error_count": 0,
+        "avg_wall_time_ms": 0,
+        "last_seen": "",
+        "output_chars": null
+      },
+      "failure_policy": "advisory output capped, must fail soft",
+      "rollback": "restore prior hook registration from git or set hook disabled-by-default",
+      "evidence_required": [
+        "run_count",
+        "block_warn_count",
+        "error_count",
+        "avg_wall_time_ms",
+        "output_chars",
+        "overlap",
+        "prevented_failure"
+      ]
+    }
+  ]
+}
