@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const DOC_FILES = ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
+const CANONICAL_DOC = 'AGENTS.md';
+const DOC_FILES = [CANONICAL_DOC, 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
 const CORE_SECTIONS = ['Overview', 'Stack', 'Commands', 'Architecture', 'Gotchas', 'Current State'];
 const PROTECTED_RE = /<!--\s*project-docs:protected:start\s+([A-Za-z0-9_.-]+)\s*-->[\s\S]*?<!--\s*project-docs:protected:end\s+\1\s*-->/g;
 
@@ -73,7 +74,7 @@ function sectionScore(doc) {
 }
 
 function selectSourceDoc(docs) {
-  const priority = ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
+  const priority = [CANONICAL_DOC, 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
   return docs
     .map((doc) => ({ ...doc, score: sectionScore(doc), priority: priority.indexOf(doc.relative) }))
     .sort((left, right) => right.score - left.score || left.priority - right.priority)[0];
@@ -235,6 +236,7 @@ function verifyProjectDocs(root) {
 }
 
 module.exports = {
+  CANONICAL_DOC,
   CORE_SECTIONS,
   DOC_FILES,
   parseMarkdownSections,
