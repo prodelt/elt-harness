@@ -14,6 +14,14 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const STATE_CLOCK_SKEW_MS = 60 * 1000;
+const SETTINGS_SECRET_PATTERNS = [
+  { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
+  { name: 'Context7 API key', pattern: /ctx7sk-[0-9A-Za-z-]{20,}/ },
+  { name: 'OpenAI-style API key', pattern: /sk-[0-9A-Za-z_-]{20,}/ },
+  { name: 'GitHub token', pattern: /(?:ghp|github_pat)_[0-9A-Za-z_]{20,}/ },
+  { name: 'Bearer token', pattern: /Bearer\s+[0-9A-Za-z._-]{20,}/ },
+  { name: 'literal --api-key', pattern: /--api-key\s+(?![$%{])[^\s")']{12,}/ },
+];
 
 function result(status, id, title, detail, repair, data = {}) {
   return { status, id, title, detail, repair, data };
@@ -243,6 +251,40 @@ function checkHooks(home) {
   return [settingsCheck, hooksCheck];
 }
 
+function listSettingsFiles(root, home) {
+  const projectClaude = path.join(root, '.claude');
+  const projectFiles = fs.existsSync(projectClaude)
+    ? fs.readdirSync(projectClaude)
+      .filter((name) => /^settings.*\.json$/i.test(name))
+      .map((name) => path.join(projectClaude, name))
+    : [];
+  return [
+    ...projectFiles,
+    path.join(home, '.claude', 'settings.json'),
+    path.join(home, '.claude', 'settings.local.json'),
+    path.join(home, '.codex', 'config.toml'),
+  ].filter((file, index, files) => fs.existsSync(file) && files.indexOf(file) === index);
+}
+
+function checkSettingsSecrets(root, home) {
+  const files = listSettingsFiles(root, home);
+  const findings = files.flatMap((file) => {
+    const text = readText(file);
+    if (!text.ok) return [{ file, lineNumber: 0, kind: 'unreadable', line: text.error }];
+    return text.value.split(/\r?\n/).flatMap((line, index) => {
+      const match = SETTINGS_SECRET_PATTERNS.find((entry) => entry.pattern.test(line));
+      return match ? [{ file, lineNumber: index + 1, kind: match.name, line: line.trim() }] : [];
+    });
+  });
+  if (findings.length > 0) {
+    const detail = findings.slice(0, 5)
+      .map((entry) => `${entry.file}:${entry.lineNumber} ${entry.kind}`)
+      .join('; ');
+    return [result('fail', 'settings:secrets', 'Secret-like settings entries detected', detail, 'Remove literal credentials from settings allowlists; use env placeholders.')];
+  }
+  return [result('pass', 'settings:secrets', 'No secret-like settings entries detected', `${files.length} settings/config files scanned.`, '')];
+}
+
 function checkGraphify(root, enabled) {
   if (!enabled) return [result('warn', 'graphify:skipped', 'Graphify check skipped', '--no-graphify was provided.', 'Run without --no-graphify.')];
   const help = run('cmd.exe', ['/c', 'graphify', '--help'], root, 8000);
@@ -393,6 +435,7 @@ function runDoctor(options) {
     ...checkDocs(root),
     ...checkSkillRegistry(home),
     ...checkSkillYaml(home),
+    ...checkSettingsSecrets(root, home),
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
     ...checkRag(root),
@@ -423,6 +466,7 @@ module.exports = {
   projectKey,
   projectStatePath,
   parseSkillFrontmatter,
+  checkSettingsSecrets,
   checkPipelineState,
   runDoctor,
   formatText,

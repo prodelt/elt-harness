@@ -10,6 +10,7 @@ const {
   projectKey,
   projectStatePath,
   parseSkillFrontmatter,
+  checkSettingsSecrets,
   checkPipelineState,
   runDoctor,
 } = require('./doctor-core');
@@ -101,6 +102,29 @@ function testDoctorSkipsCodemapWithNoGraphify() {
   assert.equal(report.checks.some((check) => check.id === 'graphify:skipped'), true);
 }
 
+function testSettingsSecretsScanner() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-settings-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  const googleKeyFixture = `AI${'zaSy'}${'B0Rr_paSjkdT48jnHbrLFps4cOusOd5q0'}`;
+  write(path.join(root, '.claude', 'settings.local.json'), JSON.stringify({
+    permissions: {
+      allow: [`Bash(export GOOGLE_API_KEY="${googleKeyFixture}")`],
+    },
+  }));
+  write(path.join(home, '.codex', 'config.toml'), 'CONTEXT7_API_KEY = "${CONTEXT7_API_KEY}"\n');
+  const failed = checkSettingsSecrets(root, home);
+  assert.equal(failed[0].status, 'fail');
+
+  write(path.join(root, '.claude', 'settings.local.json'), JSON.stringify({
+    permissions: {
+      allow: ['Bash(node tools/doctor.js --root .)'],
+    },
+  }));
+  const passed = checkSettingsSecrets(root, home);
+  assert.equal(passed[0].status, 'pass');
+}
+
 function coreDoc() {
   return [
     '# Test',
@@ -138,6 +162,7 @@ function main() {
   testPipelineStateValidation();
   testPipelineStateRejectsFutureLegacy();
   testDoctorSkipsCodemapWithNoGraphify();
+  testSettingsSecretsScanner();
   process.stdout.write('doctor tests: PASS\n');
 }
 
