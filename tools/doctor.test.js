@@ -11,6 +11,8 @@ const {
   projectStatePath,
   parseSkillFrontmatter,
   checkSettingsSecrets,
+  checkCodexDefaults,
+  checkGitHubCli,
   checkPipelineState,
   runDoctor,
 } = require('./doctor-core');
@@ -89,6 +91,22 @@ function testPipelineStateRejectsFutureLegacy() {
   assert.match(checks[1].title, /future/);
 }
 
+function testPipelineStateAcceptsClosedCyrillic() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-state-closed-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project-a');
+  write(projectStatePath(root, home), JSON.stringify({
+    phase: 'closed',
+    closedAt: '2026-05-08T12:00:00Z',
+    note: 'Закрито після спринту',
+  }, null, 2));
+  const checks = checkPipelineState(root, home, new Date('2026-05-09T12:00:00Z'));
+  assert.equal(checks[0].status, 'pass');
+  assert.match(checks[0].title, /closed/);
+  const text = fs.readFileSync(projectStatePath(root, home), 'utf8');
+  assert.match(text, /Закрито після спринту/);
+}
+
 function testDoctorSkipsCodemapWithNoGraphify() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-no-graphify-'));
   const home = path.join(dir, 'home');
@@ -123,6 +141,39 @@ function testSettingsSecretsScanner() {
   }));
   const passed = checkSettingsSecrets(root, home);
   assert.equal(passed[0].status, 'pass');
+}
+
+function testGitHubCliAuthWarningSkipsCodeSearch() {
+  const calls = [];
+  const fakeRun = (command, args) => {
+    calls.push([command, ...args].join(' '));
+    if (args[0] === '--version') return { status: 0, output: 'gh version 2.0.0' };
+    if (args[0] === 'auth') return { status: 1, output: 'HTTP 401' };
+    return { status: 0, output: '' };
+  };
+
+  const checks = checkGitHubCli(process.cwd(), fakeRun);
+  assert.equal(checks.find((check) => check.id === 'github:auth').status, 'warn');
+  assert.equal(checks.find((check) => check.id === 'github:code-search').status, 'warn');
+  assert.equal(calls.some((call) => call.startsWith('gh search code')), false);
+}
+
+function testCodexDefaultsWarnOnExpensiveRoute() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-codex-defaults-'));
+  const home = path.join(dir, 'home');
+  write(path.join(home, '.codex', 'config.toml'), [
+    'model = "gpt-5.5"',
+    'model_reasoning_effort = "xhigh"',
+    '',
+  ].join('\n'));
+  assert.equal(checkCodexDefaults(home)[0].status, 'warn');
+
+  write(path.join(home, '.codex', 'config.toml'), [
+    'model = "gpt-5.4"',
+    'model_reasoning_effort = "medium"',
+    '',
+  ].join('\n'));
+  assert.equal(checkCodexDefaults(home)[0].status, 'pass');
 }
 
 function coreDoc() {
@@ -161,8 +212,11 @@ function main() {
   testSkillFrontmatter();
   testPipelineStateValidation();
   testPipelineStateRejectsFutureLegacy();
+  testPipelineStateAcceptsClosedCyrillic();
   testDoctorSkipsCodemapWithNoGraphify();
   testSettingsSecretsScanner();
+  testGitHubCliAuthWarningSkipsCodeSearch();
+  testCodexDefaultsWarnOnExpensiveRoute();
   process.stdout.write('doctor tests: PASS\n');
 }
 
