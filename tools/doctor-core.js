@@ -6,6 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
+const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
 const {
   legacyStatePath,
   normalizePath,
@@ -60,13 +61,14 @@ function findProjectRoot(start) {
 }
 
 function parseArgs(argv) {
-  const defaults = { root: process.cwd(), json: false, register: false, graphify: true };
+  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
   const parseNext = (index, state) => {
     if (index >= argv.length) return { ok: true, value: state };
     const arg = argv[index];
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
     if (arg === '--register') return parseNext(index + 1, { ...state, register: true });
     if (arg === '--no-graphify') return parseNext(index + 1, { ...state, graphify: false });
+    if (arg === '--memory-provider') return parseNext(index + 2, { ...state, memoryProvider: argv[index + 1] || state.memoryProvider });
     if (arg === '--root') {
       const root = argv[index + 1];
       if (!root) return { ok: false, error: '--root requires a path' };
@@ -317,6 +319,18 @@ function checkRag(root) {
   return [manifestCheck, indexCheck, queueCheck];
 }
 
+function checkMemoryProvider(root, provider) {
+  const report = runMemoryProviderCommand({ root, provider, command: 'status' });
+  if (report.provider === 'project-rag') {
+    return [result(report.status === 'ready' ? 'pass' : 'warn', 'memory:project-rag', 'Project RAG memory provider', report.status, 'Run init-project/RAG setup if degraded.', report)];
+  }
+  if (report.provider === 'agentmemory') {
+    const status = report.status === 'ready' ? 'pass' : 'warn';
+    return [result(status, 'memory:agentmemory', 'agentmemory provider health', report.cli.detail, 'Keep MEMORY_PROVIDER=project-rag until agentmemory CLI/server health passes.', report)];
+  }
+  return [result('warn', 'memory:provider', 'Memory provider invalid', report.reason || String(provider), 'Use project-rag or agentmemory.', report)];
+}
+
 function checkGit(root) {
   if (!fs.existsSync(path.join(root, '.git'))) return [result('warn', 'git:repo', 'Git repo not found', root, 'Run doctor from a git project root.')];
   const refs = run('git', ['for-each-ref', '--format=%(refname)'], root, 8000);
@@ -476,6 +490,7 @@ function runDoctor(options) {
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
     ...checkRag(root),
+    ...checkMemoryProvider(root, options.memoryProvider),
     ...checkGit(root),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),

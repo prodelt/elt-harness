@@ -6,12 +6,17 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  checkCodeGraphStatus,
   checkGraphifyIgnoreConfig,
   checkGraphScope,
   checkGraphStaleness,
   checkRelevance,
+  codeGraphRuntimePaths,
   ensureGraphifyIgnoreConfig,
+  runCodemapDoctor,
+  selectedProvider,
   summarizeGraph,
+  withCodeGraphLock,
 } = require('./codemap-core');
 
 function write(file, text) {
@@ -29,7 +34,7 @@ function tempRoot(name) {
 
 function testGraphScopePassesForProjectSources() {
   const root = tempRoot('codemap-pass');
-  write(path.join(root, '.graphifyignore'), 'tools/red-team\naudit/1c-dev-pilot\ngraphify-out/cache\n');
+  write(path.join(root, '.graphifyignore'), '.planning\n.rag\n.tmp\ngraphify-out\ntools/__pycache__\ntools/red-team\naudit/1c-dev-pilot\n');
   write(path.join(root, 'graphify-out', 'graph.json'), graph([
     { label: 'doctor-core.js', source_file: 'tools/doctor-core.js' },
     { label: 'runDoctor()', source_file: 'tools/doctor-core.js' },
@@ -48,13 +53,17 @@ function testGraphifyIgnoreConfigRequiresNoisyExcludes() {
   write(path.join(incompleteRoot, '.graphifyignore'), 'tools/red-team\n');
   const incomplete = checkGraphifyIgnoreConfig(incompleteRoot);
   assert.equal(incomplete.status, 'warn');
-  assert.match(incomplete.detail, /audit\/1c-dev-pilot/);
+  assert.match(incomplete.detail, /\.planning/);
 
   const completeRoot = tempRoot('codemap-ignore-complete');
   write(path.join(completeRoot, '.graphifyignore'), [
+    '.planning/**',
+    '.rag/**',
+    '.tmp/**',
+    'graphify-out/**',
+    'tools/__pycache__/**',
     'tools/red-team/**',
     'audit/1c-dev-pilot/**',
-    'graphify-out/cache/**',
   ].join('\n'));
   const complete = checkGraphifyIgnoreConfig(completeRoot);
   assert.equal(complete.status, 'pass');
@@ -68,9 +77,12 @@ function testEnsureGraphifyIgnoreConfigAddsMissingExcludes() {
   assert.equal(setup.changed, true);
   assert.match(text, /^# local keep/m);
   assert.match(text, /^\.tmp$/m);
+  assert.match(text, /^\.planning$/m);
+  assert.match(text, /^\.rag$/m);
+  assert.match(text, /^graphify-out$/m);
+  assert.match(text, /^tools\/__pycache__$/m);
   assert.match(text, /^tools\/red-team$/m);
   assert.match(text, /^audit\/1c-dev-pilot$/m);
-  assert.match(text, /^graphify-out\/cache$/m);
 }
 
 function testGraphScopeWarnsForNoisyGraph() {
@@ -136,6 +148,60 @@ function testSummarizeGraphCountsSources() {
   assert.equal(summary.uniqueSources, 2);
 }
 
+function testProviderSelectionDefaultsToGraphify() {
+  assert.equal(selectedProvider({}), 'graphify');
+  assert.equal(selectedProvider({ provider: 'codegraph' }), 'codegraph');
+  assert.equal(selectedProvider({ provider: 'unknown' }), '');
+}
+
+function testCodeGraphStatusUsesBoundedProviderCommand() {
+  const root = tempRoot('codemap-codegraph');
+  const check = checkCodeGraphStatus(root, (cwd, args) => ({
+    status: 0,
+    output: 'ok',
+    attemptedCommand: `codegraph ${args.join(' ')}`,
+  }));
+  assert.equal(check.status, 'pass');
+  assert.equal(check.data.attemptedCommand, 'codegraph status');
+}
+
+function testRunCodemapDoctorCanUseCodeGraphProvider() {
+  const root = tempRoot('codemap-codegraph-provider');
+  const report = runCodemapDoctor({
+    root,
+    provider: 'codegraph',
+    codegraphRunner: () => ({ status: 0, output: 'ok', attemptedCommand: 'codegraph status' }),
+  });
+  assert.equal(report.provider, 'codegraph');
+  assert.equal(report.summary.pass, 1);
+  assert.equal(report.checks[0].id, 'codemap:codegraph:cli');
+}
+
+function testCodeGraphRuntimeUsesWritableProjectCache() {
+  const root = tempRoot('codemap-codegraph-cache');
+  const runtime = codeGraphRuntimePaths(root);
+  assert.equal(runtime.cacheDir, path.join(root, '.tmp', 'codegraph'));
+  assert.equal(runtime.lockFile, path.join(root, '.tmp', 'codegraph', 'codegraph.lock'));
+}
+
+function testCodeGraphLockSerializesRunner() {
+  const root = tempRoot('codemap-codegraph-lock');
+  const first = withCodeGraphLock(root, () => ({ status: 0, output: 'ok' }));
+  assert.equal(first.status, 0);
+
+  const runtime = codeGraphRuntimePaths(root);
+  fs.mkdirSync(runtime.cacheDir, { recursive: true });
+  fs.writeFileSync(runtime.lockFile, 'busy', 'utf8');
+  let tick = 0;
+  const locked = withCodeGraphLock(root, () => ({ status: 0 }), () => {
+    tick += 20000;
+    return tick;
+  });
+  assert.equal(locked.status, 1);
+  assert.match(locked.error, /lock unavailable/);
+  fs.rmSync(runtime.lockFile, { force: true });
+}
+
 function main() {
   testGraphScopePassesForProjectSources();
   testGraphifyIgnoreConfigRequiresNoisyExcludes();
@@ -145,6 +211,11 @@ function main() {
   testGraphStalenessWarnsForSemanticRationaleNodes();
   testRelevanceRequiresCurrentFileCitation();
   testSummarizeGraphCountsSources();
+  testProviderSelectionDefaultsToGraphify();
+  testCodeGraphStatusUsesBoundedProviderCommand();
+  testRunCodemapDoctorCanUseCodeGraphProvider();
+  testCodeGraphRuntimeUsesWritableProjectCache();
+  testCodeGraphLockSerializesRunner();
   process.stdout.write('codemap tests: PASS\n');
 }
 
