@@ -20,3 +20,27 @@ audit/S7_redteam_research/repos/
 # Auto-generated handoff artifacts
 .planning/AUTO_NEXT_SESSION_PROMPT.md
 .planning/AUTO_HANDOFF_STATUS.md
+.planning/AUTO_NEXT_SESSION_PROMPT\ (1).md
+.planning/AUTO_HANDOFF_STATUS\ (1).md
+
+# Generated graph / cache output (scoped in .graphifyignore too)
+graphify-out/
+.tmp/
+tools/__pycache__/
+
+# Obsidian vault metadata
+.obsidian/
+
+# Local Claude / editor settings (not project config)
+.claude/settings.json
+.claude/settings.local.json
+.claude/settings\ (1).local.json
+
+# Duplicate artifacts with "(1)" suffix — OS copy artefacts
+AGENTS\ (1).md
+CLAUDE\ (1).md
+MEMORY\ (1).md
+.gemini/GEMINI\ (1).md
+audit/S11_pipeline_top1/NEXT_SESSION_PROMPT\ (1).md
+audit/S11_pipeline_top1/PLAN\ (1).md
+.rag/.gitignore\ (1)
