@@ -300,6 +300,25 @@ function checkGraphify(root, enabled) {
   return [cliCheck, ...codemap];
 }
 
+function checkCodeGraph(root) {
+  const dbPath = path.join(root, '.codegraph', 'codegraph.db');
+  if (!fs.existsSync(dbPath)) return [];
+  const status = run('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
+  if (status.status !== 0) {
+    return [result('warn', 'codegraph:status', 'CodeGraph DB present but status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
+  }
+  const lines = status.output || '';
+  const filesMatch = lines.match(/Files:\s+(\d+)/);
+  const nodesMatch = lines.match(/Nodes:\s+([\d\s]+)/);
+  const backendMatch = lines.match(/Backend:\s+(.+)/);
+  const detail = [
+    filesMatch ? `files=${filesMatch[1].trim()}` : '',
+    nodesMatch ? `nodes=${nodesMatch[1].trim()}` : '',
+    backendMatch ? `backend=${backendMatch[1].trim()}` : '',
+  ].filter(Boolean).join(', ');
+  return [result('pass', 'codegraph:status', 'CodeGraph index OK', detail || 'codegraph status completed.', '')];
+}
+
 function checkRag(root) {
   const manifest = path.join(root, '.rag', 'manifest.json');
   const parsed = readJson(manifest);
@@ -489,6 +508,7 @@ function runDoctor(options) {
     ...checkCodexDefaults(home),
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
+    ...checkCodeGraph(root),
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkGit(root),
