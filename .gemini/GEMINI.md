@@ -31,16 +31,28 @@ cmd /c graphify --help                          # smoke: CLI доступен
 cmd /c graphify query "что делает edit-enforcer?"
 cmd /c graphify update .                        # обновить граф (в проекте)
 node tools/doctor.js                            # health: docs, skills, hooks, Graphify, RAG, git, state
+node tools/pipeline-state.test.js               # pipeline v3 acceptance helpers: state/mode/ledger/closeout
 node tools/project-docs.js verify --root .      # verify 6 AI-doc core sections
 node tools/project-docs.test.js                 # init/sync v2 regression tests
 node tools/codemap.js --root .                  # Graphify scope + relevance doctor
+node tools/codemap.js --root . --provider codegraph --json # optional CodeGraph provider health
 node tools/codemap.js setup --root . --no-relevance # create/update .graphifyignore + scope/stale checks
+node tools/codemap-benchmark.js --root . --provider graphify --json # 10-question relevance benchmark
+node tools/codemap-measure.js --root . --json   # codemap task-level tool/read measurement plan
+node tools/memory-provider.js status --root . --json # project-rag / agentmemory provider health
+node tools/memory-provider.js recall --root . --json # 20 recall prompts for memory-provider comparison
+node tools/memory-provider.js compare --root . --json # project-rag vs agentmemory promotion report
+node tools/hook-diet.js --summary --out .planning/HOOK-DIET-INVENTORY-2026-05-20.json # hook diet inventory/evidence
+node tools/token-impact.js measure-command --cmd "node tools/research-router.js design research router --root . --github --architecture --json" --json # command output/token proxy
+node tools/project-bootstrap.js --root <project> --json # dry-run bootstrap: docs/codemap strategy and safe actions
+node tools/project-bootstrap.js --root <project> --apply --json # apply safe docs + graphifyignore only
 node audit/S11_pipeline_top1/skills/pipeline-check.js # verify pipeline v2 runtime skill copies
 node audit/S11_pipeline_top1/skills/architect-first-check.js # verify architect-first v2 runtime skill copies
 python tools/rag-ingest.py --project pipeline-setupper --queue-stats
 doctor.cmd --root .                             # global wrapper from ~/.claude/bin
 skill.cmd "architecture refactor" --top 3       # global skill wrapper from ~/.claude/bin
-node tools/skill-search.js "architecture refactor" --top 5
+node tools/skill-search.js "architecture refactor" --top 3
+node tools/research-router.js "design research router" --root . --github --architecture --json
 node tools/github-research.js "claude code hooks" --limit 5
 python tools/rag-ingest.py --project pipeline --queue AGENTS.md
 python tools/rag-ingest.py --project pipeline --queue-stats
@@ -54,7 +66,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── hooks/                    ← 48 хуков (все PASS; 48 команд в settings.json)
 │   ├── SessionStart (9):     project-docs-gate, session-focus-gate, autoskills-check,
 │   │                         graphify-session-init, memory-discipline, session-branch-advisor,
-│   │                         harvest-injector, projects-dashboard, handoff-sync
+│   │                         harvest-injector, projects-dashboard, rag-context-injector
 │   ├── UserPromptSubmit (2): context-budget-gate, session-size-guard
 │   ├── PreToolUse (11):      graphify-read-gate[Read], graphify-preuse[Glob|Grep],
 │   │                         settings-schema-guard[Edit|Write], write-over-edit-guard[Write],
@@ -68,7 +80,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 │   │                         graphify-post-commit [Bash], graphify-auto-update [Edit|Write],
 │   │                         inline-review-tracker [Agent],
 │   │                         scope-guard [TaskCreate], context7-tracker [Context7],
-│   │                         pipeline-tracker [Skill], rag-context-injector
+│   │                         pipeline-tracker [Skill]
 │   ├── Stop (3):             stop-verification, ship-gate, stop-auto-checkpoint
 │   ├── Notification (1):     task-completed-gate          ← Claude Code only
 │   └── FileChanged (1):      env-change-watcher           ← Claude Code only
@@ -80,7 +92,13 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── bin/skill.cmd             ← global skill-search wrapper to tools/skill-search.js
 ├── projects-registry.json    ← registered project keys and paths
 ├── tools/project-docs*.js     ← init-project v2 / sync-docs v2 section-aware docs engine
+├── tools/pipeline-state.js    ← canonical pipeline v3 state/ledger helper + acceptance logic
 ├── tools/codemap*.js          ← Graphify/codemap doctor: setup, scope, stale graph, relevance smoke
+├── tools/memory-provider.js   ← project-rag/agentmemory pilot health, recall prompts, comparison, governance smoke
+├── tools/hook-diet.js          ← hook inventory, classification, failure policy, rollback/evidence fields
+├── tools/token-impact.js       ← JSONL/session and command-output proxy measurement for token/file-read impact
+├── tools/project-bootstrap.js  ← fail-soft project bootstrap: docs/codemap setup and bounded-grep strategy
+├── tools/research-router.js   ← compact research evidence router with provider skip reasons and token budgets
 ├── hooks/hook-stats.js       ← CLI метрик
 ├── skills/                   ← 47 скілів: pipeline/ship/sprint/architect-first/cto-playbook/etc.
 │                                + mattpocock/skills (tdd/grill-me/diagnose/domain-model/zoom-out/
@@ -99,7 +117,8 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
 - **Codex не поддерживает** FileChanged и Notification — это Claude Code only события
 - **loop-guardian**: ловит ОДИНАКОВЫЕ едиты (same old_string), не просто "3 едита одного файла"
-- **graphify-read-gate**: пропускает партиальные рида (limit < 150), для full read >80 строк дает advisory Graphify query, не блокирует
+- **rag-context-injector**: SessionStart hook is opt-in/silent by default (`ragContextInjector.enabled=false`) to avoid global startup token burn; use RAG on demand via `python tools/rag-ingest.py --query ...`
+- **graphify-read-gate**: пропускает партиальные рида (any explicit limit), для full read >120 строк дает максимум 1 advisory Graphify query per session, не блокирует
 - **Graphify scope**: noisy corpora excluded via `.graphifyignore`; if old `rationale` nodes persist, delete/regenerate `graphify-out/graph.json` before `cmd /c graphify update .`
 - **memory-discipline**: warn >80 строк MEMORY.md, block >100. Запустить /learn для сжатия
 - **cwd в хуках**: всегда из `input.cwd`, не `process.cwd()`
@@ -118,6 +137,21 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **S18 Sprint 4 codemap/RAG slice (2026-05-08)**: `tools/codemap-core.js` + `tools/codemap.js` added; `doctor` now routes Graphify checks through codemap scope/relevance. `.graphifyignore` scopes Graphify away from red-team/recon/cache corpora; fresh rebuild is 810 nodes / 1301 edges / 0 noisy nodes. Serena/Aider repo-map preflight saved in `.planning/EVAL-2026-05-08-serena-aider-repomap.md`; Graphify remains primary, Serena is future candidate. `rag-ingest.py` discovers projects from `~/.claude/projects-registry.json`; queue stats now report total/pending/indexed/failed/skipped/processing/stale.
 - **S19 Sprint 5 Graphify automation (2026-05-08)**: `node tools/codemap.js setup --root <project>` now creates/updates project-local `.graphifyignore`, `doctor` includes stale semantic/rationale node detection, and codemap reports a fresh rebuild repair path when old `graphify-out/graph.json` carryover remains.
 - **S20 Sprint 5 skills simplification (2026-05-08)**: `pipeline` and `architect-first` runtime skills upgraded to v2 across Claude/Codex/Gemini. `pipeline v2` now enforces checklist extraction, project guard, minimal route, skill budget, per-project state, and final criteria check. `architect-first v2` now requires `.planning/ARCHITECTURE-<date>-<slug>.md`, acceptance tests before code, sprint slices, and docs/codemap delta. Regression checks added in `audit/S11_pipeline_top1/skills/*-check.js`.
+- **S29 Sprint 1 pipeline v3 closure (2026-05-20)**: `pipeline` runtime skills upgraded to v3 across Claude/Codex/Gemini; `tools/pipeline-state.js` now owns canonical project key/state path, auto vs interview routing, stale-state replacement, session ledger append, and closeout proof validation. Coverage added in `tools/pipeline-state.test.js`; `pipeline-check` now enforces v3 contract fields.
+- **S30 Sprint 2 skill-router (2026-05-20)**: `tools/skill-search.js` now acts as skill-router preflight: top-3 budget, hard relevance gate before total score, `no skill` direct-work option, visible marketplace attempted command/errors, cached marketplace status, and optional `--ledger` JSONL router event. Coverage added in `tools/skill-search.test.js`.
+- **S31 Sprint 3 research-router (2026-05-20)**: `tools/research-router.js` added for compact evidence blocks: project-docs/codemap/RAG provider selection, Context7/GitHub health skips with attempted commands, top-5 findings, per-source token budgets, and optional `--ledger` JSONL event. Coverage added in `tools/research-router.test.js`.
+- **S32 Sprint 4 CodeGraph pilot start (2026-05-20)**: `tools/codemap-core.js` now has a codemap provider interface with default `graphify` and optional `codegraph` health checks via `--provider codegraph` / `CODEMAP_PROVIDER=codegraph`; Graphify remains the production fallback. `.graphifyignore` now excludes planning/RAG/tmp/graph output and generated cache corpora from codemap scope.
+- **S33 Sprint 4 CodeGraph pilot closure (2026-05-20)**: CodeGraph wrapper now uses project-local `.tmp/codegraph` cache env and a lock file to serialize CLI calls. `tools/codemap-benchmark.js` adds a 10-question relevance benchmark; current Graphify baseline is 7 PASS / 3 WARN. `tools/codemap-measure.js` records Claude/Codex command-level tool/read measurements. Real CodeGraph promotion is blocked until `codegraph status` is available in PATH.
+- **S34 Sprint 5 agentmemory pilot (2026-05-20)**: `tools/memory-provider.js` added with `MEMORY_PROVIDER=project-rag|agentmemory`, project-rag default health, agentmemory CLI/port checks for 3111/3113, 20 recall prompts, comparison report, and governance smoke. `doctor` now reports memory provider health; keep default `project-rag` until agentmemory CLI/server passes.
+- **S35 Sprint 6 hook diet evidence (2026-05-20, refreshed 2026-05-21)**: `tools/hook-diet.js` added for no-removal inventory. Current inventory: 107 hook registrations; class split is 79 advisory / 14 hard-block / 10 telemetry / 4 background, with 16 duplicate matcher groups. Full inventory written to `.planning/HOOK-DIET-INVENTORY-2026-05-20.json`.
+- **S36 Sprint 6 runtime evidence join (2026-05-20, refreshed 2026-05-21)**: `tools/hook-diet.js` now joins inventory with `~/.claude/hooks/metrics.json` and `errors.log`. Current evidence coverage: 16/107 hook registrations have runtime metrics, 91/107 are missing runtime metrics; `errors.log` has 971 lines and 0 `[ERROR]` lines. No hooks removed yet.
+- **S37 Sprint 6 closure (2026-05-20, refreshed 2026-05-21)**: candidate report written to `.planning/HOOK-DIET-CANDIDATES-2026-05-20.json`. Result: 107 hooks evaluated, 0 eligible for removal, 107 blocked by missing `output_chars`, missing runtime metrics, hard-block status, or safety evidence. Sprint 6 closes with no hook removals.
+- **S38 token impact measurement (2026-05-20)**: `tools/token-impact.js` added to measure JSONL/session proxies: tool output chars, file-read events, risky full-file reads, and real token usage when present. Current measured command outputs: `research-router` evidence block 1752 chars / 53 lines; `hook-diet --summary` 3776 chars / 188 lines. Token savings remain unclaimed until matched before/after session telemetry exists.
+  - **S39 project bootstrap (2026-05-20)**: `tools/project-bootstrap.js` added. Dry-run scans project size/docs/codemap/RAG and chooses `bounded-grep-first` for small repos. It now detects stack (`Next.js App Router`, `Vite React`, `Electron`, `Node.js`) and emits bounded recommended probes. `--apply` only performs safe setup: AI docs init and `.graphifyignore`; RAG/LLM ingestion remains manual.
+  - **S40 bootstrap advisor hook (2026-05-20)**: `project-bootstrap-advisor.js` installed into Claude/Codex SessionStart. It is dry-run only: reports project strategy and bounded probes, and suggests `project-bootstrap --apply` when safe setup is missing. Verified Codex hooks 46/46 PASS.
+  - **S41 Sprint 7 docs/git workflow (2026-05-21)**: `AGENTS.md` is now explicit canonical source for AI docs; `project-docs-core.js` exports `CANONICAL_DOC` and regression coverage proves `AGENTS.md` wins sync ties. `project-docs-gate.js` runtime warning now says `AGENTS.md -> CLAUDE.md + .gemini/GEMINI.md`.
+  - **S42 Sprint 8 measured hook diet (2026-05-21)**: `~/.claude/hooks/lib/metrics.js` now records `outputChars` / `_lastOutputChars` by patching `process.stdout.write` after `metrics.inc()` / `metrics.timing()`. Evidence refreshed to `.planning/HOOK-DIET-INVENTORY-2026-05-21.json` and `.planning/HOOK-DIET-CANDIDATES-2026-05-21.json`; registered smoke shows `session-focus-gate` outputChars=204 and candidate report now has 2 measured manual-review candidates / 105 blocked.
+- **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.
 - **auto-branch.js** — создаёт `session/YYYY-MM-DD-HHmm` при первом Edit/Write на main/master
@@ -126,6 +160,14 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **RAG система**: 4 проекти (pipeline 52, izi-tracker 12, law-assistant 30, sudoviy-master 2 chunks); incremental queue: `.rag/queue.json` via `tools/rag-ingest.py --queue/--process-queue --llm ollama`; `rag-queue-enqueue.js` PostToolUse hook only enqueues, never runs LLM extraction. Embeddings still use Google 3072-dim until index rebuild.
 - **bun**: v1.3.13 — gstack /browse, /qa, /open-gstack-browser доступні
 - **Token burn**: ~90K / session
+
+## Git Workflow
+- Work one task per branch; use `system-upgrade/<slug>` or `fix/<slug>`.
+- Commit format: `<type>: <description>`.
+- PR title: under 70 chars.
+- PR body: Summary bullets + Test plan checklist.
+- Never commit `.env`, secrets, `node_modules`, generated caches, or build artifacts.
+- No force-push to main.
 
 ## Antigravity Notes
 - Global rules: `~/.gemini/GEMINI.md` (якщо існує)

@@ -4,9 +4,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
+const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
+const {
+  legacyStatePath,
+  normalizePath,
+  projectKey,
+  projectStatePath,
+} = require('./pipeline-state');
 
 const DOCS = ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
 const SECTIONS = ['Overview', 'Stack', 'Commands', 'Architecture', 'Gotchas', 'Current State'];
@@ -14,20 +20,17 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const STATE_CLOCK_SKEW_MS = 60 * 1000;
+const SETTINGS_SECRET_PATTERNS = [
+  { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
+  { name: 'Context7 API key', pattern: /ctx7sk-[0-9A-Za-z-]{20,}/ },
+  { name: 'OpenAI-style API key', pattern: /sk-[0-9A-Za-z_-]{20,}/ },
+  { name: 'GitHub token', pattern: /(?:ghp|github_pat)_[0-9A-Za-z_]{20,}/ },
+  { name: 'Bearer token', pattern: /Bearer\s+[0-9A-Za-z._-]{20,}/ },
+  { name: 'literal --api-key', pattern: /--api-key\s+(?![$%{])[^\s")']{12,}/ },
+];
 
 function result(status, id, title, detail, repair, data = {}) {
   return { status, id, title, detail, repair, data };
-}
-
-function normalizePath(value) {
-  return path.resolve(value).replace(/\\/g, '/');
-}
-
-function projectKey(root) {
-  const normalized = normalizePath(root).toLowerCase();
-  const base = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 8);
-  return `${base || 'project'}-${hash}`;
 }
 
 function readText(file) {
@@ -58,13 +61,14 @@ function findProjectRoot(start) {
 }
 
 function parseArgs(argv) {
-  const defaults = { root: process.cwd(), json: false, register: false, graphify: true };
+  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
   const parseNext = (index, state) => {
     if (index >= argv.length) return { ok: true, value: state };
     const arg = argv[index];
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
     if (arg === '--register') return parseNext(index + 1, { ...state, register: true });
     if (arg === '--no-graphify') return parseNext(index + 1, { ...state, graphify: false });
+    if (arg === '--memory-provider') return parseNext(index + 2, { ...state, memoryProvider: argv[index + 1] || state.memoryProvider });
     if (arg === '--root') {
       const root = argv[index + 1];
       if (!root) return { ok: false, error: '--root requires a path' };
@@ -105,14 +109,6 @@ function checkDocs(root) {
 
 function registryPath(home) {
   return path.join(home, '.claude', 'projects-registry.json');
-}
-
-function projectStatePath(root, home) {
-  return path.join(home, '.claude', 'projects', projectKey(root), 'pipeline-state.json');
-}
-
-function legacyStatePath(home) {
-  return path.join(home, '.claude', 'pipeline-state.json');
 }
 
 function registryEntry(root) {
@@ -243,6 +239,56 @@ function checkHooks(home) {
   return [settingsCheck, hooksCheck];
 }
 
+function listSettingsFiles(root, home) {
+  const projectClaude = path.join(root, '.claude');
+  const projectFiles = fs.existsSync(projectClaude)
+    ? fs.readdirSync(projectClaude)
+      .filter((name) => /^settings.*\.json$/i.test(name))
+      .map((name) => path.join(projectClaude, name))
+    : [];
+  return [
+    ...projectFiles,
+    path.join(home, '.claude', 'settings.json'),
+    path.join(home, '.claude', 'settings.local.json'),
+    path.join(home, '.codex', 'config.toml'),
+  ].filter((file, index, files) => fs.existsSync(file) && files.indexOf(file) === index);
+}
+
+function checkSettingsSecrets(root, home) {
+  const files = listSettingsFiles(root, home);
+  const findings = files.flatMap((file) => {
+    const text = readText(file);
+    if (!text.ok) return [{ file, lineNumber: 0, kind: 'unreadable', line: text.error }];
+    return text.value.split(/\r?\n/).flatMap((line, index) => {
+      const match = SETTINGS_SECRET_PATTERNS.find((entry) => entry.pattern.test(line));
+      return match ? [{ file, lineNumber: index + 1, kind: match.name, line: line.trim() }] : [];
+    });
+  });
+  if (findings.length > 0) {
+    const detail = findings.slice(0, 5)
+      .map((entry) => `${entry.file}:${entry.lineNumber} ${entry.kind}`)
+      .join('; ');
+    return [result('fail', 'settings:secrets', 'Secret-like settings entries detected', detail, 'Remove literal credentials from settings allowlists; use env placeholders.')];
+  }
+  return [result('pass', 'settings:secrets', 'No secret-like settings entries detected', `${files.length} settings/config files scanned.`, '')];
+}
+
+function checkCodexDefaults(home) {
+  const file = path.join(home, '.codex', 'config.toml');
+  const text = readText(file);
+  if (!text.ok) {
+    return [result('warn', 'codex:defaults', 'Codex config missing', text.error, 'Create ~/.codex/config.toml with model and model_reasoning_effort defaults.')];
+  }
+  const model = (text.value.match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || '';
+  const effort = (text.value.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/m) || [])[1] || '';
+  const expensiveModel = model === 'gpt-5.5';
+  const expensiveEffort = ['high', 'xhigh', 'max'].includes(effort);
+  if (expensiveModel || expensiveEffort) {
+    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Use gpt-5.4 + medium for routine work; reserve high/xhigh for architecture/security/audits.')];
+  }
+  return [result('pass', 'codex:defaults', 'Codex defaults right-sized', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
+}
+
 function checkGraphify(root, enabled) {
   if (!enabled) return [result('warn', 'graphify:skipped', 'Graphify check skipped', '--no-graphify was provided.', 'Run without --no-graphify.')];
   const help = run('cmd.exe', ['/c', 'graphify', '--help'], root, 8000);
@@ -252,6 +298,25 @@ function checkGraphify(root, enabled) {
   const cliCheck = result('pass', 'graphify:cli', 'Graphify CLI available', 'cmd /c graphify --help completed.', '');
   const codemap = runCodemapDoctor({ root }).checks;
   return [cliCheck, ...codemap];
+}
+
+function checkCodeGraph(root) {
+  const dbPath = path.join(root, '.codegraph', 'codegraph.db');
+  if (!fs.existsSync(dbPath)) return [];
+  const status = run('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
+  if (status.status !== 0) {
+    return [result('warn', 'codegraph:status', 'CodeGraph DB present but status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
+  }
+  const lines = status.output || '';
+  const filesMatch = lines.match(/Files:\s+(\d+)/);
+  const nodesMatch = lines.match(/Nodes:\s+([\d\s]+)/);
+  const backendMatch = lines.match(/Backend:\s+(.+)/);
+  const detail = [
+    filesMatch ? `files=${filesMatch[1].trim()}` : '',
+    nodesMatch ? `nodes=${nodesMatch[1].trim()}` : '',
+    backendMatch ? `backend=${backendMatch[1].trim()}` : '',
+  ].filter(Boolean).join(', ');
+  return [result('pass', 'codegraph:status', 'CodeGraph index OK', detail || 'codegraph status completed.', '')];
 }
 
 function checkRag(root) {
@@ -273,6 +338,18 @@ function checkRag(root) {
   return [manifestCheck, indexCheck, queueCheck];
 }
 
+function checkMemoryProvider(root, provider) {
+  const report = runMemoryProviderCommand({ root, provider, command: 'status' });
+  if (report.provider === 'project-rag') {
+    return [result(report.status === 'ready' ? 'pass' : 'warn', 'memory:project-rag', 'Project RAG memory provider', report.status, 'Run init-project/RAG setup if degraded.', report)];
+  }
+  if (report.provider === 'agentmemory') {
+    const status = report.status === 'ready' ? 'pass' : 'warn';
+    return [result(status, 'memory:agentmemory', 'agentmemory provider health', report.cli.detail, 'Keep MEMORY_PROVIDER=project-rag until agentmemory CLI/server health passes.', report)];
+  }
+  return [result('warn', 'memory:provider', 'Memory provider invalid', report.reason || String(provider), 'Use project-rag or agentmemory.', report)];
+}
+
 function checkGit(root) {
   if (!fs.existsSync(path.join(root, '.git'))) return [result('warn', 'git:repo', 'Git repo not found', root, 'Run doctor from a git project root.')];
   const refs = run('git', ['for-each-ref', '--format=%(refname)'], root, 8000);
@@ -289,9 +366,43 @@ function checkGit(root) {
   return [result('pass', 'git:refs', 'Git refs OK', 'git for-each-ref completed.', '')];
 }
 
+function checkGitHubCli(root, runner = run) {
+  const version = runner('gh', ['--version'], root, 8000);
+  if (version.status !== 0) {
+    return [result('warn', 'github:cli', 'GitHub CLI unavailable', version.error || version.output, 'Install gh or keep GitHub research optional.')];
+  }
+  const versionLine = version.output.split(/\r?\n/).find(Boolean) || 'gh available';
+  const auth = runner('gh', ['auth', 'status'], root, 8000);
+  if (auth.status !== 0) {
+    return [
+      result('pass', 'github:cli', 'GitHub CLI available', versionLine, ''),
+      result('warn', 'github:auth', 'GitHub auth invalid or missing', auth.output || auth.error, 'Run gh auth login before research-router uses authenticated code search.'),
+      result('warn', 'github:code-search', 'GitHub code search skipped', 'Auth is invalid or missing.', 'Re-authenticate gh, then rerun doctor.'),
+    ];
+  }
+  const codeSearch = runner('gh', ['search', 'code', 'package.json', '--limit', '1'], root, 8000);
+  const codeCheck = codeSearch.status === 0
+    ? result('pass', 'github:code-search', 'GitHub code search available', 'gh search code completed.', '')
+    : result('warn', 'github:code-search', 'GitHub code search unavailable', codeSearch.output || codeSearch.error, 'Re-authenticate gh before research-router uses code search.');
+  return [
+    result('pass', 'github:cli', 'GitHub CLI available', versionLine, ''),
+    result('pass', 'github:auth', 'GitHub auth available', 'gh auth status completed.', ''),
+    codeCheck,
+  ];
+}
+
 function validatePipelineState(state, root, now) {
   if (!state || typeof state !== 'object') {
     return { status: 'warn', title: 'Pipeline state invalid', detail: 'State JSON must be an object.', repair: 'Rewrite state via /pipeline.' };
+  }
+  const phase = typeof state.phase === 'string' ? state.phase : '';
+  const closedAt = typeof state.closedAt === 'string' ? new Date(state.closedAt) : null;
+  const closedTsInvalid = closedAt && Number.isNaN(closedAt.getTime());
+  if (['closed', 'shipped'].includes(phase)) {
+    if (closedTsInvalid || !closedAt) {
+      return { status: 'warn', title: 'Pipeline state close timestamp invalid', detail: String(state.closedAt), repair: 'Rewrite closed state with a valid closedAt timestamp.' };
+    }
+    return { status: 'pass', title: 'Pipeline state closed', detail: state.closedAt, repair: '' };
   }
   const stateCwd = state && typeof state.cwd === 'string' ? normalizePath(state.cwd) : '';
   const expected = normalizePath(root);
@@ -393,10 +504,15 @@ function runDoctor(options) {
     ...checkDocs(root),
     ...checkSkillRegistry(home),
     ...checkSkillYaml(home),
+    ...checkSettingsSecrets(root, home),
+    ...checkCodexDefaults(home),
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
+    ...checkCodeGraph(root),
     ...checkRag(root),
+    ...checkMemoryProvider(root, options.memoryProvider),
     ...checkGit(root),
+    ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
   ];
@@ -423,6 +539,9 @@ module.exports = {
   projectKey,
   projectStatePath,
   parseSkillFrontmatter,
+  checkSettingsSecrets,
+  checkCodexDefaults,
+  checkGitHubCli,
   checkPipelineState,
   runDoctor,
   formatText,

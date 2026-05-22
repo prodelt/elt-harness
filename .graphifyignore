@@ -5,6 +5,8 @@ audit/1c-dev-pilot
 audit/1c-dev-pilot/**
 
 # Generated graph/cache output.
+graphify-out
+graphify-out/**
 graphify-out/cache
 graphify-out/cache/**
 graphify-out/converted
@@ -13,6 +15,10 @@ graphify-out/wiki
 graphify-out/wiki/**
 
 # Runtime scratch data.
+.planning
+.planning/**
+.rag
+.rag/**
 .tmp
 .tmp/**
 tools/__pycache__

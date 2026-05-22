@@ -6,19 +6,29 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const DEFAULT_NOISY_PREFIXES = [
+  '.planning/',
+  '.rag/',
+  '.tmp/',
   'node_modules/',
+  'graphify-out/',
+  'tools/__pycache__/',
   'tools/red-team/',
-  'graphify-out/cache/',
   'audit/1c-dev-pilot/recon/',
 ];
 
 const REQUIRED_GRAPHIFY_IGNORE_PREFIXES = [
+  '.planning',
+  '.rag',
+  '.tmp',
+  'graphify-out',
+  'tools/__pycache__',
   'tools/red-team',
   'audit/1c-dev-pilot',
-  'graphify-out/cache',
 ];
 
 const STALE_GRAPHIFY_NODE_TYPES = new Set(['semantic', 'rationale']);
+const CODEMAP_PROVIDERS = new Set(['graphify', 'codegraph']);
+const CODEGRAPH_LOCK_TIMEOUT_MS = 15000;
 
 function normalizeSlash(value) {
   return String(value || '').replace(/\\/g, '/');
@@ -215,6 +225,83 @@ function defaultRunner(root, query) {
   };
 }
 
+function selectedProvider(options = {}) {
+  const provider = String(options.provider || process.env.CODEMAP_PROVIDER || 'graphify').toLowerCase();
+  return CODEMAP_PROVIDERS.has(provider) ? provider : '';
+}
+
+function codeGraphRuntimePaths(root) {
+  const cacheDir = path.join(root, '.tmp', 'codegraph');
+  return {
+    cacheDir,
+    lockFile: path.join(cacheDir, 'codegraph.lock'),
+  };
+}
+
+function withCodeGraphLock(root, run, now = Date.now) {
+  const runtime = codeGraphRuntimePaths(root);
+  fs.mkdirSync(runtime.cacheDir, { recursive: true });
+  let handle = null;
+  const started = now();
+  while (!handle) {
+    try {
+      handle = fs.openSync(runtime.lockFile, 'wx');
+    } catch (error) {
+      if (error.code !== 'EEXIST' || now() - started >= CODEGRAPH_LOCK_TIMEOUT_MS) {
+        return {
+          status: 1,
+          error: `CodeGraph runner lock unavailable: ${error.message}`,
+          output: '',
+          attemptedCommand: 'codegraph <locked>',
+        };
+      }
+    }
+  }
+  try {
+    return run(runtime);
+  } finally {
+    fs.closeSync(handle);
+    fs.rmSync(runtime.lockFile, { force: true });
+  }
+}
+
+function defaultCodeGraphRunner(root, args) {
+  const isWindows = process.platform === 'win32';
+  const command = isWindows ? 'cmd.exe' : 'codegraph';
+  const finalArgs = isWindows ? ['/c', 'codegraph', ...args] : args;
+  return withCodeGraphLock(root, (runtime) => {
+    const completed = spawnSync(command, finalArgs, {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 15000,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CODEGRAPH_CACHE_DIR: runtime.cacheDir,
+        XDG_CACHE_HOME: runtime.cacheDir,
+      },
+    });
+    return {
+      status: completed.status,
+      error: completed.error && completed.error.message,
+      output: `${completed.stdout || ''}${completed.stderr || ''}`.trim(),
+      attemptedCommand: [command, ...finalArgs].join(' '),
+    };
+  });
+}
+
+function checkCodeGraphStatus(root, runner = defaultCodeGraphRunner) {
+  const completed = runner(root, ['status']);
+  if (completed.status !== 0) {
+    return result('fail', 'codemap:codegraph:cli', 'CodeGraph provider unavailable', completed.error || completed.output, 'Install/configure CodeGraph or set CODEMAP_PROVIDER=graphify.', {
+      attemptedCommand: completed.attemptedCommand || 'codegraph status',
+    });
+  }
+  return result('pass', 'codemap:codegraph:cli', 'CodeGraph provider available', 'codegraph status completed.', '', {
+    attemptedCommand: completed.attemptedCommand || 'codegraph status',
+  });
+}
+
 function checkRelevance(root, runner = defaultRunner) {
   const smoke = chooseSmoke(root);
   const completed = runner(root, smoke.query);
@@ -235,12 +322,25 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function graphifyProviderChecks(root, options) {
+  const checks = [checkGraphifyIgnoreConfig(root), checkGraphScope(root, options.graphPath), checkGraphStaleness(root, options.graphPath)];
+  return options.relevance === false ? checks : [...checks, checkRelevance(root, options.runner)];
+}
+
+function codeGraphProviderChecks(root, options) {
+  return [checkCodeGraphStatus(root, options.codegraphRunner)];
+}
+
 function runCodemapDoctor(options = {}) {
   const root = path.resolve(options.root || process.cwd());
-  const checks = [checkGraphifyIgnoreConfig(root), checkGraphScope(root, options.graphPath), checkGraphStaleness(root, options.graphPath)];
-  if (options.relevance !== false) checks.push(checkRelevance(root, options.runner));
+  const provider = selectedProvider(options);
+  const checks = provider === 'graphify'
+    ? graphifyProviderChecks(root, options)
+    : provider === 'codegraph'
+      ? codeGraphProviderChecks(root, options)
+      : [result('fail', 'codemap:provider', 'Codemap provider invalid', `Unknown provider: ${options.provider}`, 'Use graphify or codegraph.', { provider: options.provider })];
   const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
-  return { root: normalizeSlash(root), summary, checks };
+  return { root: normalizeSlash(root), provider: provider || String(options.provider || ''), summary, checks };
 }
 
 function setupCodemapProject(options = {}) {
@@ -264,13 +364,17 @@ function formatCodemapReport(report) {
 }
 
 module.exports = {
+  checkCodeGraphStatus,
   checkGraphifyIgnoreConfig,
   checkGraphScope,
   checkGraphStaleness,
   checkRelevance,
   ensureGraphifyIgnoreConfig,
   runCodemapDoctor,
+  selectedProvider,
   setupCodemapProject,
+  codeGraphRuntimePaths,
+  withCodeGraphLock,
   formatCodemapReport,
   summarizeGraph,
 };
