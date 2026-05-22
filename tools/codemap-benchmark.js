@@ -51,14 +51,31 @@ function runGraphifyQuestion(root, item, runner = spawnSync) {
   };
 }
 
-function runCodeGraphQuestion(root, item, runner) {
-  const status = checkCodeGraphStatus(root, runner);
+function runCodeGraphQuestion(root, item, runner = spawnSync) {
+  const args = ['/c', 'codegraph', 'query', item.question, '--limit', '8', '--json'];
+  const completed = runner('cmd.exe', args, {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 15000,
+    windowsHide: true,
+  });
+  const raw = `${completed.stdout || ''}${completed.stderr || ''}`.trim();
+  let searchable = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      searchable = parsed.map((r) => [r.node && r.node.filePath, r.node && r.node.name, r.node && r.node.qualifiedName].filter(Boolean).join(' ')).join(' ');
+    }
+  } catch { /* use raw */ }
+  const matched = item.expected.filter((term) => new RegExp(term, 'i').test(searchable));
   return {
     question: item.question,
-    status: status.status === 'pass' ? 'pass' : 'blocked',
+    status: completed.status !== 0 && !raw ? 'fail' : matched.length ? 'pass' : 'warn',
     provider: 'codegraph',
-    attemptedCommand: status.data.attemptedCommand,
-    excerpt: status.detail.slice(0, 300),
+    attemptedCommand: `cmd.exe /c codegraph query "${item.question}" --limit 8 --json`,
+    expected: item.expected,
+    matched,
+    excerpt: searchable.slice(0, 300),
   };
 }
 

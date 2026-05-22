@@ -28,6 +28,11 @@ graphify-out/
 .tmp/
 tools/__pycache__/
 
+# CodeGraph local index (not for commit)
+.codegraph/codegraph.db
+.codegraph/codegraph.db-wal
+.codegraph/codegraph.db-shm
+
 # Obsidian vault metadata
 .obsidian/
 
