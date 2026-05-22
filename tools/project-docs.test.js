@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  CANONICAL_DOC,
   CORE_SECTIONS,
   DOC_FILES,
   parseMarkdownSections,
@@ -91,6 +92,18 @@ function testSyncMakesCoreSectionsIdentical() {
   assert.match(read(path.join(root, 'AGENTS.md')), /Keep me\./);
 }
 
+function testAgentsMdWinsWhenSectionCoverageTies() {
+  const root = tempProject('project-docs-canonical');
+  write(path.join(root, CANONICAL_DOC), coreDoc().replace('Overview content.', 'Canonical overview.'));
+  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Overview content.', 'Stale overview.'));
+  write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc().replace('Overview content.', 'Other overview.'));
+  const result = initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
+  assert.equal(result.success, true);
+  DOC_FILES.forEach((relative) => {
+    assert.match(read(path.join(root, relative)), /Canonical overview\./);
+  });
+}
+
 function testSyncPreservesPreambleRules() {
   const root = tempProject('project-docs-preamble');
   write(path.join(root, 'AGENTS.md'), `# Local Agent Rules\n\nDo not erase this.\n\n${coreDoc()}`);
@@ -107,6 +120,7 @@ function main() {
   testNoopModeDoesNotRewrite();
   testUpgradePreservesProtectedBlocks();
   testSyncMakesCoreSectionsIdentical();
+  testAgentsMdWinsWhenSectionCoverageTies();
   testSyncPreservesPreambleRules();
   process.stdout.write('project-docs tests: PASS\n');
 }

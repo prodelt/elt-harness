@@ -19,7 +19,7 @@ try {
     [
       "---",
       "name: pipeline",
-      "version: 1.4.0",
+      "version: 2.0.0",
       "---",
       "# /pipeline",
       "Route every task through a long workflow.",
@@ -29,9 +29,9 @@ try {
 
   const invalidResult = evaluatePipelineSkill(invalidPath);
   assert.strictEqual(invalidResult.success, false);
-  assert.ok(invalidResult.missing.includes("v2 version"));
-  assert.ok(invalidResult.missing.includes("checklist extraction"));
-  assert.ok(invalidResult.missing.includes("skill budget"));
+  assert.ok(invalidResult.missing.includes("v3 version"));
+  assert.ok(invalidResult.missing.includes("classification"));
+  assert.ok(invalidResult.missing.includes("session ledger"));
 
   const validPath = path.join(tempRoot, "valid", "SKILL.md");
   const fixturePath = path.join(__dirname, "pipeline", "SKILL.md");
