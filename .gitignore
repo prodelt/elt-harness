@@ -36,6 +36,13 @@ tools/__pycache__/
 .claude/settings.local.json
 .claude/settings\ (1).local.json
 
+# Off-topic root reports (not pipeline docs)
+PC_CHECKUP_REPORT_2026-05-15.md
+CHEATSHEET.html
+
+# 1c audit pilot (local only, excluded from Graphify scope)
+audit/1c-dev-pilot/
+
 # Duplicate artifacts with "(1)" suffix — OS copy artefacts
 AGENTS\ (1).md
 CLAUDE\ (1).md
