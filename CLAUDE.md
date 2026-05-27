@@ -8,7 +8,7 @@
 - Claude Code hooks API (`~/.claude/settings.json`)
 - Codex CLI hooks (`~/.codex/hooks.json`)
 - Graphify (Python, `C:/Users/user/AppData/Local/Programs/Python/Python311/Scripts/graphify.exe`)
-- Shared memory: `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
+- Shared memory: provider-aware startup uses `memory_summary.md`; `MEMORY.md`, rollout summaries, and ad-hoc notes are on-demand sources under `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
 
 ## Commands
 ```bash
@@ -42,6 +42,8 @@ node tools/codemap-measure.js --root . --json   # codemap task-level tool/read m
 node tools/memory-provider.js status --root . --json # project-rag / agentmemory provider health
 node tools/memory-provider.js recall --root . --json # 20 recall prompts for memory-provider comparison
 node tools/memory-provider.js compare --root . --json # project-rag vs agentmemory promotion report
+node tools/agent-surface-audit.js --json       # Claude/Codex/Gemini parity artifact
+node tools/agent-surface-audit.js --markdown   # human-readable parity report
 node tools/hook-diet.js --summary --out .planning/HOOK-DIET-INVENTORY-2026-05-20.json # hook diet inventory/evidence
 node tools/token-impact.js measure-command --cmd "node tools/research-router.js design research router --root . --github --architecture --json" --json # command output/token proxy
 node tools/project-bootstrap.js --root <project> --json # dry-run bootstrap: docs/codemap strategy and safe actions
@@ -52,6 +54,10 @@ python tools/rag-ingest.py --project pipeline-setupper --queue-stats
 doctor.cmd --root .                             # global wrapper from ~/.claude/bin
 skill.cmd "architecture refactor" --top 3       # global skill wrapper from ~/.claude/bin
 node tools/skill-search.js "architecture refactor" --top 3
+node tools/skill-search.js --benchmark --json   # skill-router quality gate
+node tools/context7-cli.js library "vercel ai" "agents tool calling"  # resolve library ID
+node tools/context7-cli.js docs /microsoft/playwright-mcp "CLI usage" # query library docs
+node tools/context7-cli.js skills-search         # manual-only interactive note (no spawn)
 node tools/research-router.js "design research router" --root . --github --architecture --json
 node tools/github-research.js "claude code hooks" --limit 5
 python tools/rag-ingest.py --project pipeline --queue AGENTS.md
@@ -95,6 +101,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── tools/pipeline-state.js    ← canonical pipeline v3 state/ledger helper + acceptance logic
 ├── tools/codemap*.js          ← Graphify/codemap doctor: setup, scope, stale graph, relevance smoke
 ├── tools/memory-provider.js   ← project-rag/agentmemory pilot health, recall prompts, comparison, governance smoke
+├── tools/agent-surface-audit.js ← Claude/Codex/Gemini hooks/skills/tooling parity audit; writes .planning latest reports
 ├── tools/hook-diet.js          ← hook inventory, classification, failure policy, rollback/evidence fields
 ├── tools/token-impact.js       ← JSONL/session and command-output proxy measurement for token/file-read impact
 ├── tools/project-bootstrap.js  ← fail-soft project bootstrap: docs/codemap setup and bounded-grep strategy
@@ -104,7 +111,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 │                                + mattpocock/skills (tdd/grill-me/diagnose/domain-model/zoom-out/
 │                                  caveman/github-triage/to-prd/to-issues/triage-issue/qa/...)
 ├── settings.json             ← глобальная конфигурация + разрешения
-└── projects/C--/memory/      ← shared memory (junction с Codex)
+└── projects/C--/memory/      ← shared memory: memory_summary.md startup; MEMORY.md/rollouts/ad-hoc on demand
 
 ~/.codex/
 ├── hooks.json                ← 44 hook-команды (те же .js, без FileChanged/Notification)
@@ -120,7 +127,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 - **rag-context-injector**: SessionStart hook is opt-in/silent by default (`ragContextInjector.enabled=false`) to avoid global startup token burn; use RAG on demand via `python tools/rag-ingest.py --query ...`
 - **graphify-read-gate**: пропускает партиальные рида (any explicit limit), для full read >120 строк дает максимум 1 advisory Graphify query per session, не блокирует
 - **Graphify scope**: noisy corpora excluded via `.graphifyignore`; if old `rationale` nodes persist, delete/regenerate `graphify-out/graph.json` before `cmd /c graphify update .`
-- **memory-discipline**: warn >80 строк MEMORY.md, block >100. Запустить /learn для сжатия
+- **memory-discipline**: provider-aware SessionStart check. Default startup payload is `memory_summary.md`; `MEMORY.md` is a registry and rollout summaries/ad-hoc notes are on-demand, so oversized historical memory does not block unless explicitly configured as startup payload. Rollback flag for one sprint: `CLAUDE_MEMORY_DISCIPLINE_LEGACY=1`.
 - **cwd в хуках**: всегда из `input.cwd`, не `process.cwd()`
 - **Windows paths**: использовать `path.join()`, не строковую конкатенацию
 - **Stdout хуков**: только silent exit OR валидный JSON с `hookSpecificOutput`/`decision`
@@ -150,7 +157,12 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
   - **S39 project bootstrap (2026-05-20)**: `tools/project-bootstrap.js` added. Dry-run scans project size/docs/codemap/RAG and chooses `bounded-grep-first` for small repos. It now detects stack (`Next.js App Router`, `Vite React`, `Electron`, `Node.js`) and emits bounded recommended probes. `--apply` only performs safe setup: AI docs init and `.graphifyignore`; RAG/LLM ingestion remains manual.
   - **S40 bootstrap advisor hook (2026-05-20)**: `project-bootstrap-advisor.js` installed into Claude/Codex SessionStart. It is dry-run only: reports project strategy and bounded probes, and suggests `project-bootstrap --apply` when safe setup is missing. Verified Codex hooks 46/46 PASS.
   - **S41 Sprint 7 docs/git workflow (2026-05-21)**: `AGENTS.md` is now explicit canonical source for AI docs; `project-docs-core.js` exports `CANONICAL_DOC` and regression coverage proves `AGENTS.md` wins sync ties. `project-docs-gate.js` runtime warning now says `AGENTS.md -> CLAUDE.md + .gemini/GEMINI.md`.
-  - **S42 Sprint 8 measured hook diet (2026-05-21)**: `~/.claude/hooks/lib/metrics.js` now records `outputChars` / `_lastOutputChars` by patching `process.stdout.write` after `metrics.inc()` / `metrics.timing()`. Evidence refreshed to `.planning/HOOK-DIET-INVENTORY-2026-05-21.json` and `.planning/HOOK-DIET-CANDIDATES-2026-05-21.json`; registered smoke shows `session-focus-gate` outputChars=204 and candidate report now has 2 measured manual-review candidates / 105 blocked.
+- **S42 Sprint 8 measured hook diet (2026-05-21)**: `~/.claude/hooks/lib/metrics.js` now records `outputChars` / `_lastOutputChars` by patching `process.stdout.write` after `metrics.inc()` / `metrics.timing()`. Evidence refreshed to `.planning/HOOK-DIET-INVENTORY-2026-05-21.json` and `.planning/HOOK-DIET-CANDIDATES-2026-05-21.json`; registered smoke shows `session-focus-gate` outputChars=204 and candidate report now has 2 measured manual-review candidates / 105 blocked.
+- **S43 P0.1 memory startup flakiness (2026-05-27)**: `memory-discipline.js` no longer hard-blocks SessionStart on oversized historical `MEMORY.md`. It recognizes `memory_summary.md`, optional `MEMORY.md` registry, rollout summaries, and ad-hoc notes; only explicit oversized startup payload overrides can block.
+- **S44 P0.2 CodeGraph lock/cache path (2026-05-27)**: CodeGraph CLI provider wrapper now probes writable runtime cache, falls back from project `.tmp\codegraph` to stable user temp cache when sandbox blocks lock creation, records `cachePath`/`lockPath`, cleans stale same-owner locks, and reports `fallback=graphify` when not promotable. Graphify remains default; doctor reports CodeGraph MCP/index health separately from CLI provider promotability.
+- **S45 P0.3 Agent Surface Audit (2026-05-27)**: `tools/agent-surface-audit.js` added as a read-only Claude/Codex/Gemini surface audit for hook event support, hook command inventory, skill inventory, shims, Context7 CLI, codemap providers, memory paths, and browser tooling. It writes `.planning/agent-surface-audit-latest.json` + `.md`; `doctor` reports the latest audit as PASS/WARN without requiring perfect parity.
+- **S46 P1.1 Compact-Aware Context Budget (2026-05-27)**: `context-budget-gate.js` and `session-size-guard.js` now use shared `lib/active-window.js` to estimate active transcript bytes after the latest compact marker, while preserving legacy full-file behavior when no marker exists. Behavior coverage now proves legacy warning, post-compact silence, and active-window warning paths.
+- **S47 P1.2 Skill Router Quality Gate (2026-05-27)**: `tools/skill-search.js` now has a `--benchmark --json` quality gate, domain-hint re-ranking for browser/security/QA prompts, and marketplace relevance filtering so weak marketplace matches do not beat `no skill`. Regression coverage proves browser automation avoids `init-project`/`sync-docs`/`clone-research`, security API validation selects `security-best-practices`, and low-confidence junk returns `no skill`.
 - **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.

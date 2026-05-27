@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -29,6 +30,7 @@ const REQUIRED_GRAPHIFY_IGNORE_PREFIXES = [
 const STALE_GRAPHIFY_NODE_TYPES = new Set(['semantic', 'rationale']);
 const CODEMAP_PROVIDERS = new Set(['graphify', 'codegraph']);
 const CODEGRAPH_LOCK_TIMEOUT_MS = 15000;
+const CODEGRAPH_LOCK_STALE_MS = 5 * 60 * 1000;
 
 function normalizeSlash(value) {
   return String(value || '').replace(/\\/g, '/');
@@ -230,11 +232,110 @@ function selectedProvider(options = {}) {
   return CODEMAP_PROVIDERS.has(provider) ? provider : '';
 }
 
+function safePathSegment(value) {
+  return String(value || 'project')
+    .replace(/^[A-Za-z]:/, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'project';
+}
+
+function canWriteDirectory(dir) {
+  const probe = path.join(dir, `.write-test-${process.pid}-${Date.now()}`);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(probe, 'ok', { flag: 'wx' });
+    fs.rmSync(probe, { force: true });
+    return true;
+  } catch {
+    try { fs.rmSync(probe, { force: true }); } catch { /* best effort */ }
+    return false;
+  }
+}
+
+function writableTempCodeGraphDir(root) {
+  const baseCandidates = [process.env.TMP, process.env.TEMP, os.tmpdir(), process.platform === 'win32' ? 'C:\\tmp' : '/tmp']
+    .filter(Boolean);
+  const uniqueBases = [...new Set(baseCandidates.map((item) => path.resolve(item)))];
+  const segment = safePathSegment(path.resolve(root));
+  const candidates = uniqueBases.map((base) => path.join(base, 'pipeline-setupper-codegraph', segment));
+  return candidates.find(canWriteDirectory) || candidates[candidates.length - 1];
+}
+
 function codeGraphRuntimePaths(root) {
-  const cacheDir = path.join(root, '.tmp', 'codegraph');
+  const projectCacheDir = path.join(root, '.tmp', 'codegraph');
+  const cacheDir = canWriteDirectory(projectCacheDir) ? projectCacheDir : writableTempCodeGraphDir(root);
   return {
     cacheDir,
     lockFile: path.join(cacheDir, 'codegraph.lock'),
+    lockPath: path.join(cacheDir, 'codegraph.lock'),
+    projectCacheDir,
+    fallbackCache: path.resolve(cacheDir) !== path.resolve(projectCacheDir),
+  };
+}
+
+function readLockInfo(lockFile) {
+  try {
+    return JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+function lockAgeMs(lockFile, info, now) {
+  const createdAt = Date.parse(info.createdAt || '');
+  if (Number.isFinite(createdAt)) return now() - createdAt;
+  try {
+    return now() - fs.statSync(lockFile).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function cleanupStaleCodeGraphLock(runtime, root, now) {
+  if (!fs.existsSync(runtime.lockFile)) return { removed: false };
+  const info = readLockInfo(runtime.lockFile);
+  const sameOwner = !info.cwd || path.resolve(info.cwd) === path.resolve(root);
+  const stale = lockAgeMs(runtime.lockFile, info, now) > CODEGRAPH_LOCK_STALE_MS;
+  const alive = processIsAlive(Number(info.pid));
+  if (!sameOwner || !stale || alive) return { removed: false, stale, alive };
+  try {
+    fs.rmSync(runtime.lockFile, { force: true });
+    return { removed: true, stale, alive };
+  } catch (error) {
+    return { removed: false, stale, alive, error: error.message };
+  }
+}
+
+function writeCodeGraphLock(handle, runtime, root, now) {
+  const payload = {
+    pid: process.pid,
+    createdAt: new Date(now()).toISOString(),
+    cwd: path.resolve(root),
+    cachePath: runtime.cacheDir,
+  };
+  fs.writeFileSync(handle, JSON.stringify(payload, null, 2), 'utf8');
+}
+
+function codeGraphLockFailure(error, runtime) {
+  return {
+    status: 1,
+    error: `CodeGraph runner lock unavailable: ${error.message}`,
+    output: '',
+    attemptedCommand: 'codegraph <locked>',
+    cachePath: runtime.cacheDir,
+    lockPath: runtime.lockFile,
+    fallback: 'graphify',
   };
 }
 
@@ -245,20 +346,18 @@ function withCodeGraphLock(root, run, now = Date.now) {
   const started = now();
   while (!handle) {
     try {
+      cleanupStaleCodeGraphLock(runtime, root, now);
       handle = fs.openSync(runtime.lockFile, 'wx');
+      writeCodeGraphLock(handle, runtime, root, now);
     } catch (error) {
       if (error.code !== 'EEXIST' || now() - started >= CODEGRAPH_LOCK_TIMEOUT_MS) {
-        return {
-          status: 1,
-          error: `CodeGraph runner lock unavailable: ${error.message}`,
-          output: '',
-          attemptedCommand: 'codegraph <locked>',
-        };
+        return codeGraphLockFailure(error, runtime);
       }
     }
   }
   try {
-    return run(runtime);
+    const completed = run(runtime);
+    return { ...completed, cachePath: runtime.cacheDir, lockPath: runtime.lockFile };
   } finally {
     fs.closeSync(handle);
     fs.rmSync(runtime.lockFile, { force: true });
@@ -292,14 +391,20 @@ function defaultCodeGraphRunner(root, args) {
 
 function checkCodeGraphStatus(root, runner = defaultCodeGraphRunner) {
   const completed = runner(root, ['status']);
+  const runtime = codeGraphRuntimePaths(root);
+  const data = {
+    attemptedCommand: completed.attemptedCommand || 'codegraph status',
+    provider: 'codegraph',
+    cachePath: completed.cachePath || runtime.cacheDir,
+    lockPath: completed.lockPath || runtime.lockFile,
+  };
   if (completed.status !== 0) {
-    return result('fail', 'codemap:codegraph:cli', 'CodeGraph provider unavailable', completed.error || completed.output, 'Install/configure CodeGraph or set CODEMAP_PROVIDER=graphify.', {
-      attemptedCommand: completed.attemptedCommand || 'codegraph status',
+    return result('warn', 'codemap:codegraph:cli', 'CodeGraph CLI provider not promotable', completed.error || completed.output, 'Keep CODEMAP_PROVIDER=graphify until CodeGraph CLI status works in this client.', {
+      ...data,
+      fallback: 'graphify',
     });
   }
-  return result('pass', 'codemap:codegraph:cli', 'CodeGraph provider available', 'codegraph status completed.', '', {
-    attemptedCommand: completed.attemptedCommand || 'codegraph status',
-  });
+  return result('pass', 'codemap:codegraph:cli', 'CodeGraph CLI provider promotable', 'codegraph status completed.', '', data);
 }
 
 function checkRelevance(root, runner = defaultRunner) {

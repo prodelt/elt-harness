@@ -14,6 +14,7 @@ const {
   checkCodexDefaults,
   checkGitHubCli,
   checkPipelineState,
+  checkAgentSurfaceAudit,
   runDoctor,
 } = require('./doctor-core');
 
@@ -176,6 +177,27 @@ function testCodexDefaultsWarnOnExpensiveRoute() {
   assert.equal(checkCodexDefaults(home)[0].status, 'pass');
 }
 
+function testAgentSurfaceAuditCheck() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-surface-'));
+  const missing = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(missing[0].status, 'warn');
+
+  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-27T11:00:00Z',
+    summary: { status: 'pass', unexplainedGaps: [] },
+  }));
+  const passed = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(passed[0].status, 'pass');
+
+  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-27T11:00:00Z',
+    summary: { status: 'warn', unexplainedGaps: ['codex:Notification'] },
+  }));
+  const warned = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(warned[0].status, 'warn');
+  assert.match(warned[0].detail, /codex:Notification/);
+}
+
 function coreDoc() {
   return [
     '# Test',
@@ -217,6 +239,7 @@ function main() {
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
+  testAgentSurfaceAuditCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 
