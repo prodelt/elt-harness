@@ -34,11 +34,46 @@ const DOMAIN_HINTS = [
     relevance: 0.8,
     reason: 'web QA domain hint',
   },
+  {
+    terms: ['branch', 'commit'],
+    skills: ['git-flow'],
+    relevance: 0.85,
+    reason: 'git workflow domain hint',
+  },
+  {
+    terms: ['research', 'market'],
+    skills: ['research-autopilot'],
+    relevance: 0.85,
+    reason: 'research/market analysis domain hint',
+  },
+  {
+    terms: ['contract', 'law'],
+    skills: ['contract-review'],
+    relevance: 0.85,
+    reason: 'legal/contract review domain hint',
+  },
 ];
 
 const SKILL_ROUTER_BENCHMARKS = [
+  // browser — must avoid project-setup skills
   { query: 'browser automation ai agent', avoid: ['init-project', 'sync-docs', 'clone-research'] },
+  // security — must route to security-best-practices
   { query: 'security api input validation', allow: ['security-best-practices'] },
+  // git — must route to git-flow
+  { query: 'create feature branch commit push pr', allow: ['git-flow'] },
+  // docs — must not route to init-project (that's for new projects, not doc updates)
+  { query: 'update project readme documentation', avoid: ['init-project'] },
+  // backend — no local skill; marketplace must NOT become selected
+  { query: 'build rest api endpoint validation', allow: ['no skill', 'tdd', 'sprint', 'security-best-practices'] },
+  // frontend — no strong local skill; direct work is preferred
+  { query: 'design react component ui layout', allow: ['no skill', 'design-an-interface'] },
+  // research — must route to research-autopilot
+  { query: 'research competitor market analysis', allow: ['research-autopilot'] },
+  // legal — must route to contract-review
+  { query: 'contract review procurement ukraine law', allow: ['contract-review'] },
+  // QA — must route to qa or gstack qa variant
+  { query: 'qa test web interface bugs', allow: ['qa', 'gstack/qa', 'gstack/qa-only'] },
+  // low confidence — must always return no skill
   { query: 'zzzzzz low confidence nonsense', allow: ['no skill'] },
 ];
 const MARKETPLACE_STOP_TERMS = new Set(['low', 'confidence', 'nonsense', 'misc', 'general']);
@@ -275,7 +310,9 @@ function buildSkillRouterRecord(query, ranked, marketplaceResult, options = {}) 
     .filter(skill => skill.relevanceScore >= MARKETPLACE_RELEVANCE_THRESHOLD)
     .slice(0, OUTPUT_SKILL_LIMIT)
     .map(marketplaceCandidate);
-  const selected = localRelevant[0] || marketplaceCandidates[0] || {
+  // Marketplace is research-only: candidates appear in recommendations but never become `selected`.
+  // This prevents high-install marketplace noise (e.g. zoom/bitso SDKs) from overriding `no skill`.
+  const selected = localRelevant[0] || {
     name: 'no skill',
     reason: 'direct work is cheaper than loading an unrelated or unavailable skill',
   };
