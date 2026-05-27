@@ -1,6 +1,6 @@
 # Git Workflow Audit
 
-Generated: 2026-05-27T15:48:37.585Z
+Generated: 2026-05-27T15:52:15.731Z
 Project root: `C:/Claude playground/Pipiline setupper`
 Git root: `C:/Claude playground/Pipiline setupper`
 Branch: `session/2026-05-22-1052`
@@ -19,7 +19,7 @@ Status: **WARN** — 2 pass / 1 warn / 0 fail
 **ID:** `git:branch`  **Status:** pass
 **Detail:** session/2026-05-22-1052
 
-### ⚠️ 6 uncommitted change(s) in project scope
+### ⚠️ 1 uncommitted change(s) in project scope
 **ID:** `git:dirty`  **Status:** warn
-**Detail:** M tools/doctor-core.js; ?? .planning/git-workflow-audit-latest.json; ?? .planning/git-workflow-audit-latest.md; ?? tools/git-workflow-audit.js; ?? tools/git-workflow-audit.test.js; ?? "\320\234\320\265\321\202\320\276\320\264\320\276\320\273\320\276\320\263\320\270\321\217 Agent Harness.md"
+**Detail:** ?? "\320\234\320\265\321\202\320\276\320\264\320\276\320\273\320\276\320\263\320\270\321\217 Agent Harness.md"
 **Repair:** Commit or stash changes before session closeout.

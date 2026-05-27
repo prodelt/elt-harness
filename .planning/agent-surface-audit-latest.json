@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-27T11:22:51.439Z",
+  "generatedAt": "2026-05-27T19:05:57.595Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\user",
   "clients": [
@@ -1871,25 +1871,25 @@
           "status": "pass",
           "id": "codemap:scope",
           "title": "Codemap graph scope OK",
-          "detail": "1033 nodes, 148 source files.",
+          "detail": "1155 nodes, 156 source files.",
           "repair": "",
           "data": {
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
-            "nodes": 1033,
-            "links": 1721,
-            "uniqueSources": 148,
+            "nodes": 1155,
+            "links": 1977,
+            "uniqueSources": 156,
             "noisyNodes": 0,
             "noisyRatio": 0,
             "outOfScope": [],
             "topSources": [
               {
-                "source": "tools/doctor-core.js",
-                "count": 36
+                "source": "tools/codemap-core.js",
+                "count": 42
               },
               {
-                "source": "tools/codemap-core.js",
-                "count": 33
+                "source": "tools/doctor-core.js",
+                "count": 39
               },
               {
                 "source": "audit/S11_pipeline_top1/hooks/analyze-session.js",
@@ -1910,7 +1910,7 @@
           "status": "pass",
           "id": "codemap:stale",
           "title": "Codemap graph has no stale semantic/rationale nodes",
-          "detail": "1033 nodes checked.",
+          "detail": "1155 nodes checked.",
           "repair": "",
           "data": {
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
@@ -1957,8 +1957,8 @@
           "data": {
             "attemptedCommand": "cmd.exe /c codegraph status",
             "provider": "codegraph",
-            "cachePath": "C:\\Users\\user\\AppData\\Local\\Temp\\pipeline-setupper-codegraph\\Claude-playground-Pipiline-setupper",
-            "lockPath": "C:\\Users\\user\\AppData\\Local\\Temp\\pipeline-setupper-codegraph\\Claude-playground-Pipiline-setupper\\codegraph.lock"
+            "cachePath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph",
+            "lockPath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph\\codegraph.lock"
           }
         }
       ]
@@ -1985,9 +1985,9 @@
   "browser": {
     "bun": {
       "command": "cmd.exe /c where bun.exe",
-      "status": "missing-or-failed",
-      "exitCode": 1,
-      "detail": "����������: �� 㤠���� ���� 䠩�� �� ������� 蠡�����."
+      "status": "available",
+      "exitCode": 0,
+      "detail": "C:\\Users\\user\\AppData\\Local\\Microsoft\\WinGet\\Links\\bun.exe"
     },
     "browserSkillCount": 94,
     "status": "available-as-skill",
@@ -1999,6 +1999,6 @@
       "gemini:Notification",
       "gemini:FileChanged"
     ],
-    "generatedAt": "2026-05-27T11:22:51.439Z"
+    "generatedAt": "2026-05-27T19:05:57.595Z"
   }
 }

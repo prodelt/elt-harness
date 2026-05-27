@@ -1,6 +1,6 @@
 # Agent Surface Audit
 
-Generated: 2026-05-27T11:22:51.439Z
+Generated: 2026-05-27T19:05:57.595Z
 Root: C:\Claude playground\Pipiline setupper
 Status: warn
 
