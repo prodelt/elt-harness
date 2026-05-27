@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-27T15:52:15.731Z",
+  "generatedAt": "2026-05-27T20:30:22.939Z",
   "projectRoot": "C:/Claude playground/Pipiline setupper",
   "gitRoot": "C:/Claude playground/Pipiline setupper",
   "branch": "session/2026-05-22-1052",
@@ -36,13 +36,16 @@
     {
       "status": "warn",
       "id": "git:dirty",
-      "title": "1 uncommitted change(s) in project scope",
-      "detail": "?? \"\\320\\234\\320\\265\\321\\202\\320\\276\\320\\264\\320\\276\\320\\273\\320\\276\\320\\263\\320\\270\\321\\217 Agent Harness.md\"",
+      "title": "4 uncommitted change(s) in project scope",
+      "detail": "M .gemini/GEMINI.md;  M AGENTS.md;  M CLAUDE.md; ?? .planning/CHECKPOINT-2026-05-27-P5.2-closed.md",
       "repair": "Commit or stash changes before session closeout.",
       "data": {
-        "count": 1,
+        "count": 4,
         "files": [
-          "?? \"\\320\\234\\320\\265\\321\\202\\320\\276\\320\\264\\320\\276\\320\\273\\320\\276\\320\\263\\320\\270\\321\\217 Agent Harness.md\""
+          "M .gemini/GEMINI.md",
+          " M AGENTS.md",
+          " M CLAUDE.md",
+          "?? .planning/CHECKPOINT-2026-05-27-P5.2-closed.md"
         ]
       }
     }
