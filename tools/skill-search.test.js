@@ -7,8 +7,10 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   buildSkillRouterRecord,
+  evaluateBenchmarkRecords,
   searchSkillsSh,
   shouldSearchMarketplace,
+  withRouterRelevance,
 } = require('./skill-search');
 
 function testMarketplaceUsesRelevance() {
@@ -117,12 +119,56 @@ function testRouterCapsOutputAtThreeSkills() {
   assert.equal(record.tokenBudget.maxSkills, 3);
 }
 
+function testRouterRelevanceBoostsSecurityDomain() {
+  const reranked = withRouterRelevance('security api input validation', [
+    rankedSkill('cto-playbook', 0.25, 0.6),
+    rankedSkill('security-best-practices', 0.1, 0.4),
+  ]);
+  assert.equal(reranked[0].name, 'security-best-practices');
+  assert.equal(reranked[0].breakdown.relevance, 0.95);
+  assert.equal(shouldSearchMarketplace(reranked.slice(0, 3)), false);
+}
+
+function testBenchmarkEvaluatorCatchesWrongSelections() {
+  const report = evaluateBenchmarkRecords({
+    'browser automation ai agent': { selected: 'init-project' },
+    'security api input validation': { selected: 'security-best-practices' },
+    'zzzzzz low confidence nonsense': { selected: 'no skill' },
+  });
+  assert.equal(report.status, 'fail');
+  assert.equal(report.results[0].status, 'fail');
+
+  const passed = evaluateBenchmarkRecords({
+    'browser automation ai agent': { selected: 'agent-browser' },
+    'security api input validation': { selected: 'security-best-practices' },
+    'zzzzzz low confidence nonsense': { selected: 'no skill' },
+  });
+  assert.equal(passed.status, 'pass');
+}
+
+function testRouterFiltersWeakMarketplaceMatches() {
+  const record = buildSkillRouterRecord('zzzzzz low confidence nonsense', [
+    rankedSkill('git-flow', 0.25, 0.5),
+  ], {
+    status: 'ok',
+    results: [
+      { name: 'risk-management', source: '0xhubed/agent-trading-arena' },
+      { name: 'power-confidence', source: 'dylantarre/animation-principles' },
+    ],
+  }, { now: () => 1000 });
+  assert.equal(record.selected, 'no skill');
+  assert.equal(record.recommendations.length, 0);
+}
+
 function main() {
   testMarketplaceUsesRelevance();
   testMarketplaceErrorsAreVisibleAndCached();
   testMarketplaceSuccessShape();
   testRouterReturnsNoSkillForNonsense();
   testRouterCapsOutputAtThreeSkills();
+  testRouterRelevanceBoostsSecurityDomain();
+  testBenchmarkEvaluatorCatchesWrongSelections();
+  testRouterFiltersWeakMarketplaceMatches();
   process.stdout.write('skill-search tests: PASS\n');
 }
 

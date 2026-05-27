@@ -1,0 +1,327 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { runCodemapDoctor } = require('./codemap-core');
+
+const CLIENTS = {
+  claude: {
+    settings: ['.claude', 'settings.json'],
+    skills: ['.claude', 'skills'],
+    supportedEvents: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'FileChanged'],
+    unsupportedEvents: [],
+  },
+  codex: {
+    settings: ['.codex', 'hooks.json'],
+    skills: ['.codex', 'skills'],
+    supportedEvents: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'],
+    unsupportedEvents: ['Notification', 'FileChanged'],
+  },
+  gemini: {
+    settings: ['.gemini', 'settings.json'],
+    skills: ['.gemini', 'skills'],
+    supportedEvents: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'],
+    unsupportedEvents: ['Notification', 'FileChanged'],
+  },
+};
+
+const DEFAULT_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'FileChanged'];
+
+function readText(file) {
+  try {
+    return { ok: true, value: fs.readFileSync(file, 'utf8') };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+function readJson(file) {
+  const text = readText(file);
+  if (!text.ok) return { ok: false, error: text.error };
+  try {
+    return { ok: true, value: JSON.parse(text.value) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+function parseArgs(argv) {
+  const initial = { root: process.cwd(), home: os.homedir(), json: false, markdown: false, write: true };
+  const parseNext = (index, state) => {
+    if (index >= argv.length) return { ok: true, value: state };
+    const arg = argv[index];
+    if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
+    if (arg === '--markdown') return parseNext(index + 1, { ...state, markdown: true });
+    if (arg === '--no-write') return parseNext(index + 1, { ...state, write: false });
+    if (arg === '--root') {
+      if (!argv[index + 1]) return { ok: false, error: '--root requires a path' };
+      return parseNext(index + 2, { ...state, root: argv[index + 1] });
+    }
+    if (arg === '--home') {
+      if (!argv[index + 1]) return { ok: false, error: '--home requires a path' };
+      return parseNext(index + 2, { ...state, home: argv[index + 1] });
+    }
+    return { ok: false, error: `Unknown argument: ${arg}` };
+  };
+  return parseNext(2, initial);
+}
+
+function normalizeHookEntries(value) {
+  if (Array.isArray(value)) return value.flatMap(normalizeHookEntries);
+  if (value && typeof value === 'object' && Array.isArray(value.hooks)) return normalizeHookEntries(value.hooks);
+  if (value && typeof value === 'object') return Object.values(value).flatMap(normalizeHookEntries);
+  if (typeof value === 'string') return [value];
+  return [];
+}
+
+function extractHookCommands(parsed) {
+  if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') return {};
+  const hooks = parsed.value.hooks && typeof parsed.value.hooks === 'object' ? parsed.value.hooks : parsed.value;
+  return DEFAULT_EVENTS.reduce((acc, event) => {
+    const entries = normalizeHookEntries(hooks[event]);
+    const commands = entries.map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry.command === 'string') return entry.command;
+      return JSON.stringify(entry);
+    }).filter(Boolean);
+    return commands.length ? { ...acc, [event]: commands } : acc;
+  }, {});
+}
+
+function walkSkillFiles(root) {
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) return walkSkillFiles(full);
+    return entry.name.toLowerCase() === 'skill.md' ? [full] : [];
+  });
+}
+
+function parseSkill(file) {
+  const text = readText(file);
+  if (!text.ok) return { name: path.basename(path.dirname(file)), aliases: [], error: text.error };
+  const fm = text.value.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/);
+  const body = fm ? fm[1] : '';
+  const name = (body.match(/^name:\s*(.+)$/m) || [])[1] || path.basename(path.dirname(file));
+  const aliasesLine = (body.match(/^aliases:\s*(.+)$/m) || [])[1] || '';
+  const aliases = aliasesLine.replace(/[[\]'"]/g, '').split(',').map((item) => item.trim()).filter(Boolean);
+  return { name: name.trim(), aliases, file };
+}
+
+function auditClient(clientName, home) {
+  const spec = CLIENTS[clientName];
+  const settingsFile = path.join(home, ...spec.settings);
+  const parsed = readJson(settingsFile);
+  const hookCommands = extractHookCommands(parsed);
+  const eventRows = DEFAULT_EVENTS.map((event) => ({
+    event,
+    supported: spec.supportedEvents.includes(event),
+    fallback: spec.unsupportedEvents.includes(event) ? 'unsupported-by-client' : '',
+    commands: hookCommands[event] || [],
+  }));
+  const skillRoot = path.join(home, ...spec.skills);
+  const skills = walkSkillFiles(skillRoot).map(parseSkill).sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    client: clientName,
+    settingsFile,
+    settingsStatus: parsed.ok ? 'present' : 'missing-or-invalid',
+    settingsError: parsed.ok ? '' : parsed.error,
+    events: eventRows,
+    hookCommandCount: eventRows.reduce((sum, row) => sum + row.commands.length, 0),
+    skillRoot,
+    skillCount: skills.length,
+    skills,
+  };
+}
+
+function commandStatus(command, args, cwd) {
+  const completed = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 5000, windowsHide: true });
+  return {
+    command: [command, ...args].join(' '),
+    status: completed.status === 0 ? 'available' : 'missing-or-failed',
+    exitCode: completed.status,
+    detail: (completed.stdout || completed.stderr || completed.error?.message || '').split(/\r?\n/).find(Boolean) || '',
+  };
+}
+
+function auditCommandShims(home, root) {
+  const bin = path.join(home, '.claude', 'bin');
+  const files = ['doctor.cmd', 'doctor.ps1', 'skill.cmd', 'skill.ps1'];
+  return {
+    files: files.map((name) => ({ name, path: path.join(bin, name), exists: fs.existsSync(path.join(bin, name)) })),
+    commands: [
+      commandStatus('cmd.exe', ['/c', 'where', 'doctor.cmd'], root),
+      commandStatus('cmd.exe', ['/c', 'where', 'skill.cmd'], root),
+    ],
+  };
+}
+
+function auditContext7(root) {
+  return {
+    npx: commandStatus('cmd.exe', ['/c', 'where', 'npx.cmd'], root),
+    fallbackContract: 'Use cmd /c npx.cmd ctx7 docs <library> <query>; network failures are skip reasons, not silent success.',
+  };
+}
+
+function auditMemory(home) {
+  const candidates = [
+    path.join(home, '.claude', 'projects', 'C--', 'memory', 'memory_summary.md'),
+    path.join(home, '.claude', 'projects', 'C--', 'memory', 'MEMORY.md'),
+    path.join(home, '.codex', 'memories', 'memory_summary.md'),
+    path.join(home, '.codex', 'memories', 'MEMORY.md'),
+  ];
+  return candidates.map((file) => ({ file, exists: fs.existsSync(file) }));
+}
+
+function auditBrowser(home, root) {
+  const skillRoots = [path.join(home, '.claude', 'skills'), path.join(home, '.codex', 'skills')];
+  const browserSkills = skillRoots.flatMap((skillRoot) => walkSkillFiles(skillRoot))
+    .filter((file) => /browser|browse|gstack/i.test(file));
+  return {
+    bun: commandStatus('cmd.exe', ['/c', 'where', 'bun.exe'], root),
+    browserSkillCount: browserSkills.length,
+    status: browserSkills.length > 0 ? 'available-as-skill' : 'not-found',
+    fallbackContract: 'Browser tooling is not part of global startup; use explicit browser/gstack skills when needed.',
+  };
+}
+
+function compareClients(clients) {
+  const [base] = clients;
+  const baseSkills = new Set((base?.skills || []).map((skill) => skill.name));
+  return clients.map((client) => {
+    const missingFromBase = [...baseSkills].filter((name) => !client.skills.some((skill) => skill.name === name));
+    const unsupportedConfigured = client.events.filter((row) => !row.supported && row.commands.length > 0);
+    return {
+      client: client.client,
+      skillCount: client.skillCount,
+      hookCommandCount: client.hookCommandCount,
+      missingSkillsComparedToClaude: client.client === 'claude' ? [] : missingFromBase,
+      unsupportedConfiguredEvents: unsupportedConfigured.map((row) => row.event),
+    };
+  });
+}
+
+function summarize(report) {
+  const unexplained = report.parity
+    .flatMap((client) => client.unsupportedConfiguredEvents.map((event) => `${client.client}:${event}`));
+  const missingAuditInputs = report.clients
+    .filter((client) => client.settingsStatus !== 'present')
+    .map((client) => `${client.client}:settings`);
+  const status = unexplained.length || missingAuditInputs.length ? 'warn' : 'pass';
+  return {
+    status,
+    unexplainedGaps: [...unexplained, ...missingAuditInputs],
+    generatedAt: report.generatedAt,
+  };
+}
+
+function runAudit(options = {}) {
+  const root = path.resolve(options.root || process.cwd());
+  const home = path.resolve(options.home || os.homedir());
+  const clients = Object.keys(CLIENTS).map((client) => auditClient(client, home));
+  const codemap = {
+    graphify: runCodemapDoctor({ root }),
+    codegraph: runCodemapDoctor({ root, provider: 'codegraph' }),
+  };
+  const report = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    root,
+    home,
+    clients,
+    parity: compareClients(clients),
+    commandShims: auditCommandShims(home, root),
+    context7: auditContext7(root),
+    codemap,
+    memory: auditMemory(home),
+    browser: auditBrowser(home, root),
+  };
+  return { ...report, summary: summarize(report) };
+}
+
+function formatMarkdown(report) {
+  const clientSections = report.clients.flatMap((client) => [
+    `### ${client.client}`,
+    `- settings: ${client.settingsStatus} (${client.settingsFile})`,
+    `- hook commands: ${client.hookCommandCount}`,
+    `- skills: ${client.skillCount} (${client.skillRoot})`,
+    `- unsupported events: ${client.events.filter((row) => !row.supported).map((row) => row.event).join(', ') || 'none'}`,
+    '',
+  ]);
+  const parityRows = report.parity.map((client) => (
+    `| ${client.client} | ${client.hookCommandCount} | ${client.skillCount} | ${client.unsupportedConfiguredEvents.join(', ') || 'none'} | ${client.missingSkillsComparedToClaude.length} |`
+  ));
+  return [
+    '# Agent Surface Audit',
+    '',
+    `Generated: ${report.generatedAt}`,
+    `Root: ${report.root}`,
+    `Status: ${report.summary.status}`,
+    '',
+    '## Parity',
+    '',
+    '| Client | Hook commands | Skills | Unsupported configured events | Missing skills vs Claude |',
+    '|---|---:|---:|---|---:|',
+    ...parityRows,
+    '',
+    '## Clients',
+    '',
+    ...clientSections,
+    '## Tooling',
+    '',
+    `- Context7 npx: ${report.context7.npx.status} (${report.context7.npx.command})`,
+    `- Command shims: ${report.commandShims.files.filter((item) => item.exists).length}/${report.commandShims.files.length} present`,
+    `- Codemap graphify: PASS=${report.codemap.graphify.summary.pass || 0} WARN=${report.codemap.graphify.summary.warn || 0} FAIL=${report.codemap.graphify.summary.fail || 0}`,
+    `- Codemap codegraph: PASS=${report.codemap.codegraph.summary.pass || 0} WARN=${report.codemap.codegraph.summary.warn || 0} FAIL=${report.codemap.codegraph.summary.fail || 0}`,
+    `- Browser tooling: ${report.browser.status}`,
+    '',
+    '## Fallback Contracts',
+    '',
+    '- Codex/Gemini unsupported Notification/FileChanged events are expected; parity requires documented fallback, not fake support.',
+    `- Context7: ${report.context7.fallbackContract}`,
+    `- Browser: ${report.browser.fallbackContract}`,
+    '',
+    '## Unexplained Gaps',
+    '',
+    ...(report.summary.unexplainedGaps.length ? report.summary.unexplainedGaps.map((gap) => `- ${gap}`) : ['- none']),
+    '',
+  ].join('\n');
+}
+
+function writeReports(report, root) {
+  const planning = path.join(root, '.planning');
+  fs.mkdirSync(planning, { recursive: true });
+  const jsonFile = path.join(planning, 'agent-surface-audit-latest.json');
+  const mdFile = path.join(planning, 'agent-surface-audit-latest.md');
+  fs.writeFileSync(jsonFile, JSON.stringify(report, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(mdFile, formatMarkdown(report), 'utf8');
+  return { jsonFile, mdFile };
+}
+
+function main() {
+  const parsed = parseArgs(process.argv);
+  if (!parsed.ok) {
+    process.stderr.write(`agent-surface-audit: ${parsed.error}\n`);
+    process.exit(2);
+  }
+  const report = runAudit(parsed.value);
+  if (parsed.value.write) writeReports(report, path.resolve(parsed.value.root));
+  const output = parsed.value.markdown && !parsed.value.json
+    ? formatMarkdown(report)
+    : JSON.stringify(report, null, 2) + '\n';
+  process.stdout.write(output);
+  process.exit(0);
+}
+
+if (require.main === module) main();
+
+module.exports = {
+  parseArgs,
+  runAudit,
+  formatMarkdown,
+  writeReports,
+  extractHookCommands,
+};

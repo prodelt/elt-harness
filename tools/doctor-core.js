@@ -20,6 +20,7 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const STATE_CLOCK_SKEW_MS = 60 * 1000;
+const AGENT_SURFACE_AUDIT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SETTINGS_SECRET_PATTERNS = [
   { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
   { name: 'Context7 API key', pattern: /ctx7sk-[0-9A-Za-z-]{20,}/ },
@@ -305,7 +306,7 @@ function checkCodeGraph(root) {
   if (!fs.existsSync(dbPath)) return [];
   const status = run('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
   if (status.status !== 0) {
-    return [result('warn', 'codegraph:status', 'CodeGraph DB present but status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
+    return [result('warn', 'codegraph:status', 'CodeGraph index status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
   }
   const lines = status.output || '';
   const filesMatch = lines.match(/Files:\s+(\d+)/);
@@ -316,7 +317,9 @@ function checkCodeGraph(root) {
     nodesMatch ? `nodes=${nodesMatch[1].trim()}` : '',
     backendMatch ? `backend=${backendMatch[1].trim()}` : '',
   ].filter(Boolean).join(', ');
-  return [result('pass', 'codegraph:status', 'CodeGraph index OK', detail || 'codegraph status completed.', '')];
+  const indexCheck = result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
+  const providerChecks = runCodemapDoctor({ root, provider: 'codegraph' }).checks;
+  return [indexCheck, ...providerChecks];
 }
 
 function checkRag(root) {
@@ -348,6 +351,31 @@ function checkMemoryProvider(root, provider) {
     return [result(status, 'memory:agentmemory', 'agentmemory provider health', report.cli.detail, 'Keep MEMORY_PROVIDER=project-rag until agentmemory CLI/server health passes.', report)];
   }
   return [result('warn', 'memory:provider', 'Memory provider invalid', report.reason || String(provider), 'Use project-rag or agentmemory.', report)];
+}
+
+function checkAgentSurfaceAudit(root, now = new Date()) {
+  const file = path.join(root, '.planning', 'agent-surface-audit-latest.json');
+  const parsed = readJson(file);
+  if (!parsed.ok) {
+    return [result('warn', 'agent-surface:audit', 'Agent surface audit missing', parsed.error, 'Run node tools\\agent-surface-audit.js --json.')];
+  }
+  const generatedAt = typeof parsed.value.generatedAt === 'string' ? new Date(parsed.value.generatedAt) : null;
+  const invalidDate = !generatedAt || Number.isNaN(generatedAt.getTime());
+  if (invalidDate) {
+    return [result('warn', 'agent-surface:audit', 'Agent surface audit timestamp invalid', String(parsed.value.generatedAt), 'Rerun node tools\\agent-surface-audit.js --json.')];
+  }
+  const stale = now.getTime() - generatedAt.getTime() > AGENT_SURFACE_AUDIT_TTL_MS;
+  const summaryStatus = parsed.value.summary && parsed.value.summary.status ? parsed.value.summary.status : 'unknown';
+  if (stale) {
+    return [result('warn', 'agent-surface:audit', 'Agent surface audit stale', parsed.value.generatedAt, 'Rerun node tools\\agent-surface-audit.js --json.', { file })];
+  }
+  const status = summaryStatus === 'pass' ? 'pass' : 'warn';
+  const title = status === 'pass' ? 'Agent surface audit current' : 'Agent surface audit has gaps';
+  const gaps = parsed.value.summary && Array.isArray(parsed.value.summary.unexplainedGaps)
+    ? parsed.value.summary.unexplainedGaps
+    : [];
+  const detail = gaps.length ? gaps.slice(0, 5).join(', ') : file;
+  return [result(status, 'agent-surface:audit', title, detail, status === 'pass' ? '' : 'Review .planning\\agent-surface-audit-latest.md.', { file })];
 }
 
 function checkGit(root) {
@@ -511,6 +539,7 @@ function runDoctor(options) {
     ...checkCodeGraph(root),
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
+    ...checkAgentSurfaceAudit(root),
     ...checkGit(root),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
@@ -543,6 +572,7 @@ module.exports = {
   checkCodexDefaults,
   checkGitHubCli,
   checkPipelineState,
+  checkAgentSurfaceAudit,
   runDoctor,
   formatText,
 };
