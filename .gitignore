@@ -48,6 +48,9 @@ CHEATSHEET.html
 # 1c audit pilot (local only, excluded from Graphify scope)
 audit/1c-dev-pilot/
 
+# Agent Harness run artifacts (ephemeral, per-run)
+.planning/runs/
+
 # Duplicate artifacts with "(1)" suffix — OS copy artefacts
 AGENTS\ (1).md
 CLAUDE\ (1).md
