@@ -57,6 +57,9 @@ const STATUSES = new Set(['running', 'paused', 'complete', 'failed']);
 /** Minimum severity threshold for code_review to block (P5.2 enforces). */
 const REVIEW_THRESHOLDS = new Set(['low', 'medium', 'high', 'critical']);
 
+/** Ordered severity levels for threshold comparison (lowest → highest). */
+const SEVERITY_ORDER = ['low', 'medium', 'high', 'critical'];
+
 /** Named artifact slots per run — keyed output files from agents. */
 const ARTIFACT_KEYS = new Set([
   'design',
@@ -415,6 +418,112 @@ function recordArtifact(runId, key, filePath, root = process.cwd()) {
   return run;
 }
 
+// ── Review agent contract (P5.2) ─────────────────────────────────────────────
+
+/**
+ * Return true when `severity` meets or exceeds `threshold`.
+ * Both must be members of SEVERITY_ORDER.
+ *
+ * @param {string} severity   — finding severity
+ * @param {string} threshold  — config.reviewBlockThreshold
+ * @returns {boolean}
+ */
+function severityMeetsThreshold(severity, threshold) {
+  return SEVERITY_ORDER.indexOf(severity) >= SEVERITY_ORDER.indexOf(threshold);
+}
+
+/**
+ * Submit code-review findings and auto-transition based on the run's
+ * `config.reviewBlockThreshold`.
+ *
+ * Reviewer inputs contract (methodology section 5.6):
+ *   - design artifact path (recorded earlier in `artifacts.design`)
+ *   - final diff / implementation artifact (recorded in `artifacts.implementation_plan`)
+ *   - findings[] — each finding must include { severity, message }
+ *
+ * Blocking logic: any finding whose severity meets or exceeds the threshold
+ * causes a fail transition (→ implement).  Zero or only below-threshold
+ * findings cause a pass transition (→ git_push).
+ *
+ * @param {string} runId
+ * @param {Array<{severity: string, message: string, file?: string, line?: number}>} findings
+ * @param {{
+ *   root?: string,
+ *   summaryPath?: string,
+ *   _now?: Date
+ * }} options
+ * @returns {{
+ *   run: object,
+ *   blocked: boolean,
+ *   blockingFindings: Array<object>
+ * }}
+ * @throws {Error} if run is not in code_review phase or findings are invalid
+ */
+function submitReview(runId, findings, options = {}) {
+  const { root = process.cwd(), summaryPath = null, _now = new Date() } = options;
+
+  if (!Array.isArray(findings)) {
+    throw new Error('findings must be an array');
+  }
+
+  const run = readRun(runId, root);
+  if (run.phase !== 'code_review') {
+    throw new Error(
+      `submitReview only valid during code_review phase; current: ${run.phase}`
+    );
+  }
+
+  const threshold = run.config.reviewBlockThreshold;
+
+  const validFindings = findings.map((f, i) => {
+    if (!f || typeof f !== 'object') throw new Error(`findings[${i}] must be an object`);
+    if (!REVIEW_THRESHOLDS.has(f.severity)) {
+      throw new Error(
+        `findings[${i}].severity must be one of: ${[...REVIEW_THRESHOLDS].join(', ')}; got: ${f.severity}`
+      );
+    }
+    if (typeof f.message !== 'string' || !f.message.trim()) {
+      throw new Error(`findings[${i}].message must be a non-empty string`);
+    }
+    return {
+      severity: f.severity,
+      message:  f.message,
+      file:     f.file  != null ? String(f.file)  : null,
+      line:     f.line  != null ? Number(f.line)   : null,
+    };
+  });
+
+  const blockingFindings = validFindings.filter(f =>
+    severityMeetsThreshold(f.severity, threshold)
+  );
+  const blocked = blockingFindings.length > 0;
+
+  // Record findings into current phase record before transition reads the file
+  const currentRecord = run.phases[run.phases.length - 1];
+  if (currentRecord) {
+    currentRecord.reviewFindings   = validFindings;
+    currentRecord.blocked          = blocked;
+    currentRecord.blockingFindings = blockingFindings;
+  }
+
+  if (summaryPath) {
+    run.artifacts.review_summary = summaryPath;
+    if (currentRecord && !currentRecord.artifacts.includes(summaryPath)) {
+      currentRecord.artifacts.push(summaryPath);
+    }
+  }
+
+  run.updatedAt = _now.toISOString();
+  fs.writeFileSync(getRunPath(runId, root), JSON.stringify(run, null, 2), 'utf8');
+
+  const note = blocked
+    ? `Blocked by ${blockingFindings.length} finding(s) at or above '${threshold}' severity`
+    : `Review passed — ${validFindings.length} finding(s) all below '${threshold}' threshold`;
+
+  const updatedRun = transition(runId, !blocked, { root, notes: [note], _now });
+  return { run: updatedRun, blocked, blockingFindings };
+}
+
 /**
  * List all run IDs present under .planning/runs/ in the given root.
  *
@@ -509,7 +618,42 @@ function cliMain(argv) {
       return;
     }
 
-    fail(`Unknown command: ${cmd || '(none)'}. Available: create, transition, status, artifact, list`);
+    if (cmd === 'review') {
+      const [runId] = rest;
+      if (!runId) {
+        return fail(
+          'Usage: review <runId> (--severity <level> --message <text> | --findings-json <path>) ' +
+          '[--summary-path <path>] [--root <path>] [--json]'
+        );
+      }
+      let findings;
+      if (typeof flags['findings-json'] === 'string') {
+        const raw = fs.readFileSync(path.resolve(flags['findings-json']), 'utf8');
+        findings = JSON.parse(raw);
+      } else {
+        const severity = typeof flags.severity === 'string' ? flags.severity : null;
+        const message  = typeof flags.message  === 'string' ? flags.message  : null;
+        if (!severity || !message) {
+          return fail('review: provide --findings-json <path> OR --severity <level> --message <text>');
+        }
+        findings = [{ severity, message }];
+      }
+      const summaryPath = typeof flags['summary-path'] === 'string' ? flags['summary-path'] : null;
+      const result = submitReview(runId, findings, { root, summaryPath });
+      emit({
+        ok: true,
+        runId,
+        blocked:         result.blocked,
+        blockingCount:   result.blockingFindings.length,
+        phase:           result.run.phase,
+        status:          result.run.status,
+        fixAttempts:     result.run.fixAttempts,
+        blockingFindings: result.blockingFindings,
+      });
+      return;
+    }
+
+    fail(`Unknown command: ${cmd || '(none)'}. Available: create, transition, status, artifact, list, review`);
   } catch (err) {
     fail(err.message);
   }
@@ -523,6 +667,7 @@ module.exports = {
   TRANSITIONS,
   ARTIFACT_KEYS,
   REVIEW_THRESHOLDS,
+  SEVERITY_ORDER,
   generateRunId,
   runsDir,
   getRunPath,
@@ -534,6 +679,8 @@ module.exports = {
   transition,
   recordArtifact,
   listRuns,
+  severityMeetsThreshold,
+  submitReview,
 };
 
 if (require.main === module) {

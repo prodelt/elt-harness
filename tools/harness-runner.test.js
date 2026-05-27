@@ -560,6 +560,189 @@ run('Full workflow: fetch_context → complete (all gates pass)', () => {
   assert.ok(valid, `Final schema invalid: ${errors.join('; ')}`);
 });
 
+// ── severityMeetsThreshold + submitReview (P5.2) ──────────────────────────────
+
+const {
+  severityMeetsThreshold,
+  submitReview,
+  SEVERITY_ORDER,
+  REVIEW_THRESHOLDS,
+} = require('./harness-runner');
+
+/** Advance run from fetch_context to code_review with 5 passing transitions. */
+function advanceToCodeReview(runId, root) {
+  for (let i = 0; i < 5; i++) transition(runId, true, { root });
+}
+
+// severityMeetsThreshold
+run('severityMeetsThreshold: low >= low = true', () => {
+  assert.ok(severityMeetsThreshold('low', 'low'));
+});
+run('severityMeetsThreshold: high >= high = true', () => {
+  assert.ok(severityMeetsThreshold('high', 'high'));
+});
+run('severityMeetsThreshold: critical >= high = true', () => {
+  assert.ok(severityMeetsThreshold('critical', 'high'));
+});
+run('severityMeetsThreshold: medium >= high = false', () => {
+  assert.ok(!severityMeetsThreshold('medium', 'high'));
+});
+run('severityMeetsThreshold: low >= critical = false', () => {
+  assert.ok(!severityMeetsThreshold('low', 'critical'));
+});
+run('severityMeetsThreshold: medium >= medium = true', () => {
+  assert.ok(severityMeetsThreshold('medium', 'medium'));
+});
+
+// submitReview — pass cases
+run('submitReview: no findings → pass → git_push', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  const result = submitReview(runId, [], { root });
+  assert.equal(result.blocked, false);
+  assert.equal(result.blockingFindings.length, 0);
+  assert.equal(result.run.phase, 'git_push');
+});
+
+run('submitReview: low+medium findings with high threshold → pass → git_push', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  const result = submitReview(runId, [
+    { severity: 'low',    message: 'minor style nit' },
+    { severity: 'medium', message: 'consider refactoring' },
+  ], { root });
+  assert.equal(result.blocked, false);
+  assert.equal(result.run.phase, 'git_push');
+});
+
+// ACCEPTANCE TEST: High finding blocks closed (P5.2)
+run('submitReview (ACCEPTANCE): high finding blocks closed — transitions to implement', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root, reviewBlockThreshold: 'high' });
+  advanceToCodeReview(runId, root);
+  const result = submitReview(runId, [
+    { severity: 'high', message: 'SQL injection risk in user input handler', file: 'src/auth.js', line: 42 },
+  ], { root });
+  assert.equal(result.blocked, true);
+  assert.equal(result.blockingFindings.length, 1);
+  assert.equal(result.blockingFindings[0].severity, 'high');
+  assert.equal(result.run.phase, 'implement');   // blocked → fail → implement, NOT git_push
+  assert.equal(result.run.fixAttempts, 1);
+  // Verify run cannot reach 'complete' without passing code_review
+  assert.notEqual(result.run.status, 'complete');
+});
+
+run('submitReview: critical finding with high threshold → blocked → implement', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root, reviewBlockThreshold: 'high' });
+  advanceToCodeReview(runId, root);
+  const result = submitReview(runId, [
+    { severity: 'critical', message: 'hardcoded secret exposed' },
+  ], { root });
+  assert.equal(result.blocked, true);
+  assert.equal(result.run.phase, 'implement');
+});
+
+run('submitReview: medium finding with medium threshold → blocked', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root, reviewBlockThreshold: 'medium' });
+  advanceToCodeReview(runId, root);
+  const result = submitReview(runId, [
+    { severity: 'medium', message: 'missing input validation' },
+  ], { root });
+  assert.equal(result.blocked, true);
+  assert.equal(result.run.phase, 'implement');
+});
+
+run('submitReview: mixed findings — only high+ are blocking', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root, reviewBlockThreshold: 'high' });
+  advanceToCodeReview(runId, root);
+  const result = submitReview(runId, [
+    { severity: 'low',      message: 'nit' },
+    { severity: 'high',     message: 'critical logic error' },
+    { severity: 'critical', message: 'security hole' },
+  ], { root });
+  assert.equal(result.blocked, true);
+  assert.equal(result.blockingFindings.length, 2);
+  assert.equal(result.run.fixAttempts, 1);
+});
+
+run('submitReview: findings recorded in code_review phase record', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  submitReview(runId, [{ severity: 'low', message: 'nit' }], { root });
+  const run = readRun(runId, root);
+  const reviewRecord = run.phases.find(p => p.phase === 'code_review');
+  assert.ok(reviewRecord, 'code_review phase record must exist');
+  assert.ok(Array.isArray(reviewRecord.reviewFindings));
+  assert.equal(reviewRecord.reviewFindings.length, 1);
+});
+
+run('submitReview: summaryPath recorded in run.artifacts.review_summary', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  submitReview(runId, [], { root, summaryPath: '.planning/runs/run-001/review_summary.md' });
+  const run = readRun(runId, root);
+  assert.equal(run.artifacts.review_summary, '.planning/runs/run-001/review_summary.md');
+});
+
+// submitReview — error cases
+run('submitReview: wrong phase throws', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root }); // phase = fetch_context
+  assert.throws(() => submitReview(runId, [], { root }), /only valid during code_review/);
+});
+
+run('submitReview: invalid severity throws', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  assert.throws(
+    () => submitReview(runId, [{ severity: 'blocker', message: 'x' }], { root }),
+    /severity must be one of/
+  );
+});
+
+run('submitReview: missing message throws', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  assert.throws(
+    () => submitReview(runId, [{ severity: 'high' }], { root }),
+    /message must be a non-empty string/
+  );
+});
+
+run('submitReview: non-array findings throws', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  advanceToCodeReview(runId, root);
+  assert.throws(() => submitReview(runId, 'high', { root }), /findings must be an array/);
+});
+
+run('submitReview: maxRetries exceeded on second code_review fail → failed', () => {
+  const root = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root, maxRetries: 1 });
+  advanceToCodeReview(runId, root);
+  // First fail: fixAttempts 0 < 1 → increment to 1, go to implement
+  const r1 = submitReview(runId, [{ severity: 'high', message: 'blocker' }], { root });
+  assert.equal(r1.run.phase, 'implement');
+  assert.equal(r1.run.fixAttempts, 1);
+  // Advance back to code_review
+  transition(runId, true, { root }); // implement → linter
+  transition(runId, true, { root }); // linter → tests
+  transition(runId, true, { root }); // tests → code_review
+  // Second fail: fixAttempts 1 >= maxRetries 1 → failed
+  const r2 = submitReview(runId, [{ severity: 'high', message: 'still blocked' }], { root });
+  assert.equal(r2.run.phase, 'failed');
+  assert.ok(r2.run.failReason.includes('maxRetries'));
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 process.stdout.write(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
