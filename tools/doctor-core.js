@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
 const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
 const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
+const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const {
   legacyStatePath,
   normalizePath,
@@ -507,6 +508,25 @@ function countRiskFiles(root) {
   }, { total: 0, byExt: {} });
 }
 
+function checkDocsGate(root, now = new Date()) {
+  const result_ = checkDocsGateArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'docs:gate', 'Docs gate report missing', result_.error, 'Run node tools\\docs-gate.js --root . --write.')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'docs:gate', 'Docs gate report stale', result_.value.generatedAt, 'Rerun node tools\\docs-gate.js --root . --write.', { file: result_.file })];
+  }
+  const gate = result_.value;
+  const status = gate.summary && gate.summary.status ? gate.summary.status : 'unknown';
+  const complexity = gate.complexity || 'unknown';
+  const docCount = Array.isArray(gate.docsChanged) ? gate.docsChanged.length : 0;
+  const codeCount = Array.isArray(gate.codeChanged) ? gate.codeChanged.length : 0;
+  const title = status === 'pass' ? 'Docs gate OK' : status === 'warn' ? 'Docs gate: docs recommended' : 'Docs gate: docs required';
+  const detail = `complexity=${complexity}  code=${codeCount}  docs=${docCount}`;
+  const repair = status === 'fail' ? 'Update AGENTS.md (Current State + Architecture). Run /sync-docs.' : '';
+  return [result(status === 'fail' ? 'warn' : status, 'docs:gate', title, detail, repair, { file: result_.file })];
+}
+
 function checkGitWorkflowAudit(root, now = new Date()) {
   const result_ = checkGitArtifact(root, now);
   if (!result_.ok) {
@@ -563,6 +583,7 @@ function runDoctor(options) {
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkAgentSurfaceAudit(root),
+    ...checkDocsGate(root),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkGitHubCli(root),
@@ -597,6 +618,7 @@ module.exports = {
   checkGitHubCli,
   checkPipelineState,
   checkAgentSurfaceAudit,
+  checkDocsGate,
   checkGitWorkflowAudit,
   runDoctor,
   formatText,
