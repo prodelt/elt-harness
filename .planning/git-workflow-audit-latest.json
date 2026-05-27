@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-05-27T15:48:37.585Z",
+  "projectRoot": "C:/Claude playground/Pipiline setupper",
+  "gitRoot": "C:/Claude playground/Pipiline setupper",
+  "branch": "session/2026-05-22-1052",
+  "summary": {
+    "status": "warn",
+    "pass": 2,
+    "warn": 1,
+    "fail": 0,
+    "total": 3
+  },
+  "checks": [
+    {
+      "status": "pass",
+      "id": "git:root",
+      "title": "Git root is scoped to project",
+      "detail": "gitRoot=C:/Claude playground/Pipiline setupper",
+      "repair": "",
+      "data": {
+        "gitRoot": "C:/Claude playground/Pipiline setupper",
+        "projectRoot": "C:/Claude playground/Pipiline setupper",
+        "isDiskRoot": false
+      }
+    },
+    {
+      "status": "pass",
+      "id": "git:branch",
+      "title": "Branch detected",
+      "detail": "session/2026-05-22-1052",
+      "repair": "",
+      "data": {
+        "branch": "session/2026-05-22-1052"
+      }
+    },
+    {
+      "status": "warn",
+      "id": "git:dirty",
+      "title": "6 uncommitted change(s) in project scope",
+      "detail": "M tools/doctor-core.js; ?? .planning/git-workflow-audit-latest.json; ?? .planning/git-workflow-audit-latest.md; ?? tools/git-workflow-audit.js; ?? tools/git-workflow-audit.test.js; ?? \"\\320\\234\\320\\265\\321\\202\\320\\276\\320\\264\\320\\276\\320\\273\\320\\276\\320\\263\\320\\270\\321\\217 Agent Harness.md\"",
+      "repair": "Commit or stash changes before session closeout.",
+      "data": {
+        "count": 6,
+        "files": [
+          "M tools/doctor-core.js",
+          "?? .planning/git-workflow-audit-latest.json",
+          "?? .planning/git-workflow-audit-latest.md",
+          "?? tools/git-workflow-audit.js",
+          "?? tools/git-workflow-audit.test.js",
+          "?? \"\\320\\234\\320\\265\\321\\202\\320\\276\\320\\264\\320\\276\\320\\273\\320\\276\\320\\263\\320\\270\\321\\217 Agent Harness.md\""
+        ]
+      }
+    }
+  ]
+}

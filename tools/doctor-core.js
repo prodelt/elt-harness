@@ -7,6 +7,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
 const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
+const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const {
   legacyStatePath,
   normalizePath,
@@ -506,6 +507,28 @@ function countRiskFiles(root) {
   }, { total: 0, byExt: {} });
 }
 
+function checkGitWorkflowAudit(root, now = new Date()) {
+  const result_ = checkGitArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'git-workflow:audit', 'Git workflow audit missing', result_.error, 'Run node tools\\git-workflow-audit.js --root .')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'git-workflow:audit', 'Git workflow audit stale', result_.value.generatedAt, 'Rerun node tools\\git-workflow-audit.js --root .', { file: result_.file })];
+  }
+  const audit = result_.value;
+  const overallStatus = audit.summary && audit.summary.status ? audit.summary.status : 'unknown';
+  const gitRootIsDisk = Array.isArray(audit.checks) && audit.checks.some((c) => c.id === 'git:root-is-disk');
+  const status = gitRootIsDisk ? 'warn' : overallStatus === 'pass' ? 'pass' : 'warn';
+  const title = gitRootIsDisk
+    ? 'Git root is disk root — scope all git commands with -- .'
+    : status === 'pass' ? 'Git workflow OK' : 'Git workflow has issues';
+  const detail = gitRootIsDisk
+    ? `gitRoot=${audit.gitRoot || 'unknown'}  projectRoot=${audit.projectRoot || 'unknown'}`
+    : result_.file;
+  const repair = gitRootIsDisk ? 'All git status/log/diff commands must append "-- ." to scope to project.' : '';
+  return [result(status, 'git-workflow:audit', title, detail, repair, { file: result_.file, gitRoot: audit.gitRoot })];
+}
+
 function checkRedTeam(root, home) {
   const roots = [path.join(root, 'tools', 'red-team'), path.join(home, '.claude', 'skills', 'red-team')];
   const quarantined = roots.filter((r) => fs.existsSync(path.join(r, '.quarantined')));
@@ -540,6 +563,7 @@ function runDoctor(options) {
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkAgentSurfaceAudit(root),
+    ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
@@ -573,6 +597,7 @@ module.exports = {
   checkGitHubCli,
   checkPipelineState,
   checkAgentSurfaceAudit,
+  checkGitWorkflowAudit,
   runDoctor,
   formatText,
 };
