@@ -44,6 +44,7 @@ node tools/memory-provider.js recall --root . --json # 20 recall prompts for mem
 node tools/memory-provider.js compare --root . --json # project-rag vs agentmemory promotion report
 node tools/agent-surface-audit.js --json       # Claude/Codex/Gemini parity artifact
 node tools/agent-surface-audit.js --markdown   # human-readable parity report
+node tools/git-workflow-audit.js --root .      # git root/branch/dirty/scope audit → .planning/git-workflow-audit-latest.json
 node tools/hook-diet.js --summary --out .planning/HOOK-DIET-INVENTORY-2026-05-20.json # hook diet inventory/evidence
 node tools/token-impact.js measure-command --cmd "node tools/research-router.js design research router --root . --github --architecture --json" --json # command output/token proxy
 node tools/project-bootstrap.js --root <project> --json # dry-run bootstrap: docs/codemap strategy and safe actions
