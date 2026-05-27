@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-05-27T18:55:16.541Z",
+  "projectRoot": "C:/Claude playground/Pipiline setupper",
+  "complexity": "MEDIUM",
+  "codeChanged": [
+    "tools/doctor-core.js",
+    "tools/docs-gate.js"
+  ],
+  "docsChanged": [
+    "AGENTS.md"
+  ],
+  "summary": {
+    "status": "pass",
+    "pass": 2,
+    "warn": 0,
+    "fail": 0
+  },
+  "checks": [
+    {
+      "id": "docs:delta",
+      "status": "pass",
+      "detail": "Docs updated: AGENTS.md",
+      "repair": ""
+    },
+    {
+      "id": "docs:canonical",
+      "status": "pass",
+      "detail": "AGENTS.md exists",
+      "repair": ""
+    }
+  ]
+}
