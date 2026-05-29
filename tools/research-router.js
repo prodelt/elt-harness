@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { resolveLibrary } = require('./context7-cli');
 
 const MAX_FINDINGS = 5;
 const DEFAULT_TOKEN_BUDGET = 1000;
@@ -40,11 +41,9 @@ function runBounded(runner, command, args, timeout) {
 
 function context7Probe(library, runner) {
   if (!library) return { source: null, skipped: null };
-  const command = process.platform === 'win32' ? 'cmd.exe' : 'ctx7';
-  const args = process.platform === 'win32' ? ['/c', 'ctx7', 'library', library] : ['library', library];
-  const result = runBounded(runner, command, args, 5000);
+  const result = resolveLibrary(library, { runner, timeout: 5000 });
   if (!result.ok) {
-    return { source: null, skipped: { source: 'Context7', reason: result.error || result.output || 'unavailable', attemptedCommand: result.attemptedCommand } };
+    return { source: null, skipped: { source: 'Context7', reason: result.skipReason || 'unavailable', attemptedCommand: result.attemptedCommand } };
   }
   return { source: { name: 'Context7', command: result.attemptedCommand, tokenBudget: 1000 }, skipped: null };
 }

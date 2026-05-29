@@ -177,6 +177,20 @@ function testRunCodemapDoctorCanUseCodeGraphProvider() {
   assert.equal(report.checks[0].id, 'codemap:codegraph:cli');
 }
 
+function testRunCodemapDoctorReportsCodeGraphFallback() {
+  const root = tempRoot('codemap-codegraph-fallback');
+  const report = runCodemapDoctor({
+    root,
+    provider: 'codegraph',
+    codegraphRunner: () => ({ status: 1, error: 'EPERM: operation not permitted', attemptedCommand: 'codegraph <locked>' }),
+  });
+  assert.equal(report.provider, 'codegraph');
+  assert.equal(report.summary.warn, 1);
+  assert.equal(report.checks[0].status, 'warn');
+  assert.equal(report.checks[0].data.fallback, 'graphify');
+  assert.match(report.checks[0].repair, /CODEMAP_PROVIDER=graphify/);
+}
+
 function testCodeGraphRuntimeUsesWritableProjectCache() {
   const root = tempRoot('codemap-codegraph-cache');
   const runtime = codeGraphRuntimePaths(root);
@@ -202,6 +216,20 @@ function testCodeGraphLockSerializesRunner() {
   fs.rmSync(runtime.lockFile, { force: true });
 }
 
+function testCodeGraphLockCleansStaleSameOwnerLock() {
+  const root = tempRoot('codemap-codegraph-stale-lock');
+  const runtime = codeGraphRuntimePaths(root);
+  fs.mkdirSync(runtime.cacheDir, { recursive: true });
+  fs.writeFileSync(runtime.lockFile, JSON.stringify({
+    pid: 999999,
+    cwd: path.resolve(root),
+    createdAt: '2026-01-01T00:00:00.000Z',
+  }), 'utf8');
+  const completed = withCodeGraphLock(root, () => ({ status: 0, output: 'ok' }), () => Date.parse('2026-01-01T00:10:00.000Z'));
+  assert.equal(completed.status, 0);
+  assert.equal(fs.existsSync(runtime.lockFile), false);
+}
+
 function main() {
   testGraphScopePassesForProjectSources();
   testGraphifyIgnoreConfigRequiresNoisyExcludes();
@@ -214,8 +242,10 @@ function main() {
   testProviderSelectionDefaultsToGraphify();
   testCodeGraphStatusUsesBoundedProviderCommand();
   testRunCodemapDoctorCanUseCodeGraphProvider();
+  testRunCodemapDoctorReportsCodeGraphFallback();
   testCodeGraphRuntimeUsesWritableProjectCache();
   testCodeGraphLockSerializesRunner();
+  testCodeGraphLockCleansStaleSameOwnerLock();
   process.stdout.write('codemap tests: PASS\n');
 }
 

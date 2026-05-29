@@ -14,6 +14,9 @@ const {
   checkCodexDefaults,
   checkGitHubCli,
   checkPipelineState,
+  checkAgentSurfaceAudit,
+  checkHarnessChecklist,
+  checkHarnessRun,
   runDoctor,
 } = require('./doctor-core');
 
@@ -161,8 +164,11 @@ function testGitHubCliAuthWarningSkipsCodeSearch() {
 function testCodexDefaultsWarnOnExpensiveRoute() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-codex-defaults-'));
   const home = path.join(dir, 'home');
+  // Expensive == legacy model (gpt-4/gpt-3 family), not high effort.
+  // checkCodexDefaults treats gpt-5.5 as the current flagship (pass), so the
+  // "warn on expensive route" case must use a genuinely legacy expensive model.
   write(path.join(home, '.codex', 'config.toml'), [
-    'model = "gpt-5.5"',
+    'model = "gpt-4-turbo"',
     'model_reasoning_effort = "xhigh"',
     '',
   ].join('\n'));
@@ -174,6 +180,27 @@ function testCodexDefaultsWarnOnExpensiveRoute() {
     '',
   ].join('\n'));
   assert.equal(checkCodexDefaults(home)[0].status, 'pass');
+}
+
+function testAgentSurfaceAuditCheck() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-surface-'));
+  const missing = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(missing[0].status, 'warn');
+
+  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-27T11:00:00Z',
+    summary: { status: 'pass', unexplainedGaps: [] },
+  }));
+  const passed = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(passed[0].status, 'pass');
+
+  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-27T11:00:00Z',
+    summary: { status: 'warn', unexplainedGaps: ['codex:Notification'] },
+  }));
+  const warned = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(warned[0].status, 'warn');
+  assert.match(warned[0].detail, /codex:Notification/);
 }
 
 function coreDoc() {
@@ -194,6 +221,79 @@ function coreDoc() {
     'x',
     '',
   ].join('\n');
+}
+
+function testHarnessChecklistCheck() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-harness-checklist-'));
+  const now = new Date('2026-05-29T12:00:00Z');
+
+  const missing = checkHarnessChecklist(root, now);
+  assert.equal(missing[0].status, 'warn');
+  assert.equal(missing[0].id, 'harness:checklist');
+
+  write(path.join(root, '.planning', 'harness-checklist-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-29T11:00:00Z',
+    summary: { status: 'pass', counts: { pass: 25, warn: 0, fail: 0, needsJustification: 0 } },
+  }));
+  const passed = checkHarnessChecklist(root, now);
+  assert.equal(passed[0].status, 'pass');
+  assert.match(passed[0].detail, /25 pass/);
+
+  // fail status is surfaced as warn (advisory, non-blocking) with a repair hint
+  write(path.join(root, '.planning', 'harness-checklist-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-29T11:00:00Z',
+    summary: { status: 'fail', counts: { pass: 20, warn: 0, fail: 5, needsJustification: 0 } },
+  }));
+  const failed = checkHarnessChecklist(root, now);
+  assert.equal(failed[0].status, 'warn');
+  assert.match(failed[0].repair, /harness-checklist\.js/);
+
+  // stale artifact (older than TTL) → warn
+  write(path.join(root, '.planning', 'harness-checklist-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-01T11:00:00Z',
+    summary: { status: 'pass', counts: { pass: 25, warn: 0, fail: 0, needsJustification: 0 } },
+  }));
+  const stale = checkHarnessChecklist(root, now);
+  assert.equal(stale[0].status, 'warn');
+}
+
+function testHarnessRunCheck() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-harness-run-'));
+  const now  = new Date('2026-05-30T12:00:00Z');
+
+  // missing → warn
+  const missing = checkHarnessRun(root, now);
+  assert.equal(missing[0].status, 'warn');
+  assert.equal(missing[0].id, 'harness:run');
+
+  // stale → warn
+  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-01T10:00:00Z',
+    runId: 'run-001', phase: 'linter', status: 'running',
+    summary: { status: 'running', phase: 'linter' },
+  }));
+  const stale = checkHarnessRun(root, now);
+  assert.equal(stale[0].status, 'warn');
+  assert.match(stale[0].title, /stale/i);
+
+  // running → pass (non-blocking)
+  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-30T11:00:00Z',
+    runId: 'run-001', phase: 'linter', status: 'running',
+    summary: { status: 'running', phase: 'linter' },
+  }));
+  const running = checkHarnessRun(root, now);
+  assert.equal(running[0].status, 'pass');
+
+  // complete → pass
+  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-30T11:30:00Z',
+    runId: 'run-001', phase: 'complete', status: 'complete',
+    summary: { status: 'pass', phase: 'complete' },
+  }));
+  const done = checkHarnessRun(root, now);
+  assert.equal(done[0].status, 'pass');
+  assert.match(done[0].title, /complete/i);
 }
 
 function withHome(home, fn) {
@@ -217,6 +317,9 @@ function main() {
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
+  testAgentSurfaceAuditCheck();
+  testHarnessChecklistCheck();
+  testHarnessRunCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 

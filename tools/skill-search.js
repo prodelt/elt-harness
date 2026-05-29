@@ -15,25 +15,89 @@ const searchCachePath = path.join(os.homedir(), '.claude', 'skill-registry', 'sk
 const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MARKETPLACE_RELEVANCE_THRESHOLD = 0.3;
 const OUTPUT_SKILL_LIMIT = 3;
+const DOMAIN_HINTS = [
+  {
+    terms: ['security', 'api', 'input', 'validation'],
+    skills: ['security-best-practices'],
+    relevance: 0.95,
+    reason: 'security/API/input-validation domain hint',
+  },
+  {
+    terms: ['browser', 'automation'],
+    skills: ['gstack/browse', 'gstack/open-gstack-browser', 'gstack/qa-only'],
+    relevance: 0.85,
+    reason: 'browser automation domain hint',
+  },
+  {
+    terms: ['qa', 'test', 'web'],
+    skills: ['gstack/qa', 'gstack/qa-only', 'qa'],
+    relevance: 0.8,
+    reason: 'web QA domain hint',
+  },
+  {
+    terms: ['branch', 'commit'],
+    skills: ['git-flow'],
+    relevance: 0.85,
+    reason: 'git workflow domain hint',
+  },
+  {
+    terms: ['research', 'market'],
+    skills: ['research-autopilot'],
+    relevance: 0.85,
+    reason: 'research/market analysis domain hint',
+  },
+  {
+    terms: ['contract', 'law'],
+    skills: ['contract-review'],
+    relevance: 0.85,
+    reason: 'legal/contract review domain hint',
+  },
+];
+
+const SKILL_ROUTER_BENCHMARKS = [
+  // browser — must avoid project-setup skills
+  { query: 'browser automation ai agent', avoid: ['init-project', 'sync-docs', 'clone-research'] },
+  // security — must route to security-best-practices
+  { query: 'security api input validation', allow: ['security-best-practices'] },
+  // git — must route to git-flow
+  { query: 'create feature branch commit push pr', allow: ['git-flow'] },
+  // docs — must not route to init-project (that's for new projects, not doc updates)
+  { query: 'update project readme documentation', avoid: ['init-project'] },
+  // backend — no local skill; marketplace must NOT become selected
+  { query: 'build rest api endpoint validation', allow: ['no skill', 'tdd', 'sprint', 'security-best-practices'] },
+  // frontend — no strong local skill; direct work is preferred
+  { query: 'design react component ui layout', allow: ['no skill', 'design-an-interface'] },
+  // research — must route to research-autopilot
+  { query: 'research competitor market analysis', allow: ['research-autopilot'] },
+  // legal — must route to contract-review
+  { query: 'contract review procurement ukraine law', allow: ['contract-review'] },
+  // QA — must route to qa or gstack qa variant
+  { query: 'qa test web interface bugs', allow: ['qa', 'gstack/qa', 'gstack/qa-only'] },
+  // low confidence — must always return no skill
+  { query: 'zzzzzz low confidence nonsense', allow: ['no skill'] },
+];
+const MARKETPLACE_STOP_TERMS = new Set(['low', 'confidence', 'nonsense', 'misc', 'general']);
 
 function usage() {
   return [
     'Usage: node tools/skill-search.js "query" [--top N] [--json]',
+    '       node tools/skill-search.js --benchmark --json',
     '       tools/skill.cmd "query"',
     '       bash tools/skill.sh "query"',
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  const args = { query: [], top: OUTPUT_SKILL_LIMIT, json: false, ledger: '' };
+  const args = { query: [], top: OUTPUT_SKILL_LIMIT, json: false, ledger: '', benchmark: false };
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') args.json = true;
+    else if (arg === '--benchmark') args.benchmark = true;
     else if (arg === '--top') args.top = Math.min(Number(argv[++i] || OUTPUT_SKILL_LIMIT), OUTPUT_SKILL_LIMIT);
     else if (arg === '--ledger') args.ledger = argv[++i] || '';
     else args.query.push(arg);
   }
-  return { query: args.query.join(' ').trim(), top: args.top, json: args.json, ledger: args.ledger };
+  return { query: args.query.join(' ').trim(), top: args.top, json: args.json, ledger: args.ledger, benchmark: args.benchmark };
 }
 
 function loadJsonl(file) {
@@ -166,6 +230,34 @@ function relevanceOf(skill) {
     : 0;
 }
 
+function queryTerms(query) {
+  return String(query || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function matchedHint(query, skillName) {
+  const terms = queryTerms(query);
+  return DOMAIN_HINTS.find(hint => (
+    hint.skills.includes(skillName)
+    && hint.terms.every(term => terms.includes(term))
+  ));
+}
+
+function withRouterRelevance(query, ranked) {
+  return ranked
+    .map(skill => {
+      const hint = matchedHint(query, skill.name);
+      if (!hint) return skill;
+      const nextBreakdown = {
+        ...(skill.breakdown || {}),
+        relevance: Math.max(relevanceOf(skill), hint.relevance),
+        routerHint: hint.reason,
+      };
+      const nextScore = Math.max(skill.score || 0, hint.relevance);
+      return { ...skill, score: nextScore, breakdown: nextBreakdown };
+    })
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
+}
+
 function shouldSearchMarketplace(ranked) {
   if (ranked.length === 0) return true;
   const relevances = ranked.map(relevanceOf);
@@ -194,7 +286,7 @@ function marketplaceCandidate(skill) {
   return {
     name: skill.name,
     reason: 'marketplace fallback candidate',
-    relevanceScore: null,
+    relevanceScore: skill.relevanceScore ?? null,
     totalScore: null,
     tokenEstimate: null,
     riskLabel: 'unknown',
@@ -202,13 +294,25 @@ function marketplaceCandidate(skill) {
   };
 }
 
+function marketplaceRelevance(query, skill) {
+  const qTerms = queryTerms(query).filter(term => !MARKETPLACE_STOP_TERMS.has(term));
+  if (qTerms.length === 0) return 0;
+  const text = `${skill.name || ''} ${skill.source || ''}`.toLowerCase();
+  const matched = qTerms.filter(term => text.includes(term));
+  return matched.length / qTerms.length;
+}
+
 function buildSkillRouterRecord(query, ranked, marketplaceResult, options = {}) {
   const localCandidates = ranked.slice(0, OUTPUT_SKILL_LIMIT).map(skillCandidate);
   const localRelevant = localCandidates.filter(skill => skill.relevanceScore >= MARKETPLACE_RELEVANCE_THRESHOLD);
   const marketplaceCandidates = (marketplaceResult.results || [])
+    .map(skill => ({ ...skill, relevanceScore: marketplaceRelevance(query, skill) }))
+    .filter(skill => skill.relevanceScore >= MARKETPLACE_RELEVANCE_THRESHOLD)
     .slice(0, OUTPUT_SKILL_LIMIT)
     .map(marketplaceCandidate);
-  const selected = localRelevant[0] || marketplaceCandidates[0] || {
+  // Marketplace is research-only: candidates appear in recommendations but never become `selected`.
+  // This prevents high-install marketplace noise (e.g. zoom/bitso SDKs) from overriding `no skill`.
+  const selected = localRelevant[0] || {
     name: 'no skill',
     reason: 'direct work is cheaper than loading an unrelated or unavailable skill',
   };
@@ -243,9 +347,42 @@ function writeLedgerEvent(ledgerPath, event) {
   fs.appendFileSync(ledgerPath, JSON.stringify(event) + '\n', 'utf8');
 }
 
+function evaluateBenchmarkRecords(records) {
+  const results = SKILL_ROUTER_BENCHMARKS.map(benchmark => {
+    const record = records[benchmark.query];
+    const selected = record && record.selected ? record.selected : '';
+    const allowed = !benchmark.allow || benchmark.allow.includes(selected);
+    const avoided = !benchmark.avoid || !benchmark.avoid.includes(selected);
+    return {
+      query: benchmark.query,
+      selected,
+      status: allowed && avoided ? 'pass' : 'fail',
+      allow: benchmark.allow || [],
+      avoid: benchmark.avoid || [],
+    };
+  });
+  return {
+    status: results.every(result => result.status === 'pass') ? 'pass' : 'fail',
+    results,
+  };
+}
+
+function buildRouterForQuery(query, top, ranker, digests, history, installCountMap, options = {}) {
+  const rankedAll = withRouterRelevance(
+    query,
+    ranker.rankSkills(digests, query, history, {}, installCountMap)
+  );
+  const ranked = rankedAll.slice(0, top);
+  const marketplaceEnabled = options.marketplace !== false;
+  const marketplaceResult = marketplaceEnabled && shouldSearchMarketplace(ranked)
+    ? searchSkillsSh(query, top)
+    : { status: 'skipped', results: [], ts: Date.now(), ttl: SEARCH_CACHE_TTL_MS };
+  return { ranked, marketplaceResult, router: buildSkillRouterRecord(query, ranked, marketplaceResult) };
+}
+
 function main() {
   const args = parseArgs(process.argv);
-  if (!args.query) {
+  if (!args.query && !args.benchmark) {
     process.stderr.write(usage() + '\n');
     process.exit(2);
   }
@@ -262,13 +399,18 @@ function main() {
   const digests        = loadJsonl(digestPath);
   const history        = loadJsonl(historyPath);
   const installCountMap = loadInstallCountMap();
-  const ranked         = ranker.rankSkills(digests, args.query, history, {}, installCountMap).slice(0, args.top);
 
-  // Fallback to marketplace if local relevance is weak.
-  const marketplaceResult = shouldSearchMarketplace(ranked)
-    ? searchSkillsSh(args.query, args.top)
-    : { status: 'skipped', results: [], ts: Date.now(), ttl: SEARCH_CACHE_TTL_MS };
-  const router = buildSkillRouterRecord(args.query, ranked, marketplaceResult);
+  if (args.benchmark) {
+    const records = SKILL_ROUTER_BENCHMARKS.reduce((acc, benchmark) => {
+      const routed = buildRouterForQuery(benchmark.query, args.top, ranker, digests, history, installCountMap, { marketplace: false });
+      return { ...acc, [benchmark.query]: routed.router };
+    }, {});
+    const report = evaluateBenchmarkRecords(records);
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+    process.exit(report.status === 'pass' ? 0 : 1);
+  }
+
+  const { ranked, marketplaceResult, router } = buildRouterForQuery(args.query, args.top, ranker, digests, history, installCountMap);
   writeLedgerEvent(args.ledger, router);
 
   if (args.json) {
@@ -307,6 +449,8 @@ if (require.main === module) {
 
 module.exports = {
   buildSkillRouterRecord,
+  evaluateBenchmarkRecords,
   searchSkillsSh,
   shouldSearchMarketplace,
+  withRouterRelevance,
 };

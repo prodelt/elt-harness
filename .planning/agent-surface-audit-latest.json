@@ -1,0 +1,2339 @@
+{
+  "version": 1,
+  "generatedAt": "2026-05-29T18:51:45.731Z",
+  "root": "C:\\Claude playground\\Pipiline setupper",
+  "home": "C:\\Users\\user",
+  "clients": [
+    {
+      "client": "claude",
+      "settingsFile": "C:\\Users\\user\\.claude\\settings.json",
+      "settingsStatus": "present",
+      "settingsError": "",
+      "events": [
+        {
+          "event": "SessionStart",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/project-docs-gate.js\"",
+            "Checking project docs...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/session-focus-gate.js\"",
+            "Session focus check...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/session-branch-advisor.js\"",
+            "Checking git branch...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/autoskills-check.js\"",
+            "Detecting tech stack...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/graphify-session-init.js\"",
+            "Checking Graphify graph...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/memory-discipline.js\"",
+            "Checking memory size...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/harvest-injector.js\"",
+            "Loading session harvest briefing...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/projects-dashboard.js\"",
+            "Updating projects dashboard...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/rag-context-injector.js\"",
+            "Injecting RAG project context...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/project-bootstrap-advisor.js\"",
+            "Checking project bootstrap strategy...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "UserPromptSubmit",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/context-budget-gate.js\"",
+            "Checking context budget...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/session-size-guard.js\"",
+            "Checking session size...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "PreToolUse",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/graphify-read-gate.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/graphify-preuse.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/auto-branch.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/settings-schema-guard.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/write-over-edit-guard.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/config-protection.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/domain-agent-gate.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/edit-enforcer.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/git-branch-guard.js\"",
+            "Checking protected git branch...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/conventional-commit-validator.js\"",
+            "Checking commit message format...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/branch-name-validator.js\"",
+            "Checking branch name format...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/pre-commit-gate.js\"",
+            "Running pre-commit quality gate...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/secret-scanner.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/quality-gate-runner.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/context7-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/coverage-gate.js\"",
+            "Checking coverage threshold...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/tool-policy-gate.js\"",
+            "Enforcing browser tool policy...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/skill-selector-gate.js\"",
+            "Ranking skill alternatives...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "PostToolUse",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/verification-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/loop-guardian.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/secret-output-scanner.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/bash-output-advisor.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/graphify-post-commit.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/post-edit-combined.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/context7-reminder.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/inline-review-gate.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/skill-sync-mirror.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/rag-queue-enqueue.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/graphify-auto-update.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/context7-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/scope-guard.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/inline-review-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/pipeline-tracker.js\"",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "Stop",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/stop-verification.js\"",
+            "Running session-end verification...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/ship-gate.js\"",
+            "Checking uncommitted changes...",
+            "command",
+            "node \"C:/Users/user/.claude/hooks/stop-auto-checkpoint.js\"",
+            "Writing auto-checkpoint if needed...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "Notification",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/task-completed-gate.js\"",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "FileChanged",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.claude/hooks/env-change-watcher.js\""
+          ]
+        }
+      ],
+      "hookCommandCount": 134,
+      "skillRoot": "C:\\Users\\user\\.claude\\skills",
+      "skillCount": 98,
+      "skills": [
+        {
+          "name": "\"security-best-practices\"",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\security-best-practices\\SKILL.md"
+        },
+        {
+          "name": "architect-first",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\architect-first\\SKILL.md"
+        },
+        {
+          "name": "auto-ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\auto-ship\\SKILL.md"
+        },
+        {
+          "name": "autoplan",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\autoplan\\SKILL.md"
+        },
+        {
+          "name": "benchmark",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\benchmark\\SKILL.md"
+        },
+        {
+          "name": "benchmark-models",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\benchmark-models\\SKILL.md"
+        },
+        {
+          "name": "browse",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\browse\\SKILL.md"
+        },
+        {
+          "name": "canary",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\canary\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\careful\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\careful\\SKILL.md"
+        },
+        {
+          "name": "caveman",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\caveman\\SKILL.md"
+        },
+        {
+          "name": "checkpoint",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\checkpoint\\SKILL.md"
+        },
+        {
+          "name": "clone-research",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\clone-research\\SKILL.md"
+        },
+        {
+          "name": "codex",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\codex\\SKILL.md"
+        },
+        {
+          "name": "company",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\company\\SKILL.md"
+        },
+        {
+          "name": "context-restore",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\context-restore\\SKILL.md"
+        },
+        {
+          "name": "context-save",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\context-save\\SKILL.md"
+        },
+        {
+          "name": "contract-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\contract-review\\SKILL.md"
+        },
+        {
+          "name": "cso",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\cso\\SKILL.md"
+        },
+        {
+          "name": "cto-playbook",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\cto-playbook\\SKILL.md"
+        },
+        {
+          "name": "design-an-interface",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\design-an-interface\\SKILL.md"
+        },
+        {
+          "name": "design-consultation",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\design-consultation\\SKILL.md"
+        },
+        {
+          "name": "design-html",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\design-html\\SKILL.md"
+        },
+        {
+          "name": "design-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\design-review\\SKILL.md"
+        },
+        {
+          "name": "design-shotgun",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\design-shotgun\\SKILL.md"
+        },
+        {
+          "name": "devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\devex-review\\SKILL.md"
+        },
+        {
+          "name": "diagnose",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\diagnose\\SKILL.md"
+        },
+        {
+          "name": "document-release",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\document-release\\SKILL.md"
+        },
+        {
+          "name": "domain-model",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\domain-model\\SKILL.md"
+        },
+        {
+          "name": "edit-article",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\edit-article\\SKILL.md"
+        },
+        {
+          "name": "fix-issue",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\fix-issue\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\freeze\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\freeze\\SKILL.md"
+        },
+        {
+          "name": "git-flow",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\git-flow\\SKILL.md"
+        },
+        {
+          "name": "git-guardrails-claude-code",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\git-guardrails-claude-code\\SKILL.md"
+        },
+        {
+          "name": "github-triage",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\github-triage\\SKILL.md"
+        },
+        {
+          "name": "grill-me",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\grill-me\\SKILL.md"
+        },
+        {
+          "name": "gstack",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-investigate",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-investigate\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-office-hours\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-retro",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-retro\\SKILL.md"
+        },
+        {
+          "name": "gstack-upgrade",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\gstack-upgrade\\SKILL.md"
+        },
+        {
+          "name": "guard",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\guard\\SKILL.md"
+        },
+        {
+          "name": "health",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\health\\SKILL.md"
+        },
+        {
+          "name": "hunt-bug",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\hunt-bug\\SKILL.md"
+        },
+        {
+          "name": "improve-codebase-architecture",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\improve-codebase-architecture\\SKILL.md"
+        },
+        {
+          "name": "init-project",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\init-project\\SKILL.md"
+        },
+        {
+          "name": "inline-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\inline-review\\SKILL.md"
+        },
+        {
+          "name": "investigate",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\investigate\\SKILL.md"
+        },
+        {
+          "name": "itstep-lesson-builder",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\itstep-lesson-builder\\SKILL.md"
+        },
+        {
+          "name": "land-and-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\land-and-deploy\\SKILL.md"
+        },
+        {
+          "name": "landing-report",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\landing-report\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\learn\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\learn\\SKILL.md"
+        },
+        {
+          "name": "make-pdf",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\make-pdf\\SKILL.md"
+        },
+        {
+          "name": "migrate-to-shoehorn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\migrate-to-shoehorn\\SKILL.md"
+        },
+        {
+          "name": "mikrotik-audit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\mikrotik-audit\\SKILL.md"
+        },
+        {
+          "name": "obsidian-vault",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\obsidian-vault\\SKILL.md"
+        },
+        {
+          "name": "office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\office-hours\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\open-gstack-browser\\SKILL.md"
+        },
+        {
+          "name": "pair-agent",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\pair-agent\\SKILL.md"
+        },
+        {
+          "name": "pipeline",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\pipeline\\SKILL.md"
+        },
+        {
+          "name": "plan-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\plan-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "plan-design-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\plan-design-review\\SKILL.md"
+        },
+        {
+          "name": "plan-devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\plan-devex-review\\SKILL.md"
+        },
+        {
+          "name": "plan-eng-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\plan-eng-review\\SKILL.md"
+        },
+        {
+          "name": "plan-tune",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\plan-tune\\SKILL.md"
+        },
+        {
+          "name": "prime",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\prime\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa-only",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\qa-only\\SKILL.md"
+        },
+        {
+          "name": "red-team",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\red-team\\SKILL.md"
+        },
+        {
+          "name": "reference-design-adaptation",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\reference-design-adaptation\\SKILL.md"
+        },
+        {
+          "name": "request-refactor-plan",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\request-refactor-plan\\SKILL.md"
+        },
+        {
+          "name": "research-autopilot",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\research-autopilot\\SKILL.md"
+        },
+        {
+          "name": "retro",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\retro\\SKILL.md"
+        },
+        {
+          "name": "review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\review\\SKILL.md"
+        },
+        {
+          "name": "scaffold-exercises",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\scaffold-exercises\\SKILL.md"
+        },
+        {
+          "name": "session-harvest",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\session-harvest\\SKILL.md"
+        },
+        {
+          "name": "setup-browser-cookies",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\setup-browser-cookies\\SKILL.md"
+        },
+        {
+          "name": "setup-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\setup-deploy\\SKILL.md"
+        },
+        {
+          "name": "setup-gbrain",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\setup-gbrain\\SKILL.md"
+        },
+        {
+          "name": "setup-pre-commit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\setup-pre-commit\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\ship\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\ship\\SKILL.md"
+        },
+        {
+          "name": "skill-anything",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\skill-anything\\SKILL.md"
+        },
+        {
+          "name": "sprint",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\sprint\\SKILL.md"
+        },
+        {
+          "name": "sync-docs",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\sync-docs\\SKILL.md"
+        },
+        {
+          "name": "tdd",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\tdd\\SKILL.md"
+        },
+        {
+          "name": "to-issues",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\to-issues\\SKILL.md"
+        },
+        {
+          "name": "to-prd",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\to-prd\\SKILL.md"
+        },
+        {
+          "name": "triage-issue",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\triage-issue\\SKILL.md"
+        },
+        {
+          "name": "ubiquitous-language",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\ubiquitous-language\\SKILL.md"
+        },
+        {
+          "name": "unfreeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\gstack\\unfreeze\\SKILL.md"
+        },
+        {
+          "name": "usage-audit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\usage-audit\\SKILL.md"
+        },
+        {
+          "name": "write-a-skill",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\write-a-skill\\SKILL.md"
+        },
+        {
+          "name": "zoom-out",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.claude\\skills\\zoom-out\\SKILL.md"
+        }
+      ]
+    },
+    {
+      "client": "codex",
+      "settingsFile": "C:\\Users\\user\\.codex\\hooks.json",
+      "settingsStatus": "present",
+      "settingsError": "",
+      "events": [
+        {
+          "event": "SessionStart",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node C:/Users/user/.claude/hooks/project-docs-gate.js",
+            "Checking project docs...",
+            "command",
+            "node C:/Users/user/.claude/hooks/session-focus-gate.js",
+            "Session focus check...",
+            "command",
+            "node C:/Users/user/.claude/hooks/session-branch-advisor.js",
+            "Checking git branch...",
+            "command",
+            "node C:/Users/user/.claude/hooks/autoskills-check.js",
+            "Detecting tech stack...",
+            "command",
+            "node C:/Users/user/.claude/hooks/graphify-session-init.js",
+            "Checking Graphify graph...",
+            "command",
+            "node C:/Users/user/.claude/hooks/memory-discipline.js",
+            "Checking memory size...",
+            "command",
+            "node C:/Users/user/.claude/hooks/harvest-injector.js",
+            "Loading session harvest briefing...",
+            "command",
+            "node C:/Users/user/.claude/hooks/projects-dashboard.js",
+            "Updating projects dashboard...",
+            "command",
+            "node C:/Users/user/.claude/hooks/rag-context-injector.js",
+            "Injecting RAG project context...",
+            "command",
+            "node C:/Users/user/.claude/hooks/project-bootstrap-advisor.js",
+            "Checking project bootstrap strategy..."
+          ]
+        },
+        {
+          "event": "UserPromptSubmit",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node C:/Users/user/.claude/hooks/context-budget-gate.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/session-size-guard.js"
+          ]
+        },
+        {
+          "event": "PreToolUse",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node C:/Users/user/.claude/hooks/graphify-read-gate.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/graphify-preuse.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/auto-branch.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/settings-schema-guard.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/write-over-edit-guard.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/config-protection.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/domain-agent-gate.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/edit-enforcer.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/git-branch-guard.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/conventional-commit-validator.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/branch-name-validator.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/pre-commit-gate.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/secret-scanner.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/quality-gate-runner.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/context7-tracker.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/coverage-gate.js"
+          ]
+        },
+        {
+          "event": "PostToolUse",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node C:/Users/user/.claude/hooks/post-edit-combined.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/context7-reminder.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/inline-review-gate.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/skill-sync-mirror.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/rag-queue-enqueue.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/graphify-auto-update.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/verification-tracker.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/loop-guardian.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/secret-output-scanner.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/bash-output-advisor.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/graphify-post-commit.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/inline-review-tracker.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/scope-guard.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/context7-tracker.js",
+            "command",
+            "node C:/Users/user/.claude/hooks/pipeline-tracker.js"
+          ]
+        },
+        {
+          "event": "Stop",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node C:/Users/user/.claude/hooks/stop-verification.js",
+            "Running session-end verification...",
+            "command",
+            "node C:/Users/user/.claude/hooks/ship-gate.js",
+            "Checking uncommitted changes...",
+            "command",
+            "node C:/Users/user/.claude/hooks/stop-auto-checkpoint.js",
+            "Writing auto-checkpoint if needed..."
+          ]
+        },
+        {
+          "event": "Notification",
+          "supported": false,
+          "fallback": "unsupported-by-client",
+          "commands": []
+        },
+        {
+          "event": "FileChanged",
+          "supported": false,
+          "fallback": "unsupported-by-client",
+          "commands": []
+        }
+      ],
+      "hookCommandCount": 105,
+      "skillRoot": "C:\\Users\\user\\.codex\\skills",
+      "skillCount": 104,
+      "skills": [
+        {
+          "name": "\"imagegen\"",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\.system\\imagegen\\SKILL.md"
+        },
+        {
+          "name": "\"openai-docs\"",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\.system\\openai-docs\\SKILL.md"
+        },
+        {
+          "name": "\"security-best-practices\"",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\security-best-practices\\SKILL.md"
+        },
+        {
+          "name": "academic-research-suite",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\academic-research-suite\\SKILL.md"
+        },
+        {
+          "name": "architect-first",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\architect-first\\SKILL.md"
+        },
+        {
+          "name": "auto-ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\auto-ship\\SKILL.md"
+        },
+        {
+          "name": "autoplan",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\autoplan\\SKILL.md"
+        },
+        {
+          "name": "benchmark",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\benchmark\\SKILL.md"
+        },
+        {
+          "name": "benchmark-models",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\benchmark-models\\SKILL.md"
+        },
+        {
+          "name": "browse",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\browse\\SKILL.md"
+        },
+        {
+          "name": "canary",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\canary\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\careful\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\careful\\SKILL.md"
+        },
+        {
+          "name": "caveman",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\caveman\\SKILL.md"
+        },
+        {
+          "name": "checkpoint",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\checkpoint\\SKILL.md"
+        },
+        {
+          "name": "clone-research",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\clone-research\\SKILL.md"
+        },
+        {
+          "name": "codex",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\codex\\SKILL.md"
+        },
+        {
+          "name": "company",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\company\\SKILL.md"
+        },
+        {
+          "name": "context-restore",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\context-restore\\SKILL.md"
+        },
+        {
+          "name": "context-save",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\context-save\\SKILL.md"
+        },
+        {
+          "name": "contract-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\contract-review\\SKILL.md"
+        },
+        {
+          "name": "cso",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\cso\\SKILL.md"
+        },
+        {
+          "name": "cto-playbook",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\cto-playbook\\SKILL.md"
+        },
+        {
+          "name": "design-an-interface",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\design-an-interface\\SKILL.md"
+        },
+        {
+          "name": "design-consultation",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\design-consultation\\SKILL.md"
+        },
+        {
+          "name": "design-html",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\design-html\\SKILL.md"
+        },
+        {
+          "name": "design-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\design-review\\SKILL.md"
+        },
+        {
+          "name": "design-shotgun",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\design-shotgun\\SKILL.md"
+        },
+        {
+          "name": "devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\devex-review\\SKILL.md"
+        },
+        {
+          "name": "diagnose",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\diagnose\\SKILL.md"
+        },
+        {
+          "name": "document-release",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\document-release\\SKILL.md"
+        },
+        {
+          "name": "domain-model",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\domain-model\\SKILL.md"
+        },
+        {
+          "name": "edit-article",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\edit-article\\SKILL.md"
+        },
+        {
+          "name": "fix-issue",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\fix-issue\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\freeze\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\freeze\\SKILL.md"
+        },
+        {
+          "name": "git-flow",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\git-flow\\SKILL.md"
+        },
+        {
+          "name": "git-guardrails-claude-code",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\git-guardrails-claude-code\\SKILL.md"
+        },
+        {
+          "name": "github-triage",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\github-triage\\SKILL.md"
+        },
+        {
+          "name": "grill-me",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\grill-me\\SKILL.md"
+        },
+        {
+          "name": "gstack",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-investigate",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-investigate\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-office-hours\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-retro",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-retro\\SKILL.md"
+        },
+        {
+          "name": "gstack-upgrade",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\gstack-upgrade\\SKILL.md"
+        },
+        {
+          "name": "guard",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\guard\\SKILL.md"
+        },
+        {
+          "name": "health",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\health\\SKILL.md"
+        },
+        {
+          "name": "hunt-bug",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\hunt-bug\\SKILL.md"
+        },
+        {
+          "name": "improve-codebase-architecture",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\improve-codebase-architecture\\SKILL.md"
+        },
+        {
+          "name": "init-project",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\init-project\\SKILL.md"
+        },
+        {
+          "name": "inline-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\inline-review\\SKILL.md"
+        },
+        {
+          "name": "investigate",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\investigate\\SKILL.md"
+        },
+        {
+          "name": "itstep-lesson-builder",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\itstep-lesson-builder\\SKILL.md"
+        },
+        {
+          "name": "land-and-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\land-and-deploy\\SKILL.md"
+        },
+        {
+          "name": "landing-report",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\landing-report\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\learn\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\learn\\SKILL.md"
+        },
+        {
+          "name": "make-pdf",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\make-pdf\\SKILL.md"
+        },
+        {
+          "name": "migrate-to-shoehorn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\migrate-to-shoehorn\\SKILL.md"
+        },
+        {
+          "name": "mikrotik-audit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\mikrotik-audit\\SKILL.md"
+        },
+        {
+          "name": "obsidian-vault",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\obsidian-vault\\SKILL.md"
+        },
+        {
+          "name": "office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\office-hours\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\open-gstack-browser\\SKILL.md"
+        },
+        {
+          "name": "pair-agent",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\pair-agent\\SKILL.md"
+        },
+        {
+          "name": "pipeline",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\pipeline\\SKILL.md"
+        },
+        {
+          "name": "plan-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\plan-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "plan-design-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\plan-design-review\\SKILL.md"
+        },
+        {
+          "name": "plan-devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\plan-devex-review\\SKILL.md"
+        },
+        {
+          "name": "plan-eng-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\plan-eng-review\\SKILL.md"
+        },
+        {
+          "name": "plan-tune",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\plan-tune\\SKILL.md"
+        },
+        {
+          "name": "plugin-creator",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\.system\\plugin-creator\\SKILL.md"
+        },
+        {
+          "name": "prime",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\prime\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa-only",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\qa-only\\SKILL.md"
+        },
+        {
+          "name": "red-team",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\red-team\\SKILL.md"
+        },
+        {
+          "name": "reference-design-adaptation",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\reference-design-adaptation\\SKILL.md"
+        },
+        {
+          "name": "request-refactor-plan",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\request-refactor-plan\\SKILL.md"
+        },
+        {
+          "name": "research-autopilot",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\research-autopilot\\SKILL.md"
+        },
+        {
+          "name": "retro",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\retro\\SKILL.md"
+        },
+        {
+          "name": "review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\review\\SKILL.md"
+        },
+        {
+          "name": "scaffold-exercises",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\scaffold-exercises\\SKILL.md"
+        },
+        {
+          "name": "session-harvest",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\session-harvest\\SKILL.md"
+        },
+        {
+          "name": "setup-browser-cookies",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\setup-browser-cookies\\SKILL.md"
+        },
+        {
+          "name": "setup-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\setup-deploy\\SKILL.md"
+        },
+        {
+          "name": "setup-gbrain",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\setup-gbrain\\SKILL.md"
+        },
+        {
+          "name": "setup-pre-commit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\setup-pre-commit\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\ship\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\ship\\SKILL.md"
+        },
+        {
+          "name": "skill-anything",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\skill-anything\\SKILL.md"
+        },
+        {
+          "name": "skill-creator",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\.system\\skill-creator\\SKILL.md"
+        },
+        {
+          "name": "skill-installer",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\.system\\skill-installer\\SKILL.md"
+        },
+        {
+          "name": "sprint",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\sprint\\SKILL.md"
+        },
+        {
+          "name": "sync-docs",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\sync-docs\\SKILL.md"
+        },
+        {
+          "name": "tdd",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\tdd\\SKILL.md"
+        },
+        {
+          "name": "to-issues",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\to-issues\\SKILL.md"
+        },
+        {
+          "name": "to-prd",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\to-prd\\SKILL.md"
+        },
+        {
+          "name": "triage-issue",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\triage-issue\\SKILL.md"
+        },
+        {
+          "name": "ubiquitous-language",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\ubiquitous-language\\SKILL.md"
+        },
+        {
+          "name": "unfreeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\unfreeze\\SKILL.md"
+        },
+        {
+          "name": "usage-audit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\usage-audit\\SKILL.md"
+        },
+        {
+          "name": "write-a-skill",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\write-a-skill\\SKILL.md"
+        },
+        {
+          "name": "zoom-out",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\zoom-out\\SKILL.md"
+        }
+      ]
+    },
+    {
+      "client": "gemini",
+      "settingsFile": "C:\\Users\\user\\.gemini\\settings.json",
+      "settingsStatus": "present",
+      "settingsError": "",
+      "events": [
+        {
+          "event": "SessionStart",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/project-docs-gate.js\"",
+            "Checking project docs...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/session-focus-gate.js\"",
+            "Session focus check...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/session-branch-advisor.js\"",
+            "Checking git branch...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/autoskills-check.js\"",
+            "Detecting tech stack...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/graphify-session-init.js\"",
+            "Checking Graphify graph...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/memory-discipline.js\"",
+            "Checking memory size...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/harvest-injector.js\"",
+            "Loading session harvest briefing...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/projects-dashboard.js\"",
+            "Updating projects dashboard...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/rag-context-injector.js\"",
+            "Injecting RAG project context...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/project-bootstrap-advisor.js\"",
+            "Checking project bootstrap strategy...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "UserPromptSubmit",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/context-budget-gate.js\"",
+            "Checking context budget...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/session-size-guard.js\"",
+            "Checking session size...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "PreToolUse",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/graphify-read-gate.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/graphify-preuse.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/auto-branch.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/settings-schema-guard.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/write-over-edit-guard.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/config-protection.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/domain-agent-gate.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/edit-enforcer.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/git-branch-guard.js\"",
+            "Checking protected git branch...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/conventional-commit-validator.js\"",
+            "Checking commit message format...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/branch-name-validator.js\"",
+            "Checking branch name format...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/pre-commit-gate.js\"",
+            "Running pre-commit quality gate...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/secret-scanner.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/quality-gate-runner.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/context7-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/coverage-gate.js\"",
+            "Checking coverage threshold...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/tool-policy-gate.js\"",
+            "Enforcing browser tool policy...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/skill-selector-gate.js\"",
+            "Ranking skill alternatives...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "PostToolUse",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/verification-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/loop-guardian.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/secret-output-scanner.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/bash-output-advisor.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/graphify-post-commit.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/post-edit-combined.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/context7-reminder.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/inline-review-gate.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/skill-sync-mirror.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/rag-queue-enqueue.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/graphify-auto-update.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/context7-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/scope-guard.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/inline-review-tracker.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/pipeline-tracker.js\"",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "Stop",
+          "supported": true,
+          "fallback": "",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/stop-verification.js\"",
+            "Running session-end verification...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/ship-gate.js\"",
+            "Checking uncommitted changes...",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/stop-auto-checkpoint.js\"",
+            "Writing auto-checkpoint if needed...",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "Notification",
+          "supported": false,
+          "fallback": "unsupported-by-client",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/task-completed-gate.js\"",
+            "command",
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+          ]
+        },
+        {
+          "event": "FileChanged",
+          "supported": false,
+          "fallback": "unsupported-by-client",
+          "commands": [
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/env-change-watcher.js\""
+          ]
+        }
+      ],
+      "hookCommandCount": 134,
+      "skillRoot": "C:\\Users\\user\\.gemini\\skills",
+      "skillCount": 108,
+      "skills": [
+        {
+          "name": "\"security-best-practices\"",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\security-best-practices\\SKILL.md"
+        },
+        {
+          "name": "architect",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\architect\\SKILL.md"
+        },
+        {
+          "name": "architect-first",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\architect-first\\SKILL.md"
+        },
+        {
+          "name": "auto-ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\auto-ship\\SKILL.md"
+        },
+        {
+          "name": "autofix",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\autofix\\SKILL.md"
+        },
+        {
+          "name": "autoplan",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\autoplan\\SKILL.md"
+        },
+        {
+          "name": "backend",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\backend\\SKILL.md"
+        },
+        {
+          "name": "benchmark",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\benchmark\\SKILL.md"
+        },
+        {
+          "name": "benchmark-models",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\benchmark-models\\SKILL.md"
+        },
+        {
+          "name": "browse",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\browse\\SKILL.md"
+        },
+        {
+          "name": "canary",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\canary\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\careful\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\careful\\SKILL.md"
+        },
+        {
+          "name": "caveman",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\caveman\\SKILL.md"
+        },
+        {
+          "name": "checkpoint",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\checkpoint\\SKILL.md"
+        },
+        {
+          "name": "clone-research",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\clone-research\\SKILL.md"
+        },
+        {
+          "name": "codex",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\codex\\SKILL.md"
+        },
+        {
+          "name": "company",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\company\\SKILL.md"
+        },
+        {
+          "name": "context-restore",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\context-restore\\SKILL.md"
+        },
+        {
+          "name": "context-save",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\context-save\\SKILL.md"
+        },
+        {
+          "name": "contract-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\contract-review\\SKILL.md"
+        },
+        {
+          "name": "cso",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\cso\\SKILL.md"
+        },
+        {
+          "name": "cto-playbook",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\cto-playbook\\SKILL.md"
+        },
+        {
+          "name": "design-an-interface",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\design-an-interface\\SKILL.md"
+        },
+        {
+          "name": "design-consultation",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\design-consultation\\SKILL.md"
+        },
+        {
+          "name": "design-html",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\design-html\\SKILL.md"
+        },
+        {
+          "name": "design-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\design-review\\SKILL.md"
+        },
+        {
+          "name": "design-shotgun",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\design-shotgun\\SKILL.md"
+        },
+        {
+          "name": "devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\devex-review\\SKILL.md"
+        },
+        {
+          "name": "devops",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\devops\\SKILL.md"
+        },
+        {
+          "name": "diagnose",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\diagnose\\SKILL.md"
+        },
+        {
+          "name": "document-release",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\document-release\\SKILL.md"
+        },
+        {
+          "name": "domain-model",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\domain-model\\SKILL.md"
+        },
+        {
+          "name": "edit-article",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\edit-article\\SKILL.md"
+        },
+        {
+          "name": "fix-issue",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\fix-issue\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\freeze\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\freeze\\SKILL.md"
+        },
+        {
+          "name": "frontend",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\frontend\\SKILL.md"
+        },
+        {
+          "name": "git-flow",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\git-flow\\SKILL.md"
+        },
+        {
+          "name": "git-guardrails-claude-code",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\git-guardrails-claude-code\\SKILL.md"
+        },
+        {
+          "name": "github-triage",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\github-triage\\SKILL.md"
+        },
+        {
+          "name": "graphify",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\graphify\\SKILL.md"
+        },
+        {
+          "name": "grill-me",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\grill-me\\SKILL.md"
+        },
+        {
+          "name": "gstack",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-investigate",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-investigate\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-office-hours\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-retro",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-retro\\SKILL.md"
+        },
+        {
+          "name": "gstack-upgrade",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\gstack-upgrade\\SKILL.md"
+        },
+        {
+          "name": "guard",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\guard\\SKILL.md"
+        },
+        {
+          "name": "health",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\health\\SKILL.md"
+        },
+        {
+          "name": "hunt-bug",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\hunt-bug\\SKILL.md"
+        },
+        {
+          "name": "improve-codebase-architecture",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\improve-codebase-architecture\\SKILL.md"
+        },
+        {
+          "name": "init-project",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\init-project\\SKILL.md"
+        },
+        {
+          "name": "inline-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\inline-review\\SKILL.md"
+        },
+        {
+          "name": "investigate",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\investigate\\SKILL.md"
+        },
+        {
+          "name": "itstep-lesson-builder",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\itstep-lesson-builder\\SKILL.md"
+        },
+        {
+          "name": "land-and-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\land-and-deploy\\SKILL.md"
+        },
+        {
+          "name": "landing-report",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\landing-report\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\learn\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\learn\\SKILL.md"
+        },
+        {
+          "name": "make-pdf",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\make-pdf\\SKILL.md"
+        },
+        {
+          "name": "migrate-to-shoehorn",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\migrate-to-shoehorn\\SKILL.md"
+        },
+        {
+          "name": "mikrotik-audit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\mikrotik-audit\\SKILL.md"
+        },
+        {
+          "name": "nextjs",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\nextjs\\SKILL.md"
+        },
+        {
+          "name": "obsidian-vault",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\obsidian-vault\\SKILL.md"
+        },
+        {
+          "name": "office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\office-hours\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\connect-chrome\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\open-gstack-browser\\SKILL.md"
+        },
+        {
+          "name": "pair-agent",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\pair-agent\\SKILL.md"
+        },
+        {
+          "name": "pipeline",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\pipeline\\SKILL.md"
+        },
+        {
+          "name": "plan-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\plan-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "plan-design-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\plan-design-review\\SKILL.md"
+        },
+        {
+          "name": "plan-devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\plan-devex-review\\SKILL.md"
+        },
+        {
+          "name": "plan-eng-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\plan-eng-review\\SKILL.md"
+        },
+        {
+          "name": "plan-tune",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\plan-tune\\SKILL.md"
+        },
+        {
+          "name": "prime",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\prime\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa-only",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\qa-only\\SKILL.md"
+        },
+        {
+          "name": "reference-design-adaptation",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\reference-design-adaptation\\SKILL.md"
+        },
+        {
+          "name": "request-refactor-plan",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\request-refactor-plan\\SKILL.md"
+        },
+        {
+          "name": "research-autopilot",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\research-autopilot\\SKILL.md"
+        },
+        {
+          "name": "retro",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\retro\\SKILL.md"
+        },
+        {
+          "name": "review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\review\\SKILL.md"
+        },
+        {
+          "name": "scaffold-exercises",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\scaffold-exercises\\SKILL.md"
+        },
+        {
+          "name": "security-agent",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\security-agent\\SKILL.md"
+        },
+        {
+          "name": "security-review",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\security\\SKILL.md"
+        },
+        {
+          "name": "session-harvest",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\session-harvest\\SKILL.md"
+        },
+        {
+          "name": "setup-browser-cookies",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\setup-browser-cookies\\SKILL.md"
+        },
+        {
+          "name": "setup-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\setup-deploy\\SKILL.md"
+        },
+        {
+          "name": "setup-gbrain",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\setup-gbrain\\SKILL.md"
+        },
+        {
+          "name": "setup-pre-commit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\setup-pre-commit\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\ship\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\ship\\SKILL.md"
+        },
+        {
+          "name": "skill-anything",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\skill-anything\\SKILL.md"
+        },
+        {
+          "name": "sprint",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\sprint\\SKILL.md"
+        },
+        {
+          "name": "supabase",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\supabase\\SKILL.md"
+        },
+        {
+          "name": "sync-docs",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\sync-docs\\SKILL.md"
+        },
+        {
+          "name": "tdd",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\tdd\\SKILL.md"
+        },
+        {
+          "name": "to-issues",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\to-issues\\SKILL.md"
+        },
+        {
+          "name": "to-prd",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\to-prd\\SKILL.md"
+        },
+        {
+          "name": "triage-issue",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\triage-issue\\SKILL.md"
+        },
+        {
+          "name": "ubiquitous-language",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\ubiquitous-language\\SKILL.md"
+        },
+        {
+          "name": "unfreeze",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\gstack\\unfreeze\\SKILL.md"
+        },
+        {
+          "name": "usage-audit",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\usage-audit\\SKILL.md"
+        },
+        {
+          "name": "write-a-skill",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\write-a-skill\\SKILL.md"
+        },
+        {
+          "name": "zoom-out",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.gemini\\skills\\zoom-out\\SKILL.md"
+        }
+      ]
+    }
+  ],
+  "parity": [
+    {
+      "client": "claude",
+      "skillCount": 98,
+      "hookCommandCount": 134,
+      "missingSkillsComparedToClaude": [],
+      "unsupportedConfiguredEvents": []
+    },
+    {
+      "client": "codex",
+      "skillCount": 104,
+      "hookCommandCount": 105,
+      "missingSkillsComparedToClaude": [],
+      "unsupportedConfiguredEvents": []
+    },
+    {
+      "client": "gemini",
+      "skillCount": 108,
+      "hookCommandCount": 134,
+      "missingSkillsComparedToClaude": [
+        "red-team"
+      ],
+      "unsupportedConfiguredEvents": [
+        "Notification",
+        "FileChanged"
+      ]
+    }
+  ],
+  "commandShims": {
+    "files": [
+      {
+        "name": "doctor.cmd",
+        "path": "C:\\Users\\user\\.claude\\bin\\doctor.cmd",
+        "exists": true
+      },
+      {
+        "name": "doctor.ps1",
+        "path": "C:\\Users\\user\\.claude\\bin\\doctor.ps1",
+        "exists": true
+      },
+      {
+        "name": "skill.cmd",
+        "path": "C:\\Users\\user\\.claude\\bin\\skill.cmd",
+        "exists": true
+      },
+      {
+        "name": "skill.ps1",
+        "path": "C:\\Users\\user\\.claude\\bin\\skill.ps1",
+        "exists": true
+      }
+    ],
+    "commands": [
+      {
+        "command": "cmd.exe /c where doctor.cmd",
+        "status": "available",
+        "exitCode": 0,
+        "detail": "C:\\Users\\user\\.claude\\bin\\doctor.cmd"
+      },
+      {
+        "command": "cmd.exe /c where skill.cmd",
+        "status": "available",
+        "exitCode": 0,
+        "detail": "C:\\Users\\user\\.claude\\bin\\skill.cmd"
+      }
+    ]
+  },
+  "context7": {
+    "npx": {
+      "command": "cmd.exe /c where npx.cmd",
+      "status": "available",
+      "exitCode": 0,
+      "detail": "C:\\Program Files\\nodejs\\npx.cmd"
+    },
+    "fallbackContract": "Use cmd /c npx.cmd ctx7 docs <library> <query>; network failures are skip reasons, not silent success."
+  },
+  "codemap": {
+    "graphify": {
+      "root": "C:/Claude playground/Pipiline setupper",
+      "provider": "graphify",
+      "summary": {
+        "pass": 4
+      },
+      "checks": [
+        {
+          "status": "pass",
+          "id": "codemap:graphifyignore",
+          "title": "Graphify ignore config OK",
+          "detail": "Configured excludes: .planning, .rag, .tmp, graphify-out, tools/__pycache__, tools/red-team, audit/1c-dev-pilot",
+          "repair": "",
+          "data": {
+            "file": "C:\\Claude playground\\Pipiline setupper\\.graphifyignore"
+          }
+        },
+        {
+          "status": "pass",
+          "id": "codemap:scope",
+          "title": "Codemap graph scope OK",
+          "detail": "1199 nodes, 160 source files.",
+          "repair": "",
+          "data": {
+            "ok": true,
+            "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
+            "nodes": 1199,
+            "links": 2054,
+            "uniqueSources": 160,
+            "noisyNodes": 0,
+            "noisyRatio": 0,
+            "outOfScope": [],
+            "topSources": [
+              {
+                "source": "tools/codemap-core.js",
+                "count": 42
+              },
+              {
+                "source": "tools/doctor-core.js",
+                "count": 40
+              },
+              {
+                "source": "audit/S11_pipeline_top1/hooks/analyze-session.js",
+                "count": 32
+              },
+              {
+                "source": "audit/S11_pipeline_top1/skills/skill-registry.js",
+                "count": 30
+              },
+              {
+                "source": "tools/project-docs-core.js",
+                "count": 27
+              }
+            ]
+          }
+        },
+        {
+          "status": "pass",
+          "id": "codemap:stale",
+          "title": "Codemap graph has no stale semantic/rationale nodes",
+          "detail": "1199 nodes checked.",
+          "repair": "",
+          "data": {
+            "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
+          }
+        },
+        {
+          "status": "pass",
+          "id": "codemap:relevance",
+          "title": "Codemap relevance smoke OK",
+          "detail": "Matched project-docs-core, initOrSyncProjectDocs, registerProject and cited tools/project-docs-core.js.",
+          "repair": "",
+          "data": {
+            "smoke": {
+              "file": "tools/project-docs-core.js",
+              "query": "what does project-docs-core do?",
+              "expected": [
+                "project-docs-core",
+                "initOrSyncProjectDocs",
+                "registerProject"
+              ]
+            },
+            "matched": [
+              "project-docs-core",
+              "initOrSyncProjectDocs",
+              "registerProject"
+            ]
+          }
+        }
+      ]
+    },
+    "codegraph": {
+      "root": "C:/Claude playground/Pipiline setupper",
+      "provider": "codegraph",
+      "summary": {
+        "pass": 1
+      },
+      "checks": [
+        {
+          "status": "pass",
+          "id": "codemap:codegraph:cli",
+          "title": "CodeGraph CLI provider promotable",
+          "detail": "codegraph status completed.",
+          "repair": "",
+          "data": {
+            "attemptedCommand": "cmd.exe /c codegraph status",
+            "provider": "codegraph",
+            "cachePath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph",
+            "lockPath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph\\codegraph.lock"
+          }
+        }
+      ]
+    }
+  },
+  "memory": [
+    {
+      "file": "C:\\Users\\user\\.claude\\projects\\C--\\memory\\memory_summary.md",
+      "exists": true
+    },
+    {
+      "file": "C:\\Users\\user\\.claude\\projects\\C--\\memory\\MEMORY.md",
+      "exists": true
+    },
+    {
+      "file": "C:\\Users\\user\\.codex\\memories\\memory_summary.md",
+      "exists": true
+    },
+    {
+      "file": "C:\\Users\\user\\.codex\\memories\\MEMORY.md",
+      "exists": true
+    }
+  ],
+  "browser": {
+    "bun": {
+      "command": "cmd.exe /c where bun.exe",
+      "status": "available",
+      "exitCode": 0,
+      "detail": "C:\\Users\\user\\AppData\\Local\\Microsoft\\WinGet\\Links\\bun.exe"
+    },
+    "browserSkillCount": 94,
+    "status": "available-as-skill",
+    "fallbackContract": "Browser tooling is not part of global startup; use explicit browser/gstack skills when needed."
+  },
+  "summary": {
+    "status": "pass",
+    "unexplainedGaps": [],
+    "generatedAt": "2026-05-29T18:51:45.731Z"
+  }
+}

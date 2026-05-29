@@ -8,7 +8,7 @@
 - Claude Code hooks API (`~/.claude/settings.json`)
 - Codex CLI hooks (`~/.codex/hooks.json`)
 - Graphify (Python, `C:/Users/user/AppData/Local/Programs/Python/Python311/Scripts/graphify.exe`)
-- Shared memory: `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
+- Shared memory: provider-aware startup uses `memory_summary.md`; `MEMORY.md`, rollout summaries, and ad-hoc notes are on-demand sources under `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
 
 ## Commands
 ```bash
@@ -42,6 +42,19 @@ node tools/codemap-measure.js --root . --json   # codemap task-level tool/read m
 node tools/memory-provider.js status --root . --json # project-rag / agentmemory provider health
 node tools/memory-provider.js recall --root . --json # 20 recall prompts for memory-provider comparison
 node tools/memory-provider.js compare --root . --json # project-rag vs agentmemory promotion report
+node tools/agent-surface-audit.js --json       # Claude/Codex/Gemini parity artifact
+node tools/agent-surface-audit.js --markdown   # human-readable parity report
+node tools/sync-agent-surface.js --dry-run --json          # preview skill sync gaps Claude→Gemini/Codex
+node tools/sync-agent-surface.js --apply --target gemini   # copy missing skills to Gemini (--force to overwrite conflicts)
+node tools/sync-agent-surface.js --apply --target all      # sync all targets
+node tools/git-workflow-audit.js --root .      # git root/branch/dirty/scope audit → .planning/git-workflow-audit-latest.json
+node tools/harness-checklist.js --root . --write # harness self-audit (ai-boost CC0 checklist) → .planning/harness-checklist-latest.{json,md}
+node tools/harness-checklist.test.js            # harness-checklist unit tests (29/29)
+node tools/harness-gates.js gate-plan <runId> --root . --json # inspect gate plan for a run
+node tools/harness-gates.js run-gate <runId> --root . --json  # execute current phase gate + write evidence + transition
+node tools/harness-gates.js run-gate <runId> --dry-run --json # dry-run gate (no execution/transition)
+node tools/harness-gates.js closeout <runId> --root . --json  # verify all phases have gate evidence
+node tools/harness-gates.test.js                # harness-gates unit tests (32/32)
 node tools/hook-diet.js --summary --out .planning/HOOK-DIET-INVENTORY-2026-05-20.json # hook diet inventory/evidence
 node tools/token-impact.js measure-command --cmd "node tools/research-router.js design research router --root . --github --architecture --json" --json # command output/token proxy
 node tools/project-bootstrap.js --root <project> --json # dry-run bootstrap: docs/codemap strategy and safe actions
@@ -52,6 +65,10 @@ python tools/rag-ingest.py --project pipeline-setupper --queue-stats
 doctor.cmd --root .                             # global wrapper from ~/.claude/bin
 skill.cmd "architecture refactor" --top 3       # global skill wrapper from ~/.claude/bin
 node tools/skill-search.js "architecture refactor" --top 3
+node tools/skill-search.js --benchmark --json   # skill-router quality gate
+node tools/context7-cli.js library "vercel ai" "agents tool calling"  # resolve library ID
+node tools/context7-cli.js docs /microsoft/playwright-mcp "CLI usage" # query library docs
+node tools/context7-cli.js skills-search         # manual-only interactive note (no spawn)
 node tools/research-router.js "design research router" --root . --github --architecture --json
 node tools/github-research.js "claude code hooks" --limit 5
 python tools/rag-ingest.py --project pipeline --queue AGENTS.md
@@ -95,6 +112,10 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ├── tools/pipeline-state.js    ← canonical pipeline v3 state/ledger helper + acceptance logic
 ├── tools/codemap*.js          ← Graphify/codemap doctor: setup, scope, stale graph, relevance smoke
 ├── tools/memory-provider.js   ← project-rag/agentmemory pilot health, recall prompts, comparison, governance smoke
+├── tools/agent-surface-audit.js ← Claude/Codex/Gemini hooks/skills/tooling parity audit; writes .planning latest reports
+├── tools/sync-agent-surface.js  ← skill sync Claude→Gemini/Codex: dry-run + apply; sha256 conflict detection; doctor check surface:sync
+├── tools/harness-checklist.js   ← harness self-audit vs ai-boost/awesome-harness-engineering (CC0): 6 categories, auto+manual(justification) items; writes .planning/harness-checklist-latest.{json,md}; doctor check harness:checklist
+├── tools/harness-gates.js      ← gate-execution layer over harness-runner.js (P2.2): runGate/verifyCloseout/buildGatePlan; writes .planning/harness-run-latest.json; doctor check harness:run; Stop hook harness-run-gate.js (advisory)
 ├── tools/hook-diet.js          ← hook inventory, classification, failure policy, rollback/evidence fields
 ├── tools/token-impact.js       ← JSONL/session and command-output proxy measurement for token/file-read impact
 ├── tools/project-bootstrap.js  ← fail-soft project bootstrap: docs/codemap setup and bounded-grep strategy
@@ -104,7 +125,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 │                                + mattpocock/skills (tdd/grill-me/diagnose/domain-model/zoom-out/
 │                                  caveman/github-triage/to-prd/to-issues/triage-issue/qa/...)
 ├── settings.json             ← глобальная конфигурация + разрешения
-└── projects/C--/memory/      ← shared memory (junction с Codex)
+└── projects/C--/memory/      ← shared memory: memory_summary.md startup; MEMORY.md/rollouts/ad-hoc on demand
 
 ~/.codex/
 ├── hooks.json                ← 44 hook-команды (те же .js, без FileChanged/Notification)
@@ -113,14 +134,14 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ```
 
 ## Gotchas
-- **git root = C:\\** — весь C: в одном git-репо. Хуки должны использовать `-- .` для CWD
+- **C:\\ — НЕ git-worktree (вылечено 2026-05-29)** — бывший `C:\\.git` (клон `ui-ux-pro-max-skill` на весь диск, из-за чего любая папка под C:\\ показывалась как «ui-ux-pro-max») переименован в `C:\\_ARCHIVED-ui-ux-gitdir`; полная история — бандл `D:\\git-backups\\C-root-uiux-git-2026-05-29.bundle`. Глобальный конфиг теперь в **своём** репо `~/.claude` (ветка master). Проект — свой вложенный `.git`; хуки по-прежнему скоупят git через `-- .`. Детали: `.planning/PLAN-2026-05-29-relocate-global-config.md`
 - **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
 - **Codex не поддерживает** FileChanged и Notification — это Claude Code only события
 - **loop-guardian**: ловит ОДИНАКОВЫЕ едиты (same old_string), не просто "3 едита одного файла"
 - **rag-context-injector**: SessionStart hook is opt-in/silent by default (`ragContextInjector.enabled=false`) to avoid global startup token burn; use RAG on demand via `python tools/rag-ingest.py --query ...`
 - **graphify-read-gate**: пропускает партиальные рида (any explicit limit), для full read >120 строк дает максимум 1 advisory Graphify query per session, не блокирует
 - **Graphify scope**: noisy corpora excluded via `.graphifyignore`; if old `rationale` nodes persist, delete/regenerate `graphify-out/graph.json` before `cmd /c graphify update .`
-- **memory-discipline**: warn >80 строк MEMORY.md, block >100. Запустить /learn для сжатия
+- **memory-discipline**: provider-aware SessionStart check. Default startup payload is `memory_summary.md`; `MEMORY.md` is a registry and rollout summaries/ad-hoc notes are on-demand, so oversized historical memory does not block unless explicitly configured as startup payload. Rollback flag for one sprint: `CLAUDE_MEMORY_DISCIPLINE_LEGACY=1`.
 - **cwd в хуках**: всегда из `input.cwd`, не `process.cwd()`
 - **Windows paths**: использовать `path.join()`, не строковую конкатенацию
 - **Stdout хуков**: только silent exit OR валидный JSON с `hookSpecificOutput`/`decision`
@@ -150,7 +171,20 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
   - **S39 project bootstrap (2026-05-20)**: `tools/project-bootstrap.js` added. Dry-run scans project size/docs/codemap/RAG and chooses `bounded-grep-first` for small repos. It now detects stack (`Next.js App Router`, `Vite React`, `Electron`, `Node.js`) and emits bounded recommended probes. `--apply` only performs safe setup: AI docs init and `.graphifyignore`; RAG/LLM ingestion remains manual.
   - **S40 bootstrap advisor hook (2026-05-20)**: `project-bootstrap-advisor.js` installed into Claude/Codex SessionStart. It is dry-run only: reports project strategy and bounded probes, and suggests `project-bootstrap --apply` when safe setup is missing. Verified Codex hooks 46/46 PASS.
   - **S41 Sprint 7 docs/git workflow (2026-05-21)**: `AGENTS.md` is now explicit canonical source for AI docs; `project-docs-core.js` exports `CANONICAL_DOC` and regression coverage proves `AGENTS.md` wins sync ties. `project-docs-gate.js` runtime warning now says `AGENTS.md -> CLAUDE.md + .gemini/GEMINI.md`.
-  - **S42 Sprint 8 measured hook diet (2026-05-21)**: `~/.claude/hooks/lib/metrics.js` now records `outputChars` / `_lastOutputChars` by patching `process.stdout.write` after `metrics.inc()` / `metrics.timing()`. Evidence refreshed to `.planning/HOOK-DIET-INVENTORY-2026-05-21.json` and `.planning/HOOK-DIET-CANDIDATES-2026-05-21.json`; registered smoke shows `session-focus-gate` outputChars=204 and candidate report now has 2 measured manual-review candidates / 105 blocked.
+- **S42 Sprint 8 measured hook diet (2026-05-21)**: `~/.claude/hooks/lib/metrics.js` now records `outputChars` / `_lastOutputChars` by patching `process.stdout.write` after `metrics.inc()` / `metrics.timing()`. Evidence refreshed to `.planning/HOOK-DIET-INVENTORY-2026-05-21.json` and `.planning/HOOK-DIET-CANDIDATES-2026-05-21.json`; registered smoke shows `session-focus-gate` outputChars=204 and candidate report now has 2 measured manual-review candidates / 105 blocked.
+- **S43 P0.1 memory startup flakiness (2026-05-27)**: `memory-discipline.js` no longer hard-blocks SessionStart on oversized historical `MEMORY.md`. It recognizes `memory_summary.md`, optional `MEMORY.md` registry, rollout summaries, and ad-hoc notes; only explicit oversized startup payload overrides can block.
+- **S44 P0.2 CodeGraph lock/cache path (2026-05-27)**: CodeGraph CLI provider wrapper now probes writable runtime cache, falls back from project `.tmp\codegraph` to stable user temp cache when sandbox blocks lock creation, records `cachePath`/`lockPath`, cleans stale same-owner locks, and reports `fallback=graphify` when not promotable. Graphify remains default; doctor reports CodeGraph MCP/index health separately from CLI provider promotability.
+- **S45 P0.3 Agent Surface Audit (2026-05-27)**: `tools/agent-surface-audit.js` added as a read-only Claude/Codex/Gemini surface audit for hook event support, hook command inventory, skill inventory, shims, Context7 CLI, codemap providers, memory paths, and browser tooling. It writes `.planning/agent-surface-audit-latest.json` + `.md`; `doctor` reports the latest audit as PASS/WARN without requiring perfect parity.
+- **S46 P1.1 Compact-Aware Context Budget (2026-05-27)**: `context-budget-gate.js` and `session-size-guard.js` now use shared `lib/active-window.js` to estimate active transcript bytes after the latest compact marker, while preserving legacy full-file behavior when no marker exists. Behavior coverage now proves legacy warning, post-compact silence, and active-window warning paths.
+- **S51 P5.1 Agent Harness Runner (2026-05-27)**
+- **S55 P2.2 Agent Harness Gate Integration (2026-05-30)**: `tools/harness-gates.js` gate-execution layer over `harness-runner.js` (non-goal: runner unchanged 82/82). `runGate` executes phase gate, writes `gateEvidence` to `run.phases[last]` BEFORE `transition`, then calls `transition`/`submitReview`. `verifyCloseout` rejects runs without evidence. docs-delta: COMPLEX+no-docs → `high` finding → `code_review` blocks → `implement`. `~/.claude/hooks/harness-run-gate.js` Stop advisory (all 3 clients). `checkHarnessRun` added to doctor (harness:run WARN=0). `attachHarnessRun` added to pipeline-state for runId linking. Pipeline SKILL.md bumped to **v3.1.0** (Agent Harness section). Verification: harness-gates 32/32, harness-runner 82/82, doctor PASS, pipeline-state PASS. **NEXT: iterate or P2.3.**
+- **S54 Harness Self-Audit Checklist (2026-05-29)**: adopted `ai-boost/awesome-harness-engineering` (awesome-list + 4 markdown templates, **CC0** — no installable framework). `tools/harness-checklist.js` + `tools/harness-checklist.test.js` (29/29) added — runs the ai-boost production-readiness checklist against THIS repo's harness (`harness-runner.js` S51/S52). 6 categories (agent-instructions/tool-design/context-delivery/planning-artifacts/permissions-sandbox/verification-loop); each item is **auto** (programmatic fact → pass/warn/fail) or **manual** (needs written justification in `.planning/harness-checklist-justifications.json`; absent → needs-justification = warn, never fail). Self-audit result: **PASS — 25 pass / 0 warn / 0 fail** (17 auto + 8 justified manual). `doctor` now reports `harness:checklist` (reads `.planning/harness-checklist-latest.json`, TTL 24h); PASS=34 WARN=0. Templates vendored (adapted) to `.planning/harness/templates/`; self-review in `.planning/harness/HARNESS-SELF-REVIEW-2026-05-29.md`. Incidental: aligned stale `testCodexDefaultsWarnOnExpensiveRoute` with committed gpt-5.5-flagship logic. Verification: harness-checklist 29/29, doctor.test PASS, harness-runner 82/82, hooks 35/35, project-docs verify PASS. **NEXT: P2.2 Agent Harness Gate Integration.**
+- **S53 P6 Client Surface Sync (2026-05-29)**: `tools/sync-agent-surface.js` + `tools/sync-agent-surface.test.js` added — skill sync Claude→Gemini/Codex: sha256 conflict detection, dry-run + apply, sensitive skill guard (`red-team` excluded by default), idempotent. Applied to Gemini: 38 missing skills copied, 0 errors; Gemini now 108 skills (was 25), 1 conflict (`pipeline`, intentional). Doctor `surface:sync` check added; PASS=30. 39/39 unit tests PASS.
+- **S52 P5.2 Review agent contract (2026-05-27)**: `tools/harness-runner.js` extended with `submitReview(runId, findings, options)` — severity-aware code-review gate. `severityMeetsThreshold(severity, threshold)` pure helper. Blocking logic: any finding meeting or exceeding `config.reviewBlockThreshold` fails the transition (→ implement); clean review passes (→ git_push). SEVERITY_ORDER: low → medium → high → critical. CLI: `review <runId> --severity <level> --message <text>` or `--findings-json <path>`. 82 unit tests (82/82 PASS). Acceptance verified: High finding blocks `closed`.: `tools/harness-runner.js` added — run.json schema + phase-transition engine for Agent Harness pipelines. Phases: `fetch_context → plan_design → implement → linter → tests → code_review → git_push → complete`. Quality gates: pass/fail per phase; fix-loop phases increment `fixAttempts`; `fixAttempts >= maxRetries → failed` guard. Schema: `runId`, `taskId`, `phase`, `status`, `fixAttempts`, `maxRetries`, `failReason`, `phases[]`, `artifacts{}`, `config{}`. CLI: `create`/`transition`/`status`/`artifact`/`list`. 63 unit tests. Manual smoke: create→7×transition(pass)→complete. Verification: harness-runner 63/63 PASS.
+- **S50 P4.2 Docs automation gate (2026-05-27)**: `tools/docs-gate.js` added — classifies git diff complexity (TRIVIAL/MEDIUM/COMPLEX), checks docs delta (AGENTS.md/CLAUDE.md/.gemini/GEMINI.md/ADR/ARCHITECTURE), exits 2 with `--strict` when COMPLEX change has no docs update (P5.1 Agent Harness hookup pending). `doctor` now reports `docs:gate` check; `stop-verification.js` advisory surfaces WARN/FAIL when `.planning/docs-gate-latest.json` is fresh (<4h). 42 unit tests. Verification: docs-gate 42/42, Claude hooks 35/35, Codex 46/46, behavior 44/44 PASS.
+- **S49 P3.1 Browser Tooling Pilot — agent-browser (2026-05-27)**: `npx agent-browser` v0.27.0 (Vercel Labs) selected over Playwright MCP and browser-harness. Dry-run: `open example.com` → `snapshot -i` (2 refs: heading+link) → `screenshot` (5KB PNG) → `close` — all PASS. Accessibility tree with `[ref=eN]` is deterministic, headless-by-default, Windows native (Rust+Node fallback), no debug port required. **browser-harness marked legacy** — still works but not the default; use `npx agent-browser` for new browser tasks. Eval: `.planning/EVAL-2026-05-27-browser-pilot.md`. **P3 pilot closed.**
+- **S48 P2.1 Skill Router Benchmark — full domain coverage (2026-05-27)**: benchmark expanded from 3 to 10 queries covering browser/security/git/docs/backend/frontend/research/legal/QA/nonsense domains. Added domain hints for git (branch+commit → git-flow), research (research+market → research-autopilot), and legal (contract+law → contract-review). **Marketplace is now research-only**: `buildSkillRouterRecord` no longer promotes marketplace candidates to `selected` — they appear in recommendations only, preventing Zoom/Bitso SDK noise from overriding `no skill`. 4 new unit tests. `--benchmark --json` returns 10/10 PASS. P2.2 Context7 CLI wrapper (P1.3) already closed — `/vercel/ai` resolves, `/microsoft/playwright-mcp` queries. **P2 fully closed.**
+- **S47 P1.2 Skill Router Quality Gate (2026-05-27)**: `tools/skill-search.js` now has a `--benchmark --json` quality gate, domain-hint re-ranking for browser/security/QA prompts, and marketplace relevance filtering so weak marketplace matches do not beat `no skill`. Regression coverage proves browser automation avoids `init-project`/`sync-docs`/`clone-research`, security API validation selects `security-best-practices`, and low-confidence junk returns `no skill`.
 - **S28 global context fix (2026-05-15)**: `rag-context-injector.js` is silent by default, Graphify PreToolUse advisories are capped at 1/session, `contextBudget.thresholdTokens=90000`, `session-size-guard` warns at 350KB/700KB, and Claude settings now compact earlier (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Verified: Claude hooks 35/35 PASS, Codex hooks 45/45 PASS, behavior 37/37 PASS.
 - **48 hook-команд** в settings.json; workflow-discipline gates advisory-only, hard blocks reserved for freeze/secrets/destructive/commit quality.
 - **graphify-auto-update.js** — PostToolUse Edit|Write, non-blocking `graphify update .` with 5min debounce when graph exists.

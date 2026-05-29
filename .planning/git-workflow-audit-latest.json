@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-05-29T18:34:33.066Z",
+  "projectRoot": "C:/Claude playground/Pipiline setupper",
+  "gitRoot": "C:/Claude playground/Pipiline setupper",
+  "branch": "session/2026-05-22-1052",
+  "summary": {
+    "status": "warn",
+    "pass": 2,
+    "warn": 1,
+    "fail": 0,
+    "total": 3
+  },
+  "checks": [
+    {
+      "status": "pass",
+      "id": "git:root",
+      "title": "Git root is scoped to project",
+      "detail": "gitRoot=C:/Claude playground/Pipiline setupper",
+      "repair": "",
+      "data": {
+        "gitRoot": "C:/Claude playground/Pipiline setupper",
+        "projectRoot": "C:/Claude playground/Pipiline setupper",
+        "isDiskRoot": false
+      }
+    },
+    {
+      "status": "pass",
+      "id": "git:branch",
+      "title": "Branch detected",
+      "detail": "session/2026-05-22-1052",
+      "repair": "",
+      "data": {
+        "branch": "session/2026-05-22-1052"
+      }
+    },
+    {
+      "status": "warn",
+      "id": "git:dirty",
+      "title": "8 uncommitted change(s) in project scope",
+      "detail": "M .gemini/GEMINI.md;  M .planning/docs-gate-latest.json;  M .planning/docs-gate-latest.md;  M .planning/git-workflow-audit-latest.json;  M .planning/git-workflow-audit-latest.md;  M AGENTS.md;  M CLAUDE.md; ?? .planning/PLAN-2026-05-29-relocate-global-config.md",
+      "repair": "Commit or stash changes before session closeout.",
+      "data": {
+        "count": 8,
+        "files": [
+          "M .gemini/GEMINI.md",
+          " M .planning/docs-gate-latest.json",
+          " M .planning/docs-gate-latest.md",
+          " M .planning/git-workflow-audit-latest.json",
+          " M .planning/git-workflow-audit-latest.md",
+          " M AGENTS.md",
+          " M CLAUDE.md",
+          "?? .planning/PLAN-2026-05-29-relocate-global-config.md"
+        ]
+      }
+    }
+  ]
+}
