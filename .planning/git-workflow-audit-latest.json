@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-27T20:30:22.939Z",
+  "generatedAt": "2026-05-29T18:34:33.066Z",
   "projectRoot": "C:/Claude playground/Pipiline setupper",
   "gitRoot": "C:/Claude playground/Pipiline setupper",
   "branch": "session/2026-05-22-1052",
@@ -36,16 +36,20 @@
     {
       "status": "warn",
       "id": "git:dirty",
-      "title": "4 uncommitted change(s) in project scope",
-      "detail": "M .gemini/GEMINI.md;  M AGENTS.md;  M CLAUDE.md; ?? .planning/CHECKPOINT-2026-05-27-P5.2-closed.md",
+      "title": "8 uncommitted change(s) in project scope",
+      "detail": "M .gemini/GEMINI.md;  M .planning/docs-gate-latest.json;  M .planning/docs-gate-latest.md;  M .planning/git-workflow-audit-latest.json;  M .planning/git-workflow-audit-latest.md;  M AGENTS.md;  M CLAUDE.md; ?? .planning/PLAN-2026-05-29-relocate-global-config.md",
       "repair": "Commit or stash changes before session closeout.",
       "data": {
-        "count": 4,
+        "count": 8,
         "files": [
           "M .gemini/GEMINI.md",
+          " M .planning/docs-gate-latest.json",
+          " M .planning/docs-gate-latest.md",
+          " M .planning/git-workflow-audit-latest.json",
+          " M .planning/git-workflow-audit-latest.md",
           " M AGENTS.md",
           " M CLAUDE.md",
-          "?? .planning/CHECKPOINT-2026-05-27-P5.2-closed.md"
+          "?? .planning/PLAN-2026-05-29-relocate-global-config.md"
         ]
       }
     }

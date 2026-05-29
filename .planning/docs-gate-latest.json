@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-05-27T18:55:16.541Z",
+  "generatedAt": "2026-05-29T18:04:37.709Z",
   "projectRoot": "C:/Claude playground/Pipiline setupper",
-  "complexity": "MEDIUM",
-  "codeChanged": [
-    "tools/doctor-core.js",
-    "tools/docs-gate.js"
-  ],
+  "complexity": "TRIVIAL",
+  "codeChanged": [],
   "docsChanged": [
-    "AGENTS.md"
+    ".gemini/GEMINI.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "gemini/GEMINI.md"
   ],
   "summary": {
     "status": "pass",
@@ -17,9 +17,9 @@
   },
   "checks": [
     {
-      "id": "docs:delta",
+      "id": "docs:trivial",
       "status": "pass",
-      "detail": "Docs updated: AGENTS.md",
+      "detail": "Trivial change (0 code file(s)) — docs delta not required",
       "repair": ""
     },
     {
