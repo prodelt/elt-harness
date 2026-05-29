@@ -1,8 +1,8 @@
 # Agent Surface Audit
 
-Generated: 2026-05-29T18:45:32.496Z
+Generated: 2026-05-29T18:51:45.731Z
 Root: C:\Claude playground\Pipiline setupper
-Status: warn
+Status: pass
 
 ## Parity
 
@@ -48,5 +48,4 @@ Status: warn
 
 ## Unexplained Gaps
 
-- gemini:Notification
-- gemini:FileChanged
+- none

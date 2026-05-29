@@ -284,12 +284,12 @@ function checkCodexDefaults(home) {
   }
   const model = (text.value.match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || '';
   const effort = (text.value.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/m) || [])[1] || '';
-  const expensiveModel = model === 'gpt-5.5';
-  const expensiveEffort = ['high', 'xhigh', 'max'].includes(effort);
-  if (expensiveModel || expensiveEffort) {
-    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Use gpt-5.4 + medium for routine work; reserve high/xhigh for architecture/security/audits.')];
+  // gpt-5.5 is the current flagship — not considered expensive legacy
+  const legacyExpensiveModel = model && !['gpt-5.5', 'gpt-4o', 'gpt-4.1'].includes(model) && /gpt-[34]/i.test(model) && model !== 'gpt-4o-mini';
+  if (legacyExpensiveModel) {
+    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Consider upgrading to gpt-5.5 for best results.')];
   }
-  return [result('pass', 'codex:defaults', 'Codex defaults right-sized', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
+  return [result('pass', 'codex:defaults', 'Codex defaults OK', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
 }
 
 function checkGraphify(root, enabled) {
