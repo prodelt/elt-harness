@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-27T19:05:57.595Z",
+  "generatedAt": "2026-05-29T18:45:32.496Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\espad",
   "clients": [
@@ -1567,7 +1567,7 @@
       ],
       "hookCommandCount": 134,
       "skillRoot": "C:\\Users\\espad\\.gemini\\skills",
-      "skillCount": 25,
+      "skillCount": 108,
       "skills": [
         {
           "name": "\"security-best-practices\"",
@@ -1585,9 +1585,19 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\architect-first\\SKILL.md"
         },
         {
+          "name": "auto-ship",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\auto-ship\\SKILL.md"
+        },
+        {
           "name": "autofix",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\autofix\\SKILL.md"
+        },
+        {
+          "name": "autoplan",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\autoplan\\SKILL.md"
         },
         {
           "name": "backend",
@@ -1595,9 +1605,39 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\backend\\SKILL.md"
         },
         {
+          "name": "benchmark",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\benchmark\\SKILL.md"
+        },
+        {
+          "name": "benchmark-models",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\benchmark-models\\SKILL.md"
+        },
+        {
+          "name": "browse",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\browse\\SKILL.md"
+        },
+        {
+          "name": "canary",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\canary\\SKILL.md"
+        },
+        {
           "name": "careful",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\careful\\SKILL.md"
+        },
+        {
+          "name": "careful",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\careful\\SKILL.md"
+        },
+        {
+          "name": "caveman",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\caveman\\SKILL.md"
         },
         {
           "name": "checkpoint",
@@ -1605,9 +1645,74 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\checkpoint\\SKILL.md"
         },
         {
+          "name": "clone-research",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\clone-research\\SKILL.md"
+        },
+        {
+          "name": "codex",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\codex\\SKILL.md"
+        },
+        {
+          "name": "company",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\company\\SKILL.md"
+        },
+        {
+          "name": "context-restore",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\context-restore\\SKILL.md"
+        },
+        {
+          "name": "context-save",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\context-save\\SKILL.md"
+        },
+        {
+          "name": "contract-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\contract-review\\SKILL.md"
+        },
+        {
+          "name": "cso",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\cso\\SKILL.md"
+        },
+        {
           "name": "cto-playbook",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\cto-playbook\\SKILL.md"
+        },
+        {
+          "name": "design-an-interface",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\design-an-interface\\SKILL.md"
+        },
+        {
+          "name": "design-consultation",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\design-consultation\\SKILL.md"
+        },
+        {
+          "name": "design-html",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\design-html\\SKILL.md"
+        },
+        {
+          "name": "design-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\design-review\\SKILL.md"
+        },
+        {
+          "name": "design-shotgun",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\design-shotgun\\SKILL.md"
+        },
+        {
+          "name": "devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\devex-review\\SKILL.md"
         },
         {
           "name": "devops",
@@ -1620,9 +1725,34 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\diagnose\\SKILL.md"
         },
         {
+          "name": "document-release",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\document-release\\SKILL.md"
+        },
+        {
+          "name": "domain-model",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\domain-model\\SKILL.md"
+        },
+        {
+          "name": "edit-article",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\edit-article\\SKILL.md"
+        },
+        {
+          "name": "fix-issue",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\fix-issue\\SKILL.md"
+        },
+        {
           "name": "freeze",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\freeze\\SKILL.md"
+        },
+        {
+          "name": "freeze",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\freeze\\SKILL.md"
         },
         {
           "name": "frontend",
@@ -1630,9 +1760,79 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\frontend\\SKILL.md"
         },
         {
+          "name": "git-flow",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\git-flow\\SKILL.md"
+        },
+        {
+          "name": "git-guardrails-claude-code",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\git-guardrails-claude-code\\SKILL.md"
+        },
+        {
+          "name": "github-triage",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\github-triage\\SKILL.md"
+        },
+        {
           "name": "graphify",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\graphify\\SKILL.md"
+        },
+        {
+          "name": "grill-me",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\grill-me\\SKILL.md"
+        },
+        {
+          "name": "gstack",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-investigate",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-investigate\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-office-hours\\SKILL.md"
+        },
+        {
+          "name": "gstack-openclaw-retro",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\openclaw\\skills\\gstack-openclaw-retro\\SKILL.md"
+        },
+        {
+          "name": "gstack-upgrade",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\gstack-upgrade\\SKILL.md"
+        },
+        {
+          "name": "guard",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\guard\\SKILL.md"
+        },
+        {
+          "name": "health",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\health\\SKILL.md"
+        },
+        {
+          "name": "hunt-bug",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\hunt-bug\\SKILL.md"
+        },
+        {
+          "name": "improve-codebase-architecture",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\improve-codebase-architecture\\SKILL.md"
         },
         {
           "name": "init-project",
@@ -1645,9 +1845,49 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\inline-review\\SKILL.md"
         },
         {
+          "name": "investigate",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\investigate\\SKILL.md"
+        },
+        {
+          "name": "itstep-lesson-builder",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\itstep-lesson-builder\\SKILL.md"
+        },
+        {
+          "name": "land-and-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\land-and-deploy\\SKILL.md"
+        },
+        {
+          "name": "landing-report",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\landing-report\\SKILL.md"
+        },
+        {
+          "name": "learn",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\learn\\SKILL.md"
+        },
+        {
           "name": "learn",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\learn\\SKILL.md"
+        },
+        {
+          "name": "make-pdf",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\make-pdf\\SKILL.md"
+        },
+        {
+          "name": "migrate-to-shoehorn",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\migrate-to-shoehorn\\SKILL.md"
+        },
+        {
+          "name": "mikrotik-audit",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\mikrotik-audit\\SKILL.md"
         },
         {
           "name": "nextjs",
@@ -1655,14 +1895,109 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\nextjs\\SKILL.md"
         },
         {
+          "name": "obsidian-vault",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\obsidian-vault\\SKILL.md"
+        },
+        {
+          "name": "office-hours",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\office-hours\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\connect-chrome\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\open-gstack-browser\\SKILL.md"
+        },
+        {
+          "name": "pair-agent",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\pair-agent\\SKILL.md"
+        },
+        {
           "name": "pipeline",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\pipeline\\SKILL.md"
         },
         {
+          "name": "plan-ceo-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\plan-ceo-review\\SKILL.md"
+        },
+        {
+          "name": "plan-design-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\plan-design-review\\SKILL.md"
+        },
+        {
+          "name": "plan-devex-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\plan-devex-review\\SKILL.md"
+        },
+        {
+          "name": "plan-eng-review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\plan-eng-review\\SKILL.md"
+        },
+        {
+          "name": "plan-tune",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\plan-tune\\SKILL.md"
+        },
+        {
+          "name": "prime",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\prime\\SKILL.md"
+        },
+        {
+          "name": "qa",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\qa\\SKILL.md"
+        },
+        {
           "name": "qa",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\qa\\SKILL.md"
+        },
+        {
+          "name": "qa-only",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\qa-only\\SKILL.md"
+        },
+        {
+          "name": "reference-design-adaptation",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\reference-design-adaptation\\SKILL.md"
+        },
+        {
+          "name": "request-refactor-plan",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\request-refactor-plan\\SKILL.md"
+        },
+        {
+          "name": "research-autopilot",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\research-autopilot\\SKILL.md"
+        },
+        {
+          "name": "retro",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\retro\\SKILL.md"
+        },
+        {
+          "name": "review",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\review\\SKILL.md"
+        },
+        {
+          "name": "scaffold-exercises",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\scaffold-exercises\\SKILL.md"
         },
         {
           "name": "security-agent",
@@ -1675,9 +2010,44 @@
           "file": "C:\\Users\\espad\\.gemini\\skills\\security\\SKILL.md"
         },
         {
+          "name": "session-harvest",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\session-harvest\\SKILL.md"
+        },
+        {
+          "name": "setup-browser-cookies",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\setup-browser-cookies\\SKILL.md"
+        },
+        {
+          "name": "setup-deploy",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\setup-deploy\\SKILL.md"
+        },
+        {
+          "name": "setup-gbrain",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\setup-gbrain\\SKILL.md"
+        },
+        {
+          "name": "setup-pre-commit",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\setup-pre-commit\\SKILL.md"
+        },
+        {
+          "name": "ship",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\ship\\SKILL.md"
+        },
+        {
           "name": "ship",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\ship\\SKILL.md"
+        },
+        {
+          "name": "skill-anything",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\skill-anything\\SKILL.md"
         },
         {
           "name": "sprint",
@@ -1693,6 +2063,51 @@
           "name": "sync-docs",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\sync-docs\\SKILL.md"
+        },
+        {
+          "name": "tdd",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\tdd\\SKILL.md"
+        },
+        {
+          "name": "to-issues",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\to-issues\\SKILL.md"
+        },
+        {
+          "name": "to-prd",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\to-prd\\SKILL.md"
+        },
+        {
+          "name": "triage-issue",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\triage-issue\\SKILL.md"
+        },
+        {
+          "name": "ubiquitous-language",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\ubiquitous-language\\SKILL.md"
+        },
+        {
+          "name": "unfreeze",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\gstack\\unfreeze\\SKILL.md"
+        },
+        {
+          "name": "usage-audit",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\usage-audit\\SKILL.md"
+        },
+        {
+          "name": "write-a-skill",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\write-a-skill\\SKILL.md"
+        },
+        {
+          "name": "zoom-out",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\zoom-out\\SKILL.md"
         }
       ]
     }
@@ -1714,87 +2129,10 @@
     },
     {
       "client": "gemini",
-      "skillCount": 25,
+      "skillCount": 108,
       "hookCommandCount": 134,
       "missingSkillsComparedToClaude": [
-        "auto-ship",
-        "autoplan",
-        "benchmark",
-        "benchmark-models",
-        "browse",
-        "canary",
-        "caveman",
-        "clone-research",
-        "codex",
-        "company",
-        "context-restore",
-        "context-save",
-        "contract-review",
-        "cso",
-        "design-an-interface",
-        "design-consultation",
-        "design-html",
-        "design-review",
-        "design-shotgun",
-        "devex-review",
-        "document-release",
-        "domain-model",
-        "edit-article",
-        "fix-issue",
-        "git-flow",
-        "git-guardrails-claude-code",
-        "github-triage",
-        "grill-me",
-        "gstack",
-        "gstack-openclaw-ceo-review",
-        "gstack-openclaw-investigate",
-        "gstack-openclaw-office-hours",
-        "gstack-openclaw-retro",
-        "gstack-upgrade",
-        "guard",
-        "health",
-        "hunt-bug",
-        "improve-codebase-architecture",
-        "investigate",
-        "itstep-lesson-builder",
-        "land-and-deploy",
-        "landing-report",
-        "make-pdf",
-        "migrate-to-shoehorn",
-        "mikrotik-audit",
-        "obsidian-vault",
-        "office-hours",
-        "open-gstack-browser",
-        "pair-agent",
-        "plan-ceo-review",
-        "plan-design-review",
-        "plan-devex-review",
-        "plan-eng-review",
-        "plan-tune",
-        "prime",
-        "qa-only",
-        "red-team",
-        "reference-design-adaptation",
-        "request-refactor-plan",
-        "research-autopilot",
-        "retro",
-        "review",
-        "scaffold-exercises",
-        "session-harvest",
-        "setup-browser-cookies",
-        "setup-deploy",
-        "setup-gbrain",
-        "setup-pre-commit",
-        "skill-anything",
-        "tdd",
-        "to-issues",
-        "to-prd",
-        "triage-issue",
-        "ubiquitous-language",
-        "unfreeze",
-        "usage-audit",
-        "write-a-skill",
-        "zoom-out"
+        "red-team"
       ],
       "unsupportedConfiguredEvents": [
         "Notification",
@@ -1871,14 +2209,14 @@
           "status": "pass",
           "id": "codemap:scope",
           "title": "Codemap graph scope OK",
-          "detail": "1155 nodes, 156 source files.",
+          "detail": "1199 nodes, 160 source files.",
           "repair": "",
           "data": {
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
-            "nodes": 1155,
-            "links": 1977,
-            "uniqueSources": 156,
+            "nodes": 1199,
+            "links": 2053,
+            "uniqueSources": 160,
             "noisyNodes": 0,
             "noisyRatio": 0,
             "outOfScope": [],
@@ -1889,7 +2227,7 @@
               },
               {
                 "source": "tools/doctor-core.js",
-                "count": 39
+                "count": 40
               },
               {
                 "source": "audit/S11_pipeline_top1/hooks/analyze-session.js",
@@ -1910,7 +2248,7 @@
           "status": "pass",
           "id": "codemap:stale",
           "title": "Codemap graph has no stale semantic/rationale nodes",
-          "detail": "1155 nodes checked.",
+          "detail": "1199 nodes checked.",
           "repair": "",
           "data": {
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
@@ -1999,6 +2337,6 @@
       "gemini:Notification",
       "gemini:FileChanged"
     ],
-    "generatedAt": "2026-05-27T19:05:57.595Z"
+    "generatedAt": "2026-05-29T18:45:32.496Z"
   }
 }

@@ -1,6 +1,6 @@
 # Agent Surface Audit
 
-Generated: 2026-05-27T19:05:57.595Z
+Generated: 2026-05-29T18:45:32.496Z
 Root: C:\Claude playground\Pipiline setupper
 Status: warn
 
@@ -10,7 +10,7 @@ Status: warn
 |---|---:|---:|---|---:|
 | claude | 134 | 98 | none | 0 |
 | codex | 105 | 104 | none | 0 |
-| gemini | 134 | 25 | Notification, FileChanged | 78 |
+| gemini | 134 | 108 | Notification, FileChanged | 1 |
 
 ## Clients
 
@@ -29,7 +29,7 @@ Status: warn
 ### gemini
 - settings: present (C:\Users\espad\.gemini\settings.json)
 - hook commands: 134
-- skills: 25 (C:\Users\espad\.gemini\skills)
+- skills: 108 (C:\Users\espad\.gemini\skills)
 - unsupported events: Notification, FileChanged
 
 ## Tooling
