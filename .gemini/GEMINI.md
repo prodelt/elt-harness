@@ -121,7 +121,7 @@ python tools/rag-ingest.py --project pipeline --process-queue --llm ollama
 ```
 
 ## Gotchas
-- **git root = C:\\** — весь C: в одном git-репо. Хуки должны использовать `-- .` для CWD
+- **C:\\ — НЕ git-worktree (вылечено 2026-05-29)** — бывший `C:\\.git` (клон `ui-ux-pro-max-skill` на весь диск, из-за чего любая папка под C:\\ показывалась как «ui-ux-pro-max») переименован в `C:\\_ARCHIVED-ui-ux-gitdir`; полная история — бандл `D:\\git-backups\\C-root-uiux-git-2026-05-29.bundle`. Глобальный конфиг теперь в **своём** репо `~/.claude` (ветка master). Проект — свой вложенный `.git`; хуки по-прежнему скоупят git через `-- .`. Детали: `.planning/PLAN-2026-05-29-relocate-global-config.md`
 - **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
 - **Codex не поддерживает** FileChanged и Notification — это Claude Code only события
 - **loop-guardian**: ловит ОДИНАКОВЫЕ едиты (same old_string), не просто "3 едита одного файла"
