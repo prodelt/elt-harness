@@ -251,6 +251,21 @@ function validateFinalCloseout(options) {
   return { ok: true, reason: '' };
 }
 
+/**
+ * Attach a harness run ID to an existing pipeline state file.
+ * Adds/updates the optional `runId` field; preserves all other fields.
+ * @param {{ root: string, home: string, runId: string }} options
+ * @returns {object} updated state
+ */
+function attachHarnessRun({ root, home, runId }) {
+  const stateFile = projectStatePath(root, home);
+  const current   = readState(stateFile);
+  if (!current) throw new Error('Cannot attach harness run: pipeline state not found.');
+  const next = { ...current, runId };
+  writeState(stateFile, next);
+  return next;
+}
+
 function closeState(options) {
   const { root, home, outcome, proof = [], artifacts = [], remainingWork = [], now = new Date() } = options;
   const stateFile = projectStatePath(root, home);
@@ -294,6 +309,7 @@ function closeState(options) {
 module.exports = {
   STATE_TTL_MS,
   appendLedgerEvent,
+  attachHarnessRun,
   closeState,
   createClassifiedState,
   isClosedState,

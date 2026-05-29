@@ -9,6 +9,8 @@ const { runCodemapDoctor } = require('./codemap-core');
 const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
 const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
+const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
+const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
 const {
   legacyStatePath,
   normalizePath,
@@ -553,6 +555,39 @@ function checkDocsGate(root, now = new Date()) {
   return [result(status === 'fail' ? 'warn' : status, 'docs:gate', title, detail, repair, { file: result_.file })];
 }
 
+function checkHarnessChecklist(root, now = new Date()) {
+  const result_ = checkHarnessChecklistArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'harness:checklist', 'Harness checklist report missing', result_.error, 'Run node tools\\harness-checklist.js --root . --write.')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'harness:checklist', 'Harness checklist report stale', result_.value.generatedAt, 'Rerun node tools\\harness-checklist.js --root . --write.', { file: result_.file })];
+  }
+  const report = result_.value;
+  const status = report.summary && report.summary.status ? report.summary.status : 'unknown';
+  const c = (report.summary && report.summary.counts) || {};
+  const title = status === 'pass' ? 'Harness self-audit OK' : status === 'warn' ? 'Harness self-audit: items need justification' : 'Harness self-audit: blockers';
+  const detail = `${c.pass || 0} pass / ${c.warn || 0} warn / ${c.fail || 0} fail / ${c.needsJustification || 0} needs-justification`;
+  const repair = status === 'fail' ? 'Resolve failing harness checklist items, then rerun node tools\\harness-checklist.js --root . --write.' : '';
+  return [result(status === 'fail' ? 'warn' : status, 'harness:checklist', title, detail, repair, { file: result_.file })];
+}
+
+function checkHarnessRun(root, now = new Date()) {
+  const result_ = checkHarnessRunArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'harness:run', 'Harness run report missing', result_.error, 'Run node tools\\harness-gates.js run-gate <runId> --root .')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'harness:run', 'Harness run report stale', result_.value.generatedAt, 'Rerun node tools\\harness-gates.js run-gate <runId> --root .', { file: result_.file })];
+  }
+  const report = result_.value;
+  const status = (report.summary && report.summary.status) || 'unknown';
+  const phase  = report.phase || 'unknown';
+  const title  = status === 'pass' ? 'Harness run complete' : status === 'fail' ? 'Harness run failed' : 'Harness run in progress';
+  const detail = `phase=${phase}  status=${report.status || status}`;
+  return [result(status === 'fail' ? 'warn' : status === 'running' ? 'pass' : status, 'harness:run', title, detail, '', { file: result_.file })];
+}
+
 function checkGitWorkflowAudit(root, now = new Date()) {
   const result_ = checkGitArtifact(root, now);
   if (!result_.ok) {
@@ -611,6 +646,8 @@ function runDoctor(options) {
     ...checkSurfaceSync(root),
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
+    ...checkHarnessChecklist(root),
+    ...checkHarnessRun(root),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkGitHubCli(root),
@@ -647,6 +684,8 @@ module.exports = {
   checkSurfaceSync,
   checkAgentSurfaceAudit,
   checkDocsGate,
+  checkHarnessChecklist,
+  checkHarnessRun,
   checkGitWorkflowAudit,
   runDoctor,
   formatText,
