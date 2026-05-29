@@ -355,6 +355,32 @@ function checkMemoryProvider(root, provider) {
   return [result('warn', 'memory:provider', 'Memory provider invalid', report.reason || String(provider), 'Use project-rag or agentmemory.', report)];
 }
 
+function checkSurfaceSync(root) {
+  const script = path.join(root, 'tools', 'sync-agent-surface.js');
+  if (!fs.existsSync(script)) {
+    return [result('warn', 'surface:sync', 'Surface sync tool missing', script, 'Run node tools/sync-agent-surface.js --dry-run --json to audit skill parity.')];
+  }
+  const proc = spawnSync(process.execPath, [script, '--dry-run', '--json', '--target', 'all'], {
+    encoding: 'utf8', timeout: 10000, cwd: root,
+  });
+  if (proc.status !== 0 || !proc.stdout) {
+    return [result('warn', 'surface:sync', 'Surface sync check failed', proc.stderr || 'no output', 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
+  }
+  let data;
+  try { data = JSON.parse(proc.stdout); } catch (e) {
+    return [result('warn', 'surface:sync', 'Surface sync output invalid JSON', e.message, 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
+  }
+  const targets = Object.entries(data.results || {});
+  const missingTotal = targets.reduce((sum, [, r]) => sum + (r.missing ? r.missing.length : 0), 0);
+  const conflictTotal = targets.reduce((sum, [, r]) => sum + (r.conflicts ? r.conflicts.length : 0), 0);
+  if (missingTotal > 0) {
+    const details = targets.map(([t, r]) => r.missing.length ? `${t}:${r.missing.length}` : null).filter(Boolean).join(', ');
+    return [result('warn', 'surface:sync', `Skill sync gap — ${missingTotal} missing`, details, 'Run node tools/sync-agent-surface.js --apply --target all')];
+  }
+  const detail = conflictTotal ? `${conflictTotal} known conflict(s)` : 'all targets in sync';
+  return [result('pass', 'surface:sync', 'Skill surface sync OK', detail)];
+}
+
 function checkAgentSurfaceAudit(root, now = new Date()) {
   const file = path.join(root, '.planning', 'agent-surface-audit-latest.json');
   const parsed = readJson(file);
@@ -582,6 +608,7 @@ function runDoctor(options) {
     ...checkCodeGraph(root),
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
+    ...checkSurfaceSync(root),
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
     ...checkGitWorkflowAudit(root),
@@ -617,6 +644,7 @@ module.exports = {
   checkCodexDefaults,
   checkGitHubCli,
   checkPipelineState,
+  checkSurfaceSync,
   checkAgentSurfaceAudit,
   checkDocsGate,
   checkGitWorkflowAudit,
