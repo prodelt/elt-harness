@@ -201,10 +201,17 @@ function checkDirtyFiles(projectRoot) {
   }
 
   const lines = status.stdout ? status.stdout.split('\n').filter(Boolean) : [];
-  const count = lines.length;
+
+  // Auto-generated latest-artifact files are self-referential; exclude from dirty count
+  const autoGenPattern = /\.planning[\\/](git-workflow-audit-latest|docs-gate-latest|agent-surface-audit-latest)\.(json|md)$/;
+  const significantLines = lines.filter(l => !autoGenPattern.test(l));
+  const count = significantLines.length;
 
   if (count === 0) {
-    return [result('pass', 'git:dirty', 'Working tree clean (scoped)', 'git status --short -- . returned no changes.', '', { count: 0, files: [] })];
+    const detail = lines.length > 0
+      ? `Only auto-generated planning artifacts modified (${lines.length})`
+      : 'git status --short -- . returned no changes.';
+    return [result('pass', 'git:dirty', 'Working tree clean (scoped)', detail, '', { count: 0, files: [] })];
   }
 
   return [
@@ -212,9 +219,9 @@ function checkDirtyFiles(projectRoot) {
       'warn',
       'git:dirty',
       `${count} uncommitted change(s) in project scope`,
-      lines.slice(0, 10).join('; '),
+      significantLines.slice(0, 10).join('; '),
       'Commit or stash changes before session closeout.',
-      { count, files: lines.slice(0, 20) },
+      { count, files: significantLines.slice(0, 20) },
     ),
   ];
 }

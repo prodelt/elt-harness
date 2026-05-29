@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-29T18:45:32.496Z",
+  "generatedAt": "2026-05-29T18:51:45.731Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\espad",
   "clients": [
@@ -2215,7 +2215,7 @@
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
             "nodes": 1199,
-            "links": 2053,
+            "links": 2054,
             "uniqueSources": 160,
             "noisyNodes": 0,
             "noisyRatio": 0,
@@ -2332,11 +2332,8 @@
     "fallbackContract": "Browser tooling is not part of global startup; use explicit browser/gstack skills when needed."
   },
   "summary": {
-    "status": "warn",
-    "unexplainedGaps": [
-      "gemini:Notification",
-      "gemini:FileChanged"
-    ],
-    "generatedAt": "2026-05-29T18:45:32.496Z"
+    "status": "pass",
+    "unexplainedGaps": [],
+    "generatedAt": "2026-05-29T18:51:45.731Z"
   }
 }

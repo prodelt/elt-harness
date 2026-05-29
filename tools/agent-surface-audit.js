@@ -205,8 +205,15 @@ function compareClients(clients) {
 }
 
 function summarize(report) {
-  const unexplained = report.parity
-    .flatMap((client) => client.unsupportedConfiguredEvents.map((event) => `${client.client}:${event}`));
+  // Events in a client's declared unsupportedEvents are "explained" fallbacks — not gaps.
+  // Only flag events that are configured AND unsupported AND NOT declared as unsupported-by-design.
+  const unexplained = report.parity.flatMap((client) => {
+    const spec = CLIENTS[client.client];
+    const declaredUnsupported = spec ? spec.unsupportedEvents : [];
+    return client.unsupportedConfiguredEvents
+      .filter((event) => !declaredUnsupported.includes(event))
+      .map((event) => `${client.client}:${event}`);
+  });
   const missingAuditInputs = report.clients
     .filter((client) => client.settingsStatus !== 'present')
     .map((client) => `${client.client}:settings`);
