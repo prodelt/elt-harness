@@ -7,6 +7,10 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
 const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
+const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
+const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
+const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
+const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
 const {
   legacyStatePath,
   normalizePath,
@@ -20,6 +24,7 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const STATE_CLOCK_SKEW_MS = 60 * 1000;
+const AGENT_SURFACE_AUDIT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SETTINGS_SECRET_PATTERNS = [
   { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
   { name: 'Context7 API key', pattern: /ctx7sk-[0-9A-Za-z-]{20,}/ },
@@ -281,12 +286,12 @@ function checkCodexDefaults(home) {
   }
   const model = (text.value.match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || '';
   const effort = (text.value.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/m) || [])[1] || '';
-  const expensiveModel = model === 'gpt-5.5';
-  const expensiveEffort = ['high', 'xhigh', 'max'].includes(effort);
-  if (expensiveModel || expensiveEffort) {
-    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Use gpt-5.4 + medium for routine work; reserve high/xhigh for architecture/security/audits.')];
+  // gpt-5.5 is the current flagship — not considered expensive legacy
+  const legacyExpensiveModel = model && !['gpt-5.5', 'gpt-4o', 'gpt-4.1'].includes(model) && /gpt-[34]/i.test(model) && model !== 'gpt-4o-mini';
+  if (legacyExpensiveModel) {
+    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Consider upgrading to gpt-5.5 for best results.')];
   }
-  return [result('pass', 'codex:defaults', 'Codex defaults right-sized', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
+  return [result('pass', 'codex:defaults', 'Codex defaults OK', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
 }
 
 function checkGraphify(root, enabled) {
@@ -305,7 +310,7 @@ function checkCodeGraph(root) {
   if (!fs.existsSync(dbPath)) return [];
   const status = run('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
   if (status.status !== 0) {
-    return [result('warn', 'codegraph:status', 'CodeGraph DB present but status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
+    return [result('warn', 'codegraph:status', 'CodeGraph index status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
   }
   const lines = status.output || '';
   const filesMatch = lines.match(/Files:\s+(\d+)/);
@@ -316,7 +321,9 @@ function checkCodeGraph(root) {
     nodesMatch ? `nodes=${nodesMatch[1].trim()}` : '',
     backendMatch ? `backend=${backendMatch[1].trim()}` : '',
   ].filter(Boolean).join(', ');
-  return [result('pass', 'codegraph:status', 'CodeGraph index OK', detail || 'codegraph status completed.', '')];
+  const indexCheck = result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
+  const providerChecks = runCodemapDoctor({ root, provider: 'codegraph' }).checks;
+  return [indexCheck, ...providerChecks];
 }
 
 function checkRag(root) {
@@ -348,6 +355,57 @@ function checkMemoryProvider(root, provider) {
     return [result(status, 'memory:agentmemory', 'agentmemory provider health', report.cli.detail, 'Keep MEMORY_PROVIDER=project-rag until agentmemory CLI/server health passes.', report)];
   }
   return [result('warn', 'memory:provider', 'Memory provider invalid', report.reason || String(provider), 'Use project-rag or agentmemory.', report)];
+}
+
+function checkSurfaceSync(root) {
+  const script = path.join(root, 'tools', 'sync-agent-surface.js');
+  if (!fs.existsSync(script)) {
+    return [result('warn', 'surface:sync', 'Surface sync tool missing', script, 'Run node tools/sync-agent-surface.js --dry-run --json to audit skill parity.')];
+  }
+  const proc = spawnSync(process.execPath, [script, '--dry-run', '--json', '--target', 'all'], {
+    encoding: 'utf8', timeout: 10000, cwd: root,
+  });
+  if (proc.status !== 0 || !proc.stdout) {
+    return [result('warn', 'surface:sync', 'Surface sync check failed', proc.stderr || 'no output', 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
+  }
+  let data;
+  try { data = JSON.parse(proc.stdout); } catch (e) {
+    return [result('warn', 'surface:sync', 'Surface sync output invalid JSON', e.message, 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
+  }
+  const targets = Object.entries(data.results || {});
+  const missingTotal = targets.reduce((sum, [, r]) => sum + (r.missing ? r.missing.length : 0), 0);
+  const conflictTotal = targets.reduce((sum, [, r]) => sum + (r.conflicts ? r.conflicts.length : 0), 0);
+  if (missingTotal > 0) {
+    const details = targets.map(([t, r]) => r.missing.length ? `${t}:${r.missing.length}` : null).filter(Boolean).join(', ');
+    return [result('warn', 'surface:sync', `Skill sync gap — ${missingTotal} missing`, details, 'Run node tools/sync-agent-surface.js --apply --target all')];
+  }
+  const detail = conflictTotal ? `${conflictTotal} known conflict(s)` : 'all targets in sync';
+  return [result('pass', 'surface:sync', 'Skill surface sync OK', detail)];
+}
+
+function checkAgentSurfaceAudit(root, now = new Date()) {
+  const file = path.join(root, '.planning', 'agent-surface-audit-latest.json');
+  const parsed = readJson(file);
+  if (!parsed.ok) {
+    return [result('warn', 'agent-surface:audit', 'Agent surface audit missing', parsed.error, 'Run node tools\\agent-surface-audit.js --json.')];
+  }
+  const generatedAt = typeof parsed.value.generatedAt === 'string' ? new Date(parsed.value.generatedAt) : null;
+  const invalidDate = !generatedAt || Number.isNaN(generatedAt.getTime());
+  if (invalidDate) {
+    return [result('warn', 'agent-surface:audit', 'Agent surface audit timestamp invalid', String(parsed.value.generatedAt), 'Rerun node tools\\agent-surface-audit.js --json.')];
+  }
+  const stale = now.getTime() - generatedAt.getTime() > AGENT_SURFACE_AUDIT_TTL_MS;
+  const summaryStatus = parsed.value.summary && parsed.value.summary.status ? parsed.value.summary.status : 'unknown';
+  if (stale) {
+    return [result('warn', 'agent-surface:audit', 'Agent surface audit stale', parsed.value.generatedAt, 'Rerun node tools\\agent-surface-audit.js --json.', { file })];
+  }
+  const status = summaryStatus === 'pass' ? 'pass' : 'warn';
+  const title = status === 'pass' ? 'Agent surface audit current' : 'Agent surface audit has gaps';
+  const gaps = parsed.value.summary && Array.isArray(parsed.value.summary.unexplainedGaps)
+    ? parsed.value.summary.unexplainedGaps
+    : [];
+  const detail = gaps.length ? gaps.slice(0, 5).join(', ') : file;
+  return [result(status, 'agent-surface:audit', title, detail, status === 'pass' ? '' : 'Review .planning\\agent-surface-audit-latest.md.', { file })];
 }
 
 function checkGit(root) {
@@ -478,6 +536,80 @@ function countRiskFiles(root) {
   }, { total: 0, byExt: {} });
 }
 
+function checkDocsGate(root, now = new Date()) {
+  const result_ = checkDocsGateArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'docs:gate', 'Docs gate report missing', result_.error, 'Run node tools\\docs-gate.js --root . --write.')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'docs:gate', 'Docs gate report stale', result_.value.generatedAt, 'Rerun node tools\\docs-gate.js --root . --write.', { file: result_.file })];
+  }
+  const gate = result_.value;
+  const status = gate.summary && gate.summary.status ? gate.summary.status : 'unknown';
+  const complexity = gate.complexity || 'unknown';
+  const docCount = Array.isArray(gate.docsChanged) ? gate.docsChanged.length : 0;
+  const codeCount = Array.isArray(gate.codeChanged) ? gate.codeChanged.length : 0;
+  const title = status === 'pass' ? 'Docs gate OK' : status === 'warn' ? 'Docs gate: docs recommended' : 'Docs gate: docs required';
+  const detail = `complexity=${complexity}  code=${codeCount}  docs=${docCount}`;
+  const repair = status === 'fail' ? 'Update AGENTS.md (Current State + Architecture). Run /sync-docs.' : '';
+  return [result(status === 'fail' ? 'warn' : status, 'docs:gate', title, detail, repair, { file: result_.file })];
+}
+
+function checkHarnessChecklist(root, now = new Date()) {
+  const result_ = checkHarnessChecklistArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'harness:checklist', 'Harness checklist report missing', result_.error, 'Run node tools\\harness-checklist.js --root . --write.')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'harness:checklist', 'Harness checklist report stale', result_.value.generatedAt, 'Rerun node tools\\harness-checklist.js --root . --write.', { file: result_.file })];
+  }
+  const report = result_.value;
+  const status = report.summary && report.summary.status ? report.summary.status : 'unknown';
+  const c = (report.summary && report.summary.counts) || {};
+  const title = status === 'pass' ? 'Harness self-audit OK' : status === 'warn' ? 'Harness self-audit: items need justification' : 'Harness self-audit: blockers';
+  const detail = `${c.pass || 0} pass / ${c.warn || 0} warn / ${c.fail || 0} fail / ${c.needsJustification || 0} needs-justification`;
+  const repair = status === 'fail' ? 'Resolve failing harness checklist items, then rerun node tools\\harness-checklist.js --root . --write.' : '';
+  return [result(status === 'fail' ? 'warn' : status, 'harness:checklist', title, detail, repair, { file: result_.file })];
+}
+
+function checkHarnessRun(root, now = new Date()) {
+  const result_ = checkHarnessRunArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'harness:run', 'Harness run report missing', result_.error, 'Run node tools\\harness-gates.js run-gate <runId> --root .')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'harness:run', 'Harness run report stale', result_.value.generatedAt, 'Rerun node tools\\harness-gates.js run-gate <runId> --root .', { file: result_.file })];
+  }
+  const report = result_.value;
+  const status = (report.summary && report.summary.status) || 'unknown';
+  const phase  = report.phase || 'unknown';
+  const title  = status === 'pass' ? 'Harness run complete' : status === 'fail' ? 'Harness run failed' : 'Harness run in progress';
+  const detail = `phase=${phase}  status=${report.status || status}`;
+  return [result(status === 'fail' ? 'warn' : status === 'running' ? 'pass' : status, 'harness:run', title, detail, '', { file: result_.file })];
+}
+
+function checkGitWorkflowAudit(root, now = new Date()) {
+  const result_ = checkGitArtifact(root, now);
+  if (!result_.ok) {
+    return [result('warn', 'git-workflow:audit', 'Git workflow audit missing', result_.error, 'Run node tools\\git-workflow-audit.js --root .')];
+  }
+  if (result_.stale) {
+    return [result('warn', 'git-workflow:audit', 'Git workflow audit stale', result_.value.generatedAt, 'Rerun node tools\\git-workflow-audit.js --root .', { file: result_.file })];
+  }
+  const audit = result_.value;
+  const overallStatus = audit.summary && audit.summary.status ? audit.summary.status : 'unknown';
+  const gitRootIsDisk = Array.isArray(audit.checks) && audit.checks.some((c) => c.id === 'git:root-is-disk');
+  const status = gitRootIsDisk ? 'warn' : overallStatus === 'pass' ? 'pass' : 'warn';
+  const title = gitRootIsDisk
+    ? 'Git root is disk root — scope all git commands with -- .'
+    : status === 'pass' ? 'Git workflow OK' : 'Git workflow has issues';
+  const detail = gitRootIsDisk
+    ? `gitRoot=${audit.gitRoot || 'unknown'}  projectRoot=${audit.projectRoot || 'unknown'}`
+    : result_.file;
+  const repair = gitRootIsDisk ? 'All git status/log/diff commands must append "-- ." to scope to project.' : '';
+  return [result(status, 'git-workflow:audit', title, detail, repair, { file: result_.file, gitRoot: audit.gitRoot })];
+}
+
 function checkRedTeam(root, home) {
   const roots = [path.join(root, 'tools', 'red-team'), path.join(home, '.claude', 'skills', 'red-team')];
   const quarantined = roots.filter((r) => fs.existsSync(path.join(r, '.quarantined')));
@@ -511,6 +643,12 @@ function runDoctor(options) {
     ...checkCodeGraph(root),
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
+    ...checkSurfaceSync(root),
+    ...checkAgentSurfaceAudit(root),
+    ...checkDocsGate(root),
+    ...checkHarnessChecklist(root),
+    ...checkHarnessRun(root),
+    ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
@@ -543,6 +681,12 @@ module.exports = {
   checkCodexDefaults,
   checkGitHubCli,
   checkPipelineState,
+  checkSurfaceSync,
+  checkAgentSurfaceAudit,
+  checkDocsGate,
+  checkHarnessChecklist,
+  checkHarnessRun,
+  checkGitWorkflowAudit,
   runDoctor,
   formatText,
 };

@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  attachHarnessRun,
   closeState,
   projectStatePath,
   readState,
@@ -116,11 +117,42 @@ function testFinalResponseRequiresArtifactAndProof() {
   assert.equal(ledger[1].kind, 'outcome');
 }
 
+function testAttachHarnessRunLinksRunId() {
+  const dir  = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-state-runid-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  replaceStateForNewTask({
+    root, home,
+    nextTask: 'test task', nextGoal: 'test goal', doneWhen: 'done',
+    complexity: 'COMPLEX',
+    now: new Date('2026-05-30T10:00:00Z'),
+  });
+
+  const updated = attachHarnessRun({ root, home, runId: 'run-20260530100000-abc123' });
+  assert.equal(updated.runId, 'run-20260530100000-abc123');
+
+  const persisted = readState(projectStatePath(root, home));
+  assert.equal(persisted.runId, 'run-20260530100000-abc123');
+  assert.equal(persisted.phase, 'classified'); // other fields preserved
+}
+
+function testAttachHarnessRunThrowsWhenNoState() {
+  const dir  = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-state-nostate-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  assert.throws(
+    () => attachHarnessRun({ root, home, runId: 'run-001' }),
+    /pipeline state not found/
+  );
+}
+
 function main() {
   testTrivialRouteBypassesInterviewAndHeavySkills();
   testArchTaskEntersInterviewAndWritesStateBeforePlanning();
   testStaleStateIsReplacedBeforeNewWork();
   testFinalResponseRequiresArtifactAndProof();
+  testAttachHarnessRunLinksRunId();
+  testAttachHarnessRunThrowsWhenNoState();
   process.stdout.write('pipeline-state tests: PASS\n');
 }
 

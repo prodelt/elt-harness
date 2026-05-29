@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-05-29T18:04:37.709Z",
+  "projectRoot": "C:/Claude playground/Pipiline setupper",
+  "complexity": "TRIVIAL",
+  "codeChanged": [],
+  "docsChanged": [
+    ".gemini/GEMINI.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "gemini/GEMINI.md"
+  ],
+  "summary": {
+    "status": "pass",
+    "pass": 2,
+    "warn": 0,
+    "fail": 0
+  },
+  "checks": [
+    {
+      "id": "docs:trivial",
+      "status": "pass",
+      "detail": "Trivial change (0 code file(s)) — docs delta not required",
+      "repair": ""
+    },
+    {
+      "id": "docs:canonical",
+      "status": "pass",
+      "detail": "AGENTS.md exists",
+      "repair": ""
+    }
+  ]
+}
