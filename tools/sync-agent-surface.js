@@ -33,6 +33,8 @@ const CLIENT_ONLY = {
   gemini: new Set(['architect', 'autofix', 'backend', 'devops', 'frontend', 'graphify', 'nextjs', 'security', 'security-agent', 'supabase']),
 };
 
+const SYNC_IGNORE_NAMES = new Set(['.git']);
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function listSkillDirs(dir) {
@@ -48,6 +50,7 @@ function listSkillDirs(dir) {
 function dirContentsHash(dir) {
   const entries = [];
   for (const f of fs.readdirSync(dir).sort()) {
+    if (SYNC_IGNORE_NAMES.has(f)) continue;
     const full = path.join(dir, f);
     if (fs.statSync(full).isDirectory()) {
       entries.push(`d:${f}:${dirContentsHash(full)}`);
@@ -62,6 +65,7 @@ function dirContentsHash(dir) {
 function copyDirSync(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   for (const f of fs.readdirSync(src)) {
+    if (SYNC_IGNORE_NAMES.has(f)) continue;
     const srcPath = path.join(src, f);
     const dstPath = path.join(dst, f);
     if (fs.statSync(srcPath).isDirectory()) {
@@ -69,6 +73,15 @@ function copyDirSync(src, dst) {
     } else {
       fs.copyFileSync(srcPath, dstPath);
     }
+  }
+}
+
+function assertInside(parentDir, childPath) {
+  const parent = path.resolve(parentDir);
+  const child = path.resolve(childPath);
+  const relative = path.relative(parent, child);
+  if (relative.startsWith('..') || path.isAbsolute(relative) || relative === '') {
+    throw new Error(`Refusing to operate outside target skill root: ${child}`);
   }
 }
 
@@ -157,6 +170,8 @@ function applySync(analysis, opts = {}) {
         try {
           const src = path.join(sourceDir, skill);
           const dst = path.join(targetDir, skill);
+          assertInside(targetDir, dst);
+          fs.rmSync(dst, { recursive: true, force: true });
           copyDirSync(src, dst);
           applied.push({ target: targetName, skill, action: 'overwritten' });
         } catch (err) {

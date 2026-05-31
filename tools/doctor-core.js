@@ -588,6 +588,43 @@ function checkHarnessRun(root, now = new Date()) {
   return [result(status === 'fail' ? 'warn' : status === 'running' ? 'pass' : status, 'harness:run', title, detail, '', { file: result_.file })];
 }
 
+function pipelineDirFromRegistry(home, fallbackRoot) {
+  const parsed = readJson(path.join(home, '.claude', 'projects-registry.json'));
+  if (parsed.ok && parsed.value && typeof parsed.value.pipelineDir === 'string' && parsed.value.pipelineDir.trim()) {
+    return parsed.value.pipelineDir;
+  }
+  return fallbackRoot;
+}
+
+function checkHarnessGlobal(root, home, commandRunner = run) {
+  const pipelineDir = pipelineDirFromRegistry(home, root);
+  const scripts = [
+    path.join(pipelineDir, 'tools', 'harness-runner.js'),
+    path.join(pipelineDir, 'tools', 'harness-gates.js'),
+  ];
+  const wrappers = [
+    path.join(home, '.claude', 'bin', 'harness-runner.cmd'),
+    path.join(home, '.claude', 'bin', 'harness-runner.ps1'),
+    path.join(home, '.claude', 'bin', 'harness-gates.cmd'),
+    path.join(home, '.claude', 'bin', 'harness-gates.ps1'),
+  ];
+  const missingScripts = scripts.filter((file) => !fs.existsSync(file));
+  const missingWrappers = wrappers.filter((file) => !fs.existsSync(file));
+  if (missingScripts.length || missingWrappers.length) {
+    const detail = [
+      missingScripts.length ? `scripts=${missingScripts.map((file) => path.basename(file)).join(',')}` : '',
+      missingWrappers.length ? `wrappers=${missingWrappers.map((file) => path.basename(file)).join(',')}` : '',
+    ].filter(Boolean).join(' ');
+    return [result('warn', 'harness:global-cli', 'Global harness CLI incomplete', detail, 'Install harness-runner/harness-gates wrappers in ~/.claude/bin.')];
+  }
+  const runner = commandRunner('cmd.exe', ['/c', 'where', 'harness-runner.cmd'], root, 5000);
+  const gates = commandRunner('cmd.exe', ['/c', 'where', 'harness-gates.cmd'], root, 5000);
+  if (runner.status !== 0 || gates.status !== 0) {
+    return [result('warn', 'harness:global-cli', 'Global harness wrappers not on PATH', runner.output || gates.output || runner.error || gates.error || 'where failed', 'Add ~/.claude/bin to PATH or call wrappers by full path.')];
+  }
+  return [result('pass', 'harness:global-cli', 'Global harness CLI available', 'harness-runner.cmd and harness-gates.cmd resolve on PATH.', '')];
+}
+
 function checkGitWorkflowAudit(root, now = new Date()) {
   const result_ = checkGitArtifact(root, now);
   if (!result_.ok) {
@@ -648,6 +685,7 @@ function runDoctor(options) {
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
     ...checkHarnessRun(root),
+    ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkGitHubCli(root),
@@ -686,6 +724,7 @@ module.exports = {
   checkDocsGate,
   checkHarnessChecklist,
   checkHarnessRun,
+  checkHarnessGlobal,
   checkGitWorkflowAudit,
   runDoctor,
   formatText,

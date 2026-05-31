@@ -319,6 +319,7 @@ function toMarkdown(report) {
     }
     lines.push('');
   }
+  while (lines[lines.length - 1] === '') lines.pop();
   return lines.join('\n');
 }
 

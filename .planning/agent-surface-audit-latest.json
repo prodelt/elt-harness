@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-29T18:51:45.731Z",
+  "generatedAt": "2026-05-31T17:45:09.508Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\user",
   "clients": [
@@ -170,6 +170,9 @@
             "node \"C:/Users/user/.claude/hooks/stop-auto-checkpoint.js\"",
             "Writing auto-checkpoint if needed...",
             "command",
+            "node \"C:/Users/user/.claude/hooks/harness-run-gate.js\"",
+            "Checking harness run evidence...",
+            "command",
             "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
           ]
         },
@@ -194,7 +197,7 @@
           ]
         }
       ],
-      "hookCommandCount": 134,
+      "hookCommandCount": 137,
       "skillRoot": "C:\\Users\\user\\.claude\\skills",
       "skillCount": 98,
       "skills": [
@@ -833,7 +836,10 @@
             "Checking uncommitted changes...",
             "command",
             "node C:/Users/user/.claude/hooks/stop-auto-checkpoint.js",
-            "Writing auto-checkpoint if needed..."
+            "Writing auto-checkpoint if needed...",
+            "command",
+            "node C:/Users/user/.claude/hooks/harness-run-gate.js",
+            "Checking harness run evidence..."
           ]
         },
         {
@@ -849,9 +855,9 @@
           "commands": []
         }
       ],
-      "hookCommandCount": 105,
+      "hookCommandCount": 108,
       "skillRoot": "C:\\Users\\user\\.codex\\skills",
-      "skillCount": 104,
+      "skillCount": 105,
       "skills": [
         {
           "name": "\"imagegen\"",
@@ -1167,6 +1173,11 @@
           "name": "office-hours",
           "aliases": [],
           "file": "C:\\Users\\user\\.codex\\skills\\gstack\\office-hours\\SKILL.md"
+        },
+        {
+          "name": "open-gstack-browser",
+          "aliases": [],
+          "file": "C:\\Users\\user\\.codex\\skills\\gstack\\connect-chrome\\SKILL.md"
         },
         {
           "name": "open-gstack-browser",
@@ -1541,7 +1552,10 @@
             "node \"C:/Users/user/.gemini/hooks/stop-auto-checkpoint.js\"",
             "Writing auto-checkpoint if needed...",
             "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
+            "command",
+            "node \"C:/Users/user/.gemini/hooks/harness-run-gate.js\"",
+            "Checking harness run gates..."
           ]
         },
         {
@@ -1565,7 +1579,7 @@
           ]
         }
       ],
-      "hookCommandCount": 134,
+      "hookCommandCount": 137,
       "skillRoot": "C:\\Users\\user\\.gemini\\skills",
       "skillCount": 108,
       "skills": [
@@ -2116,21 +2130,21 @@
     {
       "client": "claude",
       "skillCount": 98,
-      "hookCommandCount": 134,
+      "hookCommandCount": 137,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "codex",
-      "skillCount": 104,
-      "hookCommandCount": 105,
+      "skillCount": 105,
+      "hookCommandCount": 108,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "gemini",
       "skillCount": 108,
-      "hookCommandCount": 134,
+      "hookCommandCount": 137,
       "missingSkillsComparedToClaude": [
         "red-team"
       ],
@@ -2161,6 +2175,26 @@
         "name": "skill.ps1",
         "path": "C:\\Users\\user\\.claude\\bin\\skill.ps1",
         "exists": true
+      },
+      {
+        "name": "harness-runner.cmd",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-runner.cmd",
+        "exists": true
+      },
+      {
+        "name": "harness-runner.ps1",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-runner.ps1",
+        "exists": true
+      },
+      {
+        "name": "harness-gates.cmd",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-gates.cmd",
+        "exists": true
+      },
+      {
+        "name": "harness-gates.ps1",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-gates.ps1",
+        "exists": true
       }
     ],
     "commands": [
@@ -2175,6 +2209,18 @@
         "status": "available",
         "exitCode": 0,
         "detail": "C:\\Users\\user\\.claude\\bin\\skill.cmd"
+      },
+      {
+        "command": "cmd.exe /c where harness-runner.cmd",
+        "status": "available",
+        "exitCode": 0,
+        "detail": "C:\\Users\\user\\.claude\\bin\\harness-runner.cmd"
+      },
+      {
+        "command": "cmd.exe /c where harness-gates.cmd",
+        "status": "available",
+        "exitCode": 0,
+        "detail": "C:\\Users\\user\\.claude\\bin\\harness-gates.cmd"
       }
     ]
   },
@@ -2209,14 +2255,14 @@
           "status": "pass",
           "id": "codemap:scope",
           "title": "Codemap graph scope OK",
-          "detail": "1199 nodes, 160 source files.",
+          "detail": "1252 nodes, 164 source files.",
           "repair": "",
           "data": {
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
-            "nodes": 1199,
-            "links": 2054,
-            "uniqueSources": 160,
+            "nodes": 1252,
+            "links": 2145,
+            "uniqueSources": 164,
             "noisyNodes": 0,
             "noisyRatio": 0,
             "outOfScope": [],
@@ -2227,7 +2273,7 @@
               },
               {
                 "source": "tools/doctor-core.js",
-                "count": 40
+                "count": 42
               },
               {
                 "source": "audit/S11_pipeline_top1/hooks/analyze-session.js",
@@ -2248,7 +2294,7 @@
           "status": "pass",
           "id": "codemap:stale",
           "title": "Codemap graph has no stale semantic/rationale nodes",
-          "detail": "1199 nodes checked.",
+          "detail": "1252 nodes checked.",
           "repair": "",
           "data": {
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
@@ -2295,8 +2341,8 @@
           "data": {
             "attemptedCommand": "cmd.exe /c codegraph status",
             "provider": "codegraph",
-            "cachePath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph",
-            "lockPath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph\\codegraph.lock"
+            "cachePath": "C:\\Users\\user\\AppData\\Local\\Temp\\pipeline-setupper-codegraph\\Claude-playground-Pipiline-setupper",
+            "lockPath": "C:\\Users\\user\\AppData\\Local\\Temp\\pipeline-setupper-codegraph\\Claude-playground-Pipiline-setupper\\codegraph.lock"
           }
         }
       ]
@@ -2323,17 +2369,87 @@
   "browser": {
     "bun": {
       "command": "cmd.exe /c where bun.exe",
-      "status": "available",
-      "exitCode": 0,
-      "detail": "C:\\Users\\user\\AppData\\Local\\Microsoft\\WinGet\\Links\\bun.exe"
+      "status": "missing-or-failed",
+      "exitCode": 1,
+      "detail": "����������: �� 㤠���� ���� 䠩�� �� ������� 蠡�����."
     },
-    "browserSkillCount": 94,
+    "browserSkillCount": 95,
     "status": "available-as-skill",
     "fallbackContract": "Browser tooling is not part of global startup; use explicit browser/gstack skills when needed."
+  },
+  "harness": {
+    "status": "pass",
+    "pipelineHasHarness": true,
+    "wrappers": [
+      {
+        "name": "harness-runner.cmd",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-runner.cmd",
+        "exists": true
+      },
+      {
+        "name": "harness-runner.ps1",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-runner.ps1",
+        "exists": true
+      },
+      {
+        "name": "harness-gates.cmd",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-gates.cmd",
+        "exists": true
+      },
+      {
+        "name": "harness-gates.ps1",
+        "path": "C:\\Users\\user\\.claude\\bin\\harness-gates.ps1",
+        "exists": true
+      }
+    ],
+    "scripts": [
+      {
+        "name": "harness-runner.js",
+        "path": "C:\\Claude playground\\Pipiline setupper\\tools\\harness-runner.js",
+        "exists": true
+      },
+      {
+        "name": "harness-gates.js",
+        "path": "C:\\Claude playground\\Pipiline setupper\\tools\\harness-gates.js",
+        "exists": true
+      }
+    ],
+    "stopHooks": [
+      {
+        "client": "claude",
+        "configured": true
+      },
+      {
+        "client": "codex",
+        "configured": true
+      },
+      {
+        "client": "gemini",
+        "configured": true
+      }
+    ],
+    "missingWrappers": [],
+    "missingScripts": [],
+    "missingStopHooks": [],
+    "failedCommands": [],
+    "commands": [
+      {
+        "command": "cmd.exe /c where harness-runner.cmd",
+        "status": "available",
+        "exitCode": 0,
+        "detail": "C:\\Users\\user\\.claude\\bin\\harness-runner.cmd"
+      },
+      {
+        "command": "cmd.exe /c where harness-gates.cmd",
+        "status": "available",
+        "exitCode": 0,
+        "detail": "C:\\Users\\user\\.claude\\bin\\harness-gates.cmd"
+      }
+    ]
   },
   "summary": {
     "status": "pass",
     "unexplainedGaps": [],
-    "generatedAt": "2026-05-29T18:51:45.731Z"
+    "generatedAt": "2026-05-31T17:45:09.508Z"
   }
 }

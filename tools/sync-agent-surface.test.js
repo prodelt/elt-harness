@@ -73,6 +73,7 @@ function listSkillDirs(dir) {
 function dirContentsHash(dir) {
   const entries = [];
   for (const f of fs.readdirSync(dir).sort()) {
+    if (SYNC_IGNORE_NAMES.has(f)) continue;
     const full = path.join(dir, f);
     if (fs.statSync(full).isDirectory()) {
       entries.push(`d:${f}:${dirContentsHash(full)}`);
@@ -87,6 +88,7 @@ function dirContentsHash(dir) {
 function copyDirSync(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   for (const f of fs.readdirSync(src)) {
+    if (SYNC_IGNORE_NAMES.has(f)) continue;
     const srcPath = path.join(src, f);
     const dstPath = path.join(dst, f);
     if (fs.statSync(srcPath).isDirectory()) {
@@ -97,7 +99,17 @@ function copyDirSync(src, dst) {
   }
 }
 
+function assertInside(parentDir, childPath) {
+  const parent = path.resolve(parentDir);
+  const child = path.resolve(childPath);
+  const relative = path.relative(parent, child);
+  if (relative.startsWith('..') || path.isAbsolute(relative) || relative === '') {
+    throw new Error(`Refusing to operate outside target skill root: ${child}`);
+  }
+}
+
 const SENSITIVE_SKILLS = new Set(['red-team']);
+const SYNC_IGNORE_NAMES = new Set(['.git']);
 
 function analyzeTarget(targetName, targetDir, sourceSkills, sourceDir, opts = {}) {
   const targetSkills = listSkillDirs(targetDir);
@@ -158,7 +170,10 @@ function applySync(analysis, clientDirs, claudeDir, opts = {}) {
     if (opts.force) {
       for (const { skill } of result.conflicts) {
         try {
-          copyDirSync(path.join(claudeDir, skill), path.join(targetDir, skill));
+          const dst = path.join(targetDir, skill);
+          assertInside(targetDir, dst);
+          fs.rmSync(dst, { recursive: true, force: true });
+          copyDirSync(path.join(claudeDir, skill), dst);
           applied.push({ target: targetName, skill, action: 'overwritten' });
         } catch (err) {
           errors.push({ target: targetName, skill, error: err.message });
@@ -201,9 +216,29 @@ process.stdout.write('\n[Suite 2] dirContentsHash\n');
   makeSkillDir(tmp, 'a', { 'SKILL.md': 'same content' });
   makeSkillDir(tmp, 'b', { 'SKILL.md': 'same content' });
   makeSkillDir(tmp, 'c', { 'SKILL.md': 'different content' });
+  fs.mkdirSync(path.join(a, '.git', 'objects'), { recursive: true });
+  fs.writeFileSync(path.join(a, '.git', 'objects', 'ignored'), 'local metadata');
 
   assert(dirContentsHash(a) === dirContentsHash(b), 'identical content = same hash');
   assert(dirContentsHash(a) !== dirContentsHash(c), 'different content = different hash');
+  const copied = path.join(tmp, 'copied');
+  copyDirSync(a, copied);
+  assert(!fs.existsSync(path.join(copied, '.git')), 'copyDirSync skips nested .git metadata');
+  cleanup(tmp);
+}
+
+// Suite 9b: destructive guard
+process.stdout.write('\n[Suite 9b] applySync — refuses delete outside target root\n');
+{
+  tmp = makeTmpDir();
+  const claude = path.join(tmp, 'claude');
+  const gemini = path.join(tmp, 'gemini');
+  fs.mkdirSync(claude); fs.mkdirSync(gemini);
+  makeSkillDir(claude, '..', { 'SKILL.md': 'bad' });
+  const analysis = { results: { gemini: { missing: [], conflicts: [{ skill: '..' }] } } };
+  const applyResult = applySync(analysis, { gemini }, claude, { force: true });
+  assert(applyResult.errors.length === 1, 'unsafe delete is recorded as an error');
+  assert(/Refusing to operate outside/.test(applyResult.errors[0].error), 'error explains containment guard');
   cleanup(tmp);
 }
 
@@ -338,6 +373,7 @@ process.stdout.write('\n[Suite 9] applySync — force overwrites conflicts\n');
   fs.mkdirSync(claude); fs.mkdirSync(gemini);
   makeSkillDir(claude, 'pipeline', { 'SKILL.md': 'claude v3' });
   makeSkillDir(gemini, 'pipeline', { 'SKILL.md': 'gemini old' });
+  fs.writeFileSync(path.join(gemini, 'pipeline', 'stale.md'), 'remove me', 'utf8');
 
   const analysis = analyzeAll(claude, { gemini });
   const applyResult = applySync(analysis, { gemini }, claude, { force: true });
@@ -348,6 +384,7 @@ process.stdout.write('\n[Suite 9] applySync — force overwrites conflicts\n');
     'claude v3',
     'file overwritten with source content'
   );
+  assert(!fs.existsSync(path.join(gemini, 'pipeline', 'stale.md')), 'force removes stale target-only files');
   cleanup(tmp);
 }
 

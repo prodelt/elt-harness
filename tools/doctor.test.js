@@ -17,6 +17,7 @@ const {
   checkAgentSurfaceAudit,
   checkHarnessChecklist,
   checkHarnessRun,
+  checkHarnessGlobal,
   runDoctor,
 } = require('./doctor-core');
 
@@ -296,6 +297,30 @@ function testHarnessRunCheck() {
   assert.match(done[0].title, /complete/i);
 }
 
+function testHarnessGlobalCheck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-harness-global-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  fs.mkdirSync(root, { recursive: true });
+  write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({ pipelineDir: root }));
+
+  const missing = checkHarnessGlobal(root, home, () => ({ status: 0, output: '' }));
+  assert.equal(missing[0].status, 'warn');
+  assert.equal(missing[0].id, 'harness:global-cli');
+
+  write(path.join(root, 'tools', 'harness-runner.js'), '#!/usr/bin/env node\n');
+  write(path.join(root, 'tools', 'harness-gates.js'), '#!/usr/bin/env node\n');
+  for (const name of ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1']) {
+    write(path.join(home, '.claude', 'bin', name), 'echo ok\n');
+  }
+  const passed = checkHarnessGlobal(root, home, () => ({ status: 0, output: 'ok' }));
+  assert.equal(passed[0].status, 'pass');
+
+  const pathWarn = checkHarnessGlobal(root, home, () => ({ status: 1, output: 'not found' }));
+  assert.equal(pathWarn[0].status, 'warn');
+  assert.match(pathWarn[0].title, /PATH/);
+}
+
 function withHome(home, fn) {
   const previous = process.env.USERPROFILE;
   process.env.USERPROFILE = home;
@@ -320,6 +345,7 @@ function main() {
   testAgentSurfaceAuditCheck();
   testHarnessChecklistCheck();
   testHarnessRunCheck();
+  testHarnessGlobalCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 
