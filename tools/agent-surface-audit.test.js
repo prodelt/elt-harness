@@ -45,6 +45,12 @@ function createHome() {
   return home;
 }
 
+function addHarnessSurface(home) {
+  write(path.join(home, '.claude', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\n---\n\n## Agent Harness\n');
+  write(path.join(home, '.codex', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\n---\n\n## Agent Harness\n');
+  write(path.join(home, '.gemini', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\n---\n\n## Agent Harness\n');
+}
+
 function testParseArgs() {
   const parsed = parseArgs(['node', 'agent-surface-audit.js', '--root', 'C:\\x', '--home', 'C:\\h', '--markdown', '--no-write']);
   assert.equal(parsed.ok, true);
@@ -80,15 +86,15 @@ function testAuditReportsClientSurface() {
   assert.equal(report.summary.unexplainedGaps.length, 0);
 }
 
-function testAuditFlagsUnsupportedConfiguredEvents() {
+function testAuditTreatsDeclaredUnsupportedEventsAsFallbacks() {
   const root = tempRoot('agent-surface-root');
   const home = createHome();
   write(path.join(home, '.codex', 'hooks.json'), JSON.stringify({
     Notification: [{ command: 'node unsupported.js' }],
   }));
   const report = runAudit({ root, home });
-  assert.equal(report.summary.status, 'warn');
-  assert.match(report.summary.unexplainedGaps.join(','), /codex:Notification/);
+  assert.equal(report.summary.status, 'pass');
+  assert.equal(report.summary.unexplainedGaps.includes('codex:Notification'), false);
 }
 
 function testReportsWriteJsonAndMarkdown() {
@@ -110,13 +116,68 @@ function testMarkdownListsFallbackContracts() {
   assert.match(markdown, /Codex\/Gemini unsupported Notification\/FileChanged/);
 }
 
+function testHarnessSurfaceRequiresWrappersAndStopHooks() {
+  const root = tempRoot('agent-surface-harness');
+  const home = createHome();
+  addHarnessSurface(home);
+  const report = runAudit({ root, home });
+  assert.equal(report.summary.status, 'warn');
+  assert.match(report.summary.unexplainedGaps.join(','), /harness-wrapper:harness-runner\.cmd/);
+  assert.match(report.summary.unexplainedGaps.join(','), /gemini:harness-run-gate/);
+}
+
+function testHarnessSurfacePassesWithWrappersAndStopHooks() {
+  const root = tempRoot('agent-surface-harness-ok');
+  const home = createHome();
+  addHarnessSurface(home);
+  write(path.join(root, 'tools', 'harness-runner.js'), '#!/usr/bin/env node\n');
+  write(path.join(root, 'tools', 'harness-gates.js'), '#!/usr/bin/env node\n');
+  for (const name of ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1']) {
+    write(path.join(home, '.claude', 'bin', name), 'echo ok\n');
+  }
+  const stopHook = [{ hooks: [{ command: 'node harness-run-gate.js' }] }];
+  write(path.join(home, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: stopHook } }));
+  write(path.join(home, '.codex', 'hooks.json'), JSON.stringify({ Stop: stopHook }));
+  write(path.join(home, '.gemini', 'settings.json'), JSON.stringify({ hooks: { Stop: stopHook } }));
+  const report = runAudit({ root, home });
+  assert.equal(report.harness.status, 'pass');
+  assert.equal(report.summary.status, 'pass');
+}
+
+function testHarnessSurfaceWarnsWhenWrappersAreOffPath() {
+  const root = tempRoot('agent-surface-harness-path');
+  const home = createHome();
+  addHarnessSurface(home);
+  write(path.join(root, 'tools', 'harness-runner.js'), '#!/usr/bin/env node\n');
+  write(path.join(root, 'tools', 'harness-gates.js'), '#!/usr/bin/env node\n');
+  for (const name of ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1']) {
+    write(path.join(home, '.claude', 'bin', name), 'echo ok\n');
+  }
+  const stopHook = [{ hooks: [{ command: 'node harness-run-gate.js' }] }];
+  write(path.join(home, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: stopHook } }));
+  write(path.join(home, '.codex', 'hooks.json'), JSON.stringify({ Stop: stopHook }));
+  write(path.join(home, '.gemini', 'settings.json'), JSON.stringify({ hooks: { Stop: stopHook } }));
+  const originalPath = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    const report = runAudit({ root, home });
+    assert.equal(report.harness.status, 'warn');
+    assert.match(report.summary.unexplainedGaps.join(','), /harness-command:/);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+}
+
 function main() {
   testParseArgs();
   testExtractHookCommandsHandlesNestedHooks();
   testAuditReportsClientSurface();
-  testAuditFlagsUnsupportedConfiguredEvents();
+  testAuditTreatsDeclaredUnsupportedEventsAsFallbacks();
   testReportsWriteJsonAndMarkdown();
   testMarkdownListsFallbackContracts();
+  testHarnessSurfaceRequiresWrappersAndStopHooks();
+  testHarnessSurfacePassesWithWrappersAndStopHooks();
+  testHarnessSurfaceWarnsWhenWrappersAreOffPath();
   process.stdout.write('agent-surface-audit tests: PASS\n');
 }
 
