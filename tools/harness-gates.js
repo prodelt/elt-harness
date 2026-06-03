@@ -30,6 +30,7 @@ const {
 } = require('./harness-runner');
 
 const { projectStatePath, readState } = require('./pipeline-state');
+const { readControlPlane, summarizeSupplyChainAudit } = require('./agent-skill-supply-chain-status');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,54 @@ function execCmd(cmd, root) {
     stdoutExcerpt: (result.stdout || '').slice(0, 500),
     stderrExcerpt: (result.stderr || '').slice(0, 500),
     durationMs:    Date.now() - start,
+  };
+}
+
+function buildSupplyChainAudit(root) {
+  const { buildAudit } = require('./agent-skill-supply-chain');
+  const home = os.homedir();
+  const repoRoot = path.resolve(__dirname, '..');
+  return buildAudit({
+    command:  'audit',
+    manifest: path.join(repoRoot, 'config', 'agent-skill-sources.json'),
+    registry: path.join(home, '.claude', 'projects-registry.json'),
+    home,
+    target:   'all',
+    apply:    false,
+    json:     true,
+    repoRoot,
+  });
+}
+
+function runSupplyChainPreflight({ root, audit, now = new Date() }) {
+  let auditResult = audit;
+  let loadError = null;
+  if (!auditResult) {
+    try {
+      auditResult = buildSupplyChainAudit(root);
+    } catch (err) {
+      loadError = err;
+    }
+  }
+
+  const summary = loadError
+    ? { ok: false, summary: `supply-chain audit unavailable: ${loadError.message}`, driftCount: 1, bypass: null }
+    : summarizeSupplyChainAudit(auditResult, { root, now });
+  const controlPlane = readControlPlane(root, now);
+  const passed = summary.ok || !!summary.bypass;
+  const findings = passed ? [] : [{ severity: 'high', message: summary.summary }];
+
+  return {
+    passed,
+    findings,
+    evidence: {
+      command:      'node tools/agent-skill-supply-chain.js audit --json',
+      status:       summary.validationOk && summary.driftCount === 0 ? 'pass' : summary.bypass ? 'bypassed' : 'fail',
+      issueCount:   summary.driftCount || 0,
+      issues:       summary.driftCounts || {},
+      bypass:       summary.bypass || { file: controlPlane.file, reason: 'no active supplyChainBypass in agent-control-plane.json' },
+      repairCommand: 'agent-skills.cmd install-skills --target all --apply',
+    },
   };
 }
 
@@ -173,23 +222,32 @@ function gateCodeReview({ root }) {
   };
 }
 
-function gateGitPush({ root }) {
+function gateGitPush({ root, supplyChainAudit, now }) {
+  const supplyChain = runSupplyChainPreflight({ root, audit: supplyChainAudit, now });
+  if (!supplyChain.passed) {
+    return {
+      passed: false,
+      evidence: { command: null, supplyChain: supplyChain.evidence },
+      findings: supplyChain.findings,
+    };
+  }
+
   try {
     const { checkArtifact } = require('./git-workflow-audit');
     const gitResult = checkArtifact(root);
     if (!gitResult.ok || gitResult.stale) {
-      return { passed: true, evidence: { command: null, skipped: 'git-workflow-audit artifact missing or stale' }, findings: [] };
+      return { passed: true, evidence: { command: null, skipped: 'git-workflow-audit artifact missing or stale', supplyChain: supplyChain.evidence }, findings: [] };
     }
     const audit  = gitResult.value;
     const status = (audit.summary && audit.summary.status) || 'unknown';
     const passed = ['pass', 'warn'].includes(status);
     return {
       passed,
-      evidence: { command: 'node tools/git-workflow-audit.js --root .', exitCode: passed ? 0 : 1, status },
+      evidence: { command: 'node tools/git-workflow-audit.js --root .', exitCode: passed ? 0 : 1, status, supplyChain: supplyChain.evidence },
       findings: [],
     };
   } catch {
-    return { passed: true, evidence: { command: null, skipped: 'git-workflow-audit not available' }, findings: [] };
+    return { passed: true, evidence: { command: null, skipped: 'git-workflow-audit not available', supplyChain: supplyChain.evidence }, findings: [] };
   }
 }
 
@@ -211,7 +269,7 @@ const GATES = {
  * @param {string} runId
  * @param {{ root?: string, dryRun?: boolean }} options
  */
-function runGate(runId, { root = process.cwd(), dryRun = false } = {}) {
+function runGate(runId, { root = process.cwd(), dryRun = false, supplyChainAudit, now } = {}) {
   const run = readRun(runId, root);
 
   if (TERMINAL_PHASES.has(run.phase)) {
@@ -221,7 +279,7 @@ function runGate(runId, { root = process.cwd(), dryRun = false } = {}) {
   const gateImpl = GATES[run.phase];
   if (!gateImpl) throw new Error(`No gate for phase: ${run.phase}`);
 
-  const gateResult = gateImpl({ runId, run, root, dryRun });
+  const gateResult = gateImpl({ runId, run, root, dryRun, supplyChainAudit, now });
 
   if (dryRun) {
     return { passed: gateResult.passed, evidence: gateResult.evidence, runId, phase: run.phase, status: run.status, dryRun: true };
@@ -250,7 +308,7 @@ function runGate(runId, { root = process.cwd(), dryRun = false } = {}) {
  * @param {string} runId
  * @param {{ root?: string }} options
  */
-function verifyCloseout(runId, { root = process.cwd() } = {}) {
+function verifyCloseout(runId, { root = process.cwd(), supplyChainAudit, now } = {}) {
   const run = readRun(runId, root);
 
   if (run.status !== 'complete') {
@@ -263,6 +321,16 @@ function verifyCloseout(runId, { root = process.cwd() } = {}) {
       ok:     false,
       runId,
       reason: `${missing.length} phase(s) missing gateEvidence: ${missing.map(p => p.phase).join(', ')}`,
+    };
+  }
+
+  const supplyChain = runSupplyChainPreflight({ root, audit: supplyChainAudit, now });
+  if (!supplyChain.passed) {
+    return {
+      ok:       false,
+      runId,
+      reason:   `supply-chain preflight failed: ${supplyChain.evidence.issueCount} issue(s); run agent-skills.cmd install-skills --target all --apply or document supplyChainBypass in .planning/agent-control-plane.json`,
+      evidence: supplyChain.evidence,
     };
   }
 
@@ -381,6 +449,8 @@ module.exports = {
   GATES,
   COMMAND_PHASES,
   resolveCommands,
+  summarizeSupplyChainAudit,
+  runSupplyChainPreflight,
   writeRunPointer,
   writeEvidence,
   runGate,

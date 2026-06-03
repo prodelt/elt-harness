@@ -39,10 +39,22 @@ const REQUIRED_PATTERNS = [
   },
   {
     label: "supply-chain explicit apply only",
-    pattern: /Run repair commands only\s+when explicitly applying a rollout/i,
+    pattern: /Run repair\s+commands only when explicitly applying a rollout/i,
   },
   { label: "supply-chain install repair", pattern: /agent-skills\.cmd install-skills --target all --apply/ },
   { label: "supply-chain rollout repair", pattern: /agent-skills\.cmd rollout-projects --apply/ },
+  {
+    label: "supply-chain state and ledger",
+    pattern: /Record the command and result in both active project state and the session\s+ledger/i,
+  },
+  {
+    label: "supply-chain drift closeout block",
+    pattern: /drift[\s\S]+blocks honest success closeout unless the drift is\s+repaired/i,
+  },
+  {
+    label: "supply-chain documented bypass",
+    pattern: /final closeout documents an explicit bypass reason/i,
+  },
   { label: "final closeout", pattern: /^## Final Closeout$/m },
   { label: "success proof rule", pattern: /cannot claim success without artifact and verification proof/i },
   { label: "minimal route", pattern: /minimal route/i },

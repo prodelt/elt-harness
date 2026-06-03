@@ -32,6 +32,8 @@ const {
   GATES,
   COMMAND_PHASES,
   resolveCommands,
+  summarizeSupplyChainAudit,
+  runSupplyChainPreflight,
   writeRunPointer,
   writeEvidence,
   runGate,
@@ -64,6 +66,47 @@ function makeTmpRoot() {
 /** Advance run through N passing transitions (bypassing gate — for manual tests). */
 function advanceN(runId, root, n) {
   for (let i = 0; i < n; i++) transition(runId, true, { root });
+}
+
+function supplyChainAudit(overrides = {}) {
+  const clientState = overrides.clientState || { installed: true, matchesSource: true };
+  return {
+    kind: 'agent-skill-supply-chain',
+    validation: { ok: true, errors: [] },
+    clients: {
+      claude: { exists: true },
+      codex: { exists: true },
+      gemini: { exists: true },
+    },
+    skills: [{
+      id: 'pipeline',
+      name: 'pipeline',
+      status: 'approved',
+      sourceExists: overrides.sourceExists !== false,
+      clients: {
+        claude: { ...clientState },
+        codex: { installed: true, matchesSource: true },
+        gemini: { installed: true, matchesSource: true },
+      },
+    }],
+  };
+}
+
+function writeSupplyChainBypass(root, expiresAt = '2026-06-04T00:00:00Z') {
+  const file = path.join(root, '.planning', 'agent-control-plane.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1,
+    managedBy: 'Pipeline Setupper',
+    manifestVersion: 1,
+    manifest: 'config/agent-skill-sources.json',
+    requiredClients: ['claude', 'codex', 'gemini'],
+    supplyChainBypass: {
+      reason: 'temporary accepted drift during controlled rollout',
+      approvedBy: 'agent-3',
+      expiresAt,
+    },
+  }, null, 2), 'utf8');
 }
 
 // ── COMMAND_PHASES ────────────────────────────────────────────────────────────
@@ -219,9 +262,45 @@ run('GATES.code_review: returns findings array', () => {
 
 run('GATES.git_push: skips when no artifact file', () => {
   const root   = makeTmpRoot();
-  const result = GATES.git_push({ root });
+  const result = GATES.git_push({ root, supplyChainAudit: supplyChainAudit() });
   assert.equal(result.passed, true);
   assert.ok(result.evidence.skipped);
+  assert.equal(result.evidence.supplyChain.status, 'pass');
+});
+
+run('supply-chain summary: detects approved client drift', () => {
+  const audit = supplyChainAudit({ clientState: { installed: true, matchesSource: false } });
+  const result = summarizeSupplyChainAudit(audit);
+  assert.equal(result.ok, false);
+  assert.equal(result.driftCounts.driftedInstalls, 1);
+});
+
+run('supply-chain preflight: drift fails without documented bypass', () => {
+  const root = makeTmpRoot();
+  const audit = supplyChainAudit({ clientState: { installed: true, matchesSource: false } });
+  const result = runSupplyChainPreflight({ root, audit, now: new Date('2026-06-03T00:00:00Z') });
+  assert.equal(result.passed, false);
+  assert.equal(result.findings[0].severity, 'high');
+  assert.equal(result.evidence.status, 'fail');
+});
+
+run('supply-chain preflight: documented bypass allows known drift', () => {
+  const root = makeTmpRoot();
+  const audit = supplyChainAudit({ clientState: { installed: true, matchesSource: false } });
+  writeSupplyChainBypass(root);
+  const result = runSupplyChainPreflight({ root, audit, now: new Date('2026-06-03T00:00:00Z') });
+  assert.equal(result.passed, true);
+  assert.equal(result.evidence.status, 'bypassed');
+  assert.equal(result.evidence.bypass.approvedBy, 'agent-3');
+});
+
+run('GATES.git_push: supply-chain drift blocks success before git audit', () => {
+  const root = makeTmpRoot();
+  const audit = supplyChainAudit({ clientState: { installed: true, matchesSource: false } });
+  const result = GATES.git_push({ root, supplyChainAudit: audit, now: new Date('2026-06-03T00:00:00Z') });
+  assert.equal(result.passed, false);
+  assert.equal(result.evidence.supplyChain.status, 'fail');
+  assert.equal(result.findings[0].severity, 'high');
 });
 
 // ── AC3: docs-delta COMPLEX without docs → high finding → block ───────────────
@@ -504,16 +583,60 @@ run('AC1: verifyCloseout with evidence from runGate → ok:true', () => {
     });
 
     // Run all gates via runGate (all 7 phases)
-    for (let i = 0; i < 7; i++) runGate(runId, { root });
+    for (let i = 0; i < 7; i++) runGate(runId, { root, supplyChainAudit: supplyChainAudit() });
 
     const runObj = readRun(runId, root);
     assert.equal(runObj.status, 'complete');
 
-    const result = verifyCloseout(runId, { root });
+    const result = verifyCloseout(runId, { root, supplyChainAudit: supplyChainAudit() });
     assert.equal(result.ok, true);
   } finally {
     process.env.USERPROFILE = orig;
   }
+});
+
+run('verifyCloseout: complete run with supply-chain drift в†’ ok:false', () => {
+  const root    = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  const planDir = path.join(root, '.planning');
+  fs.mkdirSync(planDir, { recursive: true });
+  fs.writeFileSync(path.join(planDir, 'ARCHITECTURE-test.md'), '# arch', 'utf8');
+  fs.writeFileSync(path.join(planDir, 'docs-gate-latest.json'), JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    complexity: 'COMPLEX',
+    docsChanged: ['AGENTS.md'],
+    codeChanged: ['tools/x.js'],
+    summary: { status: 'pass' },
+  }), 'utf8');
+
+  for (let i = 0; i < 7; i++) runGate(runId, { root, supplyChainAudit: supplyChainAudit() });
+
+  const drift = supplyChainAudit({ clientState: { installed: true, matchesSource: false } });
+  const result = verifyCloseout(runId, { root, supplyChainAudit: drift, now: new Date('2026-06-03T00:00:00Z') });
+  assert.equal(result.ok, false);
+  assert.ok(result.reason.includes('supply-chain preflight failed'));
+});
+
+run('verifyCloseout: complete run with documented supply-chain bypass в†’ ok:true', () => {
+  const root    = makeTmpRoot();
+  const { runId } = createRun('TASK-001', { root });
+  const planDir = path.join(root, '.planning');
+  fs.mkdirSync(planDir, { recursive: true });
+  fs.writeFileSync(path.join(planDir, 'ARCHITECTURE-test.md'), '# arch', 'utf8');
+  fs.writeFileSync(path.join(planDir, 'docs-gate-latest.json'), JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    complexity: 'COMPLEX',
+    docsChanged: ['AGENTS.md'],
+    codeChanged: ['tools/x.js'],
+    summary: { status: 'pass' },
+  }), 'utf8');
+
+  for (let i = 0; i < 7; i++) runGate(runId, { root, supplyChainAudit: supplyChainAudit() });
+  writeSupplyChainBypass(root);
+
+  const drift = supplyChainAudit({ clientState: { installed: true, matchesSource: false } });
+  const result = verifyCloseout(runId, { root, supplyChainAudit: drift, now: new Date('2026-06-03T00:00:00Z') });
+  assert.equal(result.ok, true);
 });
 
 run('verifyCloseout: run not complete → ok:false with reason', () => {
