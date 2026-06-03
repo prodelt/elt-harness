@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { runGitWorkflowAudit, checkArtifact, findProjectRoot, parseArgs, isDiskRoot, toMarkdown } = require('./git-workflow-audit');
 
 let passed = 0;
@@ -28,6 +29,14 @@ function tempDir(prefix) {
 function write(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content, 'utf8');
+}
+
+function runGit(root, args) {
+  const completed = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+  if (completed.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${completed.stderr || completed.error}`);
+  }
+  return (completed.stdout || '').trim();
 }
 
 // --- parseArgs ---
@@ -205,6 +214,26 @@ test('runGitWorkflowAudit: writes artifact when write=true', () => {
   assert.ok(fs.existsSync(mdPath), 'Markdown artifact written');
   const parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
   assert.equal(parsed.generatedAt, audit.generatedAt);
+});
+
+test('runGitWorkflowAudit: generated planning state does not dirty-block closeout', () => {
+  const root = tempDir('git-audit-generated');
+  write(path.join(root, 'AGENTS.md'), '# Test project\n## Overview\n## Stack\n## Commands\n## Architecture\n## Gotchas\n## Current State');
+  runGit(root, ['init']);
+  runGit(root, ['config', 'user.email', 'codex@example.test']);
+  runGit(root, ['config', 'user.name', 'Codex Test']);
+  runGit(root, ['add', 'AGENTS.md']);
+  runGit(root, ['commit', '-m', 'init']);
+
+  write(path.join(root, '.planning', 'harness-checklist-latest.json'), '{}\n');
+  write(path.join(root, '.planning', 'harness-checklist-latest.md'), '# Latest\n');
+  write(path.join(root, '.planning', 'CHECKPOINT-2026-05-30-p2.2.md'), '# Checkpoint\n');
+
+  const audit = runGitWorkflowAudit({ root, write: false });
+  const dirty = audit.checks.find((c) => c.id === 'git:dirty');
+  assert.equal(dirty.status, 'pass');
+  assert.match(dirty.detail, /Only generated planning artifacts modified \(3\)/);
+  assert.equal(audit.summary.status, 'pass');
 });
 
 // --- summary ---
