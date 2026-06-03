@@ -249,14 +249,20 @@ function auditMemory(home) {
 }
 
 function auditBrowser(home, root) {
-  const skillRoots = [path.join(home, '.claude', 'skills'), path.join(home, '.codex', 'skills')];
+  const skillRoots = [path.join(home, '.claude', 'skills'), path.join(home, '.codex', 'skills'), path.join(home, '.gemini', 'skills')];
   const browserSkills = skillRoots.flatMap((skillRoot) => walkSkillFiles(skillRoot))
-    .filter((file) => /browser|browse|gstack/i.test(file));
+    .map(parseSkill)
+    .filter((skill) => skill.name === 'agent-browser');
+  const agentBrowser = commandStatus('cmd.exe', ['/c', 'agent-browser', '--version'], root);
+  const skillCatalog = commandStatus('cmd.exe', ['/c', 'agent-browser', 'skills', 'list'], root);
+  const status = agentBrowser.status === 'available' && browserSkills.length > 0 ? 'pass' : 'warn';
   return {
-    bun: commandStatus('cmd.exe', ['/c', 'where', 'bun.exe'], root),
+    agentBrowser,
+    skillCatalog,
     browserSkillCount: browserSkills.length,
-    status: browserSkills.length > 0 ? 'available-as-skill' : 'not-found',
-    fallbackContract: 'Browser tooling is not part of global startup; use explicit browser/gstack skills when needed.',
+    browserSkills: browserSkills.map((skill) => skill.file),
+    status,
+    fallbackContract: 'Browser tooling default is agent-browser. Agents must use the agent-browser skill and cmd /c agent-browser for browser QA/testing unless the user explicitly requires another tool.',
   };
 }
 
@@ -297,10 +303,13 @@ function summarize(report) {
       ...report.harness.failedCommands.map((command) => `harness-command:${command}`),
     ]
     : [];
-  const status = unexplained.length || missingAuditInputs.length || harnessGaps.length ? 'warn' : 'pass';
+  const browserGaps = report.browser && report.browser.status !== 'pass'
+    ? ['browser:agent-browser']
+    : [];
+  const status = unexplained.length || missingAuditInputs.length || harnessGaps.length || browserGaps.length ? 'warn' : 'pass';
   return {
     status,
-    unexplainedGaps: [...unexplained, ...missingAuditInputs, ...harnessGaps],
+    unexplainedGaps: [...unexplained, ...missingAuditInputs, ...harnessGaps, ...browserGaps],
     generatedAt: report.generatedAt,
   };
 }

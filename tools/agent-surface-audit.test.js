@@ -24,6 +24,9 @@ function tempRoot(name) {
 
 function createHome() {
   const home = tempRoot('agent-surface-home');
+  const bin = path.join(home, '.claude', 'bin');
+  write(path.join(bin, 'agent-browser.cmd'), '@echo agent-browser 0.0.0-test\n');
+  process.env.PATH = `${bin}${path.delimiter}${process.env.PATH || ''}`;
   write(path.join(home, '.claude', 'settings.json'), JSON.stringify({
     hooks: {
       SessionStart: [{ hooks: [{ command: 'node session-start.js' }] }],
@@ -42,6 +45,9 @@ function createHome() {
   write(path.join(home, '.claude', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\naliases: [pipe]\n---\n');
   write(path.join(home, '.codex', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\n---\n');
   write(path.join(home, '.gemini', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\n---\n');
+  write(path.join(home, '.claude', 'skills', 'agent-browser', 'SKILL.md'), '---\nname: agent-browser\ndescription: Browser automation\n---\n');
+  write(path.join(home, '.codex', 'skills', 'agent-browser', 'SKILL.md'), '---\nname: agent-browser\ndescription: Browser automation\n---\n');
+  write(path.join(home, '.gemini', 'skills', 'agent-browser', 'SKILL.md'), '---\nname: agent-browser\ndescription: Browser automation\n---\n');
   return home;
 }
 
@@ -81,7 +87,9 @@ function testAuditReportsClientSurface() {
   write(path.join(root, '.graphifyignore'), '.planning\n.rag\n.tmp\ngraphify-out\ntools/__pycache__\ntools/red-team\naudit/1c-dev-pilot\n');
   const report = runAudit({ root, home });
   assert.equal(report.clients.length, 3);
-  assert.equal(report.clients.find((client) => client.client === 'claude').skillCount, 1);
+  assert.equal(report.clients.find((client) => client.client === 'claude').skillCount, 2);
+  assert.equal(report.browser.status, 'pass');
+  assert.equal(report.browser.browserSkillCount, 3);
   assert.equal(report.parity.find((client) => client.client === 'codex').unsupportedConfiguredEvents.length, 0);
   assert.equal(report.summary.unexplainedGaps.length, 0);
 }
@@ -114,6 +122,7 @@ function testMarkdownListsFallbackContracts() {
   const markdown = formatMarkdown(report);
   assert.match(markdown, /Fallback Contracts/);
   assert.match(markdown, /Codex\/Gemini unsupported Notification\/FileChanged/);
+  assert.match(markdown, /agent-browser/);
 }
 
 function testHarnessSurfaceRequiresWrappersAndStopHooks() {
