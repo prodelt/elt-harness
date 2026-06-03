@@ -15,6 +15,8 @@ const {
   checkGitHubCli,
   checkPipelineState,
   checkAgentSurfaceAudit,
+  checkAgentSkillSupplyChain,
+  checkAgentSkillsWrapper,
   checkHarnessChecklist,
   checkHarnessRun,
   checkHarnessGlobal,
@@ -204,6 +206,115 @@ function testAgentSurfaceAuditCheck() {
   assert.match(warned[0].detail, /codex:Notification/);
 }
 
+function writeSupplyChainFixture(root) {
+  write(path.join(root, 'tools', 'agent-skill-supply-chain.js'), '#!/usr/bin/env node\n');
+  write(path.join(root, 'config', 'agent-skill-sources.json'), JSON.stringify({
+    version: 1,
+    policy: { targetClients: ['claude', 'codex', 'gemini'] },
+    skills: [
+      {
+        id: 'pipeline',
+        name: 'pipeline',
+        tier: 'core',
+        status: 'approved',
+        source: { type: 'local-client', client: 'claude', path: 'pipeline' },
+      },
+    ],
+    externalCandidates: [],
+  }));
+}
+
+function supplyChainAudit(overrides = {}) {
+  const clients = {
+    claude: { root: 'home/.claude/skills', exists: true },
+    codex: { root: 'home/.codex/skills', exists: true },
+    gemini: { root: 'home/.gemini/skills', exists: true },
+  };
+  const skillClients = {
+    claude: { installed: true, matchesSource: true },
+    codex: { installed: true, matchesSource: true },
+    gemini: { installed: true, matchesSource: true },
+  };
+  return {
+    kind: 'agent-skill-supply-chain',
+    validation: { ok: true, errors: [] },
+    clients,
+    skills: [{ id: 'pipeline', name: 'pipeline', status: 'approved', sourceExists: true, clients: skillClients }],
+    projects: [{ key: 'demo', exists: true, controlPlane: true }],
+    ...overrides,
+  };
+}
+
+function testAgentSkillSupplyChainCheck() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-skills-'));
+  const home = path.join(root, 'home');
+  writeSupplyChainFixture(root);
+
+  const passed = checkAgentSkillSupplyChain(root, home, () => supplyChainAudit());
+  assert.equal(passed[0].status, 'pass');
+  assert.equal(passed[0].id, 'agent-skills:supply-chain');
+
+  const warned = checkAgentSkillSupplyChain(root, home, () => supplyChainAudit({
+    skills: [{
+      id: 'pipeline',
+      name: 'pipeline',
+      status: 'approved',
+      sourceExists: true,
+      clients: {
+        claude: { installed: true, matchesSource: true },
+        codex: { installed: false, matchesSource: false },
+        gemini: { installed: true, matchesSource: false },
+      },
+    }],
+    projects: [{ key: 'missing', exists: false, controlPlane: false }],
+  }));
+  assert.equal(warned[0].status, 'warn');
+  assert.match(warned[0].detail, /missingInstalls=1/);
+  assert.match(warned[0].detail, /driftedInstalls=1/);
+  assert.match(warned[0].detail, /missingProjects=1/);
+
+  const failed = checkAgentSkillSupplyChain(root, home, () => ({
+    kind: 'agent-skill-supply-chain-error',
+    validation: { ok: false, errors: ['skills must be an array'] },
+  }));
+  assert.equal(failed[0].status, 'fail');
+  assert.match(failed[0].title, /manifest invalid/);
+}
+
+function testAgentSkillsWrapperCheck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-skills-wrapper-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  fs.mkdirSync(root, { recursive: true });
+  write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({ pipelineDir: root }));
+
+  const missing = checkAgentSkillsWrapper(root, home, () => ({ status: 0, output: '' }));
+  assert.equal(missing[0].status, 'warn');
+  assert.equal(missing[0].id, 'agent-skills:wrapper');
+
+  write(path.join(root, 'tools', 'agent-skill-supply-chain.js'), '#!/usr/bin/env node\n');
+  write(path.join(root, 'tools', 'install-agent-skills-wrapper.js'), '#!/usr/bin/env node\n');
+  const wrapper = path.join(home, '.claude', 'bin', 'agent-skills.cmd');
+  const script = path.join(root, 'tools', 'agent-skill-supply-chain.js');
+  write(wrapper, '@echo off\nset "SCRIPT=C:\\old\\agent-skill-supply-chain.js"\nnode "%SCRIPT%" %*\n');
+
+  const targetWarn = checkAgentSkillsWrapper(root, home, () => ({ status: 0, output: wrapper }));
+  assert.equal(targetWarn[0].status, 'warn');
+  assert.match(targetWarn[0].title, /target mismatch/);
+
+  write(wrapper, `@echo off\nset "SCRIPT=${script}"\nnode "%SCRIPT%" %*\n`);
+  const passed = checkAgentSkillsWrapper(root, home, () => ({ status: 0, output: wrapper }));
+  assert.equal(passed[0].status, 'pass');
+
+  const pathWarn = checkAgentSkillsWrapper(root, home, () => ({ status: 1, output: 'not found' }));
+  assert.equal(pathWarn[0].status, 'warn');
+  assert.match(pathWarn[0].title, /PATH/);
+
+  const wrongPath = checkAgentSkillsWrapper(root, home, () => ({ status: 0, output: path.join(dir, 'other', 'agent-skills.cmd') }));
+  assert.equal(wrongPath[0].status, 'warn');
+  assert.match(wrongPath[0].title, /PATH mismatch/);
+}
+
 function coreDoc() {
   return [
     '# Test',
@@ -343,6 +454,8 @@ function main() {
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
   testAgentSurfaceAuditCheck();
+  testAgentSkillSupplyChainCheck();
+  testAgentSkillsWrapperCheck();
   testHarnessChecklistCheck();
   testHarnessRunCheck();
   testHarnessGlobalCheck();

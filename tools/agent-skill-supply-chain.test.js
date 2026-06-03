@@ -7,8 +7,10 @@ const path = require('node:path');
 const assert = require('node:assert');
 
 const {
+  archiveMissingProjects,
   installApprovedSkills,
   rolloutProjects,
+  skillSourcePath,
   validateManifest,
 } = require('./agent-skill-supply-chain');
 
@@ -57,6 +59,12 @@ test('validateManifest accepts safe local-client source and external candidate',
   assert.deepStrictEqual(validateManifest(manifest()), { ok: true, errors: [] });
 });
 
+test('validateManifest accepts safe local-repo source', () => {
+  const repoManifest = manifest();
+  repoManifest.skills[0].source = { type: 'local-repo', path: 'audit/S11_pipeline_top1/skills/pipeline' };
+  assert.deepStrictEqual(validateManifest(repoManifest), { ok: true, errors: [] });
+});
+
 test('validateManifest rejects path traversal', () => {
   const bad = manifest();
   bad.skills[0].source.path = '../pipeline';
@@ -82,6 +90,23 @@ test('installApprovedSkills apply copies approved skill to target client', () =>
   assert.strictEqual(fs.existsSync(path.join(home, '.codex', 'skills', 'pipeline', 'SKILL.md')), true);
 });
 
+test('installApprovedSkills applies local-repo source to target client', () => {
+  const home = makeTemp();
+  const repoRoot = makeTemp();
+  const repoSkill = path.join(repoRoot, 'audit', 'S11_pipeline_top1', 'skills', 'pipeline');
+  fs.mkdirSync(repoSkill, { recursive: true });
+  fs.writeFileSync(path.join(repoSkill, 'SKILL.md'), '---\nname: pipeline\ndescription: Repo skill\n---\n\n# Pipeline\n', 'utf8');
+  const repoManifest = manifest();
+  repoManifest.skills[0].source = { type: 'local-repo', path: 'audit/S11_pipeline_top1/skills/pipeline' };
+
+  const resolved = skillSourcePath(repoManifest.skills[0], {}, repoRoot);
+  const result = installApprovedSkills(repoManifest, { home, repoRoot, target: 'codex', apply: true });
+
+  assert.strictEqual(resolved, repoSkill);
+  assert.deepStrictEqual(result.errors, []);
+  assert.strictEqual(fs.existsSync(path.join(home, '.codex', 'skills', 'pipeline', 'SKILL.md')), true);
+});
+
 test('rolloutProjects dry-run reports would-write pointer', () => {
   const root = makeTemp();
   const registry = { projects: { demo: { key: 'demo', name: 'Demo', path: root } } };
@@ -99,5 +124,29 @@ test('rolloutProjects apply writes control-plane pointer', () => {
   assert.strictEqual(fs.existsSync(path.join(root, '.planning', 'agent-control-plane.json')), true);
 });
 
+test('archiveMissingProjects marks absent projects without deleting registry entries', () => {
+  const existing = makeTemp();
+  const missing = path.join(makeTemp(), 'missing-project');
+  const registryFile = path.join(makeTemp(), 'projects-registry.json');
+  const registry = {
+    version: 1,
+    projects: {
+      active: { key: 'active', name: 'Active', path: existing },
+      gone: { key: 'gone', name: 'Gone', path: missing },
+    },
+  };
+
+  const dryRun = archiveMissingProjects(registry, { apply: false, registry: registryFile });
+  assert.deepStrictEqual(dryRun.actions.map((action) => action.action), ['would-archive']);
+  assert.strictEqual(fs.existsSync(registryFile), false);
+
+  const applied = archiveMissingProjects(registry, { apply: true, registry: registryFile });
+  const next = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+  assert.deepStrictEqual(applied.actions.map((action) => action.action), ['archived']);
+  assert.strictEqual(next.projects.active.archived, undefined);
+  assert.strictEqual(next.projects.gone.archived, true);
+  assert.strictEqual(next.projects.gone.status, 'archived');
+});
+
 if (process.exitCode) process.exit(process.exitCode);
-console.log('agent-skill-supply-chain tests: 6 passed');
+console.log('agent-skill-supply-chain tests: 9 passed');

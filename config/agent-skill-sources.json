@@ -21,7 +21,7 @@
       "name": "pipeline",
       "tier": "core",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "pipeline" },
+      "source": { "type": "local-repo", "path": "audit/S11_pipeline_top1/skills/pipeline" },
       "purpose": "Unified task entrypoint, complexity classification, state, ledger, closeout proof."
     },
     {

@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 
 const DEFAULT_MANIFEST = path.resolve(__dirname, '..', 'config', 'agent-skill-sources.json');
 const DEFAULT_REGISTRY = path.join(os.homedir(), '.claude', 'projects-registry.json');
+const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..');
 
 const CLIENT_ROOTS = {
   claude: (home) => path.join(home, '.claude', 'skills'),
@@ -16,7 +17,7 @@ const CLIENT_ROOTS = {
 };
 
 const VALID_STATUS = new Set(['approved', 'review-required', 'pattern-only', 'blocked']);
-const VALID_SOURCE_TYPES = new Set(['local-client', 'github']);
+const VALID_SOURCE_TYPES = new Set(['local-client', 'local-repo', 'github']);
 const VALID_CLIENTS = new Set(Object.keys(CLIENT_ROOTS));
 
 function readJson(file) {
@@ -79,6 +80,9 @@ function validateManifest(manifest) {
       if (!VALID_CLIENTS.has(skill.source.client)) errors.push(`${prefix}.source.client is invalid`);
       if (!isSafeRelative(skill.source.path)) errors.push(`${prefix}.source.path must be safe relative path`);
     }
+    if (skill.source && skill.source.type === 'local-repo' && !isSafeRelative(skill.source.path)) {
+      errors.push(`${prefix}.source.path must be safe relative path`);
+    }
   }
 
   for (const [index, candidate] of (manifest.externalCandidates || []).entries()) {
@@ -136,14 +140,16 @@ function targetClients(target) {
   return [target];
 }
 
-function skillSourcePath(skill, roots) {
-  if (!skill.source || skill.source.type !== 'local-client') return null;
-  return path.join(roots[skill.source.client], skill.source.path);
+function skillSourcePath(skill, roots, repoRoot = DEFAULT_REPO_ROOT) {
+  if (!skill.source) return null;
+  if (skill.source.type === 'local-client') return path.join(roots[skill.source.client], skill.source.path);
+  if (skill.source.type === 'local-repo') return path.join(repoRoot, skill.source.path);
+  return null;
 }
 
-function auditSkills(manifest, roots) {
+function auditSkills(manifest, roots, repoRoot = DEFAULT_REPO_ROOT) {
   return manifest.skills.map((skill) => {
-    const sourcePath = skillSourcePath(skill, roots);
+    const sourcePath = skillSourcePath(skill, roots, repoRoot);
     const sourceExists = sourcePath ? fs.existsSync(sourcePath) : false;
     const sourceHash = sourceExists ? hashDir(sourcePath) : null;
     const clients = Object.fromEntries(Object.entries(roots).map(([client, root]) => {
@@ -168,10 +174,12 @@ function auditProjects(registry) {
   return Object.values(registry.projects || {}).map((project) => {
     const root = project.path || '';
     const planning = path.join(root, '.planning');
+    const archived = project.archived === true || project.status === 'archived';
     return {
       key: project.key,
       name: project.name,
       path: root,
+      archived,
       exists: root ? fs.existsSync(root) : false,
       docs: {
         agents: fs.existsSync(path.join(root, 'AGENTS.md')),
@@ -186,12 +194,13 @@ function auditProjects(registry) {
 
 function installApprovedSkills(manifest, options) {
   const roots = clientRoots(options.home);
+  const repoRoot = path.resolve(options.repoRoot || DEFAULT_REPO_ROOT);
   const targets = targetClients(options.target);
   const actions = [];
   const errors = [];
 
   for (const skill of manifest.skills.filter((item) => item.status === 'approved')) {
-    const src = skillSourcePath(skill, roots);
+    const src = skillSourcePath(skill, roots, repoRoot);
     if (!src || !fs.existsSync(src)) {
       errors.push({ skill: skill.name, error: 'approved source missing' });
       continue;
@@ -219,6 +228,10 @@ function rolloutProjects(manifest, registry, options) {
   const actions = [];
   const errors = [];
   for (const project of projects) {
+    if (project.archived) {
+      actions.push({ key: project.key, path: project.path, action: 'archived' });
+      continue;
+    }
     if (!project.exists) {
       actions.push({ key: project.key, path: project.path, action: 'missing-project' });
       continue;
@@ -243,11 +256,30 @@ function rolloutProjects(manifest, registry, options) {
   return { applied: options.apply, actions, errors };
 }
 
+function archiveMissingProjects(registry, options) {
+  const projects = auditProjects(registry).filter((project) => !project.archived && !project.exists);
+  const actions = projects.map((project) => ({
+    key: project.key,
+    path: project.path,
+    action: options.apply ? 'archived' : 'would-archive',
+  }));
+  if (options.apply && actions.length > 0) {
+    const archivedAt = new Date().toISOString();
+    const nextProjects = Object.fromEntries(Object.entries(registry.projects || {}).map(([key, project]) => {
+      const missing = actions.some((action) => action.key === key);
+      return [key, missing ? { ...project, archived: true, status: 'archived', archivedAt } : project];
+    }));
+    writeJson(options.registry, { ...registry, projects: nextProjects, updatedAt: archivedAt });
+  }
+  return { applied: options.apply, actions, errors: [] };
+}
+
 function buildAudit(options) {
   const manifest = readJson(options.manifest);
   const validation = validateManifest(manifest);
   const registry = readRegistry(options.registry);
   const roots = clientRoots(options.home);
+  const repoRoot = path.resolve(options.repoRoot || DEFAULT_REPO_ROOT);
   return {
     kind: 'agent-skill-supply-chain',
     generatedAt: new Date().toISOString(),
@@ -255,7 +287,7 @@ function buildAudit(options) {
     registry: options.registry,
     validation,
     clients: Object.fromEntries(Object.entries(roots).map(([client, root]) => [client, { root, exists: fs.existsSync(root) }])),
-    skills: validation.ok ? auditSkills(manifest, roots) : [],
+    skills: validation.ok ? auditSkills(manifest, roots, repoRoot) : [],
     externalCandidates: manifest.externalCandidates || [],
     projects: auditProjects(registry),
   };
@@ -266,14 +298,14 @@ function printHuman(result) {
     const missing = result.skills.flatMap((skill) => Object.entries(skill.clients)
       .filter(([, state]) => !state.installed)
       .map(([client]) => `${client}/${skill.name}`));
-    console.log('Agent Skill Supply Chain Audit');
-    console.log(`validation: ${result.validation.ok ? 'PASS' : 'FAIL'}`);
-    console.log(`skills: ${result.skills.length}`);
-    console.log(`missing installs: ${missing.length ? missing.join(', ') : 'none'}`);
-    console.log(`projects: ${result.projects.length}`);
+    process.stdout.write('Agent Skill Supply Chain Audit\n');
+    process.stdout.write(`validation: ${result.validation.ok ? 'PASS' : 'FAIL'}\n`);
+    process.stdout.write(`skills: ${result.skills.length}\n`);
+    process.stdout.write(`missing installs: ${missing.length ? missing.join(', ') : 'none'}\n`);
+    process.stdout.write(`projects: ${result.projects.length}\n`);
     return;
   }
-  console.log(JSON.stringify(result, null, 2));
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
 function run(options) {
@@ -283,6 +315,7 @@ function run(options) {
 
   if (options.command === 'install-skills') return installApprovedSkills(manifest, options);
   if (options.command === 'rollout-projects') return rolloutProjects(manifest, readRegistry(options.registry), options);
+  if (options.command === 'archive-missing-projects') return archiveMissingProjects(readRegistry(options.registry), options);
   return buildAudit(options);
 }
 
@@ -305,10 +338,12 @@ if (require.main === module) main();
 module.exports = {
   auditProjects,
   auditSkills,
+  archiveMissingProjects,
   buildAudit,
   installApprovedSkills,
   parseArgs,
   rolloutProjects,
   run,
+  skillSourcePath,
   validateManifest,
 };
