@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "updatedAt": "2026-06-03",
+  "policy": {
+    "defaultExternalStatus": "review-required",
+    "approvedSourceClients": ["claude"],
+    "targetClients": ["claude", "codex", "gemini"],
+    "requiredReview": [
+      "license",
+      "publisher",
+      "skill-md-full-read",
+      "unicode-control-scan",
+      "shell-command-scope",
+      "network-scope",
+      "sha256"
+    ]
+  },
+  "skills": [
+    {
+      "id": "pipeline",
+      "name": "pipeline",
+      "tier": "core",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "pipeline" },
+      "purpose": "Unified task entrypoint, complexity classification, state, ledger, closeout proof."
+    },
+    {
+      "id": "architect-first",
+      "name": "architect-first",
+      "tier": "core",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "architect-first" },
+      "purpose": "Architecture contract before complex implementation."
+    },
+    {
+      "id": "sprint",
+      "name": "sprint",
+      "tier": "core",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "sprint" },
+      "purpose": "Small ordered implementation slices with verification between slices."
+    },
+    {
+      "id": "tdd",
+      "name": "tdd",
+      "tier": "core",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "tdd" },
+      "purpose": "Red-green-refactor loop for behavior changes."
+    },
+    {
+      "id": "diagnose",
+      "name": "diagnose",
+      "tier": "core",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "diagnose" },
+      "purpose": "Root-cause investigation for regressions and hard bugs."
+    },
+    {
+      "id": "inline-review",
+      "name": "inline-review",
+      "tier": "verifier",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "inline-review" },
+      "purpose": "Post-edit code review gate."
+    },
+    {
+      "id": "security-best-practices",
+      "name": "security-best-practices",
+      "tier": "verifier",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "security-best-practices" },
+      "purpose": "Security review for auth, API, input, secrets, and dependency-sensitive changes."
+    },
+    {
+      "id": "qa",
+      "name": "qa",
+      "tier": "verifier",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "qa" },
+      "purpose": "QA workflows for user-visible behavior."
+    },
+    {
+      "id": "git-flow",
+      "name": "git-flow",
+      "tier": "delivery",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "git-flow" },
+      "purpose": "Branch, commit, push, and PR workflow discipline."
+    },
+    {
+      "id": "ship",
+      "name": "ship",
+      "tier": "delivery",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "ship" },
+      "purpose": "Ship gate and release closeout."
+    },
+    {
+      "id": "init-project",
+      "name": "init-project",
+      "tier": "bootstrap",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "init-project" },
+      "purpose": "Create or upgrade project AI docs and registry metadata."
+    },
+    {
+      "id": "sync-docs",
+      "name": "sync-docs",
+      "tier": "bootstrap",
+      "status": "approved",
+      "source": { "type": "local-client", "client": "claude", "path": "sync-docs" },
+      "purpose": "Synchronize AGENTS, CLAUDE, and Gemini docs."
+    }
+  ],
+  "externalCandidates": [
+    {
+      "id": "anthropic-agent-skills",
+      "repo": "anthropics/skills",
+      "status": "review-required",
+      "reason": "Official public Agent Skills repository and Claude Code plugin marketplace source."
+    },
+    {
+      "id": "superpowers",
+      "repo": "obra/superpowers",
+      "status": "review-required",
+      "reason": "Mandatory workflow-skills pattern; relevant for replacing advisory skills with required workflows."
+    },
+    {
+      "id": "trailofbits-security-skills",
+      "repo": "trailofbits/skills",
+      "status": "review-required",
+      "reason": "Security-focused review, insecure defaults, false-positive verification, and differential review skills."
+    },
+    {
+      "id": "playwright-skill",
+      "repo": "lackeyjb/playwright-skill",
+      "status": "review-required",
+      "reason": "Model-invoked browser automation skill with standalone and plugin installation paths."
+    },
+    {
+      "id": "governed-agent-skills-kit",
+      "repo": "jscraik/Agent-Skills",
+      "status": "pattern-only",
+      "reason": "Governed skill control plane ideas: source ownership, runtime reachability, audit state, proof evidence."
+    },
+    {
+      "id": "agent-eval-harness",
+      "repo": "plaited/agent-eval-harness",
+      "status": "pattern-only",
+      "reason": "Schema-driven JSONL agent eval pipeline with run, grade, compare, and calibration modes."
+    }
+  ]
+}
