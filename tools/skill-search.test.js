@@ -140,7 +140,7 @@ function testBenchmarkEvaluatorCatchesWrongSelections() {
     'design react component ui layout': { selected: 'no skill' },
     'research competitor market analysis': { selected: 'research-autopilot' },
     'contract review procurement ukraine law': { selected: 'contract-review' },
-    'qa test web interface bugs': { selected: 'qa' },
+    'qa test web interface bugs': { selected: 'agent-browser' },
     'zzzzzz low confidence nonsense': { selected: 'no skill' },
   });
   assert.equal(failReport.status, 'fail');
@@ -150,7 +150,7 @@ function testBenchmarkEvaluatorCatchesWrongSelections() {
 
   // Passing case: all domains route correctly
   const passed = evaluateBenchmarkRecords({
-    'browser automation ai agent': { selected: 'gstack/open-gstack-browser' },
+    'browser automation ai agent': { selected: 'agent-browser' },
     'security api input validation': { selected: 'security-best-practices' },
     'create feature branch commit push pr': { selected: 'git-flow' },
     'update project readme documentation': { selected: 'edit-article' },
@@ -158,7 +158,7 @@ function testBenchmarkEvaluatorCatchesWrongSelections() {
     'design react component ui layout': { selected: 'no skill' },
     'research competitor market analysis': { selected: 'research-autopilot' },
     'contract review procurement ukraine law': { selected: 'contract-review' },
-    'qa test web interface bugs': { selected: 'qa' },
+    'qa test web interface bugs': { selected: 'agent-browser' },
     'zzzzzz low confidence nonsense': { selected: 'no skill' },
   });
   assert.equal(passed.status, 'pass');
@@ -229,6 +229,15 @@ function testDomainHintBoostsContractReview() {
   assert.ok(reranked[0].breakdown.relevance >= 0.85, 'contract-review must get ≥0.85 from domain hint');
 }
 
+function testDomainHintBoostsAgentBrowser() {
+  const reranked = withRouterRelevance('browser automation ai agent', [
+    rankedSkill('gstack/open-gstack-browser', 0.2, 0.5),
+    rankedSkill('agent-browser', 0.1, 0.4),
+  ]);
+  assert.equal(reranked[0].name, 'agent-browser');
+  assert.ok(reranked[0].breakdown.relevance >= 0.95, 'agent-browser must get high relevance from browser hint');
+}
+
 function main() {
   testMarketplaceUsesRelevance();
   testMarketplaceErrorsAreVisibleAndCached();
@@ -243,6 +252,7 @@ function main() {
   testDomainHintBoostsGitFlow();
   testDomainHintBoostsResearchAutopilot();
   testDomainHintBoostsContractReview();
+  testDomainHintBoostsAgentBrowser();
   process.stdout.write('skill-search tests: PASS\n');
 }
 

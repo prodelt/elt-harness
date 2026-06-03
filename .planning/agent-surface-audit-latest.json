@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-31T17:45:09.508Z",
+  "generatedAt": "2026-06-03T21:07:35.308Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\espad",
   "clients": [
@@ -199,12 +199,17 @@
       ],
       "hookCommandCount": 137,
       "skillRoot": "C:\\Users\\espad\\.claude\\skills",
-      "skillCount": 98,
+      "skillCount": 99,
       "skills": [
         {
           "name": "\"security-best-practices\"",
           "aliases": [],
           "file": "C:\\Users\\espad\\.claude\\skills\\security-best-practices\\SKILL.md"
+        },
+        {
+          "name": "agent-browser",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.claude\\skills\\agent-browser\\SKILL.md"
         },
         {
           "name": "architect-first",
@@ -857,7 +862,7 @@
       ],
       "hookCommandCount": 108,
       "skillRoot": "C:\\Users\\espad\\.codex\\skills",
-      "skillCount": 105,
+      "skillCount": 106,
       "skills": [
         {
           "name": "\"imagegen\"",
@@ -878,6 +883,11 @@
           "name": "academic-research-suite",
           "aliases": [],
           "file": "C:\\Users\\espad\\.codex\\skills\\academic-research-suite\\SKILL.md"
+        },
+        {
+          "name": "agent-browser",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.codex\\skills\\agent-browser\\SKILL.md"
         },
         {
           "name": "architect-first",
@@ -1581,12 +1591,17 @@
       ],
       "hookCommandCount": 137,
       "skillRoot": "C:\\Users\\espad\\.gemini\\skills",
-      "skillCount": 108,
+      "skillCount": 109,
       "skills": [
         {
           "name": "\"security-best-practices\"",
           "aliases": [],
           "file": "C:\\Users\\espad\\.gemini\\skills\\security-best-practices\\SKILL.md"
+        },
+        {
+          "name": "agent-browser",
+          "aliases": [],
+          "file": "C:\\Users\\espad\\.gemini\\skills\\agent-browser\\SKILL.md"
         },
         {
           "name": "architect",
@@ -2129,21 +2144,21 @@
   "parity": [
     {
       "client": "claude",
-      "skillCount": 98,
+      "skillCount": 99,
       "hookCommandCount": 137,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "codex",
-      "skillCount": 105,
+      "skillCount": 106,
       "hookCommandCount": 108,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "gemini",
-      "skillCount": 108,
+      "skillCount": 109,
       "hookCommandCount": 137,
       "missingSkillsComparedToClaude": [
         "red-team"
@@ -2255,24 +2270,24 @@
           "status": "pass",
           "id": "codemap:scope",
           "title": "Codemap graph scope OK",
-          "detail": "1252 nodes, 164 source files.",
+          "detail": "1350 nodes, 169 source files.",
           "repair": "",
           "data": {
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
-            "nodes": 1252,
-            "links": 2145,
-            "uniqueSources": 164,
+            "nodes": 1350,
+            "links": 2356,
+            "uniqueSources": 169,
             "noisyNodes": 0,
             "noisyRatio": 0,
             "outOfScope": [],
             "topSources": [
               {
-                "source": "tools/codemap-core.js",
-                "count": 42
+                "source": "tools/doctor-core.js",
+                "count": 48
               },
               {
-                "source": "tools/doctor-core.js",
+                "source": "tools/codemap-core.js",
                 "count": 42
               },
               {
@@ -2294,7 +2309,7 @@
           "status": "pass",
           "id": "codemap:stale",
           "title": "Codemap graph has no stale semantic/rationale nodes",
-          "detail": "1252 nodes checked.",
+          "detail": "1350 nodes checked.",
           "repair": "",
           "data": {
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
@@ -2367,15 +2382,26 @@
     }
   ],
   "browser": {
-    "bun": {
-      "command": "cmd.exe /c where bun.exe",
-      "status": "missing-or-failed",
-      "exitCode": 1,
-      "detail": "����������: �� 㤠���� ���� 䠩�� �� ������� 蠡�����."
+    "agentBrowser": {
+      "command": "cmd.exe /c agent-browser --version",
+      "status": "available",
+      "exitCode": 0,
+      "detail": "agent-browser 0.27.1"
     },
-    "browserSkillCount": 95,
-    "status": "available-as-skill",
-    "fallbackContract": "Browser tooling is not part of global startup; use explicit browser/gstack skills when needed."
+    "skillCatalog": {
+      "command": "cmd.exe /c agent-browser skills list",
+      "status": "available",
+      "exitCode": 0,
+      "detail": "  agentcore       Run agent-browser on AWS Bedrock AgentCore cloud browsers. Use when..."
+    },
+    "browserSkillCount": 3,
+    "browserSkills": [
+      "C:\\Users\\espad\\.claude\\skills\\agent-browser\\SKILL.md",
+      "C:\\Users\\espad\\.codex\\skills\\agent-browser\\SKILL.md",
+      "C:\\Users\\espad\\.gemini\\skills\\agent-browser\\SKILL.md"
+    ],
+    "status": "pass",
+    "fallbackContract": "Browser tooling default is agent-browser. Agents must use the agent-browser skill and cmd /c agent-browser for browser QA/testing unless the user explicitly requires another tool."
   },
   "harness": {
     "status": "pass",
@@ -2450,6 +2476,6 @@
   "summary": {
     "status": "pass",
     "unexplainedGaps": [],
-    "generatedAt": "2026-05-31T17:45:09.508Z"
+    "generatedAt": "2026-06-03T21:07:35.308Z"
   }
 }

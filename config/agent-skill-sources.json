@@ -81,6 +81,14 @@
       "purpose": "QA workflows for user-visible behavior."
     },
     {
+      "id": "agent-browser",
+      "name": "agent-browser",
+      "tier": "verifier",
+      "status": "approved",
+      "source": { "type": "local-repo", "path": "audit/S11_pipeline_top1/skills/agent-browser" },
+      "purpose": "Strict default browser automation skill for agent-driven web testing, screenshots, snapshots, and UI QA."
+    },
+    {
       "id": "git-flow",
       "name": "git-flow",
       "tier": "delivery",

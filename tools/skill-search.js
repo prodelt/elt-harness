@@ -24,15 +24,15 @@ const DOMAIN_HINTS = [
   },
   {
     terms: ['browser', 'automation'],
-    skills: ['gstack/browse', 'gstack/open-gstack-browser', 'gstack/qa-only'],
-    relevance: 0.85,
-    reason: 'browser automation domain hint',
+    skills: ['agent-browser'],
+    relevance: 0.95,
+    reason: 'agent-browser automation domain hint',
   },
   {
     terms: ['qa', 'test', 'web'],
-    skills: ['gstack/qa', 'gstack/qa-only', 'qa'],
-    relevance: 0.8,
-    reason: 'web QA domain hint',
+    skills: ['agent-browser'],
+    relevance: 0.9,
+    reason: 'agent-browser web QA domain hint',
   },
   {
     terms: ['branch', 'commit'],
@@ -56,7 +56,7 @@ const DOMAIN_HINTS = [
 
 const SKILL_ROUTER_BENCHMARKS = [
   // browser — must avoid project-setup skills
-  { query: 'browser automation ai agent', avoid: ['init-project', 'sync-docs', 'clone-research'] },
+  { query: 'browser automation ai agent', allow: ['agent-browser'], avoid: ['init-project', 'sync-docs', 'clone-research'] },
   // security — must route to security-best-practices
   { query: 'security api input validation', allow: ['security-best-practices'] },
   // git — must route to git-flow
@@ -71,8 +71,8 @@ const SKILL_ROUTER_BENCHMARKS = [
   { query: 'research competitor market analysis', allow: ['research-autopilot'] },
   // legal — must route to contract-review
   { query: 'contract review procurement ukraine law', allow: ['contract-review'] },
-  // QA — must route to qa or gstack qa variant
-  { query: 'qa test web interface bugs', allow: ['qa', 'gstack/qa', 'gstack/qa-only'] },
+  // QA with web/browser testing must route to agent-browser
+  { query: 'qa test web interface bugs', allow: ['agent-browser'] },
   // low confidence — must always return no skill
   { query: 'zzzzzz low confidence nonsense', allow: ['no skill'] },
 ];
