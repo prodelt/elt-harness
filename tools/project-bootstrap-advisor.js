@@ -34,7 +34,7 @@ function bootstrapScript() {
 
 function runBootstrap(root) {
   const script = bootstrapScript();
-  const completed = spawnSync(process.execPath, [script, '--root', root, '--json'], {
+  const completed = spawnSync(process.execPath, [script, '--root', root, '--json', '--no-supply-chain'], {
     cwd: root,
     encoding: 'utf8',
     timeout: 8000,

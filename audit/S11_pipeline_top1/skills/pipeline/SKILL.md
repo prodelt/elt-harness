@@ -74,8 +74,11 @@ agent-skills.cmd audit
 node <central>/tools/agent-skill-supply-chain.js audit
 ```
 
-Record the command and result in the session ledger. Run repair commands only
-when explicitly applying a rollout:
+Record the command and result in both active project state and the session
+ledger. Any drift, missing install, hash mismatch, manifest validation failure,
+or project control-plane gap blocks honest success closeout unless the drift is
+repaired or the final closeout documents an explicit bypass reason. Run repair
+commands only when explicitly applying a rollout:
 
 ```bash
 agent-skills.cmd install-skills --target all --apply

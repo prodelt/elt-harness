@@ -4,9 +4,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { summarizeSupplyChainAudit } = require('./agent-skill-supply-chain-status');
 
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const COMPLEXITIES = new Set(['TRIVIAL', 'MEDIUM', 'BUG', 'ARCH', 'COMPLEX', 'RESEARCH']);
+const SUPPLY_CHAIN_REQUIRED_COMPLEXITIES = new Set(['MEDIUM', 'BUG', 'ARCH', 'COMPLEX', 'RESEARCH']);
 
 function normalizePath(value) {
   return path.resolve(value).replace(/\\/g, '/');
@@ -230,10 +232,70 @@ function replaceStateForNewTask(options) {
   return { action: current ? 'replace' : 'initialize', state: nextState, replaced: !!current };
 }
 
+function summarizeSupplyChainPreflight(options) {
+  const { root, command, audit, exitCode = 0, now = new Date() } = options;
+  const summary = summarizeSupplyChainAudit(audit, { root, now });
+  const ok = exitCode === 0 && summary.ok;
+
+  return {
+    kind: 'supply-chain-preflight',
+    command,
+    exitCode,
+    ok,
+    drift: {
+      count: summary.driftCount,
+      counts: summary.driftCounts,
+      missingSource: summary.missingSource,
+      missingInstalls: summary.missingInstalls,
+      driftedInstalls: summary.driftedInstalls,
+      missingClientRoots: summary.missingClientRoots,
+      currentControlPlaneMissing: summary.controlPlane.missing,
+    },
+    bypass: summary.bypass,
+    summary: ok ? 'agent skill supply-chain audit passed' : summary.summary,
+    ts: toIso(now),
+  };
+}
+
+function recordSupplyChainPreflight(options) {
+  const { root, home, command, audit, exitCode = 0, now = new Date() } = options;
+  const stateFile = projectStatePath(root, home);
+  const current = readState(stateFile);
+  if (!current) throw new Error('Cannot record supply-chain preflight: pipeline state not found.');
+
+  const preflight = summarizeSupplyChainPreflight({ root, command, audit, exitCode, now });
+  const next = {
+    ...current,
+    supplyChainPreflight: preflight,
+    checkpoints: [
+      ...(Array.isArray(current.checkpoints) ? current.checkpoints : []),
+      { phase: current.phase || 'classified', skill: 'agent-skill-supply-chain', ts: preflight.ts },
+    ],
+  };
+
+  writeState(stateFile, next);
+  appendLedgerEvent(next.ledgerPath, preflight);
+  return next;
+}
+
+function supplyChainCloseoutBlocker(state) {
+  if (!state || !SUPPLY_CHAIN_REQUIRED_COMPLEXITIES.has(state.complexity)) return '';
+  const preflight = state.supplyChainPreflight;
+  if (!preflight) return 'Success requires supply-chain preflight recorded in state.';
+  if (preflight.ok) return '';
+  if (preflight.bypass && preflight.bypass.active) return '';
+  return `Supply-chain drift prevents success closeout: ${preflight.summary || 'audit did not pass'}.`;
+}
+
 function validateFinalCloseout(options) {
-  const { success, proof = [], artifacts = [], remainingWork = [] } = options;
+  const { success, proof = [], artifacts = [], remainingWork = [], state = null } = options;
   if (!success) {
     return { ok: true, reason: '' };
+  }
+
+  const supplyChainBlocker = supplyChainCloseoutBlocker(state);
+  if (supplyChainBlocker) {
+    return { ok: false, reason: supplyChainBlocker };
   }
 
   if (!Array.isArray(proof) || proof.length === 0) {
@@ -279,6 +341,7 @@ function closeState(options) {
     proof,
     artifacts,
     remainingWork,
+    state: current,
   });
 
   if (!closeout.ok) {
@@ -320,9 +383,12 @@ module.exports = {
   projectLedgerPath,
   projectStatePath,
   readState,
+  recordSupplyChainPreflight,
   replaceStateForNewTask,
   routeForComplexity,
   shouldUseInterviewMode,
+  summarizeSupplyChainPreflight,
+  supplyChainCloseoutBlocker,
   validateFinalCloseout,
   writeState,
 };
