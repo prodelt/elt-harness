@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-05-29T18:34:33.066Z",
+  "generatedAt": "2026-06-03T20:40:02.084Z",
   "projectRoot": "C:/Claude playground/Pipiline setupper",
   "gitRoot": "C:/Claude playground/Pipiline setupper",
-  "branch": "session/2026-05-22-1052",
+  "branch": "session/2026-05-30-0213",
   "summary": {
-    "status": "warn",
-    "pass": 2,
-    "warn": 1,
+    "status": "pass",
+    "pass": 3,
+    "warn": 0,
     "fail": 0,
     "total": 3
   },
@@ -27,29 +27,33 @@
       "status": "pass",
       "id": "git:branch",
       "title": "Branch detected",
-      "detail": "session/2026-05-22-1052",
+      "detail": "session/2026-05-30-0213",
       "repair": "",
       "data": {
-        "branch": "session/2026-05-22-1052"
+        "branch": "session/2026-05-30-0213"
       }
     },
     {
-      "status": "warn",
+      "status": "pass",
       "id": "git:dirty",
-      "title": "8 uncommitted change(s) in project scope",
-      "detail": "M .gemini/GEMINI.md;  M .planning/docs-gate-latest.json;  M .planning/docs-gate-latest.md;  M .planning/git-workflow-audit-latest.json;  M .planning/git-workflow-audit-latest.md;  M AGENTS.md;  M CLAUDE.md; ?? .planning/PLAN-2026-05-29-relocate-global-config.md",
-      "repair": "Commit or stash changes before session closeout.",
+      "title": "Working tree clean (scoped)",
+      "detail": "Only generated planning artifacts modified (11)",
+      "repair": "",
       "data": {
-        "count": 8,
-        "files": [
-          "M .gemini/GEMINI.md",
+        "count": 0,
+        "files": [],
+        "ignored": [
+          "M .planning/agent-surface-audit-latest.json",
+          " M .planning/agent-surface-audit-latest.md",
           " M .planning/docs-gate-latest.json",
           " M .planning/docs-gate-latest.md",
           " M .planning/git-workflow-audit-latest.json",
           " M .planning/git-workflow-audit-latest.md",
-          " M AGENTS.md",
-          " M CLAUDE.md",
-          "?? .planning/PLAN-2026-05-29-relocate-global-config.md"
+          " M .planning/harness-checklist-latest.json",
+          " M .planning/harness-checklist-latest.md",
+          "?? .planning/CHECKPOINT-2026-05-29-p6-surface-sync.md",
+          "?? .planning/CHECKPOINT-2026-05-30-p2.2.md",
+          "?? .planning/CHECKPOINT-2026-05-30-post-merge.md"
         ]
       }
     }
