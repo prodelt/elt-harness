@@ -4,9 +4,11 @@ description: >-
   Pipeline v3 classifies first, refreshes project state, chooses auto or
   interview mode, records a session ledger, and closes with proof.
 trigger: start task, new feature, implement, fix bug, refactor, pipeline
-version: 3.0.0
+version: 3.2.0
 requires: []
 changelog:
+  - 3.2.0 (2026-06-03): add agent skill supply-chain preflight before non-trivial routing
+  - 3.1.0 (2026-05-30): add Agent Harness section for COMPLEX/ARCH -- runId link, gate-backed evidence, verifyCloseout
   - 3.0.0 (2026-05-20): add auto/interview routing, lifecycle refresh, session ledger, and mandatory closeout proof
   - 2.0.0 (2026-05-08): add checklist extraction, project guard, minimal route, skill budget, per-project state, and final criteria check
   - 1.4.0 (2026-04-28): integrate mattpocock skills for BUG/ARCH buckets
@@ -53,11 +55,35 @@ Run these guards before any edit:
 - Read project commands and gotchas from the docs.
 - Inspect `git status --short` and do not revert unrelated user changes.
 - Use Context7 before writing code that uses an external library.
+- For non-trivial routes, run the Agent Skill Supply-Chain Preflight before
+  invoking any domain, verifier, or ship skill.
 - Keep active state at `~/.claude/projects/<projectKey>/pipeline-state.json`.
 - Treat `~/.claude/pipeline-state.json` as read-only legacy fallback only.
 
 `projectKey` is lowercase basename slug plus `-` plus the first 8 sha1 hex chars
 of the normalized absolute cwd lowercased with `/` separators.
+
+### Agent Skill Supply-Chain Preflight
+
+For any route above ULTRA-TRIVIAL, audit the agent skill supply chain before
+loading sub-skills or starting implementation:
+
+```bash
+agent-skills.cmd audit
+# If the wrapper is unavailable:
+node <central>/tools/agent-skill-supply-chain.js audit
+```
+
+Record the command and result in the session ledger. Run repair commands only
+when explicitly applying a rollout:
+
+```bash
+agent-skills.cmd install-skills --target all --apply
+agent-skills.cmd rollout-projects --apply
+```
+
+Without explicit apply approval, use audit-only mode and report required repair
+actions as remaining work.
 
 ## Classification
 
@@ -211,3 +237,58 @@ End with:
 ```
 
 Use prose around the JSON only when it helps the user understand the result.
+
+## Agent Harness (COMPLEX/ARCH)
+
+For COMPLEX or ARCH tasks, drive verification through the harness gate layer.
+This ensures every quality gate produces machine-readable evidence before transition.
+
+### Setup
+
+After classification, create a harness run and link it to pipeline state:
+
+```bash
+harness-runner create <taskId> --root . --json
+# -> { "runId": "run-YYYYMMDDHHMMSS-xxxxxx", "phase": "fetch_context" }
+```
+
+Link `runId` in pipeline-state via the pipeline-state helper (`attachHarnessRun`)
+or the existing pipeline integration so the session ledger tracks it.
+
+### Drive phases
+
+Run one gate per completed phase. Do not call `transition` directly:
+
+```bash
+harness-gates run-gate <runId> --root . --json
+```
+
+| Phase | What the gate checks |
+|---|---|
+| `fetch_context` | auto-pass |
+| `plan_design` | ARCHITECTURE-*.md or artifacts.design |
+| `implement` | auto-pass (always forwards) |
+| `linter` | `commands.lint` exit code |
+| `tests` | `commands.test` exit code |
+| `code_review` | docs-delta + submitReview (COMPLEX -> high finding if no docs) |
+| `git_push` | git-workflow-audit artifact |
+
+Inspect the gate plan before starting:
+
+```bash
+harness-gates gate-plan <runId> --root . --json
+```
+
+### Closeout
+
+Before declaring `success: true`, verify all gates passed:
+
+```bash
+harness-gates closeout <runId> --root . --json
+# -> { "ok": true } required
+```
+
+`verifyCloseout` returns `ok: false` if any phase record is missing `gateEvidence`
+(proof that the phase went through a real gate, not a manual transition).
+
+Do not claim success without `verifyCloseout ok: true`.

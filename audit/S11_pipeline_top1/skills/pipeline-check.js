@@ -4,7 +4,7 @@ const path = require("path");
 
 const REQUIRED_PATTERNS = [
   { label: "frontmatter name pipeline", pattern: /^name:\s*pipeline$/m },
-  { label: "v3 version", pattern: /^version:\s*3\.0\.0$/m },
+  { label: "v3 version", pattern: /^version:\s*3\.2\.0$/m },
   { label: "checklist extraction", pattern: /checklist extraction/i },
   { label: "project guard", pattern: /project guard/i },
   { label: "classification", pattern: /^## Classification$/m },
@@ -27,6 +27,22 @@ const REQUIRED_PATTERNS = [
   { label: "classification confidence", pattern: /task classification and confidence;/i },
   { label: "rejected alternatives", pattern: /chosen skills and rejected alternatives;/i },
   { label: "model effort", pattern: /model\/effort selection;/i },
+  { label: "supply-chain preflight", pattern: /^### Agent Skill Supply-Chain Preflight$/m },
+  { label: "supply-chain audit wrapper", pattern: /agent-skills\.cmd audit/ },
+  {
+    label: "supply-chain central fallback",
+    pattern: /node <central>\/tools\/agent-skill-supply-chain\.js audit/,
+  },
+  {
+    label: "supply-chain before sub-skills",
+    pattern: /before\s+loading sub-skills or starting implementation/i,
+  },
+  {
+    label: "supply-chain explicit apply only",
+    pattern: /Run repair commands only\s+when explicitly applying a rollout/i,
+  },
+  { label: "supply-chain install repair", pattern: /agent-skills\.cmd install-skills --target all --apply/ },
+  { label: "supply-chain rollout repair", pattern: /agent-skills\.cmd rollout-projects --apply/ },
   { label: "final closeout", pattern: /^## Final Closeout$/m },
   { label: "success proof rule", pattern: /cannot claim success without artifact and verification proof/i },
   { label: "minimal route", pattern: /minimal route/i },

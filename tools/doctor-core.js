@@ -383,6 +383,100 @@ function checkSurfaceSync(root) {
   return [result('pass', 'surface:sync', 'Skill surface sync OK', detail)];
 }
 
+function supplyChainTargets(manifest, audit) {
+  const configured = manifest.policy && Array.isArray(manifest.policy.targetClients) ? manifest.policy.targetClients : [];
+  const detected = Object.keys(audit.clients || {});
+  return configured.length ? configured : detected;
+}
+
+function summarizeSupplyChainDrift(audit, targetClients) {
+  const approved = (audit.skills || []).filter((skill) => skill.status === 'approved');
+  const missingSource = approved.filter((skill) => !skill.sourceExists);
+  const missingInstalls = approved.flatMap((skill) => targetClients
+    .filter((client) => !(skill.clients && skill.clients[client] && skill.clients[client].installed))
+    .map((client) => `${client}/${skill.name}`));
+  const driftedInstalls = approved.flatMap((skill) => targetClients
+    .filter((client) => skill.clients && skill.clients[client] && skill.clients[client].installed && !skill.clients[client].matchesSource)
+    .map((client) => `${client}/${skill.name}`));
+  const missingProjects = (audit.projects || []).filter((project) => !project.archived && !project.exists);
+  const missingControlPlane = (audit.projects || []).filter((project) => project.exists && !project.controlPlane);
+  const missingClientRoots = targetClients.filter((client) => !(audit.clients && audit.clients[client] && audit.clients[client].exists));
+  return { approved, missingSource, missingInstalls, driftedInstalls, missingProjects, missingControlPlane, missingClientRoots };
+}
+
+function checkAgentSkillSupplyChain(root, home, auditRunner) {
+  const script = path.join(root, 'tools', 'agent-skill-supply-chain.js');
+  const manifestFile = path.join(root, 'config', 'agent-skill-sources.json');
+  const registry = path.join(home, '.claude', 'projects-registry.json');
+  if (!fs.existsSync(script)) return [result('fail', 'agent-skills:supply-chain', 'Agent skill supply-chain tool missing', script, 'Restore tools\\agent-skill-supply-chain.js.')];
+  let audit;
+  try {
+    const runner = auditRunner || require(script).run;
+    audit = runner({ command: 'audit', manifest: manifestFile, registry, home, target: 'all', apply: false, json: true });
+  } catch (error) {
+    return [result('fail', 'agent-skills:supply-chain', 'Agent skill supply-chain audit crashed', error.message, 'Run node tools\\agent-skill-supply-chain.js audit --json manually.')];
+  }
+  if (!audit || typeof audit !== 'object') {
+    return [result('fail', 'agent-skills:supply-chain', 'Agent skill supply-chain audit invalid', 'No audit object returned.', 'Fix tools\\agent-skill-supply-chain.js audit output.')];
+  }
+  if (!audit.validation || !audit.validation.ok) {
+    const errors = audit.validation && Array.isArray(audit.validation.errors) ? audit.validation.errors : ['missing validation result'];
+    return [result('fail', 'agent-skills:supply-chain', 'Agent skill supply-chain manifest invalid', errors.slice(0, 5).join('; '), 'Fix config\\agent-skill-sources.json.')];
+  }
+  const manifest = readJson(manifestFile);
+  if (!manifest.ok) return [result('fail', 'agent-skills:supply-chain', 'Agent skill supply-chain manifest unreadable', manifest.error, 'Fix config\\agent-skill-sources.json.')];
+  const targetClients = supplyChainTargets(manifest.value, audit);
+  const drift = summarizeSupplyChainDrift(audit, targetClients);
+  const warnCount = drift.missingSource.length + drift.missingInstalls.length + drift.driftedInstalls.length + drift.missingProjects.length + drift.missingControlPlane.length + drift.missingClientRoots.length;
+  if (warnCount > 0) {
+    const detail = [
+      `missingSource=${drift.missingSource.length}`,
+      `missingInstalls=${drift.missingInstalls.length}`,
+      `driftedInstalls=${drift.driftedInstalls.length}`,
+      `missingProjects=${drift.missingProjects.length}`,
+      `missingControlPlane=${drift.missingControlPlane.length}`,
+      `missingClientRoots=${drift.missingClientRoots.length}`,
+    ].join(' ');
+    return [result('warn', 'agent-skills:supply-chain', 'Agent skill supply chain has drift', detail, 'Run node tools\\agent-skill-supply-chain.js install-skills --target all --json, then rollout-projects as needed.')];
+  }
+  return [result('pass', 'agent-skills:supply-chain', 'Agent skill supply chain OK', `${drift.approved.length} approved skills current across ${targetClients.length} client(s); ${(audit.projects || []).length} project(s) audited.`, '')];
+}
+
+function checkAgentSkillsWrapper(root, home, commandRunner = run) {
+  const pipelineDir = pipelineDirFromRegistry(home, root);
+  const scripts = [
+    path.join(pipelineDir, 'tools', 'agent-skill-supply-chain.js'),
+    path.join(pipelineDir, 'tools', 'install-agent-skills-wrapper.js'),
+  ];
+  const wrappers = [
+    path.join(home, '.claude', 'bin', 'agent-skills.cmd'),
+  ];
+  const missingScripts = scripts.filter((file) => !fs.existsSync(file));
+  const missingWrappers = wrappers.filter((file) => !fs.existsSync(file));
+  if (missingScripts.length || missingWrappers.length) {
+    const detail = [
+      missingScripts.length ? `scripts=${missingScripts.map((file) => path.basename(file)).join(',')}` : '',
+      missingWrappers.length ? `wrappers=${missingWrappers.map((file) => path.basename(file)).join(',')}` : '',
+    ].filter(Boolean).join(' ');
+    return [result('warn', 'agent-skills:wrapper', 'Agent skills wrapper incomplete', detail, 'Run node tools\\install-agent-skills-wrapper.js --apply.')];
+  }
+  const located = commandRunner('cmd.exe', ['/c', 'where', 'agent-skills.cmd'], root, 5000);
+  if (located.status !== 0) {
+    return [result('warn', 'agent-skills:wrapper', 'Agent skills wrapper not on PATH', located.output || located.error || 'where failed', 'Add ~/.claude/bin to PATH or call agent-skills.cmd by full path.')];
+  }
+  const expectedWrapper = wrappers[0];
+  const expectedScript = scripts[0];
+  const wrapperText = readText(expectedWrapper);
+  if (!wrapperText.ok || !wrapperText.value.toLowerCase().includes(expectedScript.toLowerCase())) {
+    return [result('warn', 'agent-skills:wrapper', 'Agent skills wrapper target mismatch', expectedWrapper, 'Run node tools\\install-agent-skills-wrapper.js --apply.')];
+  }
+  const resolved = (located.output || '').split(/\r?\n/).find(Boolean) || '';
+  if (normalizePath(resolved).toLowerCase() !== normalizePath(expectedWrapper).toLowerCase()) {
+    return [result('warn', 'agent-skills:wrapper', 'Agent skills wrapper PATH mismatch', `resolved=${resolved} expected=${expectedWrapper}`, 'Move ~/.claude/bin earlier on PATH or remove stale agent-skills.cmd.')];
+  }
+  return [result('pass', 'agent-skills:wrapper', 'Agent skills wrapper available', `agent-skills.cmd resolves to ${expectedWrapper} and targets ${expectedScript}.`, '')];
+}
+
 function checkAgentSurfaceAudit(root, now = new Date()) {
   const file = path.join(root, '.planning', 'agent-surface-audit-latest.json');
   const parsed = readJson(file);
@@ -681,6 +775,8 @@ function runDoctor(options) {
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkSurfaceSync(root),
+    ...checkAgentSkillSupplyChain(root, home),
+    ...checkAgentSkillsWrapper(root, home),
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
@@ -720,6 +816,8 @@ module.exports = {
   checkGitHubCli,
   checkPipelineState,
   checkSurfaceSync,
+  checkAgentSkillSupplyChain,
+  checkAgentSkillsWrapper,
   checkAgentSurfaceAudit,
   checkDocsGate,
   checkHarnessChecklist,
