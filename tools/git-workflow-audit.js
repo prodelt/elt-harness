@@ -10,6 +10,10 @@ const { normalizePath } = require('./pipeline-state');
 const GIT_WORKFLOW_AUDIT_TTL_MS = 24 * 60 * 60 * 1000;
 const PLANNING_DIR = '.planning';
 const AUDIT_FILE_BASE = 'git-workflow-audit-latest';
+const GENERATED_PLANNING_PATTERNS = [
+  /\.planning[\\/][^\\/]+-latest\.(json|md)$/,
+  /\.planning[\\/]CHECKPOINT-\d{4}-\d{2}-\d{2}-.+\.md$/,
+];
 
 function result(status, id, title, detail, repair, data = {}) {
   return { status, id, title, detail, repair, data };
@@ -74,6 +78,17 @@ function isDiskRoot(absPath) {
   const parsed = path.parse(normalized);
   // disk root on Windows: e.g. 'C:/', '/'; on POSIX: '/'
   return normalized === normalizePath(parsed.root);
+}
+
+function gitStatusPath(statusLine) {
+  const pathText = statusLine.replace(/^[ MARCUD?!]{1,2}\s+/, '');
+  const primaryPath = pathText.includes(' -> ') ? pathText.split(' -> ').pop() : pathText;
+  return primaryPath.trim().replace(/^"|"$/g, '');
+}
+
+function isGeneratedPlanningArtifact(statusLine) {
+  const filePath = gitStatusPath(statusLine);
+  return GENERATED_PLANNING_PATTERNS.some((pattern) => pattern.test(filePath));
 }
 
 function checkGitRoot(projectRoot) {
@@ -172,7 +187,7 @@ function checkBranch(projectRoot) {
 
 function checkDirtyFiles(projectRoot) {
   // Always scope with -- . to prevent capturing C:\ level changes
-  const status = git(['status', '--short', '--', '.'], projectRoot);
+  const status = git(['status', '--short', '--untracked-files=all', '--', '.'], projectRoot);
 
   if (isDubiousOwnership(status.stderr)) {
     return [
@@ -202,16 +217,15 @@ function checkDirtyFiles(projectRoot) {
 
   const lines = status.stdout ? status.stdout.split('\n').filter(Boolean) : [];
 
-  // Auto-generated latest-artifact files are self-referential; exclude from dirty count
-  const autoGenPattern = /\.planning[\\/](git-workflow-audit-latest|docs-gate-latest|agent-surface-audit-latest)\.(json|md)$/;
-  const significantLines = lines.filter(l => !autoGenPattern.test(l));
+  const generatedLines = lines.filter(isGeneratedPlanningArtifact);
+  const significantLines = lines.filter((line) => !isGeneratedPlanningArtifact(line));
   const count = significantLines.length;
 
   if (count === 0) {
     const detail = lines.length > 0
-      ? `Only auto-generated planning artifacts modified (${lines.length})`
+      ? `Only generated planning artifacts modified (${generatedLines.length})`
       : 'git status --short -- . returned no changes.';
-    return [result('pass', 'git:dirty', 'Working tree clean (scoped)', detail, '', { count: 0, files: [] })];
+    return [result('pass', 'git:dirty', 'Working tree clean (scoped)', detail, '', { count: 0, files: [], ignored: generatedLines.slice(0, 20) })];
   }
 
   return [
