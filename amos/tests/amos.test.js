@@ -1,0 +1,474 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const cp = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+// Portable paths — work on any machine, overridable via AMOS_HOME env
+const AMOS_DIR = process.env.AMOS_HOME || path.join(os.homedir(), '.amos');
+const AMOS_JS = path.join(AMOS_DIR, 'bin', 'amos.js');
+const ERRORS_LOG = path.join(AMOS_DIR, 'errors.log');
+const STATE_SQLITE = path.join(AMOS_DIR, 'state.sqlite');
+
+// Backups of the real user environment files
+let backupErrorsLog = null;
+let backupStateSqlite = null;
+
+// Backup files helper
+function backupEnv() {
+  try {
+    if (fs.existsSync(ERRORS_LOG)) {
+      backupErrorsLog = fs.readFileSync(ERRORS_LOG);
+      fs.unlinkSync(ERRORS_LOG);
+    }
+    if (fs.existsSync(STATE_SQLITE)) {
+      backupStateSqlite = fs.readFileSync(STATE_SQLITE);
+      fs.unlinkSync(STATE_SQLITE);
+    }
+  } catch (err) {
+    console.error('Failed to backup environment files:', err);
+  }
+}
+
+// Restore files helper
+function restoreEnv() {
+  try {
+    if (fs.existsSync(ERRORS_LOG)) {
+      fs.unlinkSync(ERRORS_LOG);
+    }
+    if (fs.existsSync(STATE_SQLITE)) {
+      fs.unlinkSync(STATE_SQLITE);
+    }
+    if (backupErrorsLog !== null) {
+      fs.writeFileSync(ERRORS_LOG, backupErrorsLog);
+    }
+    if (backupStateSqlite !== null) {
+      fs.writeFileSync(STATE_SQLITE, backupStateSqlite);
+    }
+  } catch (err) {
+    console.error('Failed to restore environment files:', err);
+  }
+}
+
+// Initialize clean state for each test
+function cleanLogsAndDb() {
+  try {
+    if (fs.existsSync(ERRORS_LOG)) {
+      fs.unlinkSync(ERRORS_LOG);
+    }
+    if (fs.existsSync(STATE_SQLITE)) {
+      fs.unlinkSync(STATE_SQLITE);
+    }
+  } catch (e) {}
+}
+
+// Perform backups at startup
+backupEnv();
+
+// Register restore on exit
+process.on('exit', () => {
+  restoreEnv();
+});
+
+// Run amos process helper
+function runAmos(args, env = {}, stdin = null) {
+  const spawnEnv = {
+    ...process.env,
+    ...env
+  };
+  // Delete AMOS_PROFILE and AMOS_DISABLE from spawnEnv if they are not explicitly set
+  // to avoid pollution from the outer test runner environment.
+  if (!env.hasOwnProperty('AMOS_PROFILE')) {
+    delete spawnEnv.AMOS_PROFILE;
+  }
+  if (!env.hasOwnProperty('AMOS_DISABLE')) {
+    delete spawnEnv.AMOS_DISABLE;
+  }
+
+  const options = {
+    env: spawnEnv,
+    encoding: 'utf8'
+  };
+  if (stdin !== null) {
+    options.input = typeof stdin === 'string' ? stdin : JSON.stringify(stdin);
+  }
+
+  const result = cp.spawnSync('node', [AMOS_JS, ...args], options);
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr
+  };
+}
+
+// ==========================================
+// CATEGORY 1: Bypass Mode (AMOS_DISABLE=1)
+// ==========================================
+
+test('1. Bypass mode: exits with code 0 on session-start', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('2. Bypass mode: exits with code 0 on stop', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('3. Bypass mode: exits with code 0 on status', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('4. Bypass mode: exits with code 0 on doctor', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['doctor'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('5. Bypass mode: exits with code 0 on report', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['report'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('6. Bypass mode: exits with code 0 on version', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['version'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('7. Bypass mode: exits with code 0 on unknown command', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['unknown_command'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('8. Bypass mode: outputs nothing to stdout on session-start', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.stdout, '');
+});
+
+test('9. Bypass mode: outputs nothing to stdout on stop', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.stdout, '');
+});
+
+
+// ==========================================
+// CATEGORY 2: Unknown Commands and Events
+// ==========================================
+
+test('10. Unknown command: exits with code 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['nonexistent_cmd']);
+  assert.strictEqual(res.status, 0);
+});
+
+test('11. Unknown command: outputs nothing to stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['nonexistent_cmd']);
+  assert.strictEqual(res.stdout, '');
+});
+
+test('12. Unknown event: exits with code 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'nonexistent_event']);
+  assert.strictEqual(res.status, 0);
+});
+
+test('13. Unknown event: outputs nothing to stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'nonexistent_event']);
+  assert.strictEqual(res.stdout, '');
+});
+
+test('14. Empty arguments: exits with code 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos([]);
+  assert.strictEqual(res.status, 0);
+});
+
+test('15. Empty arguments: outputs nothing to stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos([]);
+  assert.strictEqual(res.stdout, '');
+});
+
+
+// ==========================================
+// CATEGORY 3: Profiles (minimal, standard, strict)
+// ==========================================
+
+test('16. Profile standard (default): status output', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status']);
+  assert.ok(res.stdout.includes('Profile: standard'));
+  assert.ok(res.stdout.includes('AMOS CLI Status: OK'));
+});
+
+test('17. Profile minimal: status output', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status'], { AMOS_PROFILE: 'minimal' });
+  assert.strictEqual(res.stdout.trim(), 'AMOS Status: OK');
+});
+
+test('18. Profile strict: status output', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status'], { AMOS_PROFILE: 'strict' });
+  assert.ok(res.stdout.includes('Profile: strict'));
+  assert.ok(res.stdout.includes('Rules: Enforced'));
+});
+
+test('19. Profile case-insensitivity: MINIMAL works', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status'], { AMOS_PROFILE: 'MINIMAL' });
+  assert.strictEqual(res.stdout.trim(), 'AMOS Status: OK');
+});
+
+test('20. Profile case-insensitivity: STRICT works', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status'], { AMOS_PROFILE: 'STRICT' });
+  assert.ok(res.stdout.includes('Profile: strict'));
+});
+
+test('21. Profile invalid: falls back to standard', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status'], { AMOS_PROFILE: 'invalid_profile_name' });
+  assert.ok(res.stdout.includes('Profile: standard'));
+});
+
+
+// ==========================================
+// CATEGORY 4: Event Routing: session-start
+// ==========================================
+
+test('22. Event session-start: outputs valid JSON format', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start']);
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  assert.ok(parsed.hookSpecificOutput);
+  assert.ok(parsed.hookSpecificOutput.additionalContext);
+});
+
+test('23. Event session-start: standard profile contents', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { AMOS_PROFILE: 'standard' });
+  const parsed = JSON.parse(res.stdout);
+  const context = parsed.hookSpecificOutput.additionalContext;
+  assert.ok(context.includes('AMOS Resume Pointer'));
+  assert.ok(context.includes('Focus: Kernel Core CLI'));
+  assert.ok(context.includes('Bootstrap'));
+  assert.ok(!context.includes('Strict rules: active'));
+});
+
+test('24. Event session-start: minimal profile contents', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { AMOS_PROFILE: 'minimal' });
+  const parsed = JSON.parse(res.stdout);
+  const context = parsed.hookSpecificOutput.additionalContext;
+  // Path is machine-dependent — check structure, not exact string
+  assert.ok(context.includes('AMOS Resume Pointer:'));
+  assert.ok(context.includes('.amos'));
+  assert.ok(!context.includes('Focus:'), 'minimal should not include Focus line');
+});
+
+test('25. Event session-start: strict profile contents', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { AMOS_PROFILE: 'strict' });
+  const parsed = JSON.parse(res.stdout);
+  const context = parsed.hookSpecificOutput.additionalContext;
+  assert.ok(context.includes('Focus: Kernel Core CLI'));
+  assert.ok(context.includes('Strict rules: active'));
+  assert.ok(context.includes('Rules enforcement: 100%'));
+});
+
+test('26. Event session-start: output size is under 2KB budget', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { AMOS_PROFILE: 'strict' });
+  const byteLength = Buffer.byteLength(res.stdout, 'utf8');
+  assert.ok(byteLength < 2048, `Output size is ${byteLength} bytes, which exceeds the 2KB budget.`);
+});
+
+test('27. Event session-start: can receive event name from stdin JSON', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event'], {}, { hook_event_name: 'session-start' });
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  assert.ok(parsed.hookSpecificOutput.additionalContext);
+});
+
+test('28. Event session-start: CLI argument takes priority over stdin JSON event name', () => {
+  cleanLogsAndDb();
+  // Call with event 'session-start' via CLI, but 'stop' in JSON stdin
+  const res = runAmos(['event', 'session-start'], {}, { hook_event_name: 'stop' });
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  // Verify it output session-start structure, not stop structure
+  assert.ok(parsed.hookSpecificOutput);
+  assert.strictEqual(parsed.decision, undefined);
+});
+
+
+// ==========================================
+// CATEGORY 5: Event Routing: stop
+// ==========================================
+
+test('29. Event stop (standard): defaults to allow', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'standard' });
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'allow');
+  assert.ok(parsed.reason);
+});
+
+test('30. Event stop (minimal): defaults to allow', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'minimal' });
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'allow');
+});
+
+test('31. Event stop (strict): allows session when no violations', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'strict' }, { data: { violations: [] } });
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'allow');
+});
+
+test('32. Event stop (strict): blocks session when violations are present', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'strict' }, { data: { violations: ['lint-error', 'secret-leak'] } });
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'block');
+  assert.ok(parsed.reason.includes('Rule violations detected'));
+  assert.ok(parsed.reason.includes('lint-error'));
+});
+
+test('33. Event stop (strict): blocks session when forceBlock is true', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'strict' }, { data: { forceBlock: true } });
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'block');
+  assert.ok(parsed.reason.includes('forceBlock'));
+});
+
+test('34. Event stop (standard): blocks session when forceBlock is true', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'standard' }, { data: { forceBlock: true } });
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'block');
+  assert.ok(parsed.reason.includes('forceBlock'));
+});
+
+test('35. Event stop (standard): allows session even when violations are present', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'standard' }, { data: { violations: ['lint-error'] } });
+  const parsed = JSON.parse(res.stdout);
+  assert.strictEqual(parsed.decision, 'allow');
+});
+
+
+// ==========================================
+// CATEGORY 6: Fail-Soft Logic and Error Handling
+// ==========================================
+
+test('36. Fail-soft: DB error during report command logs to errors.log', () => {
+  cleanLogsAndDb();
+  runAmos(['report'], { TRIGGER_DB_ERROR: '1' });
+  assert.ok(fs.existsSync(ERRORS_LOG));
+  const logContent = fs.readFileSync(ERRORS_LOG, 'utf8');
+  assert.ok(logContent.includes('Simulated database corruption error'));
+});
+
+test('37. Fail-soft: DB error during report command exits with 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['report'], { TRIGGER_DB_ERROR: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('38. Fail-soft: DB error during report command produces empty stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['report'], { TRIGGER_DB_ERROR: '1' });
+  assert.strictEqual(res.stdout, '');
+});
+
+test('39. Fail-soft: DB error during event session-start logs to errors.log', () => {
+  cleanLogsAndDb();
+  runAmos(['event', 'session-start'], { TRIGGER_DB_ERROR: '1' });
+  assert.ok(fs.existsSync(ERRORS_LOG));
+  const logContent = fs.readFileSync(ERRORS_LOG, 'utf8');
+  assert.ok(logContent.includes('Simulated database corruption error'));
+});
+
+test('40. Fail-soft: DB error during event session-start exits with 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { TRIGGER_DB_ERROR: '1' });
+  assert.strictEqual(res.status, 0);
+});
+
+test('41. Fail-soft: DB error during event session-start produces empty stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], { TRIGGER_DB_ERROR: '1' });
+  assert.strictEqual(res.stdout, '');
+});
+
+test('42. Fail-soft: corrupt/invalid JSON on stdin logs error and exits with 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['event', 'session-start'], {}, 'this-is-not-valid-json');
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout, '');
+  assert.ok(fs.existsSync(ERRORS_LOG));
+  const logContent = fs.readFileSync(ERRORS_LOG, 'utf8');
+  assert.ok(logContent.includes('Invalid JSON input'));
+});
+
+test('43. Fail-soft: errors.log writing failure (e.g. read-only file) is swallowed and doesn\'t crash', () => {
+  cleanLogsAndDb();
+  // Simulate read-only errors.log by creating a directory with the name errors.log
+  // so writing to it will throw an EISDIR error.
+  if (fs.existsSync(ERRORS_LOG)) {
+    fs.unlinkSync(ERRORS_LOG);
+  }
+  fs.mkdirSync(ERRORS_LOG);
+
+  try {
+    const res = runAmos(['event', 'session-start'], { TRIGGER_DB_ERROR: '1' });
+    // Should still exit 0 and not crash
+    assert.strictEqual(res.status, 0);
+    assert.strictEqual(res.stdout, '');
+  } finally {
+    // Cleanup the directory so normal restoration can work
+    fs.rmdirSync(ERRORS_LOG);
+  }
+});
+
+
+// ==========================================
+// CATEGORY 7: Basic Command Executions
+// ==========================================
+
+test('44. Version command: outputs version 0.1.0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['version']);
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout.trim(), '0.1.0');
+});
+
+test('45. Doctor command: outputs PASS/diagnostic lines', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['doctor']);
+  assert.strictEqual(res.status, 0);
+  assert.ok(res.stdout.includes('Node.js Version'));
+  assert.ok(res.stdout.includes('Environment'));
+  assert.ok(res.stdout.includes('Workspace Directory'));
+});

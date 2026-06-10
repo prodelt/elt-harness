@@ -137,3 +137,100 @@ Measurements collected on `D:/Ametrin projects/Law_assistant`.
 | **PostToolUse** | Bash | `context7-tracker` | 128 | 0 |
 | **PostToolUse** | Bash | `claude-hook` | 154 | 0 |
 | **TOTAL (Edit + Bash Cycle)** | | | **4,082** | **899** |
+
+---
+
+## 4. AMOS Sprint 1 — Results (2026-06-10)
+
+Виміряно після завершення Sprint 1 на гілці `amos/sprint1-kernel`.
+
+### Kernel Performance
+
+| Команда | Час (cold start) | Stdout (bytes) | Ліміт | Результат |
+|---|---|---|---|---|
+| `amos event session-start` (Law_assistant) | **133ms** | **185** | <500ms / <2048B | ✅ PASS |
+| `amos event session-start` (повторний) | **119ms** | **185** | <500ms / <2048B | ✅ PASS |
+
+### Test Suite
+
+| Метрика | Значення |
+|---|---|
+| Всього тестів | **45** |
+| PASS | **45** |
+| FAIL | **0** |
+| Час виконання | **~3.7 сек** |
+
+### Acceptance Criteria — Sprint 1 Done ✅
+
+| Критерій | Виконано | Доказ |
+|---|---|---|
+| `amos event session-start` < 500ms | ✅ | 133ms виміряно |
+| stdout ≤ 2KB | ✅ | 185 bytes |
+| `amos.cmd status` з будь-якої папки | ✅ | `%USERPROFILE%` шлях |
+| ≥40 unit-тестів зелені | ✅ | 45/45 PASS |
+| Бита БД → exit 0, пустий stdout | ✅ | тести #36-41 PASS |
+| `amos report` показує метрики | ✅ | 8 подій в SQLite |
+| `~/.amos` — git-репо з ≥2 комітами | ✅ | 10 комітів |
+| Жодних hardcoded шляхів | ✅ | `os.homedir()` скрізь |
+| 2KB budget cap в коді | ✅ | `Buffer.byteLength > 2048` |
+
+### Ключові файли
+
+| Файл | Призначення |
+|---|---|
+| `C:\Users\user\.amos\bin\amos.js` | CLI ядро (event router, fail-soft, 2KB cap) |
+| `C:\Users\user\.amos\lib\db.js` | SQLite state (node:sqlite, 4 таблиці) |
+| `C:\Users\user\.amos\tests\amos.test.js` | 45 unit-тестів |
+| `C:\Users\user\.claude\bin\amos.cmd` | Глобальна обгортка (`%USERPROFILE%`) |
+| `.planning\ARCHITECTURE-2026-06-10-amos-agent-mini-os.md` | Повний план Sprint 0-8 |
+
+### Наступний крок: Sprint 2
+Замінити SessionStart хуки Claude/Codex/Gemini на виклики `amos event session-start`.
+Цільовий KPI: SessionStart latency v3 (~3380ms) → AMOS (~133ms), -96%.
+
+---
+
+## 5. M4 — Merge & Final Verification (coordinator re-check, 2026-06-10)
+
+Перевірено координатором на гілці `amos/sprint1-kernel` після злиття `amos/sprint0-baseline`,
+`amos/sprint1-state`, `amos/sprint1-tests` (стан `~/.amos`, 10 комітів, 2 merge-коміти).
+
+| Команда | Час (cold start) | Stdout (bytes) | Ліміт | Результат |
+|---|---|---|---|---|
+| `amos event session-start` (Law_assistant) | **~100-130ms** | **185** | <500ms / <2048B | ✅ PASS |
+| `amos.cmd status` (запущено з `C:\`) | — | "AMOS CLI Status: OK" | будь-яка папка | ✅ PASS |
+| `amos event session-start` (TRIGGER_DB_ERROR=1) | — | **0 bytes**, exit 0 | fail-soft | ✅ PASS |
+
+### Test Suite (post-merge, з db.test.js)
+
+| Метрика | Значення |
+|---|---|
+| Всього тестів | **52** |
+| PASS | **52** |
+| FAIL | **0** |
+| Suites | `tests/amos.test.js` (45) + `tests/db.test.js` (6) + 1 suite wrapper |
+
+### `amos report` після перевірки (накопичувальний стан SQLite)
+
+| Event | Count | Avg Duration | Total Chars |
+|---|---|---|---|
+| session-start | 9 | 17ms | 1665 |
+
+Лічильник `session-start` зріс з 6 → 9 після 3 контрольних викликів — підтверджує запис
+`output_chars`/`duration_ms` у `events_metrics`.
+
+### Acceptance Criteria — Sprint 0+1 Final Status
+
+| Критерій | Статус | Доказ |
+|---|---|---|
+| Sprint 0: гілка `system-upgrade/amos-kernel` + тег `v3-legacy` | ✅ DONE | `git branch -a` / `git tag` |
+| Sprint 0: `.planning/AMOS-BASELINE.md` з числами по обох проектах | ✅ DONE | розділи 1-3 цього файлу |
+| Sprint 1: `amos event session-start` < 500ms, stdout ≤ 2KB | ✅ DONE | 100-130ms, 185 bytes |
+| Sprint 1: `amos.cmd status` з будь-якої папки | ✅ DONE | перевірено з `C:\` |
+| Sprint 1: ≥40 unit-тестів зелені | ✅ DONE | 52/52 PASS |
+| Sprint 1: Бита БД → exit 0, пустий stdout | ✅ DONE | `TRIGGER_DB_ERROR=1` реальний виклик |
+| Sprint 1: `amos report` показує метрики (output_chars/duration_ms) | ✅ DONE | 6→9 подій після 3 викликів |
+| Sprint 1: `~/.amos` — git-репо з ≥2 комітами | ✅ DONE | 10 комітів, 2 merge |
+| M4: Merge & Final Verification (4 гілки → `amos/sprint1-kernel`) | ✅ DONE | цей коміт |
+
+**Sprint 0 + Sprint 1 — ПОВНІСТЮ ЗАКРИТО.** Наступний крок: Sprint 2 (`.planning/PROMPT-SPRINT-2-AMOS.md`) — handoff continuity + інтеграція хуків.
