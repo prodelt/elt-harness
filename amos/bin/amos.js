@@ -43,7 +43,7 @@ try {
   switch (command) {
     case 'event':   handleEvent(args[1]);  break;
     case 'resume':  handleResume(args[1]); break;
-    case 'status':  handleStatus();        break;
+    case 'status':  handleStatus(args.slice(1)); break;
     case 'report':  handleReport();        break;
     case 'doctor':  handleDoctor();        break;
     case 'version': handleVersion();       break;
@@ -272,7 +272,12 @@ function handleResume(handoffId) {
 // ---------------------------------------------------------------------------
 // Other commands
 // ---------------------------------------------------------------------------
-function handleStatus() {
+function handleStatus(rest) {
+  if (Array.isArray(rest) && rest.includes('--markdown')) {
+    handleStatusMarkdown();
+    return;
+  }
+
   const profile = getProfile();
   if (profile === 'minimal') {
     console.log('AMOS Status: OK');
@@ -281,6 +286,69 @@ function handleStatus() {
   } else {
     console.log('AMOS CLI Status: OK\nProfile: standard\nVersion: 0.1.0');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Status (markdown) — portable snapshot of the latest handoff for this project
+// ---------------------------------------------------------------------------
+function handleStatusMarkdown() {
+  let db;
+  try {
+    db = require('../lib/db.js');
+    db.initDb();
+  } catch (err) {
+    handleGlobalError(err);
+    return;
+  }
+
+  const projectPath = process.cwd();
+
+  let handoff = null;
+  try {
+    handoff = db.getLatestHandoffForProject(projectPath);
+  } catch (e) { /* fail-soft — no handoff */ }
+
+  // git diff --stat — fail-soft when not a git repo or git unavailable
+  let diffStat = '';
+  try {
+    diffStat = require('child_process')
+      .execSync('git diff --stat', { cwd: projectPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .trim();
+  } catch (e) { /* not a git repo, no diff, or git missing */ }
+
+  const d = handoff ? handoff.data : null;
+
+  const lines = ['# AMOS Status', ''];
+  lines.push(`**Project:** ${projectPath}`);
+  lines.push(`**Task:** ${d && d.task ? d.task : '(none)'}`);
+  lines.push(`**Phase:** ${d && d.phase ? d.phase : '(none)'}`);
+  lines.push(`**Last updated:** ${d && d.timestamp ? d.timestamp : '(no handoff)'}`);
+  lines.push('');
+  lines.push('## Changed files');
+  lines.push('```');
+  lines.push(diffStat || '(none)');
+  lines.push('```');
+  lines.push('');
+  lines.push('## Open steps');
+  if (d && Array.isArray(d.open_steps) && d.open_steps.length > 0) {
+    for (const step of d.open_steps) {
+      lines.push(`- ${step}`);
+    }
+  } else {
+    lines.push('(none)');
+  }
+  lines.push('');
+  lines.push(`**Resume:** \`${d && d.resume_cmd ? d.resume_cmd : 'amos resume <sessionId>'}\``);
+
+  let output = lines.join('\n');
+
+  // ── 2KB HARD BUDGET ──────────────────────────────────────────────────
+  if (Buffer.byteLength(output, 'utf8') > MAX_OUTPUT_BYTES) {
+    output = output.slice(0, 1900) + '\n…[AMOS: truncated to 2KB budget]';
+  }
+  // ─────────────────────────────────────────────────────────────────────
+
+  console.log(output);
 }
 
 function handleReport() {
