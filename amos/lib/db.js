@@ -175,6 +175,30 @@ function getHandoff(sessionId) {
   return { session_id: row.session_id, data, created_at: row.created_at };
 }
 
+function normalizeProjectPath(p) {
+  if (!p) return '';
+  const resolved = path.resolve(p);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function getLatestHandoffForProject(projectPath) {
+  initDb();
+  const target = normalizeProjectPath(projectPath);
+  const rows = db.prepare('SELECT * FROM handoffs ORDER BY created_at DESC').all();
+  for (const row of rows) {
+    let data;
+    try {
+      data = JSON.parse(row.data);
+    } catch (e) {
+      continue;
+    }
+    if (data && normalizeProjectPath(data.project) === target) {
+      return { session_id: row.session_id, data, created_at: row.created_at };
+    }
+  }
+  return null;
+}
+
 function getMetricsSummary() {
   initDb();
   const query = `
@@ -208,6 +232,7 @@ module.exports = {
   saveProject,
   saveHandoff,
   getHandoff,
+  getLatestHandoffForProject,
   getMetricsSummary,
   closeDb,
   isNodeSqlite: () => isNodeSqlite

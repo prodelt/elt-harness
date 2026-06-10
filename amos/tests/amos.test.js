@@ -625,3 +625,106 @@ test('55. amos resume: output stays within 1.5KB budget for large handoffs', () 
   const parsed = JSON.parse(res.stdout);
   assert.ok(parsed.hookSpecificOutput.additionalContext);
 });
+
+// ==========================================
+// CATEGORY 9: Status Markdown (S2.2)
+// ==========================================
+
+function runAmosInDir(args, cwd, stdin = null) {
+  const env = { ...process.env };
+  delete env.AMOS_PROFILE;
+  delete env.AMOS_DISABLE;
+  const options = { env, cwd, encoding: 'utf8' };
+  if (stdin !== null) {
+    options.input = typeof stdin === 'string' ? stdin : JSON.stringify(stdin);
+  }
+  const result = cp.spawnSync('node', [AMOS_JS, ...args], options);
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+test('56. amos status --markdown: no handoff yet for project shows defaults', () => {
+  cleanLogsAndDb();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amos-test-status-'));
+  try {
+    const res = runAmosInDir(['status', '--markdown'], tmpDir);
+    assert.strictEqual(res.status, 0);
+    assert.ok(res.stdout.includes('# AMOS Status'));
+    assert.ok(res.stdout.includes(`**Project:** ${tmpDir}`));
+    assert.ok(res.stdout.includes('**Task:** (none)'));
+    assert.ok(res.stdout.includes('**Phase:** (none)'));
+    assert.ok(res.stdout.includes('**Last updated:** (no handoff)'));
+    assert.ok(res.stdout.includes('## Changed files'));
+    assert.ok(res.stdout.includes('## Open steps'));
+    assert.ok(res.stdout.includes('**Resume:** `amos resume <sessionId>`'));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('57. amos status --markdown: reflects latest handoff for the project', () => {
+  cleanLogsAndDb();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amos-test-status-'));
+  try {
+    const sessionId = 'sess-status-' + Date.now();
+    const stopRes = runAmosInDir(['event', 'stop'], tmpDir, {
+      session_id: sessionId,
+      cwd: tmpDir,
+      data: {
+        task: 'Implement S2.2 status markdown',
+        phase: 'implement',
+        open_steps: ['write tests', 'sync to Pipeline Setupper']
+      }
+    });
+    assert.strictEqual(stopRes.status, 0);
+
+    const res = runAmosInDir(['status', '--markdown'], tmpDir);
+    assert.strictEqual(res.status, 0);
+    assert.ok(res.stdout.includes('**Task:** Implement S2.2 status markdown'));
+    assert.ok(res.stdout.includes('**Phase:** implement'));
+    assert.ok(res.stdout.includes('- write tests'));
+    assert.ok(res.stdout.includes('- sync to Pipeline Setupper'));
+    assert.ok(res.stdout.includes(`**Resume:** \`amos resume ${sessionId}\``));
+
+    const byteLength = Buffer.byteLength(res.stdout, 'utf8');
+    assert.ok(byteLength <= 2048, `Status output is ${byteLength} bytes, exceeds 2KB budget`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('58. amos status --markdown: AMOS_DISABLE=1 exits 0 with empty stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status', '--markdown'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout, '');
+});
+
+test('59. amos status --markdown: DB error fails soft with empty stdout and logs error', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['status', '--markdown'], { TRIGGER_DB_ERROR: '1' });
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout, '');
+  assert.ok(fs.existsSync(ERRORS_LOG));
+});
+
+test('60. amos status --markdown: output stays within 2KB budget for large handoffs', () => {
+  cleanLogsAndDb();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amos-test-status-large-'));
+  try {
+    const sessionId = 'sess-status-large-' + Date.now();
+    const openSteps = Array.from({ length: 50 }, (_, i) => `step-${i}-` + 'x'.repeat(40));
+    const stopRes = runAmosInDir(['event', 'stop'], tmpDir, {
+      session_id: sessionId,
+      cwd: tmpDir,
+      data: { task: 'large status', phase: 'stress', open_steps: openSteps }
+    });
+    assert.strictEqual(stopRes.status, 0);
+
+    const res = runAmosInDir(['status', '--markdown'], tmpDir);
+    assert.strictEqual(res.status, 0);
+    const byteLength = Buffer.byteLength(res.stdout, 'utf8');
+    assert.ok(byteLength <= 2048, `Status output is ${byteLength} bytes, exceeds 2KB budget`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
