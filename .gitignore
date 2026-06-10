@@ -59,3 +59,7 @@ MEMORY\ (1).md
 audit/S11_pipeline_top1/NEXT_SESSION_PROMPT\ (1).md
 audit/S11_pipeline_top1/PLAN\ (1).md
 .rag/.gitignore\ (1)
+
+# Agent workspace directories
+.agents/
+
