@@ -2,115 +2,144 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-// Global fail-soft handler
+// Portable AMOS_DIR — works on any machine, overridable via env
+const AMOS_DIR = process.env.AMOS_HOME || path.join(os.homedir(), '.amos');
+const ERRORS_LOG = path.join(AMOS_DIR, 'errors.log');
+
+// 2KB hard budget for session-start injection
+const MAX_OUTPUT_BYTES = 2048;
+
+// Global fail-soft handler — logs to errors.log, always exits 0
 function handleGlobalError(err) {
   try {
-    const logPath = 'C:\\Users\\espad\\.amos\\errors.log';
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] ERROR: ${err.message}\nStack: ${err.stack || err}\n\n`;
-    fs.appendFileSync(logPath, logMessage, 'utf8');
+    fs.appendFileSync(ERRORS_LOG, logMessage, 'utf8');
   } catch (e) {
-    // Swallow any errors in logging to ensure silent exit 0
+    // Swallow logging errors — silent exit is mandatory
   }
   process.exit(0);
 }
 
-// Wrap execution in try-catch
+// Wrap all execution in top-level try-catch
 try {
-  // Check AMOS_DISABLE immediately
+  // AMOS_DISABLE=1 → immediate silent exit
   if (process.env.AMOS_DISABLE === '1') {
     process.exit(0);
   }
 
-  // Import config
-  const config = require('../lib/config.js');
-
   const args = process.argv.slice(2);
   if (args.length === 0) {
-    // Silent exit 0 for no command
     process.exit(0);
   }
 
   const command = args[0];
 
   switch (command) {
-    case 'event': {
-      const eventArg = args[1];
-      handleEvent(eventArg);
-      break;
-    }
-    case 'status': {
-      handleStatus();
-      break;
-    }
-    case 'report': {
-      handleReport();
-      break;
-    }
-    case 'doctor': {
-      handleDoctor();
-      break;
-    }
-    case 'version': {
-      handleVersion();
-      break;
-    }
-    default: {
-      // Unknown command: silent exit 0
+    case 'event':   handleEvent(args[1]);  break;
+    case 'status':  handleStatus();        break;
+    case 'report':  handleReport();        break;
+    case 'doctor':  handleDoctor();        break;
+    case 'version': handleVersion();       break;
+    default:
+      // Unknown command → silent exit 0
       process.exit(0);
-    }
   }
 } catch (err) {
   handleGlobalError(err);
 }
 
+// ---------------------------------------------------------------------------
+// Event handler
+// ---------------------------------------------------------------------------
 function handleEvent(eventArg) {
-  let stdinData = '';
+  const startTime = Date.now();
+
+  // Early DB health check — must happen BEFORE any console.log
+  // Guarantees empty stdout when DB is corrupt (TRIGGER_DB_ERROR or real error)
   try {
-    // Read stdin synchronously
-    stdinData = fs.readFileSync(0, 'utf8');
-  } catch (e) {
-    // Ignore reading error
+    const db = require('../lib/db.js');
+    db.initDb();
+  } catch (err) {
+    handleGlobalError(err);
+    return;
   }
 
+  // Read stdin
+  let stdinData = '';
+  try {
+    stdinData = fs.readFileSync(0, 'utf8');
+  } catch (e) { /* no stdin — fine */ }
+
+  // Parse JSON — invalid JSON → silent exit 0 (fail-soft, no throw)
   let parsedInput = {};
   if (stdinData && stdinData.trim()) {
     try {
       parsedInput = JSON.parse(stdinData);
     } catch (e) {
-      // If JSON parsing fails, log it as fail-soft but we also exit 0 silently
-      throw new Error(`Invalid JSON input: ${e.message}`);
+      // Log and exit silently — do NOT throw to global handler
+      try {
+        const ts = new Date().toISOString();
+        fs.appendFileSync(ERRORS_LOG, `[${ts}] ERROR: Invalid JSON input: ${e.message}\n\n`, 'utf8');
+      } catch (_) {}
+      process.exit(0);
     }
   }
 
-  // Determine event name: CLI argument takes priority, fallback to stdin JSON field
+  // Resolve event name: CLI arg takes priority over stdin field
   const eventName = eventArg || parsedInput.hook_event_name;
 
   if (!eventName || !['session-start', 'stop'].includes(eventName)) {
-    // Unknown event or empty JSON: silent exit 0
     process.exit(0);
   }
 
-  const profile = require('../lib/config.js').getProfile();
+  const profile = getProfile();
+  let responseString = '';
 
   if (eventName === 'session-start') {
     let contextStr = '';
     if (profile === 'minimal') {
-      contextStr = `AMOS Resume Pointer: C:\\Users\\espad\\.amos`;
+      contextStr = `AMOS Resume Pointer: ${AMOS_DIR}`;
     } else if (profile === 'strict') {
-      contextStr = `AMOS Resume Pointer: C:\\Users\\espad\\.amos\nFocus: Kernel Core CLI\nBootstrap: Please verify your amos installation using 'amos doctor'.\nStrict rules: active. Rules enforcement: 100%.`;
+      contextStr = [
+        `AMOS Resume Pointer: ${AMOS_DIR}`,
+        'Focus: Kernel Core CLI',
+        "Bootstrap: Please verify your amos installation using 'amos doctor'.",
+        'Strict rules: active. Rules enforcement: 100%.'
+      ].join('\n');
     } else {
       // standard (default)
-      contextStr = `AMOS Resume Pointer: C:\\Users\\espad\\.amos\nFocus: Kernel Core CLI\nBootstrap: Please verify your amos installation using 'amos doctor'.`;
+      contextStr = [
+        `AMOS Resume Pointer: ${AMOS_DIR}`,
+        'Focus: Kernel Core CLI',
+        "Bootstrap: Please verify your amos installation using 'amos doctor'."
+      ].join('\n');
     }
 
-    const output = {
-      hookSpecificOutput: {
-        additionalContext: contextStr
-      }
-    };
-    console.log(JSON.stringify(output));
+    const output = { hookSpecificOutput: { additionalContext: contextStr } };
+    responseString = JSON.stringify(output);
+
+    // ── 2KB HARD BUDGET ──────────────────────────────────────────────────
+    if (Buffer.byteLength(responseString, 'utf8') > MAX_OUTPUT_BYTES) {
+      const truncated = contextStr.slice(0, 400) + '\n…[AMOS: truncated to 2KB budget]';
+      responseString = JSON.stringify({ hookSpecificOutput: { additionalContext: truncated } });
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
+    console.log(responseString);
+
+    // Persist session + project to SQLite (fail-soft)
+    try {
+      const db = require('../lib/db.js');
+      db.initDb();
+      const sessionId = parsedInput.session_id || 'default_session';
+      const projectPath = parsedInput.cwd || 'default_project';
+      db.saveSession(sessionId, projectPath, true);
+      db.saveProject(projectPath, path.basename(projectPath));
+    } catch (_) { /* fail-soft */ }
+
   } else if (eventName === 'stop') {
     let decision = 'allow';
     let reason = 'Stop event processed successfully.';
@@ -126,19 +155,41 @@ function handleEvent(eventArg) {
         reason = 'All rules enforced and verified. No violations found.';
       }
     } else {
-      // standard / minimal
       if (parsedInput.data && parsedInput.data.forceBlock) {
         decision = 'block';
         reason = 'Blocked by forceBlock directive.';
       }
     }
 
-    console.log(JSON.stringify({ decision, reason }));
+    responseString = JSON.stringify({ decision, reason });
+    console.log(responseString);
+
+    // Persist session end + handoff (fail-soft)
+    try {
+      const db = require('../lib/db.js');
+      db.initDb();
+      const sessionId = parsedInput.session_id || 'default_session';
+      const projectPath = parsedInput.cwd || 'default_project';
+      db.saveSession(sessionId, projectPath, false);
+      if (parsedInput.data) db.saveHandoff(sessionId, parsedInput.data);
+    } catch (_) { /* fail-soft */ }
   }
+
+  // Log metrics (fail-soft)
+  try {
+    const db = require('../lib/db.js');
+    db.initDb();
+    const durationMs = Date.now() - startTime;
+    const project = parsedInput.cwd || parsedInput.project_path || 'unknown';
+    db.logEvent(eventName, project, durationMs, responseString.length);
+  } catch (_) { /* fail-soft */ }
 }
 
+// ---------------------------------------------------------------------------
+// Other commands
+// ---------------------------------------------------------------------------
 function handleStatus() {
-  const profile = require('../lib/config.js').getProfile();
+  const profile = getProfile();
   if (profile === 'minimal') {
     console.log('AMOS Status: OK');
   } else if (profile === 'strict') {
@@ -149,57 +200,96 @@ function handleStatus() {
 }
 
 function handleReport() {
-  console.log('AMOS Report command is a stub. Full report functionality will be implemented in Sprint 2.');
+  try {
+    const db = require('../lib/db.js');
+    db.initDb();
+    const summary = db.getMetricsSummary();
+
+    console.log('[AMOS DATABASE METRICS REPORT]');
+    console.log('----------------------------------------------------------------------');
+    console.log('Event            | Count | Avg Duration | Max Duration | Total Chars | Avg Chars');
+    console.log('----------------------------------------------------------------------');
+
+    let totalCount = 0;
+    if (summary && summary.length > 0) {
+      summary.forEach(row => {
+        const event    = (row.event || '').padEnd(16);
+        const count    = String(row.count || 0).padStart(5);
+        const avgDur   = `${Math.round(row.avg_duration_ms || 0)}ms`.padStart(12);
+        const maxDur   = `${row.max_duration_ms || 0}ms`.padStart(12);
+        const totChars = String(row.total_output_chars || 0).padStart(11);
+        const avgChars = `${Math.round(row.avg_output_chars || 0)}`.padStart(9);
+        console.log(`${event} | ${count} | ${avgDur} | ${maxDur} | ${totChars} | ${avgChars}`);
+        totalCount += row.count || 0;
+      });
+    } else {
+      console.log('No event metrics recorded yet.');
+    }
+    console.log('----------------------------------------------------------------------');
+    console.log(`Total Events: ${totalCount}`);
+  } catch (err) {
+    throw new Error(`Report generation failed: ${err.message}`);
+  }
 }
 
 function handleDoctor() {
   console.log('[AMOS DOCTOR DIAGNOSTIC REPORT]');
   console.log('------------------------------------');
 
-  // Node.js version check
+  // Node.js version
   const versionString = process.version;
   const majorVersion = parseInt(versionString.slice(1).split('.')[0], 10);
-  if (majorVersion >= 22) {
-    console.log(`[PASS] Node.js Version: ${versionString} (>= 22.0.0)`);
-  } else {
-    console.log(`[FAIL] Node.js Version: ${versionString} (< 22.0.0 is not compatible)`);
-  }
+  console.log(majorVersion >= 22
+    ? `[PASS] Node.js Version: ${versionString} (>= 22.0.0)`
+    : `[FAIL] Node.js Version: ${versionString} (< 22.0.0 is not compatible)`);
 
-  // Profile and disable check
-  const profile = require('../lib/config.js').getProfile();
-  const disabled = require('../lib/config.js').isDisabled();
+  // Profile / disable
+  const profile = getProfile();
+  const disabled = process.env.AMOS_DISABLE === '1';
   console.log(`[PASS] Environment: AMOS_PROFILE=${profile}, AMOS_DISABLE=${disabled ? '1 (Bypass Active)' : 'not set'}`);
 
-  // Workspace Directory existence
-  const amosDir = 'C:\\Users\\espad\\.amos';
-  if (fs.existsSync(amosDir)) {
-    console.log(`[PASS] Workspace Directory: ${amosDir}`);
+  // AMOS_DIR existence (portable)
+  if (fs.existsSync(AMOS_DIR)) {
+    console.log(`[PASS] Workspace Directory: ${AMOS_DIR}`);
   } else {
-    console.log(`[FAIL] Workspace Directory: ${amosDir} does not exist`);
+    console.log(`[FAIL] Workspace Directory: ${AMOS_DIR} does not exist`);
   }
 
-  // Write permissions inside amosDir
+  // Write permissions
   try {
-    const tempFile = path.join(amosDir, '.doctor_write_test');
+    const tempFile = path.join(AMOS_DIR, '.doctor_write_test');
     fs.writeFileSync(tempFile, 'test', 'utf8');
     fs.unlinkSync(tempFile);
     console.log('[PASS] Write Permissions: Verified');
   } catch (e) {
-    console.log(`[FAIL] Write Permissions: Failed to write to workspace dir (${e.message})`);
+    console.log(`[FAIL] Write Permissions: Failed (${e.message})`);
   }
 
-  // Git Repository Check
-  const gitDir = path.join(amosDir, '.git');
-  if (fs.existsSync(gitDir)) {
+  // Git repo
+  if (fs.existsSync(path.join(AMOS_DIR, '.git'))) {
     console.log('[PASS] Git Repository: Initialized');
   } else {
     console.log('[FAIL] Git Repository: Not initialized');
   }
 
-  // Error Log check
-  const logPath = path.join(amosDir, 'errors.log');
-  if (fs.existsSync(logPath)) {
-    const stats = fs.statSync(logPath);
+  // DB connection
+  const dbPath = path.join(AMOS_DIR, 'state.sqlite');
+  if (fs.existsSync(dbPath)) {
+    console.log(`[PASS] Database File: ${dbPath}`);
+    try {
+      const db = require('../lib/db.js');
+      db.initDb();
+      console.log(`[PASS] Database Connection: Verified (${db.isNodeSqlite() ? 'node:sqlite' : 'better-sqlite3'})`);
+    } catch (e) {
+      console.log(`[FAIL] Database Connection: Failed (${e.message})`);
+    }
+  } else {
+    console.log(`[FAIL] Database File: ${dbPath} does not exist`);
+  }
+
+  // Error log
+  if (fs.existsSync(ERRORS_LOG)) {
+    const stats = fs.statSync(ERRORS_LOG);
     console.log(`[INFO] Error Log: Present (${stats.size} bytes)`);
   } else {
     console.log('[INFO] Error Log: Not present / empty');
@@ -211,4 +301,12 @@ function handleDoctor() {
 
 function handleVersion() {
   console.log('0.1.0');
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function getProfile() {
+  const raw = (process.env.AMOS_PROFILE || 'standard').toLowerCase();
+  return ['minimal', 'standard', 'strict'].includes(raw) ? raw : 'standard';
 }
