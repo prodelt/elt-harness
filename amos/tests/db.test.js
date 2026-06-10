@@ -66,11 +66,29 @@ test('Database state store tests', async (t) => {
   await t.test('saveHandoff inserts and updates handoffs', () => {
     const sessId = 'sess-handoff-' + Date.now();
     const handoffData = { step: 1, message: 'handoff test' };
-    
+
     db.saveHandoff(sessId, handoffData);
     let row = db.initDb().prepare("SELECT * FROM handoffs WHERE session_id = ?").get(sessId);
     assert.ok(row);
     assert.strictEqual(row.data, JSON.stringify(handoffData));
+  });
+
+  await t.test('getHandoff returns parsed handoff data', () => {
+    const sessId = 'sess-gethandoff-' + Date.now();
+    const handoffData = { task: 'S2.1', phase: 'implement', open_steps: ['a', 'b'] };
+
+    db.saveHandoff(sessId, handoffData);
+    const handoff = db.getHandoff(sessId);
+
+    assert.ok(handoff);
+    assert.strictEqual(handoff.session_id, sessId);
+    assert.deepStrictEqual(handoff.data, handoffData);
+    assert.ok(handoff.created_at);
+  });
+
+  await t.test('getHandoff returns null for unknown session', () => {
+    const handoff = db.getHandoff('sess-does-not-exist-' + Date.now());
+    assert.strictEqual(handoff, null);
   });
 
   await t.test('getMetricsSummary aggregates correctly', () => {

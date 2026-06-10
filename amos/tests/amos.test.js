@@ -472,3 +472,156 @@ test('45. Doctor command: outputs PASS/diagnostic lines', () => {
   assert.ok(res.stdout.includes('Environment'));
   assert.ok(res.stdout.includes('Workspace Directory'));
 });
+
+
+// ==========================================
+// CATEGORY 8: Handoff Write/Read (S2.1)
+// ==========================================
+
+test('46. Event stop: structured handoff is written and readable via resume', () => {
+  cleanLogsAndDb();
+  const sessionId = 'sess-handoff-' + Date.now();
+  const stopRes = runAmos(['event', 'stop'], {}, {
+    session_id: sessionId,
+    data: {
+      task: 'Implement S2.1 handoff write/read',
+      phase: 'implement',
+      changed_files: ['bin/amos.js', 'lib/db.js'],
+      open_steps: ['add tests', 'wire resume into SessionStart']
+    }
+  });
+  assert.strictEqual(stopRes.status, 0);
+
+  const resumeRes = runAmos(['resume', sessionId]);
+  assert.strictEqual(resumeRes.status, 0);
+  const parsed = JSON.parse(resumeRes.stdout);
+  const context = parsed.hookSpecificOutput.additionalContext;
+  assert.ok(context.includes(`AMOS Resume: ${sessionId}`));
+  assert.ok(context.includes('Task: Implement S2.1 handoff write/read'));
+  assert.ok(context.includes('Phase: implement'));
+  assert.ok(context.includes('Changed files (2)'));
+  assert.ok(context.includes('Open steps:'));
+  assert.ok(context.includes('add tests'));
+  assert.ok(context.includes(`Resume: amos resume ${sessionId}`));
+});
+
+test('47. Event stop: handoff written even without data, with defaults', () => {
+  cleanLogsAndDb();
+  const sessionId = 'sess-handoff-empty-' + Date.now();
+  const stopRes = runAmos(['event', 'stop'], {}, { session_id: sessionId });
+  assert.strictEqual(stopRes.status, 0);
+
+  const resumeRes = runAmos(['resume', sessionId]);
+  const parsed = JSON.parse(resumeRes.stdout);
+  const context = parsed.hookSpecificOutput.additionalContext;
+  assert.ok(context.includes(`AMOS Resume: ${sessionId}`));
+  assert.ok(context.includes(`Resume: amos resume ${sessionId}`));
+  assert.ok(!context.includes('Task:'));
+  assert.ok(!context.includes('Phase:'));
+});
+
+test('48. Event stop: writes YAML mirror to .planning/handoffs/<sessionId>.yaml for real project paths', () => {
+  cleanLogsAndDb();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amos-test-handoff-'));
+  const sessionId = 'sess-yaml-' + Date.now();
+  try {
+    const res = runAmos(['event', 'stop'], {}, {
+      session_id: sessionId,
+      cwd: tmpDir,
+      data: { task: 'YAML mirror test', phase: 'verify', open_steps: ['check file'] }
+    });
+    assert.strictEqual(res.status, 0);
+
+    const yamlPath = path.join(tmpDir, '.planning', 'handoffs', `${sessionId}.yaml`);
+    assert.ok(fs.existsSync(yamlPath), 'YAML handoff mirror should exist');
+
+    const yamlContent = fs.readFileSync(yamlPath, 'utf8');
+    assert.ok(yamlContent.includes(`session_id: ${sessionId}`));
+    assert.ok(yamlContent.includes('task: YAML mirror test'));
+    assert.ok(yamlContent.includes('phase: verify'));
+    assert.ok(yamlContent.includes('project:'));
+    assert.ok(yamlContent.includes('resume_cmd:'));
+    assert.ok(yamlContent.includes('timestamp:'));
+    assert.ok(yamlContent.includes('open_steps:'));
+    assert.ok(yamlContent.includes('- check file'));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('49. Event stop: skips YAML mirror for non-existent/relative project paths (fail-soft)', () => {
+  cleanLogsAndDb();
+  const sessionId = 'sess-nomirror-' + Date.now();
+  const res = runAmos(['event', 'stop'], {}, {
+    session_id: sessionId,
+    cwd: 'relative/does-not-exist',
+    data: { task: 'no mirror' }
+  });
+  assert.strictEqual(res.status, 0);
+  assert.ok(!fs.existsSync(path.join('relative', 'does-not-exist', '.planning')));
+
+  // SQLite handoff is still written even when the YAML mirror is skipped
+  const resumeRes = runAmos(['resume', sessionId]);
+  const parsed = JSON.parse(resumeRes.stdout);
+  assert.ok(parsed.hookSpecificOutput.additionalContext.includes('Task: no mirror'));
+});
+
+test('50. amos resume: outputs valid hookSpecificOutput JSON', () => {
+  cleanLogsAndDb();
+  const sessionId = 'sess-resume-shape-' + Date.now();
+  runAmos(['event', 'stop'], {}, { session_id: sessionId, data: { task: 'shape check' } });
+
+  const res = runAmos(['resume', sessionId]);
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  assert.ok(parsed.hookSpecificOutput);
+  assert.strictEqual(typeof parsed.hookSpecificOutput.additionalContext, 'string');
+});
+
+test('51. amos resume: unknown handoff id returns fail-soft message, exits 0', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['resume', 'sess-does-not-exist-' + Date.now()]);
+  assert.strictEqual(res.status, 0);
+  const parsed = JSON.parse(res.stdout);
+  assert.ok(parsed.hookSpecificOutput.additionalContext.includes('no handoff found'));
+});
+
+test('52. amos resume: missing handoff id argument exits 0 with empty stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['resume']);
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout, '');
+});
+
+test('53. amos resume: AMOS_DISABLE=1 exits 0 with empty stdout', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['resume', 'any-id'], { AMOS_DISABLE: '1' });
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout, '');
+});
+
+test('54. amos resume: DB error fails soft with empty stdout and logs error', () => {
+  cleanLogsAndDb();
+  const res = runAmos(['resume', 'any-id'], { TRIGGER_DB_ERROR: '1' });
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.stdout, '');
+  assert.ok(fs.existsSync(ERRORS_LOG));
+});
+
+test('55. amos resume: output stays within 1.5KB budget for large handoffs', () => {
+  cleanLogsAndDb();
+  const sessionId = 'sess-large-' + Date.now();
+  const openSteps = Array.from({ length: 50 }, (_, i) => `step-${i}-` + 'x'.repeat(40));
+  const changedFiles = Array.from({ length: 50 }, (_, i) => `path/to/file-${i}.js`);
+  runAmos(['event', 'stop'], {}, {
+    session_id: sessionId,
+    data: { task: 'large handoff', phase: 'stress', open_steps: openSteps, changed_files: changedFiles }
+  });
+
+  const res = runAmos(['resume', sessionId]);
+  assert.strictEqual(res.status, 0);
+  const byteLength = Buffer.byteLength(res.stdout, 'utf8');
+  assert.ok(byteLength <= 1536, `Resume output is ${byteLength} bytes, exceeds 1.5KB budget`);
+  const parsed = JSON.parse(res.stdout);
+  assert.ok(parsed.hookSpecificOutput.additionalContext);
+});

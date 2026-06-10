@@ -11,6 +11,9 @@ const ERRORS_LOG = path.join(AMOS_DIR, 'errors.log');
 // 2KB hard budget for session-start injection
 const MAX_OUTPUT_BYTES = 2048;
 
+// 1.5KB hard budget for resume injection
+const RESUME_BUDGET_BYTES = 1536;
+
 // Global fail-soft handler — logs to errors.log, always exits 0
 function handleGlobalError(err) {
   try {
@@ -39,6 +42,7 @@ try {
 
   switch (command) {
     case 'event':   handleEvent(args[1]);  break;
+    case 'resume':  handleResume(args[1]); break;
     case 'status':  handleStatus();        break;
     case 'report':  handleReport();        break;
     case 'doctor':  handleDoctor();        break;
@@ -164,14 +168,34 @@ function handleEvent(eventArg) {
     responseString = JSON.stringify({ decision, reason });
     console.log(responseString);
 
-    // Persist session end + handoff (fail-soft)
+    // Persist session end + structured handoff (fail-soft)
     try {
       const db = require('../lib/db.js');
       db.initDb();
       const sessionId = parsedInput.session_id || 'default_session';
       const projectPath = parsedInput.cwd || 'default_project';
       db.saveSession(sessionId, projectPath, false);
-      if (parsedInput.data) db.saveHandoff(sessionId, parsedInput.data);
+
+      const data = (parsedInput.data && typeof parsedInput.data === 'object') ? parsedInput.data : {};
+      const handoff = {
+        session_id: sessionId,
+        task: typeof data.task === 'string' ? data.task : '',
+        phase: typeof data.phase === 'string' ? data.phase : '',
+        project: projectPath,
+        changed_files: Array.isArray(data.changed_files) ? data.changed_files : [],
+        open_steps: Array.isArray(data.open_steps) ? data.open_steps : [],
+        resume_cmd: `amos resume ${sessionId}`,
+        timestamp: new Date().toISOString()
+      };
+      db.saveHandoff(sessionId, handoff);
+
+      // Mirror to project .planning/handoffs/<sessionId>.yaml — only for real project paths
+      if (path.isAbsolute(projectPath) && fs.existsSync(projectPath)) {
+        const { toYaml } = require('../lib/yaml.js');
+        const handoffsDir = path.join(projectPath, '.planning', 'handoffs');
+        fs.mkdirSync(handoffsDir, { recursive: true });
+        fs.writeFileSync(path.join(handoffsDir, `${sessionId}.yaml`), toYaml(handoff), 'utf8');
+      }
     } catch (_) { /* fail-soft */ }
   }
 
@@ -183,6 +207,66 @@ function handleEvent(eventArg) {
     const project = parsedInput.cwd || parsedInput.project_path || 'unknown';
     db.logEvent(eventName, project, durationMs, responseString.length);
   } catch (_) { /* fail-soft */ }
+}
+
+// ---------------------------------------------------------------------------
+// Resume — read a handoff from SQLite and emit a compact resume context
+// ---------------------------------------------------------------------------
+function handleResume(handoffId) {
+  if (!handoffId) {
+    process.exit(0);
+    return;
+  }
+
+  // Early DB health check — before any stdout (fail-soft, mirrors handleEvent)
+  let db;
+  try {
+    db = require('../lib/db.js');
+    db.initDb();
+  } catch (err) {
+    handleGlobalError(err);
+    return;
+  }
+
+  let contextStr;
+  try {
+    const handoff = db.getHandoff(handoffId);
+
+    if (!handoff || !handoff.data) {
+      contextStr = `AMOS: no handoff found for session ${handoffId}`;
+    } else {
+      const d = handoff.data;
+      const lines = [`AMOS Resume: ${handoffId}`];
+      if (d.task) lines.push(`Task: ${d.task}`);
+      if (d.phase) lines.push(`Phase: ${d.phase}`);
+      if (d.project) lines.push(`Project: ${d.project}`);
+      if (Array.isArray(d.changed_files) && d.changed_files.length > 0) {
+        lines.push(`Changed files (${d.changed_files.length}): ${d.changed_files.slice(0, 10).join(', ')}`);
+      }
+      if (Array.isArray(d.open_steps) && d.open_steps.length > 0) {
+        lines.push('Open steps:');
+        for (const step of d.open_steps.slice(0, 10)) {
+          lines.push(`  - ${step}`);
+        }
+      }
+      if (d.resume_cmd) lines.push(`Resume: ${d.resume_cmd}`);
+      if (d.timestamp) lines.push(`Last updated: ${d.timestamp}`);
+      contextStr = lines.join('\n');
+    }
+  } catch (err) {
+    contextStr = `AMOS: resume failed for session ${handoffId}`;
+  }
+
+  let responseString = JSON.stringify({ hookSpecificOutput: { additionalContext: contextStr } });
+
+  // ── 1.5KB HARD BUDGET ────────────────────────────────────────────────────
+  if (Buffer.byteLength(responseString, 'utf8') > RESUME_BUDGET_BYTES) {
+    const truncated = contextStr.slice(0, 1300) + '\n…[AMOS: truncated to 1.5KB budget]';
+    responseString = JSON.stringify({ hookSpecificOutput: { additionalContext: truncated } });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  console.log(responseString);
 }
 
 // ---------------------------------------------------------------------------
