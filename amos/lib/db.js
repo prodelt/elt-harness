@@ -162,6 +162,19 @@ function saveHandoff(sessionId, data) {
   }
 }
 
+function getHandoff(sessionId) {
+  initDb();
+  const row = db.prepare('SELECT * FROM handoffs WHERE session_id = ?').get(sessionId);
+  if (!row) return null;
+  let data;
+  try {
+    data = JSON.parse(row.data);
+  } catch (e) {
+    data = row.data;
+  }
+  return { session_id: row.session_id, data, created_at: row.created_at };
+}
+
 function getMetricsSummary() {
   initDb();
   const query = `
@@ -194,6 +207,7 @@ module.exports = {
   saveSession,
   saveProject,
   saveHandoff,
+  getHandoff,
   getMetricsSummary,
   closeDb,
   isNodeSqlite: () => isNodeSqlite
