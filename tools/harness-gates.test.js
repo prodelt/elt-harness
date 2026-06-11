@@ -232,6 +232,44 @@ run('GATES.plan_design: fails when no arch file and no design artifact', () => {
   assert.equal(result.evidence.found, false);
 });
 
+run('GATES.plan_design: fails when COMPLEX docs-gate report and no preflight artifact', () => {
+  const root    = makeTmpRoot();
+  const planDir = path.join(root, '.planning');
+  fs.mkdirSync(planDir, { recursive: true });
+  fs.writeFileSync(path.join(planDir, 'ARCHITECTURE-2026-05-30-test.md'), '# arch', 'utf8');
+  fs.writeFileSync(path.join(planDir, 'docs-gate-latest.json'), JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    complexity: 'COMPLEX',
+    codeChanged: ['tools/foo.js'],
+    docsChanged: [],
+  }), 'utf8');
+  const { runId, run: runObj } = createRun('TASK-001', { root });
+  const result = GATES.plan_design({ run: runObj, root });
+  assert.equal(result.passed, false);
+  assert.ok(result.findings.some(f => f.severity === 'high' && /preflight/.test(f.message)));
+});
+
+run('GATES.plan_design: passes when COMPLEX docs-gate report and fresh preflight artifact present', () => {
+  const root    = makeTmpRoot();
+  const planDir = path.join(root, '.planning');
+  fs.mkdirSync(planDir, { recursive: true });
+  fs.writeFileSync(path.join(planDir, 'ARCHITECTURE-2026-05-30-test.md'), '# arch', 'utf8');
+  fs.writeFileSync(path.join(planDir, 'docs-gate-latest.json'), JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    complexity: 'COMPLEX',
+    codeChanged: ['tools/foo.js'],
+    docsChanged: [],
+  }), 'utf8');
+  fs.writeFileSync(path.join(planDir, 'preflight-latest.json'), JSON.stringify({
+    kind: 'preflight',
+    query: 'extend harness-gates plan_design preflight check',
+    ts: new Date().toISOString(),
+  }), 'utf8');
+  const { runId, run: runObj } = createRun('TASK-001', { root });
+  const result = GATES.plan_design({ run: runObj, root });
+  assert.equal(result.passed, true);
+});
+
 run('GATES.linter: skips when lint command empty', () => {
   const root   = makeTmpRoot();
   const result = GATES.linter({ root, dryRun: false });
@@ -568,6 +606,9 @@ run('AC1: verifyCloseout with evidence from runGate → ok:true', () => {
     codeChanged: ['tools/x.js'],
     summary: { status: 'pass' },
   }), 'utf8');
+  fs.writeFileSync(path.join(planDir, 'preflight-latest.json'), JSON.stringify({
+    kind: 'preflight', query: 'task', ts: new Date().toISOString(),
+  }), 'utf8');
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-closeout-'));
   const home   = path.join(tmpDir, 'home');
@@ -608,6 +649,9 @@ run('verifyCloseout: complete run with supply-chain drift в†’ ok:false', ()
     codeChanged: ['tools/x.js'],
     summary: { status: 'pass' },
   }), 'utf8');
+  fs.writeFileSync(path.join(planDir, 'preflight-latest.json'), JSON.stringify({
+    kind: 'preflight', query: 'task', ts: new Date().toISOString(),
+  }), 'utf8');
 
   for (let i = 0; i < 7; i++) runGate(runId, { root, supplyChainAudit: supplyChainAudit() });
 
@@ -629,6 +673,9 @@ run('verifyCloseout: complete run with documented supply-chain bypass в†’ o
     docsChanged: ['AGENTS.md'],
     codeChanged: ['tools/x.js'],
     summary: { status: 'pass' },
+  }), 'utf8');
+  fs.writeFileSync(path.join(planDir, 'preflight-latest.json'), JSON.stringify({
+    kind: 'preflight', query: 'task', ts: new Date().toISOString(),
   }), 'utf8');
 
   for (let i = 0; i < 7; i++) runGate(runId, { root, supplyChainAudit: supplyChainAudit() });

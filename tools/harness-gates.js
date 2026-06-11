@@ -158,11 +158,27 @@ function gatePlanDesign({ run, root }) {
   try {
     hasArchFile = fs.readdirSync(planDir).some(f => /^ARCHITECTURE-.*\.md$/.test(f));
   } catch {}
-  const passed = hasArtifact || hasArchFile;
+  let passed = hasArtifact || hasArchFile;
+  const findings = [];
+
+  // Sprint 4: COMPLEX changes require a fresh `amos preflight "<task>" --write` before planning.
+  try {
+    const { checkArtifact } = require('./docs-gate');
+    const docsResult = checkArtifact(root);
+    if (docsResult.ok && !docsResult.stale && (docsResult.value.complexity || '').toUpperCase() === 'COMPLEX') {
+      const { checkPreflightArtifact } = require('../amos/lib/preflight');
+      const preflightResult = checkPreflightArtifact(root);
+      if (!preflightResult.ok || preflightResult.stale) {
+        passed = false;
+        findings.push({ severity: 'high', message: 'COMPLEX change requires `amos preflight "<task>" --write` before planning' });
+      }
+    }
+  } catch {}
+
   return {
     passed,
-    evidence: { command: null, skipped: passed ? 'design artifact present' : undefined, found: passed },
-    findings: [],
+    evidence: { command: null, skipped: passed ? 'design artifact present' : undefined, found: hasArtifact || hasArchFile, findings },
+    findings,
   };
 }
 

@@ -41,12 +41,13 @@ try {
   const command = args[0];
 
   switch (command) {
-    case 'event':   handleEvent(args[1]);  break;
-    case 'resume':  handleResume(args[1]); break;
-    case 'status':  handleStatus(args.slice(1)); break;
-    case 'report':  handleReport();        break;
-    case 'doctor':  handleDoctor(args.slice(1)); break;
-    case 'version': handleVersion();       break;
+    case 'event':     handleEvent(args[1]);  break;
+    case 'resume':    handleResume(args[1]); break;
+    case 'status':    handleStatus(args.slice(1)); break;
+    case 'report':    handleReport();        break;
+    case 'doctor':    handleDoctor(args.slice(1)); break;
+    case 'preflight': handlePreflight(args.slice(1)); break;
+    case 'version':   handleVersion();       break;
     default:
       // Unknown command → silent exit 0
       process.exit(0);
@@ -363,6 +364,56 @@ function handleStatusMarkdown() {
   // ── 2KB HARD BUDGET ──────────────────────────────────────────────────
   if (Buffer.byteLength(output, 'utf8') > MAX_OUTPUT_BYTES) {
     output = output.slice(0, 1900) + '\n…[AMOS: truncated to 2KB budget]';
+  }
+  // ─────────────────────────────────────────────────────────────────────
+
+  console.log(output);
+}
+
+// ---------------------------------------------------------------------------
+// Preflight — skill-router v2 (S4): local registry + gstack + skillgrab +
+// Context7/codemap hints, capped at 1.5KB
+// ---------------------------------------------------------------------------
+function handlePreflight(subArgs) {
+  subArgs = Array.isArray(subArgs) ? subArgs : [];
+  const json      = subArgs.includes('--json');
+  const benchmark = subArgs.includes('--benchmark');
+  const write     = subArgs.includes('--write');
+  const query     = subArgs.filter(a => !a.startsWith('--')).join(' ').trim();
+
+  const preflight = require('../lib/preflight.js');
+
+  if (benchmark) {
+    const records = {};
+    for (const b of preflight.PREFLIGHT_BENCHMARKS) {
+      records[b.query] = preflight.buildPreflight(b.query, { root: process.cwd() });
+    }
+    const report = preflight.evaluatePreflightBenchmarks(records);
+    console.log(JSON.stringify(report, null, 2));
+    process.exitCode = report.status === 'pass' ? 0 : 1;
+    return;
+  }
+
+  if (!query) {
+    process.exit(0);
+    return;
+  }
+
+  const record = preflight.buildPreflight(query, { root: process.cwd() });
+
+  if (write) {
+    try {
+      const dir = path.join(process.cwd(), '.planning');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'preflight-latest.json'), JSON.stringify(record, null, 2), 'utf8');
+    } catch (_) { /* fail-soft */ }
+  }
+
+  let output = json ? JSON.stringify(record, null, 2) : preflight.formatPreflightContext(record);
+
+  // ── 1.5KB BUDGET ─────────────────────────────────────────────────────
+  if (Buffer.byteLength(output, 'utf8') > preflight.PREFLIGHT_BUDGET_BYTES) {
+    output = output.slice(0, 1400) + '\n…[AMOS: truncated to 1.5KB budget]';
   }
   // ─────────────────────────────────────────────────────────────────────
 
