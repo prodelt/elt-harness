@@ -447,12 +447,15 @@ function handleDoctor() {
     console.log('[INFO] Error Log: Not present / empty');
   }
 
-  // Hook integration — SessionStart wiring across clients
+  // Hook integration — SessionStart + Stop wiring across clients
   console.log('------------------------------------');
   console.log('AMOS Hook Integration:');
-  checkAmosHook('claude', 'Claude');
-  checkAmosHook('codex', 'Codex');
-  checkAmosHook('gemini', 'Gemini');
+  checkAmosHook('claude', 'Claude', 'SessionStart', 'event session-start');
+  checkAmosHook('codex', 'Codex', 'SessionStart', 'event session-start');
+  checkAmosHook('gemini', 'Gemini', 'SessionStart', 'event session-start');
+  checkAmosHook('claude', 'Claude', 'Stop', 'event stop');
+  checkAmosHook('codex', 'Codex', 'Stop', 'event stop');
+  checkAmosHook('gemini', 'Gemini', 'Stop', 'event stop');
 
   console.log('------------------------------------');
   console.log('AMOS Kernel diagnostic complete.');
@@ -475,26 +478,26 @@ function getClientConfigPath(client) {
   }
 }
 
-function checkAmosHook(client, label) {
+function checkAmosHook(client, label, hookEvent, amosEventArg) {
   const configPath = getClientConfigPath(client);
   if (!configPath || !fs.existsSync(configPath)) {
-    console.log(`[INFO] ${label} SessionStart Hook: config not found (${configPath})`);
+    console.log(`[INFO] ${label} ${hookEvent} Hook: config not found (${configPath})`);
     return;
   }
 
   try {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const groups = (config.hooks && Array.isArray(config.hooks.SessionStart)) ? config.hooks.SessionStart : [];
+    const groups = (config.hooks && Array.isArray(config.hooks[hookEvent])) ? config.hooks[hookEvent] : [];
     const found = groups.some(group =>
       Array.isArray(group.hooks) && group.hooks.some(h =>
-        typeof h.command === 'string' && h.command.includes('amos.js') && h.command.includes('event session-start')
+        typeof h.command === 'string' && h.command.includes('amos.js') && h.command.includes(amosEventArg)
       )
     );
     console.log(found
-      ? `[PASS] ${label} SessionStart Hook: amos event session-start configured`
-      : `[WARN] ${label} SessionStart Hook: amos event session-start not found`);
+      ? `[PASS] ${label} ${hookEvent} Hook: amos ${amosEventArg} configured`
+      : `[WARN] ${label} ${hookEvent} Hook: amos ${amosEventArg} not found`);
   } catch (e) {
-    console.log(`[WARN] ${label} SessionStart Hook: failed to parse ${configPath} (${e.message})`);
+    console.log(`[WARN] ${label} ${hookEvent} Hook: failed to parse ${configPath} (${e.message})`);
   }
 }
 
