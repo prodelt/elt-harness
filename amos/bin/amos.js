@@ -47,6 +47,7 @@ try {
     case 'report':    handleReport();        break;
     case 'doctor':    handleDoctor(args.slice(1)); break;
     case 'preflight': handlePreflight(args.slice(1)); break;
+    case 'cost':      handleCost(args.slice(1)); break;
     case 'version':   handleVersion();       break;
     default:
       // Unknown command → silent exit 0
@@ -82,7 +83,8 @@ function handleEvent(eventArg) {
   let parsedInput = {};
   if (stdinData && stdinData.trim()) {
     try {
-      parsedInput = JSON.parse(stdinData);
+      // Strip UTF-8 BOM — PowerShell 5.1 pipes prepend it and JSON.parse rejects it
+      parsedInput = JSON.parse(stdinData.replace(/^﻿/, ''));
     } catch (e) {
       // Log and exit silently — do NOT throw to global handler
       try {
@@ -199,6 +201,24 @@ function handleEvent(eventArg) {
       }
     } catch (_) { /* fail-soft */ }
 
+    // Token cost ledger (S5) — parse transcript usage, append one row (fail-soft)
+    try {
+      const tp = parsedInput.transcript_path;
+      if (tp && fs.existsSync(tp)) {
+        const { extractUsageFromTranscript, inferClient } = require('../lib/cost.js');
+        const usage = extractUsageFromTranscript(tp);
+        if (usage && (usage.input_tokens || usage.output_tokens || usage.cache_read_tokens)) {
+          const db = require('../lib/db.js');
+          db.initDb();
+          db.logCost({
+            session_id: parsedInput.session_id || 'default_session',
+            client: inferClient(parsedInput),
+            ...usage
+          });
+        }
+      }
+    } catch (_) { /* fail-soft */ }
+
   } else if (eventName === 'pre-tool') {
     const toolName = parsedInput.tool_name || '';
     const { evaluateToolPolicy } = require('../lib/policy.js');
@@ -214,8 +234,33 @@ function handleEvent(eventArg) {
       };
       responseString = JSON.stringify(output);
       console.log(responseString);
+    } else {
+      // Model policy (S5): subagent spawns must use a cheap model.
+      // Violations 1..N-1 are recorded silently; from threshold on -> deny.
+      try {
+        const { evaluateSubagentModel, getModelPolicy } = require('../lib/policy.js');
+        const mp = getModelPolicy();
+        const verdict = evaluateSubagentModel(toolName, parsedInput.tool_input, { modelPolicy: mp });
+        if (verdict && verdict.violation) {
+          const db = require('../lib/db.js');
+          db.initDb();
+          const sessionId = parsedInput.session_id || 'default_session';
+          db.logPolicyEvent(sessionId, 'model-policy', verdict.model);
+          const count = db.countPolicyEvents(sessionId, 'model-policy');
+          if (count >= mp.threshold) {
+            const output = {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: `[amos model-policy] Subagent spawn #${count} this session without a cheap model (got: ${verdict.model}). Re-spawn with model: "haiku" (simple/mechanical) or "sonnet" (coding). Bypass: AMOS_MODEL_POLICY=off or set CLAUDE_CODE_SUBAGENT_MODEL=haiku.`
+              }
+            };
+            responseString = JSON.stringify(output);
+            console.log(responseString);
+          }
+        }
+      } catch (_) { /* fail-soft -> silent allow */ }
     }
-    // No matching rule -> silent allow (no stdout)
   }
 
   // Log metrics (fail-soft)
@@ -418,6 +463,49 @@ function handlePreflight(subArgs) {
   // ─────────────────────────────────────────────────────────────────────
 
   console.log(output);
+}
+
+// ---------------------------------------------------------------------------
+// Cost — token ledger report (S5): amos cost [--days N] [--session <id>] [--json]
+// ---------------------------------------------------------------------------
+function handleCost(subArgs) {
+  subArgs = Array.isArray(subArgs) ? subArgs : [];
+  const json = subArgs.includes('--json');
+  const daysIdx = subArgs.indexOf('--days');
+  const sessIdx = subArgs.indexOf('--session');
+  const days = daysIdx !== -1 ? Math.max(1, parseInt(subArgs[daysIdx + 1], 10) || 7) : 7;
+  const sessionId = sessIdx !== -1 ? subArgs[sessIdx + 1] : undefined;
+
+  let summary;
+  try {
+    const db = require('../lib/db.js');
+    db.initDb();
+    summary = db.getCostSummary({ days, sessionId });
+  } catch (err) {
+    handleGlobalError(err);
+    return;
+  }
+
+  if (json) {
+    console.log(JSON.stringify(summary, null, 2));
+    return;
+  }
+
+  const fmt = n => String(n || 0).padStart(12);
+  console.log(`[AMOS COST REPORT] last ${summary.days}d${sessionId ? ` session=${sessionId}` : ''}`);
+  console.log('----------------------------------------------------------------------');
+  console.log('Client/Model                       | Sessions |       Output |   Fresh input |   Cache read');
+  console.log('----------------------------------------------------------------------');
+  let totOut = 0;
+  for (const row of summary.byModel) {
+    const label = `${row.client}/${row.model}`.padEnd(34);
+    console.log(`${label} | ${String(row.sessions).padStart(8)} | ${fmt(row.output_tokens)} | ${fmt(row.input_tokens + row.cache_creation_tokens)} | ${fmt(row.cache_read_tokens)}`);
+    totOut += row.output_tokens;
+  }
+  if (summary.byModel.length === 0) console.log('(no ledger rows in window)');
+  console.log('----------------------------------------------------------------------');
+  console.log(`Sessions: ${summary.perSession.length} | Total output tokens: ${totOut}`);
+  console.log('Hint: output+fresh input drive subscription limits; cache read is cheap.');
 }
 
 function handleReport() {

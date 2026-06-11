@@ -78,6 +78,32 @@ function createTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cost_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT,
+      client TEXT,
+      model TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      cache_read_tokens INTEGER,
+      cache_creation_tokens INTEGER,
+      turns INTEGER,
+      partial INTEGER DEFAULT 0,
+      ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT,
+      kind TEXT,
+      detail TEXT,
+      ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 function logEvent(event, project, durationMs, outputChars) {
@@ -218,6 +244,83 @@ function getMetricsSummary() {
   return rows;
 }
 
+// One ledger row per finished session (upsert-free append; sessions can have
+// several Stop events — the report aggregates by MAX per session).
+function logCost(entry) {
+  initDb();
+  const stmt = db.prepare(`
+    INSERT INTO cost_ledger (session_id, client, model, input_tokens, output_tokens,
+                             cache_read_tokens, cache_creation_tokens, turns, partial, ts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    entry.session_id || null,
+    entry.client || 'unknown',
+    entry.model || '',
+    entry.input_tokens || 0,
+    entry.output_tokens || 0,
+    entry.cache_read_tokens || 0,
+    entry.cache_creation_tokens || 0,
+    entry.turns || 0,
+    entry.partial ? 1 : 0,
+    new Date().toISOString()
+  );
+}
+
+// Aggregated view for `amos cost`. Stop can fire several times per session, so
+// take the MAX cumulative counters per session first, then group.
+function getCostSummary(opts) {
+  initDb();
+  const days = (opts && opts.days) || 7;
+  const sessionId = opts && opts.sessionId;
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const base = `
+    SELECT session_id, client, model,
+           MAX(input_tokens) AS input_tokens,
+           MAX(output_tokens) AS output_tokens,
+           MAX(cache_read_tokens) AS cache_read_tokens,
+           MAX(cache_creation_tokens) AS cache_creation_tokens,
+           MAX(turns) AS turns,
+           MAX(partial) AS partial,
+           MAX(ts) AS ts
+    FROM cost_ledger
+    WHERE ts >= ? ${sessionId ? 'AND session_id = ?' : ''}
+    GROUP BY session_id, client, model
+  `;
+  const params = sessionId ? [sinceIso, sessionId] : [sinceIso];
+  const perSession = db.prepare(base).all(...params);
+
+  const byModel = {};
+  for (const row of perSession) {
+    const key = `${row.client}/${row.model || '(unknown)'}`;
+    if (!byModel[key]) {
+      byModel[key] = { client: row.client, model: row.model || '(unknown)', sessions: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 };
+    }
+    const agg = byModel[key];
+    agg.sessions += 1;
+    agg.input_tokens += row.input_tokens || 0;
+    agg.output_tokens += row.output_tokens || 0;
+    agg.cache_read_tokens += row.cache_read_tokens || 0;
+    agg.cache_creation_tokens += row.cache_creation_tokens || 0;
+  }
+
+  return { days, sinceIso, perSession, byModel: Object.values(byModel) };
+}
+
+function logPolicyEvent(sessionId, kind, detail) {
+  initDb();
+  db.prepare('INSERT INTO policy_events (session_id, kind, detail, ts) VALUES (?, ?, ?, ?)')
+    .run(sessionId || null, kind || '', detail || '', new Date().toISOString());
+}
+
+function countPolicyEvents(sessionId, kind) {
+  initDb();
+  const row = db.prepare('SELECT COUNT(*) AS n FROM policy_events WHERE session_id = ? AND kind = ?')
+    .get(sessionId || '', kind || '');
+  return row ? row.n : 0;
+}
+
 function closeDb() {
   if (db && typeof db.close === 'function') {
     db.close();
@@ -234,6 +337,10 @@ module.exports = {
   getHandoff,
   getLatestHandoffForProject,
   getMetricsSummary,
+  logCost,
+  getCostSummary,
+  logPolicyEvent,
+  countPolicyEvents,
   closeDb,
   isNodeSqlite: () => isNodeSqlite
 };
