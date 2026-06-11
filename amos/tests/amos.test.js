@@ -255,6 +255,7 @@ test('22. Event session-start: outputs valid JSON format', () => {
   assert.strictEqual(res.status, 0);
   const parsed = JSON.parse(res.stdout);
   assert.ok(parsed.hookSpecificOutput);
+  assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'SessionStart');
   assert.ok(parsed.hookSpecificOutput.additionalContext);
 });
 
@@ -321,28 +322,24 @@ test('28. Event session-start: CLI argument takes priority over stdin JSON event
 // CATEGORY 5: Event Routing: stop
 // ==========================================
 
-test('29. Event stop (standard): defaults to allow', () => {
+test('29. Event stop (standard): defaults to silent allow (no stdout)', () => {
   cleanLogsAndDb();
   const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'standard' });
   assert.strictEqual(res.status, 0);
-  const parsed = JSON.parse(res.stdout);
-  assert.strictEqual(parsed.decision, 'allow');
-  assert.ok(parsed.reason);
+  assert.strictEqual(res.stdout.trim(), '');
 });
 
-test('30. Event stop (minimal): defaults to allow', () => {
+test('30. Event stop (minimal): defaults to silent allow (no stdout)', () => {
   cleanLogsAndDb();
   const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'minimal' });
   assert.strictEqual(res.status, 0);
-  const parsed = JSON.parse(res.stdout);
-  assert.strictEqual(parsed.decision, 'allow');
+  assert.strictEqual(res.stdout.trim(), '');
 });
 
-test('31. Event stop (strict): allows session when no violations', () => {
+test('31. Event stop (strict): silent allow when no violations', () => {
   cleanLogsAndDb();
   const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'strict' }, { data: { violations: [] } });
-  const parsed = JSON.parse(res.stdout);
-  assert.strictEqual(parsed.decision, 'allow');
+  assert.strictEqual(res.stdout.trim(), '');
 });
 
 test('32. Event stop (strict): blocks session when violations are present', () => {
@@ -370,11 +367,10 @@ test('34. Event stop (standard): blocks session when forceBlock is true', () => 
   assert.ok(parsed.reason.includes('forceBlock'));
 });
 
-test('35. Event stop (standard): allows session even when violations are present', () => {
+test('35. Event stop (standard): silent allow even when violations are present', () => {
   cleanLogsAndDb();
   const res = runAmos(['event', 'stop'], { AMOS_PROFILE: 'standard' }, { data: { violations: ['lint-error'] } });
-  const parsed = JSON.parse(res.stdout);
-  assert.strictEqual(parsed.decision, 'allow');
+  assert.strictEqual(res.stdout.trim(), '');
 });
 
 
