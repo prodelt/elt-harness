@@ -45,7 +45,7 @@ try {
     case 'resume':  handleResume(args[1]); break;
     case 'status':  handleStatus(args.slice(1)); break;
     case 'report':  handleReport();        break;
-    case 'doctor':  handleDoctor();        break;
+    case 'doctor':  handleDoctor(args.slice(1)); break;
     case 'version': handleVersion();       break;
     default:
       // Unknown command → silent exit 0
@@ -95,7 +95,7 @@ function handleEvent(eventArg) {
   // Resolve event name: CLI arg takes priority over stdin field
   const eventName = eventArg || parsedInput.hook_event_name;
 
-  if (!eventName || !['session-start', 'stop'].includes(eventName)) {
+  if (!eventName || !['session-start', 'stop', 'pre-tool'].includes(eventName)) {
     process.exit(0);
   }
 
@@ -197,6 +197,24 @@ function handleEvent(eventArg) {
         fs.writeFileSync(path.join(handoffsDir, `${sessionId}.yaml`), toYaml(handoff), 'utf8');
       }
     } catch (_) { /* fail-soft */ }
+
+  } else if (eventName === 'pre-tool') {
+    const toolName = parsedInput.tool_name || '';
+    const { evaluateToolPolicy } = require('../lib/policy.js');
+    const rule = evaluateToolPolicy(toolName);
+
+    if (rule) {
+      const output = {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `[amos policy:${rule.id}] ${toolName} is blocked. ${rule.message}`
+        }
+      };
+      responseString = JSON.stringify(output);
+      console.log(responseString);
+    }
+    // No matching rule -> silent allow (no stdout)
   }
 
   // Log metrics (fail-soft)
@@ -384,7 +402,13 @@ function handleReport() {
   }
 }
 
-function handleDoctor() {
+function handleDoctor(subArgs) {
+  subArgs = Array.isArray(subArgs) ? subArgs : [];
+  if (subArgs[0] === 'browser') {
+    handleDoctorBrowser(subArgs.slice(1));
+    return;
+  }
+
   console.log('[AMOS DOCTOR DIAGNOSTIC REPORT]');
   console.log('------------------------------------');
 
@@ -456,9 +480,35 @@ function handleDoctor() {
   checkAmosHook('claude', 'Claude', 'Stop', 'event stop');
   checkAmosHook('codex', 'Codex', 'Stop', 'event stop');
   checkAmosHook('gemini', 'Gemini', 'Stop', 'event stop');
+  checkAmosHook('claude', 'Claude', 'PreToolUse', 'event pre-tool');
+  checkAmosHook('codex', 'Codex', 'PreToolUse', 'event pre-tool');
+  checkAmosHook('gemini', 'Gemini', 'PreToolUse', 'event pre-tool');
+
+  // Browser tooling — quick check, no auto-repair (use `amos doctor browser --repair`)
+  console.log('------------------------------------');
+  console.log('Browser Tooling:');
+  const { runBrowserDoctor } = require('../lib/browser-doctor.js');
+  for (const line of runBrowserDoctor({ repair: false }).lines) {
+    console.log(line);
+  }
 
   console.log('------------------------------------');
   console.log('AMOS Kernel diagnostic complete.');
+}
+
+function handleDoctorBrowser(subArgs) {
+  const repair = Array.isArray(subArgs) && subArgs.includes('--repair');
+  console.log('[AMOS DOCTOR: BROWSER]');
+  console.log('------------------------------------');
+
+  const { runBrowserDoctor } = require('../lib/browser-doctor.js');
+  const result = runBrowserDoctor({ repair });
+  for (const line of result.lines) {
+    console.log(line);
+  }
+
+  console.log('------------------------------------');
+  console.log(result.ok ? 'Browser tooling: OK' : 'Browser tooling: ISSUES FOUND');
 }
 
 function handleVersion() {
