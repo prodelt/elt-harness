@@ -104,6 +104,16 @@ function createTables() {
       ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS instincts (
+      pattern TEXT PRIMARY KEY,
+      uses INTEGER DEFAULT 0,
+      confidence REAL DEFAULT 0,
+      first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 function logEvent(event, project, durationMs, outputChars) {
@@ -321,6 +331,46 @@ function countPolicyEvents(sessionId, kind) {
   return row ? row.n : 0;
 }
 
+// Instinct ledger (S7) — upsert a pattern, bump its use count, recompute
+// confidence = min(1, uses/5). Append-only semantics via ON CONFLICT.
+function recordInstinct(pattern, inc) {
+  initDb();
+  if (typeof pattern !== 'string' || !pattern.trim()) return;
+  const step = (typeof inc === 'number' && inc > 0) ? inc : 1;
+  const now = new Date().toISOString();
+  try {
+    db.prepare(`
+      INSERT INTO instincts (pattern, uses, confidence, first_seen, last_seen)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(pattern) DO UPDATE SET
+        uses = uses + excluded.uses,
+        confidence = MIN(1.0, (uses + excluded.uses) / 5.0),
+        last_seen = excluded.last_seen
+    `).run(pattern.trim(), step, Math.min(1, step / 5), now, now);
+  } catch (e) {
+    const existing = db.prepare('SELECT uses FROM instincts WHERE pattern = ?').get(pattern.trim());
+    const uses = (existing ? existing.uses : 0) + step;
+    db.prepare(`
+      INSERT OR REPLACE INTO instincts (pattern, uses, confidence, first_seen, last_seen)
+      VALUES (?, ?, ?, COALESCE((SELECT first_seen FROM instincts WHERE pattern = ?), ?), ?)
+    `).run(pattern.trim(), uses, Math.min(1, uses / 5), pattern.trim(), now, now);
+  }
+}
+
+// Read instincts, optionally filtered by minimum uses/confidence, sorted by uses desc.
+function getInstincts(opts) {
+  initDb();
+  const o = opts || {};
+  const minUses = typeof o.minUses === 'number' ? o.minUses : 0;
+  const minConfidence = typeof o.minConfidence === 'number' ? o.minConfidence : 0;
+  return db.prepare(`
+    SELECT pattern, uses, confidence, first_seen, last_seen
+    FROM instincts
+    WHERE uses >= ? AND confidence >= ?
+    ORDER BY uses DESC, pattern ASC
+  `).all(minUses, minConfidence);
+}
+
 function closeDb() {
   if (db && typeof db.close === 'function') {
     db.close();
@@ -341,6 +391,8 @@ module.exports = {
   getCostSummary,
   logPolicyEvent,
   countPolicyEvents,
+  recordInstinct,
+  getInstincts,
   closeDb,
   isNodeSqlite: () => isNodeSqlite
 };

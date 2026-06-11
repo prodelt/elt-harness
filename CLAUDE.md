@@ -38,7 +38,7 @@ node "%USERPROFILE%\.amos\bin\amos.js" doctor   # AMOS ядро
 ## Current State
 - **Score ~97/100**. Полная история S1-S60: `.planning/PROJECT-HISTORY.md`. Форматы вывода хуков: `.planning/HOOKS-ARCHITECTURE.md`.
 - **48 hook-команд** в settings.json; workflow-discipline advisory-only.
-- **AMOS** (Agent Mini-OS, v4→v5): CLI-ядро заменяет хуки единым `bin/amos.js` (SQLite state, cross-client resume). Спринты 0-5 закрыты (S5: cost_ledger + `amos cost` + model-policy gate для сабагентов + env-тюнинг). Следующий — Sprint 6 (graph bootstrap). Roadmap: `.planning/ARCHITECTURE-AGENT-OS-V5.md`.
+- **AMOS** (Agent Mini-OS, v4→v5): CLI-ядро заменяет хуки единым `bin/amos.js` (SQLite state, cross-client resume). Спринты 0-8 закрыты. S6: `amos graph ensure` (авто-граф через `graphify update .`) + SessionStart-хинт. S7: таблица `instincts` + Stop-hook запись повторённых команд + `amos evolve` (PR-style SKILL.md, без авто-коммита). S8: `amos roster [--write]` — 12 ролей (триада persona/process/metrics, только haiku|sonnet) в `~/.claude/skills/agents`. Roadmap: `.planning/ARCHITECTURE-AGENT-OS-V5.md`.
 - **Context-fix 2026-06-11**: системный промпт ужат (MCP-чистка, CLAUDE.md 13.7→5KB, MEMORY архив, токен в env). Источник раздувания — не хуки (UserPromptSubmit/PostToolUse инжектят 0Б), а раздутый промпт в cache_read каждый ход.
 
 ## Git Workflow

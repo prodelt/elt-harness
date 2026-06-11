@@ -48,6 +48,9 @@ try {
     case 'doctor':    handleDoctor(args.slice(1)); break;
     case 'preflight': handlePreflight(args.slice(1)); break;
     case 'cost':      handleCost(args.slice(1)); break;
+    case 'graph':     handleGraph(args.slice(1)); break;
+    case 'evolve':    handleEvolve(args.slice(1)); break;
+    case 'roster':    handleRoster(args.slice(1)); break;
     case 'version':   handleVersion();       break;
     default:
       // Unknown command → silent exit 0
@@ -124,6 +127,17 @@ function handleEvent(eventArg) {
         "Bootstrap: Please verify your amos installation using 'amos doctor'."
       ].join('\n');
     }
+
+    // S6: in a real project that lacks a code graph, nudge once (1 line, budget-safe)
+    try {
+      const cwd = parsedInput.cwd;
+      if (cwd && path.isAbsolute(cwd) && fs.existsSync(cwd)) {
+        const { hasGraph } = require('../lib/graph.js');
+        if (!hasGraph(cwd)) {
+          contextStr += `\nGraph: no code graph here — run 'amos graph ensure' to bootstrap (cheap, one-time).`;
+        }
+      }
+    } catch (_) { /* fail-soft — hint is optional */ }
 
     const output = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: contextStr } };
     responseString = JSON.stringify(output);
@@ -215,6 +229,23 @@ function handleEvent(eventArg) {
             client: inferClient(parsedInput),
             ...usage
           });
+        }
+      }
+    } catch (_) { /* fail-soft */ }
+
+    // Instinct ledger (S7) — record commands repeated within the session so the
+    // pattern accrues across sessions and eventually graduates via `amos evolve`.
+    try {
+      const tp = parsedInput.transcript_path;
+      if (tp && fs.existsSync(tp)) {
+        const { extractCommandsFromTranscript } = require('../lib/cost.js');
+        const { extractInstincts } = require('../lib/instincts.js');
+        const commands = extractCommandsFromTranscript(tp);
+        const candidates = extractInstincts(commands).filter(i => i.uses >= 2);
+        if (candidates.length > 0) {
+          const db = require('../lib/db.js');
+          db.initDb();
+          for (const c of candidates) db.recordInstinct(`cmd:${c.pattern}`, c.uses);
         }
       }
     } catch (_) { /* fail-soft */ }
@@ -648,6 +679,113 @@ function handleDoctorBrowser(subArgs) {
 
   console.log('------------------------------------');
   console.log(result.ok ? 'Browser tooling: OK' : 'Browser tooling: ISSUES FOUND');
+}
+
+// ---------------------------------------------------------------------------
+// Graph (S6) — amos graph ensure [cwd]: bootstrap a code graph where missing
+// ---------------------------------------------------------------------------
+function handleGraph(subArgs) {
+  subArgs = Array.isArray(subArgs) ? subArgs : [];
+  const sub = subArgs[0];
+  if (sub !== 'ensure') {
+    console.log('Usage: amos graph ensure [cwd]');
+    return;
+  }
+  const target = subArgs[1] && !subArgs[1].startsWith('--') ? subArgs[1] : process.cwd();
+  const { ensureGraph } = require('../lib/graph.js');
+  const result = ensureGraph(target);
+  if (result.status === 'present') {
+    console.log(`[AMOS GRAPH] present — ${target} already has a code graph.`);
+  } else if (result.status === 'created') {
+    console.log(`[AMOS GRAPH] bootstrapped graph for ${target} (graphify update .).`);
+  } else {
+    console.log(`[AMOS GRAPH] could not bootstrap ${target}: ${result.error || 'unknown error'}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Evolve (S7) — propose SKILL.md drafts from high-confidence instincts.
+// PR-style proposal only — never auto-commits.
+// ---------------------------------------------------------------------------
+function handleEvolve(subArgs) {
+  subArgs = Array.isArray(subArgs) ? subArgs : [];
+  const json = subArgs.includes('--json');
+  const minConfidence = 0.8;
+  const minUses = 5;
+
+  let rows = [];
+  try {
+    const db = require('../lib/db.js');
+    db.initDb();
+    rows = db.getInstincts({ minConfidence, minUses });
+  } catch (err) {
+    handleGlobalError(err);
+    return;
+  }
+
+  const { draftSkillMarkdown } = require('../lib/instincts.js');
+  const drafts = rows.map(r => ({ pattern: r.pattern, uses: r.uses, confidence: r.confidence, skill: draftSkillMarkdown(r) }));
+
+  if (json) {
+    console.log(JSON.stringify({ count: drafts.length, minConfidence, minUses, drafts }, null, 2));
+    return;
+  }
+
+  console.log('[AMOS EVOLVE] self-learning proposals (review before adopting — no auto-commit)');
+  console.log('----------------------------------------------------------------------');
+  if (drafts.length === 0) {
+    console.log(`No instincts cleared the bar (confidence >= ${minConfidence}, uses >= ${minUses}).`);
+    console.log('Instincts accrue as the Stop hook records repeated commands/fixes.');
+    return;
+  }
+  for (const d of drafts) {
+    console.log(`\n### Candidate: ${d.pattern}  (uses=${d.uses}, confidence=${d.confidence.toFixed(2)})`);
+    console.log('Proposed SKILL.md draft:');
+    console.log(d.skill);
+  }
+  console.log('----------------------------------------------------------------------');
+  console.log(`${drafts.length} candidate(s). Run write-a-skill to refine, then commit manually.`);
+}
+
+// ---------------------------------------------------------------------------
+// Roster (S8) — amos roster [--json|--write]: 12-role AI-company roster.
+// --write deploys agent markdown files to ~/.claude/skills/agents/.
+// ---------------------------------------------------------------------------
+function handleRoster(subArgs) {
+  subArgs = Array.isArray(subArgs) ? subArgs : [];
+  const json = subArgs.includes('--json');
+  const write = subArgs.includes('--write');
+  const { getRoster, validateRoster, formatRoster, renderAgentMarkdown } = require('../lib/roster.js');
+  const roster = getRoster();
+  const check = validateRoster(roster);
+
+  if (json) {
+    console.log(JSON.stringify({ valid: check.ok, errors: check.errors, roster }, null, 2));
+    return;
+  }
+
+  if (write) {
+    const dir = path.join(os.homedir(), '.claude', 'skills', 'agents');
+    let written = 0;
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      for (const role of roster) {
+        fs.writeFileSync(path.join(dir, `${role.id}.md`), renderAgentMarkdown(role), 'utf8');
+        written++;
+      }
+    } catch (e) {
+      console.log(`[AMOS ROSTER] write failed after ${written} files: ${e.message}`);
+      return;
+    }
+    console.log(`[AMOS ROSTER] deployed ${written} agent definitions to ${dir}`);
+    return;
+  }
+
+  console.log('[AMOS ROSTER] 12-role AI company (model-policy: haiku|sonnet only)');
+  console.log('----------------------------------------------------------------------');
+  console.log(formatRoster(roster));
+  console.log('----------------------------------------------------------------------');
+  console.log(check.ok ? 'Roster valid. Deploy with: amos roster --write' : `INVALID: ${check.errors.join('; ')}`);
 }
 
 function handleVersion() {
