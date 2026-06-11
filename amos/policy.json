@@ -29,5 +29,13 @@
       "redirect": "agent-browser",
       "message": "Web search policy: WebSearch is forbidden. Use `cmd /c agent-browser` for search/scraping; WebFetch is allowed only for raw JSON/API endpoints."
     }
-  ]
+  ],
+  "modelPolicy": {
+    "enabled": true,
+    "threshold": 3,
+    "cheapModels": [
+      "haiku",
+      "sonnet"
+    ]
+  }
 }
