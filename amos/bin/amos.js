@@ -123,13 +123,13 @@ function handleEvent(eventArg) {
       ].join('\n');
     }
 
-    const output = { hookSpecificOutput: { additionalContext: contextStr } };
+    const output = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: contextStr } };
     responseString = JSON.stringify(output);
 
     // ── 2KB HARD BUDGET ──────────────────────────────────────────────────
     if (Buffer.byteLength(responseString, 'utf8') > MAX_OUTPUT_BYTES) {
       const truncated = contextStr.slice(0, 400) + '\n…[AMOS: truncated to 2KB budget]';
-      responseString = JSON.stringify({ hookSpecificOutput: { additionalContext: truncated } });
+      responseString = JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: truncated } });
     }
     // ─────────────────────────────────────────────────────────────────────
 
@@ -146,8 +146,8 @@ function handleEvent(eventArg) {
     } catch (_) { /* fail-soft */ }
 
   } else if (eventName === 'stop') {
-    let decision = 'allow';
-    let reason = 'Stop event processed successfully.';
+    let decision = null; // null = silent allow (no stdout)
+    let reason = '';
 
     if (profile === 'strict') {
       if (parsedInput.data && parsedInput.data.violations && parsedInput.data.violations.length > 0) {
@@ -156,8 +156,6 @@ function handleEvent(eventArg) {
       } else if (parsedInput.data && parsedInput.data.forceBlock) {
         decision = 'block';
         reason = 'Blocked by forceBlock directive.';
-      } else {
-        reason = 'All rules enforced and verified. No violations found.';
       }
     } else {
       if (parsedInput.data && parsedInput.data.forceBlock) {
@@ -166,8 +164,10 @@ function handleEvent(eventArg) {
       }
     }
 
-    responseString = JSON.stringify({ decision, reason });
-    console.log(responseString);
+    if (decision === 'block') {
+      responseString = JSON.stringify({ decision, reason });
+      console.log(responseString);
+    }
 
     // Persist session end + structured handoff (fail-soft)
     try {
