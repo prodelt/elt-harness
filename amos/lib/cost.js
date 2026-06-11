@@ -74,4 +74,51 @@ function extractUsageFromTranscript(transcriptPath, opts) {
   return totals;
 }
 
-module.exports = { inferClient, extractUsageFromTranscript, MAX_TRANSCRIPT_BYTES };
+// Pull shell command strings (Bash/PowerShell tool_use inputs) out of a JSONL
+// transcript. Powers S7 instinct extraction. Returns [] when unreadable —
+// bounded by the same byte cap as usage parsing to stay under the hook budget.
+function extractCommandsFromTranscript(transcriptPath, opts) {
+  const maxBytes = (opts && opts.maxBytes) || MAX_TRANSCRIPT_BYTES;
+  let raw;
+  try {
+    const stat = fs.statSync(transcriptPath);
+    if (stat.size > maxBytes) {
+      const fd = fs.openSync(transcriptPath, 'r');
+      try {
+        const buf = Buffer.alloc(maxBytes);
+        fs.readSync(fd, buf, 0, maxBytes, stat.size - maxBytes);
+        raw = buf.toString('utf8');
+        raw = raw.slice(raw.indexOf('\n') + 1);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } else {
+      raw = fs.readFileSync(transcriptPath, 'utf8');
+    }
+  } catch (e) {
+    return [];
+  }
+
+  const commands = [];
+  for (const line of raw.split('\n')) {
+    if (!line || line.charCodeAt(0) !== 123 /* '{' */) continue;
+    if (line.indexOf('tool_use') === -1) continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch (e) {
+      continue;
+    }
+    const content = obj && obj.message && obj.message.content;
+    if (!Array.isArray(content)) continue;
+    for (const item of content) {
+      if (item && item.type === 'tool_use' && (item.name === 'Bash' || item.name === 'PowerShell')) {
+        const cmd = item.input && typeof item.input.command === 'string' ? item.input.command.trim() : '';
+        if (cmd) commands.push(cmd);
+      }
+    }
+  }
+  return commands;
+}
+
+module.exports = { inferClient, extractUsageFromTranscript, extractCommandsFromTranscript, MAX_TRANSCRIPT_BYTES };
