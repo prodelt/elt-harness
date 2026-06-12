@@ -1,6 +1,6 @@
 # Agent Surface Audit
 
-Generated: 2026-06-03T21:07:35.308Z
+Generated: 2026-06-11T23:32:41.497Z
 Root: C:\Claude playground\Pipiline setupper
 Status: pass
 
@@ -8,27 +8,27 @@ Status: pass
 
 | Client | Hook commands | Skills | Unsupported configured events | Missing skills vs Claude |
 |---|---:|---:|---|---:|
-| claude | 137 | 99 | none | 0 |
-| codex | 108 | 106 | none | 0 |
-| gemini | 137 | 109 | Notification, FileChanged | 1 |
+| claude | 128 | 99 | none | 0 |
+| codex | 113 | 106 | none | 0 |
+| gemini | 140 | 109 | Notification, FileChanged | 1 |
 
 ## Clients
 
 ### claude
 - settings: present (C:\Users\espad\.claude\settings.json)
-- hook commands: 137
+- hook commands: 128
 - skills: 99 (C:\Users\espad\.claude\skills)
 - unsupported events: none
 
 ### codex
 - settings: present (C:\Users\espad\.codex\hooks.json)
-- hook commands: 108
+- hook commands: 113
 - skills: 106 (C:\Users\espad\.codex\skills)
 - unsupported events: Notification, FileChanged
 
 ### gemini
 - settings: present (C:\Users\espad\.gemini\settings.json)
-- hook commands: 137
+- hook commands: 140
 - skills: 109 (C:\Users\espad\.gemini\skills)
 - unsupported events: Notification, FileChanged
 
