@@ -63,3 +63,6 @@ audit/S11_pipeline_top1/PLAN\ (1).md
 # Agent workspace directories
 .agents/
 
+# Vendored external skill packs (provenance tracked in config/agent-skill-sources.json)
+vendor/
+
