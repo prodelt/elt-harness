@@ -1,10 +1,16 @@
 {
-  "version": 1,
-  "updatedAt": "2026-06-03",
+  "version": 2,
+  "updatedAt": "2026-06-12",
   "policy": {
     "defaultExternalStatus": "review-required",
-    "approvedSourceClients": ["claude"],
-    "targetClients": ["claude", "codex", "gemini"],
+    "approvedSourceClients": [
+      "claude"
+    ],
+    "targetClients": [
+      "claude",
+      "codex",
+      "gemini"
+    ],
     "requiredReview": [
       "license",
       "publisher",
@@ -21,7 +27,10 @@
       "name": "pipeline",
       "tier": "core",
       "status": "approved",
-      "source": { "type": "local-repo", "path": "audit/S11_pipeline_top1/skills/pipeline" },
+      "source": {
+        "type": "local-repo",
+        "path": "audit/S11_pipeline_top1/skills/pipeline"
+      },
       "purpose": "Unified task entrypoint, complexity classification, state, ledger, closeout proof."
     },
     {
@@ -29,7 +38,11 @@
       "name": "architect-first",
       "tier": "core",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "architect-first" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "architect-first"
+      },
       "purpose": "Architecture contract before complex implementation."
     },
     {
@@ -37,7 +50,11 @@
       "name": "sprint",
       "tier": "core",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "sprint" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "sprint"
+      },
       "purpose": "Small ordered implementation slices with verification between slices."
     },
     {
@@ -45,7 +62,11 @@
       "name": "tdd",
       "tier": "core",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "tdd" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "tdd"
+      },
       "purpose": "Red-green-refactor loop for behavior changes."
     },
     {
@@ -53,7 +74,11 @@
       "name": "diagnose",
       "tier": "core",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "diagnose" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "diagnose"
+      },
       "purpose": "Root-cause investigation for regressions and hard bugs."
     },
     {
@@ -61,7 +86,11 @@
       "name": "inline-review",
       "tier": "verifier",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "inline-review" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "inline-review"
+      },
       "purpose": "Post-edit code review gate."
     },
     {
@@ -69,7 +98,11 @@
       "name": "security-best-practices",
       "tier": "verifier",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "security-best-practices" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "security-best-practices"
+      },
       "purpose": "Security review for auth, API, input, secrets, and dependency-sensitive changes."
     },
     {
@@ -77,7 +110,11 @@
       "name": "qa",
       "tier": "verifier",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "qa" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "qa"
+      },
       "purpose": "QA workflows for user-visible behavior."
     },
     {
@@ -85,7 +122,10 @@
       "name": "agent-browser",
       "tier": "verifier",
       "status": "approved",
-      "source": { "type": "local-repo", "path": "audit/S11_pipeline_top1/skills/agent-browser" },
+      "source": {
+        "type": "local-repo",
+        "path": "audit/S11_pipeline_top1/skills/agent-browser"
+      },
       "purpose": "Strict default browser automation skill for agent-driven web testing, screenshots, snapshots, and UI QA."
     },
     {
@@ -93,7 +133,11 @@
       "name": "git-flow",
       "tier": "delivery",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "git-flow" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "git-flow"
+      },
       "purpose": "Branch, commit, push, and PR workflow discipline."
     },
     {
@@ -101,7 +145,11 @@
       "name": "ship",
       "tier": "delivery",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "ship" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "ship"
+      },
       "purpose": "Ship gate and release closeout."
     },
     {
@@ -109,7 +157,11 @@
       "name": "init-project",
       "tier": "bootstrap",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "init-project" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "init-project"
+      },
       "purpose": "Create or upgrade project AI docs and registry metadata."
     },
     {
@@ -117,7 +169,11 @@
       "name": "sync-docs",
       "tier": "bootstrap",
       "status": "approved",
-      "source": { "type": "local-client", "client": "claude", "path": "sync-docs" },
+      "source": {
+        "type": "local-client",
+        "client": "claude",
+        "path": "sync-docs"
+      },
       "purpose": "Synchronize AGENTS, CLAUDE, and Gemini docs."
     }
   ],
@@ -157,6 +213,90 @@
       "repo": "plaited/agent-eval-harness",
       "status": "pattern-only",
       "reason": "Schema-driven JSONL agent eval pipeline with run, grade, compare, and calibration modes."
+    },
+    {
+      "id": "addyosmani-agent-skills",
+      "repo": "addyosmani/agent-skills",
+      "status": "review-required",
+      "kind": "skill-pack",
+      "localDir": "addyosmani-agent-skills",
+      "scanScope": "skills",
+      "commit": "d187883b7d761265309cdcc0f202cc76b4b3fb06",
+      "license": "MIT",
+      "reason": "24 lifecycle skills + 4 personas + 4 checklists. Curated non-overlapping subset installed always-available; full pack exposed via /lifecycle dispatcher.",
+      "scan": {
+        "verdict": "review",
+        "rawSeverity": "CRITICAL",
+        "rawScore": 100,
+        "blockingCount": 0,
+        "advisoryCount": 8,
+        "execFileCount": 1,
+        "commit": "d187883b7d761265309cdcc0f202cc76b4b3fb06",
+        "scannedAt": "2026-06-12T10:30:47.669Z",
+        "scanner": "skillspector-static (skill-scan.js)"
+      }
+    },
+    {
+      "id": "pm-skills",
+      "repo": "phuryn/pm-skills",
+      "status": "review-required",
+      "kind": "skill-pack",
+      "localDir": "pm-skills",
+      "scanScope": "",
+      "commit": "d384f0c9eb81fe74656a4f6da168587836939edb",
+      "license": "MIT",
+      "reason": "68 PM skills across 9 plugins (new domain). Vendored and exposed on-demand via /pm dispatcher; not installed as always-available skills (token budget).",
+      "scan": {
+        "verdict": "pass",
+        "rawSeverity": "CRITICAL",
+        "rawScore": 100,
+        "blockingCount": 0,
+        "advisoryCount": 0,
+        "execFileCount": 1,
+        "commit": "d384f0c9eb81fe74656a4f6da168587836939edb",
+        "scannedAt": "2026-06-12T10:31:04.183Z",
+        "scanner": "skillspector-static (skill-scan.js)"
+      }
+    },
+    {
+      "id": "mattpocock-skills",
+      "repo": "mattpocock/skills",
+      "status": "review-required",
+      "kind": "skill-pack",
+      "localDir": "mattpocock-skills",
+      "scanScope": "skills",
+      "commit": "694fa30311e02c2639942308513555e61ee84a6f",
+      "license": "MIT",
+      "reason": "Engineering/productivity skills; most already installed. Only missing skills (grill-with-docs, zoom-out, handoff, prototype) installed.",
+      "scan": {
+        "verdict": "review",
+        "rawSeverity": "CRITICAL",
+        "rawScore": 100,
+        "blockingCount": 0,
+        "advisoryCount": 3,
+        "execFileCount": 2,
+        "commit": "694fa30311e02c2639942308513555e61ee84a6f",
+        "scannedAt": "2026-06-12T10:31:08.999Z",
+        "scanner": "skillspector-static (skill-scan.js)"
+      }
+    },
+    {
+      "id": "skillspector",
+      "repo": "NVIDIA/SkillSpector",
+      "status": "review-required",
+      "kind": "tool",
+      "localDir": "skillspector",
+      "commit": "1a7bf026a3cf0ecfd957b6c173244d51b3141baf",
+      "license": "Apache-2.0",
+      "reason": "Static security scanner vendored as TOOLING behind tools/skill-scan.js (not installed as an agent skill). Ships intentionally-malicious test fixtures, so excluded from the candidate gate."
+    },
+    {
+      "id": "hindsight-docs",
+      "repo": "vectorize-io/hindsight",
+      "status": "review-required",
+      "kind": "doc-skill",
+      "license": "MIT",
+      "reason": "Only the hindsight-docs documentation skill is installed (knowledge of Hindsight memory API). The Docker/Postgres memory server is NOT run; current MEMORY.md/AMOS memory remains primary."
     }
   ]
 }

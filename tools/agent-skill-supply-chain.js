@@ -5,10 +5,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 
 const DEFAULT_MANIFEST = path.resolve(__dirname, '..', 'config', 'agent-skill-sources.json');
 const DEFAULT_REGISTRY = path.join(os.homedir(), '.claude', 'projects-registry.json');
 const DEFAULT_REPO_ROOT = path.resolve(__dirname, '..');
+const VENDOR_ROOT = path.join(DEFAULT_REPO_ROOT, 'vendor', 'skill-packs');
+const SKILL_SCAN = path.join(__dirname, 'skill-scan.js');
 
 const CLIENT_ROOTS = {
   claude: (home) => path.join(home, '.claude', 'skills'),
@@ -274,6 +277,76 @@ function archiveMissingProjects(registry, options) {
   return { applied: options.apply, actions, errors: [] };
 }
 
+function gitCommit(dir) {
+  const r = spawnSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+function runSkillScan(targetPath) {
+  const r = spawnSync(process.execPath, [SKILL_SCAN, targetPath, '--json'], {
+    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true,
+  });
+  const out = (r.stdout || '').trim();
+  if (!out) return { error: (r.stderr || 'scanner produced no output').slice(0, 300) };
+  try { return JSON.parse(out); } catch (_) { return { error: 'unparseable scan output' }; }
+}
+
+/**
+ * Run the SkillSpector gate (skill-scan.js) over each vendored skill-pack
+ * candidate and record evidence. Tool/doc-skill candidates are not scanned
+ * here (tool ships malicious test fixtures; doc-skill is scanned post-install).
+ * With --apply, writes scan evidence + commit back into the manifest and flips
+ * status to "blocked" on a blocked verdict.
+ */
+function scanCandidates(manifest, options) {
+  const candidates = manifest.externalCandidates || [];
+  const results = [];
+  let changed = false;
+  for (const candidate of candidates) {
+    if (candidate.kind !== 'skill-pack' || !candidate.localDir) {
+      results.push({
+        id: candidate.id,
+        scanned: false,
+        note: candidate.kind === 'tool' ? 'tool — excluded from gate'
+          : candidate.kind === 'doc-skill' ? 'doc-skill — scanned post-install'
+          : 'no local clone',
+      });
+      continue;
+    }
+    const dir = path.join(VENDOR_ROOT, candidate.localDir);
+    const scanPath = candidate.scanScope ? path.join(dir, candidate.scanScope) : dir;
+    if (!fs.existsSync(scanPath)) {
+      results.push({ id: candidate.id, scanned: false, error: `vendor path missing: ${scanPath}` });
+      continue;
+    }
+    const scan = runSkillScan(scanPath);
+    if (scan.error) {
+      results.push({ id: candidate.id, scanned: false, error: scan.error });
+      continue;
+    }
+    const evidence = {
+      verdict: scan.verdict,
+      rawSeverity: scan.rawSeverity,
+      rawScore: scan.rawScore,
+      blockingCount: scan.blockingCount,
+      advisoryCount: scan.advisoryCount,
+      execFileCount: scan.execFileCount,
+      commit: gitCommit(dir),
+      scannedAt: new Date().toISOString(),
+      scanner: 'skillspector-static (skill-scan.js)',
+    };
+    results.push({ id: candidate.id, scanned: true, ...evidence });
+    if (options.apply) {
+      candidate.scan = evidence;
+      if (evidence.commit) candidate.commit = evidence.commit;
+      if (scan.verdict === 'blocked') candidate.status = 'blocked';
+      changed = true;
+    }
+  }
+  if (options.apply && changed) writeJson(options.manifest, manifest);
+  return { kind: 'scan-candidates', applied: Boolean(options.apply), results };
+}
+
 function buildAudit(options) {
   const manifest = readJson(options.manifest);
   const validation = validateManifest(manifest);
@@ -294,6 +367,14 @@ function buildAudit(options) {
 }
 
 function printHuman(result) {
+  if (result.kind === 'scan-candidates') {
+    process.stdout.write(`Candidate Security Scan (apply=${result.applied})\n`);
+    for (const r of result.results) {
+      if (!r.scanned) { process.stdout.write(`  - ${r.id}: ${r.error ? 'ERROR ' + r.error : r.note}\n`); continue; }
+      process.stdout.write(`  - ${r.id}: ${r.verdict.toUpperCase()} (raw ${r.rawSeverity}, blocking=${r.blockingCount}, advisory=${r.advisoryCount}) @${(r.commit || '').slice(0, 8)}\n`);
+    }
+    return;
+  }
   if (result.kind === 'agent-skill-supply-chain') {
     const missing = result.skills.flatMap((skill) => Object.entries(skill.clients)
       .filter(([, state]) => !state.installed)
@@ -313,6 +394,7 @@ function run(options) {
   const validation = validateManifest(manifest);
   if (!validation.ok) return { kind: 'agent-skill-supply-chain-error', validation };
 
+  if (options.command === 'scan-candidates') return scanCandidates(manifest, options);
   if (options.command === 'install-skills') return installApprovedSkills(manifest, options);
   if (options.command === 'rollout-projects') return rolloutProjects(manifest, readRegistry(options.registry), options);
   if (options.command === 'archive-missing-projects') return archiveMissingProjects(readRegistry(options.registry), options);
@@ -344,6 +426,7 @@ module.exports = {
   parseArgs,
   rolloutProjects,
   run,
+  scanCandidates,
   skillSourcePath,
   validateManifest,
 };
