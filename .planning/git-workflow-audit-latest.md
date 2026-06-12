@@ -1,13 +1,13 @@
 # Git Workflow Audit
 
-Generated: 2026-06-03T20:40:02.084Z
+Generated: 2026-06-12T05:36:40.326Z
 Project root: `C:/Claude playground/Pipiline setupper`
 Git root: `C:/Claude playground/Pipiline setupper`
-Branch: `session/2026-05-30-0213`
+Branch: `amos/sprint1-kernel`
 
 ## Summary
 
-Status: **PASS** — 3 pass / 0 warn / 0 fail
+Status: **WARN** — 2 pass / 1 warn / 0 fail
 
 ## Checks
 
@@ -17,8 +17,9 @@ Status: **PASS** — 3 pass / 0 warn / 0 fail
 
 ### ✅ Branch detected
 **ID:** `git:branch`  **Status:** pass
-**Detail:** session/2026-05-30-0213
+**Detail:** amos/sprint1-kernel
 
-### ✅ Working tree clean (scoped)
-**ID:** `git:dirty`  **Status:** pass
-**Detail:** Only generated planning artifacts modified (11)
+### ⚠️ 2 uncommitted change(s) in project scope
+**ID:** `git:dirty`  **Status:** warn
+**Detail:** ?? .planning/handoffs/564296b2-b191-4a95-bc2e-170ea3f07369.yaml; ?? .planning/implementation_plan-global-guarantee.md
+**Repair:** Commit or stash changes before session closeout.

@@ -1,6 +1,6 @@
 # Agent Surface Audit
 
-Generated: 2026-06-11T23:32:41.497Z
+Generated: 2026-06-12T05:39:14.476Z
 Root: C:\Claude playground\Pipiline setupper
 Status: pass
 
@@ -8,21 +8,21 @@ Status: pass
 
 | Client | Hook commands | Skills | Unsupported configured events | Missing skills vs Claude |
 |---|---:|---:|---|---:|
-| claude | 128 | 99 | none | 0 |
-| codex | 113 | 106 | none | 0 |
+| claude | 130 | 99 | none | 0 |
+| codex | 115 | 106 | none | 0 |
 | gemini | 140 | 109 | Notification, FileChanged | 1 |
 
 ## Clients
 
 ### claude
 - settings: present (C:\Users\user\.claude\settings.json)
-- hook commands: 128
+- hook commands: 130
 - skills: 99 (C:\Users\user\.claude\skills)
 - unsupported events: none
 
 ### codex
 - settings: present (C:\Users\user\.codex\hooks.json)
-- hook commands: 113
+- hook commands: 115
 - skills: 106 (C:\Users\user\.codex\skills)
 - unsupported events: Notification, FileChanged
 
