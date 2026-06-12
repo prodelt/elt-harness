@@ -56,6 +56,13 @@ const CODE_CATEGORIES = new Set([
   'Data Exfiltration',
 ]);
 
+// Binary assets the static scanner sometimes "matches" on raw bytes — pure
+// noise, never a real skill behavior. Findings located here are ignored.
+const BINARY_EXT = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.pdf',
+  '.zip', '.gz', '.tar', '.woff', '.woff2', '.ttf', '.mp4', '.mov',
+]);
+
 function resolveBinary() {
   const candidates = [
     path.join(SPECTOR_DIR, '.venv', 'Scripts', 'skillspector.exe'),
@@ -106,7 +113,8 @@ function classify(issues, components) {
     const file = fileOf(i.location);
     const line = i.location && i.location.start_line ? i.location.start_line : null;
     const isExec = file ? execFiles.has(file) : false;
-    const high = sev === 'HIGH' || sev === 'CRITICAL';
+    const isBinary = file ? BINARY_EXT.has(path.extname(file).toLowerCase()) : false;
+    const high = (sev === 'HIGH' || sev === 'CRITICAL') && !isBinary;
     let gate = null;
     if (high) {
       if (HARD_BLOCK_IDS.has(i.id)) { blocked = true; gate = 'hard-block'; }
