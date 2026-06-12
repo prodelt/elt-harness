@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-06-03T20:40:02.084Z",
+  "generatedAt": "2026-06-12T05:36:40.326Z",
   "projectRoot": "C:/Claude playground/Pipiline setupper",
   "gitRoot": "C:/Claude playground/Pipiline setupper",
-  "branch": "session/2026-05-30-0213",
+  "branch": "amos/sprint1-kernel",
   "summary": {
-    "status": "pass",
-    "pass": 3,
-    "warn": 0,
+    "status": "warn",
+    "pass": 2,
+    "warn": 1,
     "fail": 0,
     "total": 3
   },
@@ -27,33 +27,23 @@
       "status": "pass",
       "id": "git:branch",
       "title": "Branch detected",
-      "detail": "session/2026-05-30-0213",
+      "detail": "amos/sprint1-kernel",
       "repair": "",
       "data": {
-        "branch": "session/2026-05-30-0213"
+        "branch": "amos/sprint1-kernel"
       }
     },
     {
-      "status": "pass",
+      "status": "warn",
       "id": "git:dirty",
-      "title": "Working tree clean (scoped)",
-      "detail": "Only generated planning artifacts modified (11)",
-      "repair": "",
+      "title": "2 uncommitted change(s) in project scope",
+      "detail": "?? .planning/handoffs/564296b2-b191-4a95-bc2e-170ea3f07369.yaml; ?? .planning/implementation_plan-global-guarantee.md",
+      "repair": "Commit or stash changes before session closeout.",
       "data": {
-        "count": 0,
-        "files": [],
-        "ignored": [
-          "M .planning/agent-surface-audit-latest.json",
-          " M .planning/agent-surface-audit-latest.md",
-          " M .planning/docs-gate-latest.json",
-          " M .planning/docs-gate-latest.md",
-          " M .planning/git-workflow-audit-latest.json",
-          " M .planning/git-workflow-audit-latest.md",
-          " M .planning/harness-checklist-latest.json",
-          " M .planning/harness-checklist-latest.md",
-          "?? .planning/CHECKPOINT-2026-05-29-p6-surface-sync.md",
-          "?? .planning/CHECKPOINT-2026-05-30-p2.2.md",
-          "?? .planning/CHECKPOINT-2026-05-30-post-merge.md"
+        "count": 2,
+        "files": [
+          "?? .planning/handoffs/564296b2-b191-4a95-bc2e-170ea3f07369.yaml",
+          "?? .planning/implementation_plan-global-guarantee.md"
         ]
       }
     }

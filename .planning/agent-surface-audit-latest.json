@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-06-11T23:32:41.497Z",
+  "generatedAt": "2026-06-12T05:39:14.476Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\espad",
   "clients": [
@@ -84,6 +84,8 @@
             "node \"C:/Users/espad/.claude/hooks/domain-agent-gate.js\"",
             "command",
             "node \"C:/Users/espad/.claude/hooks/edit-enforcer.js\"",
+            "command",
+            "node \"C:/Users/espad/.claude/hooks/plan-enforcement-gate.js\"",
             "command",
             "node \"C:/Users/espad/.claude/hooks/git-branch-guard.js\"",
             "Checking protected git branch...",
@@ -188,7 +190,7 @@
           ]
         }
       ],
-      "hookCommandCount": 128,
+      "hookCommandCount": 130,
       "skillRoot": "C:\\Users\\espad\\.claude\\skills",
       "skillCount": 99,
       "skills": [
@@ -768,6 +770,8 @@
             "command",
             "node C:/Users/espad/.claude/hooks/edit-enforcer.js",
             "command",
+            "node C:/Users/espad/.claude/hooks/plan-enforcement-gate.js",
+            "command",
             "node C:/Users/espad/.claude/hooks/git-branch-guard.js",
             "command",
             "node C:/Users/espad/.claude/hooks/conventional-commit-validator.js",
@@ -856,7 +860,7 @@
           "commands": []
         }
       ],
-      "hookCommandCount": 113,
+      "hookCommandCount": 115,
       "skillRoot": "C:\\Users\\espad\\.codex\\skills",
       "skillCount": 106,
       "skills": [
@@ -2144,14 +2148,14 @@
     {
       "client": "claude",
       "skillCount": 99,
-      "hookCommandCount": 128,
+      "hookCommandCount": 130,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "codex",
       "skillCount": 106,
-      "hookCommandCount": 113,
+      "hookCommandCount": 115,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
@@ -2269,14 +2273,14 @@
           "status": "pass",
           "id": "codemap:scope",
           "title": "Codemap graph scope OK",
-          "detail": "1453 nodes, 188 source files.",
+          "detail": "1481 nodes, 195 source files.",
           "repair": "",
           "data": {
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
-            "nodes": 1453,
-            "links": 2491,
-            "uniqueSources": 188,
+            "nodes": 1481,
+            "links": 2517,
+            "uniqueSources": 195,
             "noisyNodes": 0,
             "noisyRatio": 0,
             "outOfScope": [],
@@ -2308,7 +2312,7 @@
           "status": "pass",
           "id": "codemap:stale",
           "title": "Codemap graph has no stale semantic/rationale nodes",
-          "detail": "1453 nodes checked.",
+          "detail": "1481 nodes checked.",
           "repair": "",
           "data": {
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
@@ -2475,6 +2479,6 @@
   "summary": {
     "status": "pass",
     "unexplainedGaps": [],
-    "generatedAt": "2026-06-11T23:32:41.497Z"
+    "generatedAt": "2026-06-12T05:39:14.476Z"
   }
 }
