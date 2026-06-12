@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-06-03T21:07:35.308Z",
+  "generatedAt": "2026-06-11T23:32:41.497Z",
   "root": "C:\\Claude playground\\Pipiline setupper",
   "home": "C:\\Users\\user",
   "clients": [
@@ -46,7 +46,8 @@
             "node \"C:/Users/user/.claude/hooks/project-bootstrap-advisor.js\"",
             "Checking project bootstrap strategy...",
             "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "node \"C:/Users/user/.amos/bin/amos.js\" event session-start",
+            "AMOS session tracking..."
           ]
         },
         {
@@ -59,9 +60,7 @@
             "Checking context budget...",
             "command",
             "node \"C:/Users/user/.claude/hooks/session-size-guard.js\"",
-            "Checking session size...",
-            "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "Checking session size..."
           ]
         },
         {
@@ -107,13 +106,11 @@
             "node \"C:/Users/user/.claude/hooks/coverage-gate.js\"",
             "Checking coverage threshold...",
             "command",
-            "node \"C:/Users/user/.claude/hooks/tool-policy-gate.js\"",
-            "Enforcing browser tool policy...",
+            "node \"C:/Users/user/.amos/bin/amos.js\" event pre-tool",
+            "AMOS tool policy gate...",
             "command",
             "node \"C:/Users/user/.claude/hooks/skill-selector-gate.js\"",
-            "Ranking skill alternatives...",
-            "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "Ranking skill alternatives..."
           ]
         },
         {
@@ -150,9 +147,7 @@
             "command",
             "node \"C:/Users/user/.claude/hooks/inline-review-tracker.js\"",
             "command",
-            "node \"C:/Users/user/.claude/hooks/pipeline-tracker.js\"",
-            "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "node \"C:/Users/user/.claude/hooks/pipeline-tracker.js\""
           ]
         },
         {
@@ -167,13 +162,11 @@
             "node \"C:/Users/user/.claude/hooks/ship-gate.js\"",
             "Checking uncommitted changes...",
             "command",
-            "node \"C:/Users/user/.claude/hooks/stop-auto-checkpoint.js\"",
-            "Writing auto-checkpoint if needed...",
-            "command",
             "node \"C:/Users/user/.claude/hooks/harness-run-gate.js\"",
             "Checking harness run evidence...",
             "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "node \"C:/Users/user/.amos/bin/amos.js\" event stop",
+            "AMOS handoff write..."
           ]
         },
         {
@@ -182,9 +175,7 @@
           "fallback": "",
           "commands": [
             "command",
-            "node \"C:/Users/user/.claude/hooks/task-completed-gate.js\"",
-            "command",
-            "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
+            "node \"C:/Users/user/.claude/hooks/task-completed-gate.js\""
           ]
         },
         {
@@ -197,7 +188,7 @@
           ]
         }
       ],
-      "hookCommandCount": 137,
+      "hookCommandCount": 128,
       "skillRoot": "C:\\Users\\user\\.claude\\skills",
       "skillCount": 99,
       "skills": [
@@ -738,7 +729,10 @@
             "Injecting RAG project context...",
             "command",
             "node C:/Users/user/.claude/hooks/project-bootstrap-advisor.js",
-            "Checking project bootstrap strategy..."
+            "Checking project bootstrap strategy...",
+            "command",
+            "node C:/Users/user/.amos/bin/amos.js event session-start",
+            "AMOS session tracking..."
           ]
         },
         {
@@ -788,7 +782,9 @@
             "command",
             "node C:/Users/user/.claude/hooks/context7-tracker.js",
             "command",
-            "node C:/Users/user/.claude/hooks/coverage-gate.js"
+            "node C:/Users/user/.claude/hooks/coverage-gate.js",
+            "command",
+            "node C:/Users/user/.amos/bin/amos.js event pre-tool"
           ]
         },
         {
@@ -840,11 +836,11 @@
             "node C:/Users/user/.claude/hooks/ship-gate.js",
             "Checking uncommitted changes...",
             "command",
-            "node C:/Users/user/.claude/hooks/stop-auto-checkpoint.js",
-            "Writing auto-checkpoint if needed...",
-            "command",
             "node C:/Users/user/.claude/hooks/harness-run-gate.js",
-            "Checking harness run evidence..."
+            "Checking harness run evidence...",
+            "command",
+            "node C:/Users/user/.amos/bin/amos.js event stop",
+            "AMOS handoff write..."
           ]
         },
         {
@@ -860,7 +856,7 @@
           "commands": []
         }
       ],
-      "hookCommandCount": 108,
+      "hookCommandCount": 113,
       "skillRoot": "C:\\Users\\user\\.codex\\skills",
       "skillCount": 106,
       "skills": [
@@ -1438,6 +1434,9 @@
             "node \"C:/Users/user/.gemini/hooks/project-bootstrap-advisor.js\"",
             "Checking project bootstrap strategy...",
             "command",
+            "node \"C:/Users/user/.amos/bin/amos.js\" event session-start",
+            "AMOS session tracking...",
+            "command",
             "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\""
           ]
         },
@@ -1499,8 +1498,8 @@
             "node \"C:/Users/user/.gemini/hooks/coverage-gate.js\"",
             "Checking coverage threshold...",
             "command",
-            "node \"C:/Users/user/.gemini/hooks/tool-policy-gate.js\"",
-            "Enforcing browser tool policy...",
+            "node \"C:/Users/user/.amos/bin/amos.js\" event pre-tool",
+            "AMOS tool policy gate...",
             "command",
             "node \"C:/Users/user/.gemini/hooks/skill-selector-gate.js\"",
             "Ranking skill alternatives...",
@@ -1559,8 +1558,8 @@
             "node \"C:/Users/user/.gemini/hooks/ship-gate.js\"",
             "Checking uncommitted changes...",
             "command",
-            "node \"C:/Users/user/.gemini/hooks/stop-auto-checkpoint.js\"",
-            "Writing auto-checkpoint if needed...",
+            "node \"C:/Users/user/.amos/bin/amos.js\" event stop",
+            "AMOS handoff write...",
             "command",
             "node \"C:\\Users\\user\\.pixel-agents\\hooks\\claude-hook.js\"",
             "command",
@@ -1589,7 +1588,7 @@
           ]
         }
       ],
-      "hookCommandCount": 137,
+      "hookCommandCount": 140,
       "skillRoot": "C:\\Users\\user\\.gemini\\skills",
       "skillCount": 109,
       "skills": [
@@ -2145,21 +2144,21 @@
     {
       "client": "claude",
       "skillCount": 99,
-      "hookCommandCount": 137,
+      "hookCommandCount": 128,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "codex",
       "skillCount": 106,
-      "hookCommandCount": 108,
+      "hookCommandCount": 113,
       "missingSkillsComparedToClaude": [],
       "unsupportedConfiguredEvents": []
     },
     {
       "client": "gemini",
       "skillCount": 109,
-      "hookCommandCount": 137,
+      "hookCommandCount": 140,
       "missingSkillsComparedToClaude": [
         "red-team"
       ],
@@ -2270,14 +2269,14 @@
           "status": "pass",
           "id": "codemap:scope",
           "title": "Codemap graph scope OK",
-          "detail": "1350 nodes, 169 source files.",
+          "detail": "1453 nodes, 188 source files.",
           "repair": "",
           "data": {
             "ok": true,
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json",
-            "nodes": 1350,
-            "links": 2356,
-            "uniqueSources": 169,
+            "nodes": 1453,
+            "links": 2491,
+            "uniqueSources": 188,
             "noisyNodes": 0,
             "noisyRatio": 0,
             "outOfScope": [],
@@ -2309,7 +2308,7 @@
           "status": "pass",
           "id": "codemap:stale",
           "title": "Codemap graph has no stale semantic/rationale nodes",
-          "detail": "1350 nodes checked.",
+          "detail": "1453 nodes checked.",
           "repair": "",
           "data": {
             "graphPath": "C:\\Claude playground\\Pipiline setupper\\graphify-out\\graph.json"
@@ -2356,8 +2355,8 @@
           "data": {
             "attemptedCommand": "cmd.exe /c codegraph status",
             "provider": "codegraph",
-            "cachePath": "C:\\Users\\user\\AppData\\Local\\Temp\\pipeline-setupper-codegraph\\Claude-playground-Pipiline-setupper",
-            "lockPath": "C:\\Users\\user\\AppData\\Local\\Temp\\pipeline-setupper-codegraph\\Claude-playground-Pipiline-setupper\\codegraph.lock"
+            "cachePath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph",
+            "lockPath": "C:\\Claude playground\\Pipiline setupper\\.tmp\\codegraph\\codegraph.lock"
           }
         }
       ]
@@ -2476,6 +2475,6 @@
   "summary": {
     "status": "pass",
     "unexplainedGaps": [],
-    "generatedAt": "2026-06-03T21:07:35.308Z"
+    "generatedAt": "2026-06-11T23:32:41.497Z"
   }
 }
