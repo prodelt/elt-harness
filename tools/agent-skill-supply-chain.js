@@ -147,6 +147,9 @@ function skillSourcePath(skill, roots, repoRoot = DEFAULT_REPO_ROOT) {
   if (!skill.source) return null;
   if (skill.source.type === 'local-client') return path.join(roots[skill.source.client], skill.source.path);
   if (skill.source.type === 'local-repo') return path.join(repoRoot, skill.source.path);
+  if (skill.source.type === 'github' && skill.source.localDir) {
+    return path.join(repoRoot, 'vendor', 'skill-packs', skill.source.localDir, skill.source.path || '');
+  }
   return null;
 }
 

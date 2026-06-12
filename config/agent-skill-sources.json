@@ -175,6 +175,113 @@
         "path": "sync-docs"
       },
       "purpose": "Synchronize AGENTS, CLAUDE, and Gemini docs."
+    },
+    {
+      "id": "frontend-ui-engineering",
+      "name": "frontend-ui-engineering",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/frontend-ui-engineering" },
+      "purpose": "Component architecture, design systems, state management, responsive design, WCAG accessibility."
+    },
+    {
+      "id": "api-and-interface-design",
+      "name": "api-and-interface-design",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/api-and-interface-design" },
+      "reviewNote": "skill-scan advisory only: markdown documents a 'DELETE /api/tasks/:id' example; no executable code.",
+      "purpose": "Contract-first API and interface design, error semantics, boundary validation."
+    },
+    {
+      "id": "performance-optimization",
+      "name": "performance-optimization",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/performance-optimization" },
+      "purpose": "Measure-first performance: Core Web Vitals, profiling, bundle analysis."
+    },
+    {
+      "id": "observability-and-instrumentation",
+      "name": "observability-and-instrumentation",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/observability-and-instrumentation" },
+      "purpose": "Structured logging, RED metrics, OpenTelemetry tracing, symptom-based alerting."
+    },
+    {
+      "id": "context-engineering",
+      "name": "context-engineering",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/context-engineering" },
+      "reviewNote": "skill-scan advisory only: markdown mentions .env in context-packing guidance; no executable code.",
+      "purpose": "Feed agents the right context at the right time: rules files, context packing, MCP integration."
+    },
+    {
+      "id": "deprecation-and-migration",
+      "name": "deprecation-and-migration",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/deprecation-and-migration" },
+      "purpose": "Code-as-liability mindset, deprecation and migration patterns, zombie code removal."
+    },
+    {
+      "id": "documentation-and-adrs",
+      "name": "documentation-and-adrs",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/documentation-and-adrs" },
+      "purpose": "Architecture Decision Records and API/inline documentation — capture the why."
+    },
+    {
+      "id": "incremental-implementation",
+      "name": "incremental-implementation",
+      "tier": "domain",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "addyosmani-agent-skills", "path": "skills/incremental-implementation" },
+      "purpose": "Thin vertical slices: implement, test, verify, commit; safe defaults and rollback-friendly changes."
+    },
+    {
+      "id": "grill-with-docs",
+      "name": "grill-with-docs",
+      "tier": "engineering",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "mattpocock-skills", "path": "skills/engineering/grill-with-docs" },
+      "purpose": "Grilling session that sharpens terminology and updates CONTEXT.md and ADRs inline."
+    },
+    {
+      "id": "zoom-out",
+      "name": "zoom-out",
+      "tier": "engineering",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "mattpocock-skills", "path": "skills/engineering/zoom-out" },
+      "purpose": "Higher-level / whole-system perspective on an unfamiliar section of code."
+    },
+    {
+      "id": "prototype",
+      "name": "prototype",
+      "tier": "engineering",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "mattpocock-skills", "path": "skills/engineering/prototype" },
+      "purpose": "Throwaway prototype to flesh out a design — runnable terminal app or UI variations."
+    },
+    {
+      "id": "handoff",
+      "name": "handoff",
+      "tier": "productivity",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "mattpocock-skills", "path": "skills/productivity/handoff" },
+      "purpose": "Compact the current conversation into a handoff document for another agent."
+    },
+    {
+      "id": "hindsight-docs",
+      "name": "hindsight-docs",
+      "tier": "reference",
+      "status": "approved",
+      "source": { "type": "github", "localDir": "hindsight", "path": "skills/hindsight-docs" },
+      "reviewNote": "doc-skill; skill-scan advisory only — API docs reference env vars and 'delete memory' endpoints; no executable code. Memory server is NOT run.",
+      "purpose": "Hindsight agent-memory documentation (architecture, APIs, config). Knowledge only; server not run."
     }
   ],
   "externalCandidates": [
