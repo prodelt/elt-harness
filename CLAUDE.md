@@ -5,16 +5,16 @@
 
 ## Stack
 - Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`)
-- Graphify (Python codemap) + CodeGraph (MCP) — структурный поиск
+- **CodeGraph (MCP)** — единственный движок структурного поиска (read-gate блокирует полное чтение кодовых файлов >80 строк). Graphify (Python codemap) — legacy fallback.
 - Shared memory: `memory_summary.md` (startup payload) под `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
 
 ## Commands
 Полный список — `.planning/COMMANDS-REFERENCE.md`. Частые:
 ```bash
 node ~/.claude/hooks/test-all-hooks.js          # sanity (35/35)
-node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW (37/37)
+node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW (44/44)
 node tools/doctor.js                            # health: docs/skills/hooks/Graphify/git
-cmd /c graphify query "что делает X?"           # структурный поиск (вместо чтения файлов)
+# структурный поиск → codegraph MCP (codegraph_context первым); НЕ читать файлы целиком
 node "%USERPROFILE%\.amos\bin\amos.js" doctor   # AMOS ядро
 ```
 
