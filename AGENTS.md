@@ -41,10 +41,11 @@ node "%USERPROFILE%\.amos\bin\amos.js" doctor   # AMOS ядро
 
 ## Current State
 - **Score ~97/100**. Полная история S1-S60: `.planning/PROJECT-HISTORY.md`. Форматы вывода хуков: `.planning/HOOKS-ARCHITECTURE.md`.
-- **48 hook-команд** в settings.json; workflow-discipline advisory-only.
+- **49 hook-команд** в settings.json; workflow-discipline advisory-only (кроме Sprint 0 ниже — hard enforcement).
 - **AMOS** (Agent Mini-OS, v4): CLI-ядро заменяет хуки единым `bin/amos.js` (SQLite state, cross-client resume). Спринты 0-4 закрыты, следующий — Sprint 5.
 - **Context-fix 2026-06-11**: системный промпт ужат (MCP-чистка, CLAUDE.md 13.7→5KB, MEMORY архив, токен в env). Источник раздувания — не хуки (UserPromptSubmit/PostToolUse инжектят 0Б), а раздутый промпт в cache_read каждый ход.
 - **Skill-packs + agent-library 2026-06-12**: интегрированы 5 внешних репо (addyosmani/agent-skills, phuryn/pm-skills, NVIDIA/SkillSpector, vectorize-io/hindsight, mattpocock/skills). SkillSpector вётит кандидатов перед установкой (0 blocking). Анти-bloat: 12 curated gap-скилов always-available, большие паки (PM 68, lifecycle 24) — через on-demand `/pm`+`/lifecycle` (per-turn = 2 описания вместо 92). 16 нативных haiku-агентов в `~/.claude/agents/`. Hindsight — только doc-skill, сервер не поднят.
+- **Sprint 0 (AMOS roadmap) закрыт 2026-06-15**: `subagent-verify-gate.js` (Stop) — HARD BLOCK, если editor-субагент (backend/frontend/devops/3d-animation/docs/general-purpose/claude) менял код-файлы без последующего test-run/reviewer-security-qa-субагента ("SUBAGENT VERIFY REQUIRED"), либо менял UI-пути (.tsx/.jsx/.vue/.svelte, components|pages|views/) без agent-browser-скриншота ("UI VISUAL GATE"). ship-gate.js skip требует непустого `reason` при активном verify-gate. Override — только с причиной, логируется в `policy_events`. Naming-fix `code-reviewer`→`reviewer`, `security-reviewer`→`security`, `architect` opus→sonnet. Детали: `.planning/ROADMAP-AMOS-IMPROVEMENTS-2026-06-15.md` Sprint 0.
 
 ## Git Workflow
 - Одна задача = одна ветка (`system-upgrade/<slug>` или `fix/<slug>`). Commit: `<type>: <description>`.
