@@ -24,8 +24,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const RO = ['Read', 'Grep', 'Glob', 'Bash']; // read-only investigator toolset
-const RW = ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash']; // implementer toolset
+// CodeGraph read-only MCP tools — structural search is "the single engine"
+// (CLAUDE.md), so code-facing subagents must actually carry it. Without these
+// in the toolset, subagents fell back to raw Read/Grep (the F7 "theater" gap).
+const CG = [
+  'mcp__codegraph__codegraph_context',
+  'mcp__codegraph__codegraph_search',
+  'mcp__codegraph__codegraph_explore',
+  'mcp__codegraph__codegraph_callers',
+  'mcp__codegraph__codegraph_callees',
+  'mcp__codegraph__codegraph_impact',
+  'mcp__codegraph__codegraph_node',
+];
+const RO = ['Read', 'Grep', 'Glob', 'Bash', ...CG]; // read-only investigator toolset
+const RW = ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', ...CG]; // implementer toolset
 
 const SHARED = [
   'Stay within your role. Report findings concisely — lead with the answer, then evidence.',
