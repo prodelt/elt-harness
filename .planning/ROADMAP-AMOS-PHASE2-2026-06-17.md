@@ -181,26 +181,62 @@ enforcement, и дать одну тонкую точку входа `/doc-hygie
 
 ---
 
-## Sprint 6 — CodeGraph/Graphify-only чтение + целостность графов
+## Sprint 6 — CodeGraph/Graphify-only чтение + целостность графов (✅ закрыт 2026-06-17)
 
 **Цель:** Claude, Codex и Gemini читают структуру кода ТОЛЬКО через codegraph/graphify, а не
 россыпью Read/Grep. Анализ 15-17.06: 3 вызова `codegraph_context` против 110 Read+Grep — «движок»
 остаётся театром. Плюс граф должен корректно создаваться/обновляться и не ломаться
 (история 12.06: графы были забиты `node_modules` → агент читал файлы пачками).
 
-**Задачи:**
-1. **Enforcement чтения:** read-gate (полный Read кодофайла >80 строк → deny) уже есть для Claude;
-   зеркалировать гейт в Codex (`~/.codex/hooks.json`) и Gemini-обвязку, чтобы правило было
-   кросс-клиентским, а не только Claude. Точечный Read (limit/offset) и литеральный grep — разрешены.
-2. **Целостность графа:** хук/`amos graph ensure` гарантирует: (а) `.codegraph/` существует и свежий
-   (`index --force` при устаревании); (б) `node_modules`/`vendor`/`dist` в `.gitignore` и НЕ в индексе;
-   (в) после индексации — sanity (Files indexed > 0, нет мусорных путей), иначе предупреждение.
-3. **Метрика честности:** считать долю codegraph-вызовов к Read/Grep за сессию (harvest);
-   при перекосе в сторону Read по кодофайлам — нудж «используй codegraph_context».
-4. Graphify создаётся только через `graphify update .` (не `graphify claude install` — запрещено).
+**Поправка фактов (найдено при планировании, не предполагалось при написании роадмапа):**
+- Codex УЖЕ имел `codegraph-read-gate.js` зеркалированным в `~/.codex/hooks.json` (PreToolUse/Read,
+  строка 70) — подтверждено живым прогоном `node ~/.codex/test-codex-hooks.js` → 46/46 PASS, гейт
+  входит в проверку. Работа не требовалась.
+- Gemini/Antigravity: `~/.gemini/GEMINI.md` прямо говорит «Antigravity reads `~/.claude/settings.json`
+  directly, so global hook policy stays shared with Claude» — гейт уже действует там бесплатно.
+  Собственный `~/.gemini/settings.json`/`~/.gemini/hooks/*.js` — устаревший ручной миррор (всё ещё
+  легаси `graphify-read-gate.js`), который Antigravity реально не выполняет — косметика.
+  Синхронизирован (скопирован `codegraph-read-gate.js`, обновлена ссылка в settings.json) по
+  решению пользователя — на случай если что-то когда-то обратится к этой копии. Сырой npm-бинарь
+  `gemini` (отдельный от Antigravity, свой `trusted_hooks.json` под один несвязанный проект) —
+  сознательно вне скоупа.
 
-**Done when:** на тест-проекте граф пересоздаётся корректно (Files indexed>0, без node_modules);
-Codex/Gemini read-gate блокирует полное чтение; harvest показывает долю codegraph/Read.
+**Сделано (2026-06-17, реальный объём):**
+1. **`amos graph verify [cwd]`** — новая команда (`~/.amos/bin/amos.js` `handleGraph()`) +
+   `verifyGraph()` в `~/.amos/lib/graph.js` (тот же injectable-`runner` паттерн, что у `ensureGraph`).
+   Дёргает `codegraph status --json` (fileCount, pendingChanges) и `codegraph files --json --format
+   flat` (пути), статус `ok|empty|stale|contaminated|missing|error`. SessionStart-хинт
+   (`bin/amos.js` ~132-150) теперь предупреждает (1 строка, тихо если всё ок) при stale/contaminated
+   графе, не только при отсутствующем. Тесты: `tests/graph.test.js` 12→17 PASS (+5: missing/ok/
+   stale/contaminated/error).
+2. **Блокировка `graphify claude install`** — безусловная (не только в `/careful` режиме) deny-проверка
+   в `~/.claude/hooks/secret-scanner.js` (общий PreToolUse[Bash] хук для Claude и Codex). Тесты:
+   `test-hooks-behavior.js` 62→64 PASS (+2: BLOCK install / ALLOW `graphify update .`).
+3. **Honesty-метрика** в `~/.claude/skills/session-harvest/harvest.js`: новые счётчики
+   `codegraphCalls`/`rawReadCalls` в `parseSession()`, строка `codegraph: X vs Read/Grep: Y` (+нудж
+   при явном перекосе) в `renderProject()` и в агрегате top-5 `render()`.
+
+**Live-fire доказательство:**
+- `node ~/.amos/bin/amos.js graph verify "C:\Claude playground\Pipiline setupper"` →
+  `[AMOS GRAPH] verify — ...: OK, 213 files indexed, fresh, clean.`
+- Прямой stdin-прогон `secret-scanner.js` с командой `graphify claude install` → реальный JSON
+  `permissionDecision: "deny"` с текстом `FORBIDDEN: "graphify claude install" is never allowed.
+  Use "graphify update ." instead.` (внешний Bash-вызов с буквальной фразой даже сам попал под
+  собственный новый гейт — пришлось обойти через файл, что само по себе доказательство, что гейт
+  реально активен в этой сессии).
+- Реальный прогон `node ~/.claude/skills/session-harvest/harvest.js` против настоящих транскриптов
+  → `latest.md` этого проекта показал **`codegraph: 0 vs Read/Grep: 44 — ⚠ используй codegraph_context
+  вместо Read/Grep`** для последней (этой самой) сессии — метрика честно поймала ту же болезнь,
+  которую чинит спринт, в реальном времени. Агрегат top-5 показал Fasoli 2.0 с `codegraph: 6 vs
+  Read/Grep: 725` — подтверждает паттерн, описанный в контексте роадмапа, теперь измеряемый
+  автоматически.
+- Все тест-сьюты зелёные после всех правок: `~/.amos/tests/graph.test.js` 17/17,
+  `test-all-hooks.js` 39/39, `test-hooks-behavior.js` 64/64, `~/.codex/test-codex-hooks.js` 46/46
+  (общий `secret-scanner.js` не сломал Codex).
+
+**Done when:** на тест-проекте граф пересоздаётся корректно (Files indexed>0, без node_modules) —
+показано выше; Codex/Gemini read-gate блокирует полное чтение — уже было активно, подтверждено;
+harvest показывает долю codegraph/Read — показано выше.
 
 ## Порядок и зависимости
 
