@@ -61,7 +61,7 @@
 - [x] Отставить graphify (8× вызовов, F9) — один движок.
 - Проверка: субагентская сессия показывает codegraph>0; счётчик read-gate denials виден.
 
-**Реализация**: `tools/agent-library.js` — новый набор `CG` (7 read-only codegraph MCP-tools: context/search/explore/callers/callees/impact/node) добавлен в инвестигатор-(`RO`) и имплементер-(`RW`) тулсеты → 12 код-обращённых ролей теперь несут codegraph (planner/researcher/docs/product-manager с кастомным минимальным тулсетом — без, корректно). Регенерил `~/.claude/agents/*.md` (`--write`, 12 updated). `codegraph-read-gate.js` — на каждый deny пишет AMOS `policy_event` kind=`read-gate` detail=rel-путь (enforcement стал аудируемым). graphify отставлен: удалены 3 активных хука из `settings.json` (graphify-preuse Glob|Grep, graphify-post-commit Bash, graphify-auto-update Edit|Write); codex hooks.json graphify не содержал; файлы graphify-*.js оставлены как legacy fallback (не зашиты в пайплайн). CLAUDE.md уже фиксирует «codegraph единственный движок; Graphify — legacy fallback» — теперь соответствует реальности.
+**Реализация**: `tools/agent-library.js` — новый набор `CG` (7 read-only codegraph MCP-tools: context/search/explore/callers/callees/impact/node) добавлен в инвестигатор-(`RO`) и имплементер-(`RW`) тулсеты → 12 код-обращённых ролей теперь несут codegraph (planner/researcher/docs/product-manager с кастомным минимальным тулсетом — без, корректно). Регенерил `~/.claude/agents/*.md` (`--write`, 12 updated). `codegraph-read-gate.js` — на каждый deny пишет AMOS `policy_event` kind=`read-gate` detail=rel-путь (enforcement стал аудируемым). graphify отставлен: удалены 3 активных хука из `settings.json` (graphify-preuse Glob|Grep, graphify-post-commit Bash, graphify-auto-update Edit|Write); codex hooks.json — graphify-хуки (preuse/auto-update/post-commit) удалены позже, 2026-06-16 (изначальный claim «не содержал» был неверен — содержал 3); файлы graphify-*.js оставлены как legacy fallback (не зашиты в пайплайн). CLAUDE.md уже фиксирует «codegraph единственный движок; Graphify — legacy fallback» — теперь соответствует реальности.
 Проверка: `settings.json` валиден, 0 graphify-ссылок. E2E read-gate: попытка Read `tools/agent-library.js` (201 строк) → `permissionDecision:deny` + `policy_event` `read-gate`→`tools/agent-library.js` записан. Агенты backend(RW)/architect(RO) содержат codegraph, planner — нет. Тесты: `test-all-hooks.js` 36/36, `test-hooks-behavior.js` 49/49, agent-surface 2/2. Inline-review (sonnet-субагент, у него теперь codegraph в toolset) — чисто, блокеров нет.
 
 ### Sprint 3 — Замкнуть петлю обучения/контекста (P3) ✅ ЗАВЕРШЁН 2026-06-16
@@ -104,7 +104,7 @@ Sprint 0 → 1 → 2 → 3 → 4 (по убыванию impact). 0–1 гася�
 
 Все 5 спринтов (0-4) закрыты. Сводная проверка (Task 5):
 
-- `cd ~/.amos && node --test tests/*.test.js` → `tests 234, pass 234, fail 0` (35.1s)
+- `cd ~/.amos && node --test --test-concurrency=1 tests/*.test.js` → `tests 234, pass 234, fail 0` (concurrency=1 обязателен: параллельный прогон даёт ~231/234 с `database is locked` — гонка по одной state.sqlite, не дефект фич)
 - `node ~/.amos/bin/amos.js doctor` → все `[PASS]`: Node v24.14.0, env, workspace, write-перм, git, SQLite (node:sqlite full WAL), SessionStart/Stop/PreToolUse хуки Claude/Codex/Gemini, agent-browser CLI 0.27.1 + `doctor --offline --quick: OK`
 - `node tools/doctor.js` (проектный) → ключевые PASS: Codemap graph OK (3107 nodes/302 files), CodeGraph MCP healthy (207 files/3113 nodes), RAG manifest/index/queue OK, Skill surface sync OK, Agent surface audit current, Git refs/GitHub CLI/auth OK, Pipeline state closed, no Defender-risk files.
   - Оставшиеся WARN — **не относятся к спринтам 0-4**, это фоновый долг другого порядка: codegraph relevance smoke (community-кластеры в vendor/skillspector), agent-skill supply-chain drift (4 устаревших install — починка через `agent-skills install-skills --apply`), docs/harness/git-workflow audit reports устарели (нужен `--write` ререан). Зафиксировано как remaining work, не блокирует закрытие роадмапа.
@@ -112,3 +112,28 @@ Sprint 0 → 1 → 2 → 3 → 4 (по убыванию impact). 0–1 гася�
 - Чекпойнт: `.planning/CHECKPOINT-2026-06-16-amos-roadmap-sprints-1-4.md` (новый формат checkpoint v1.1.0 — Cost Snapshot + Resume Pointer).
 
 **Итог**: 234/234 AMOS-тестов, amos doctor all-PASS, проектный doctor — все целевые проверки PASS, hook-сьюты 36/36+49/49. Роадмап закрыт.
+
+---
+
+## Sprint 5 — Усиление enforcement до артефактного (P2, аудит качества 2026-06-16)
+
+> Источник: повторный аудит **качества** (не наличия) реализаций S0-4. Спринты закрыты корректно по критерию «реализовано + тесты», но re-аудит выявил, что часть «принуждающих» механизмов либо обходится нарративом, либо это пост-фактум видимость, а боевая телеметрия почти пуста (3 `policy_event` суммарно, 0 `read-gate`). Тема та же, что у всего роадмапа — «построено, но не кусается», на уровень выше.
+
+### Находки re-аудита
+| # | Находка | Доказательство |
+|---|---------|----------------|
+| Q1 | **verify-gate обходится прозой** | `lib/subagent-verify.js` засчитывал «тест» по `TEST_PATTERN.test(text)` на прозе ассистента/tool_result, а «визуал» — подстрокой `agent-browser`+`screenshot`. Фраза «дальше запущу npm test» или упоминание скриншота = доказательство без реального действия |
+| Q2 | **main-model gate — только видимость** | `evaluateMainModel` пишет `policy_event`, но не предотвращает Opus-инерцию (сессия уже идёт на Opus). Честно, но не гасит |
+| Q3 | **read-gate не обкатан** | в боевой БД **0** `policy_event` kind=`read-gate`; escape через `limit`/`offset` — один параметр (speed-bump). После добавления логирования гейт в реале ни разу не заблокировал |
+| Q4 | **захват субагентов почти без органики** | трубопровод валиден (на диске **170** реальных сайдкаров `subagents/agent-*.jsonl` — путь угадан), но `cost_ledger kind='sub'` = 3 строки (в основном из E2E, одна `main` модель = `<synthetic>`). Слишком новый, чтобы считать «доказано в проде» |
+| Q5 | **graphify отставлен наполовину** | `~/.codex/hooks.json` содержал 3 активных graphify-хука вопреки claim'у S2 «не содержал» |
+
+### Задачи
+- [x] **Q1 — артефактная верификация (реализовано).** `lib/subagent-verify.js`: доказательство теста засчитывается ТОЛЬКО от исполненного `Bash` tool_use с тест-командой, чей результат не `is_error` (реальный exit-code, а не regex по прозе). Визуал — только от успешной `agent-browser`-screenshot команды (`VISUAL_CMD_PATTERN`); если команда/вывод называют `.png/.jpg/.webp`, файл обязан существовать свежим на диске (`freshImageExists`, mtime ≤ 1ч), иначе не засчитывается. Удалён текстовый детект (`isVisualEvidence`, `TEST_PATTERN` по прозе). `scanTranscript` коррелирует tool_use↔tool_result по id. `assess` прокидывает cwd.
+- [x] **Q5 — graphify убран из Codex.** Удалены 3 хука из `~/.codex/hooks.json` (preuse/auto-update/post-commit); JSON валиден, Stop-цепочка = `settings.json`.
+- [ ] **Q3/Q4 — органическая обкатка (наблюдение, не код).** Критерий закрытия: после 1-2 реальных UI/субагентных задач `policy_events` (read-gate, subagent-verify-gate) и `cost_ledger kind='sub'` наполняются органикой, а не только синтетикой. До этого «кусается в проде» остаётся недоказанным.
+- [ ] **Q2 — (опционально) от видимости к предотвращению.** Рассмотреть PreToolUse-подсказку при старте дорогой сессии вместо только пост-фактум `policy_event`. Не делать без явного запроса — риск ложных блоков.
+
+**Реализация Q1+Q5**: правки в `lib/subagent-verify.js` (constants `VISUAL_CMD_PATTERN`/`IMG_PATH_RE`, `freshImageExists`, переписан `scanTranscript` на action-based + is_error, `assess(cwd)`). Файл — общий для Claude и Codex (хуки ссылаются по абсолютному пути, отдельной копии нет). `~/.codex/hooks.json` — удалены graphify-блоки.
+Тесты: `test-hooks-behavior.js` **52/52** (3 новых сценария: BLOCK на прозаичный «npm test» без Bash, BLOCK на фантомный скриншот без артефакта, BLOCK на реально упавший тест `is_error=true`; сценарий 2 переведён на реальный артефакт `out.png` на диске). `test-all-hooks.js` 36/36. Прохождение трёх BLOCK-сценариев = доказательство, что нарратив больше не засчитывается.
+**Известное ограничение Q1**: фильтр упавших тестов опирается на `is_error` в tool_result — если клиент не выставляет его для не-нулевого exit shell-команды, упавший тест может пройти; action-vs-prose фикс (главный) от этого не зависит.
