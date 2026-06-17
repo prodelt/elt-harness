@@ -130,23 +130,40 @@ enforcement, и дать одну тонкую точку входа `/doc-hygie
 
 ---
 
-## Sprint 4 — Точный подсчёт токенов + анти-компакт (✅ частично реализован 2026-06-17)
+## Sprint 4 — Точный подсчёт токенов + анти-компакт (✅ закрыт 2026-06-17)
 
 **Цель:** считать реальную занятость контекста (не байты) и перед авто-компактом авто-готовить
 продолжение без потери контекста.
 
-**Сделано (2026-06-17):**
+**Сделано (2026-06-17, первая часть):**
 - `lib/active-window.js: lastContextTokens()` — реальная занятость = `input + cache_read +
   cache_creation` последнего `usage` (output исключён). Байты/6 — только fallback при отсутствии usage.
 - `context-budget-gate.js` переведён на реальные токены + `%` от лимита (200k). При ≥85% —
   критический директив: `/checkpoint` → обновить MEMORY → `/handoff` → выдать промпт-продолжение.
 - Доказано: синтетика (177k→89%→critical, 50k→тишина) + хук-сьюты 36/36 и 52/52.
 
-**Осталось:**
-1. PreCompact-хук (Claude-only) для авто-срабатывания даже без следующего промпта пользователя.
-2. Детект длительности (≥6ч) и усиление «1 цель = 1 сессия» в SessionStart focus-хинте.
+**Сделано (2026-06-17, остаток — PreCompact + long-session detect):**
+- `precompact-handoff.js` (новый, событие `PreCompact`, Claude-only) — пишет mechanical-briefing
+  (branch/HEAD/git status/текущая focus-цель из `claude-session-focus/goal.json`) в
+  `~/.claude/auto-checkpoints/precompact-<ts>.md` и логирует `policy_events` (`precompact-handoff`,
+  detail = `trigger` manual/auto). Никогда не блокирует компакт — fail-soft, тихий stdout, по
+  образцу `stop-auto-checkpoint.js`. Подключён в `settings.json` как новая секция `PreCompact`.
+- `session-focus-gate.js` — `findPreviousSessionDuration()` ищет самый свежий *другой* `.jsonl`
+  транскрипт в проекте, считает разброс timestamp'ов в часах; при `>= cfg.sessionFocus.longSessionHours`
+  (дефолт 6) добавляет к SESSION FOCUS-хинту предупреждение «Прошлая сессия длилась N ч — держи
+  фокус строго на ОДНОЙ цели». Новый конфиг-блок `sessionFocus: { longSessionHours: 6 }` в
+  `lib/config.js`.
+- Тесты: `test-all-hooks.js` 39/39 (+1 — `precompact-handoff.js`), `test-hooks-behavior.js`
+  62/62 (+4 — precompact manual/auto trigger, long-session warning при 7ч / отсутствие при 2ч).
+- **Live-fire доказательство**: прямой stdin-прогон `precompact-handoff.js` (trigger=manual)
+  против реального cwd этого репо → файл `precompact-2026-06-17T09-09-14-731Z.md` с реальными
+  branch (`feature/doc-hygiene-phase2`), HEAD и `git status` этой сессии; `amos policy --since 1d`
+  показал реальную строку `precompact-handoff  manual` (4 события всего, включая тестовые
+  прогоны). Прямой прогон `session-focus-gate.js` против реального cwd без long-session-фикстуры
+  подтвердил отсутствие регрессии (обычный хинт без предупреждения).
 
-**Done when:** PreCompact генерирует handoff до компакта — показать.
+**Done when:** PreCompact генерирует handoff до компакта — показано выше (файл + policy_events
+строка).
 
 ---
 
