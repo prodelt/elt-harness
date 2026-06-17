@@ -97,7 +97,7 @@ enforcement, и дать одну тонкую точку входа `/doc-hygie
 
 ---
 
-## Sprint 3 — Enforcement /checkpoint (advisory → hard nudge)
+## Sprint 3 — Enforcement /checkpoint (advisory → hard nudge) (✅ закрыт 2026-06-17)
 
 **Цель:** `/checkpoint` вызывался 0/4 раз; harvest хронически кричит «23/34 без checkpoint».
 
@@ -108,6 +108,25 @@ enforcement, и дать одну тонкую точку входа `/doc-hygie
 2. Не hard-block работу, но логировать пропуск в `policy_events`.
 
 **Done when:** искусственно превысить порог → хинт появляется → пропуск с reason пишется в лог.
+
+**Сделано (2026-06-17):**
+- `lib/checkpoint-state.js` (новый shared-модуль) + `checkpoint-edit-tracker.js` (PostToolUse
+  Edit|Write, инкремент editsSinceCheckpoint) + `checkpoint-nudge-gate.js` (UserPromptSubmit,
+  tier1 при 15 edits/60м, критич при 2× — 30/120). Explicit `/checkpoint` в промпте сбрасывает
+  счётчик. Порог — `cfg.checkpointNudge` (`lib/config.js` + `config.json`). Оба хука вписаны в
+  существующие группы `UserPromptSubmit`/`PostToolUse Edit|Write` в `settings.json`.
+- Skip-with-reason на критич. tier — тот же паттерн, что `ship-gate.js` (skip-файл в
+  `%TEMP%/claude-checkpoint-gate/`, 1ч валидность, one-time consume). Без reason → нудж не
+  снимается, пропуск логируется как `checkpoint-nudge-skip-denied`. Никогда не `decision:block` —
+  только `additionalContext`, промпт всегда проходит.
+- Тесты: `test-all-hooks.js` 38/38, `test-hooks-behavior.js` 58/58 (+6 на tier1/tier2/skip/reset).
+- **Live-fire доказательство** (не юнит-тест — отдельный прогон через реальные stdin-вызовы):
+  15 edits → tier1-нудж "CHECKPOINT: 15 edits..."; 30 edits → критич "...КРИТИЧНО...2x порога...";
+  skip без reason → денай (нудж остаётся); skip с reason → тишина. `amos policy --since 1d`
+  показал реальные строки `checkpoint-nudge-tier1`, `checkpoint-nudge-critical`,
+  `checkpoint-nudge-skip-denied`, `checkpoint-nudge-skip-override` (с текстом reason); видно и в
+  `amos doctor` сводке. Детали и gotcha само-тестирования —
+  `memory/project_phase2_sprint3_checkpoint_nudge_2026-06-17.md`.
 
 ---
 
