@@ -235,6 +235,140 @@ function verifyProjectDocs(root) {
   return { ok: missing.length === 0, missing, coreIdentical, docs };
 }
 
+const BLOAT_WARN = 150;
+const BLOAT_FAIL = 250;
+const SKIP_DIRS = new Set(['node_modules', 'vendor', '.git', '.worktrees', '.next', 'dist', 'build', '.cache', '.rag']);
+
+function countLines(text) {
+  return text ? text.split(/\r?\n/).length : 0;
+}
+
+function globalRuleLines(home) {
+  const file = path.join(home || require('node:os').homedir(), '.claude', 'CLAUDE.md');
+  return new Set(
+    readText(file)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 40 && /^[-*]/.test(line)),
+  );
+}
+
+function looksLikeLocalPath(ref) {
+  if (!ref || /\s/.test(ref)) return false;
+  if (/^(https?:|mailto:|#|\$|%|~|@)/.test(ref)) return false;
+  if (/[<>*?|]/.test(ref)) return false;
+  if (/^\.(planning|rag)\//.test(ref) || /^\.\//.test(ref)) return true;
+  return ref.includes('/') && /\.[a-z0-9]{1,5}$/i.test(ref);
+}
+
+function extractDeadRefs(root, docs) {
+  const refs = new Set();
+  for (const doc of docs) {
+    if (!doc.exists) continue;
+    for (const match of doc.text.matchAll(/\]\(([^)\s]+)\)/g)) refs.add(match[1]);
+    for (const match of doc.text.matchAll(/`([^`]+)`/g)) refs.add(match[1]);
+  }
+  return [...refs]
+    .map((ref) => ref.split('#')[0].trim())
+    .filter(looksLikeLocalPath)
+    .filter((ref) => !fs.existsSync(path.join(root, ref)))
+    .slice(0, 20);
+}
+
+function auditProjectDocs(root, options = {}) {
+  const resolved = path.resolve(root);
+  const docs = readDocs(resolved);
+  const verification = verifyProjectDocs(resolved);
+  const present = docs.filter((doc) => doc.exists);
+  const findings = [];
+
+  const missingDocs = docs.filter((doc) => !doc.exists).map((doc) => doc.relative);
+  if (missingDocs.length) findings.push({ severity: 'fail', code: 'missing-doc', detail: missingDocs.join(', ') });
+
+  if (fs.existsSync(path.join(resolved, 'GEMINI.md')) && fs.existsSync(path.join(resolved, '.gemini', 'GEMINI.md'))) {
+    findings.push({ severity: 'warn', code: 'dup-gemini', detail: 'root GEMINI.md and .gemini/GEMINI.md both exist' });
+  }
+
+  const sizes = present.map((doc) => ({ relative: doc.relative, lines: countLines(doc.text) }));
+  for (const size of sizes) {
+    if (size.lines > BLOAT_FAIL) findings.push({ severity: 'fail', code: 'bloat', detail: `${size.relative} ${size.lines}>${BLOAT_FAIL}` });
+    else if (size.lines > BLOAT_WARN) findings.push({ severity: 'warn', code: 'bloat', detail: `${size.relative} ${size.lines}>${BLOAT_WARN}` });
+  }
+
+  if (present.length > 1 && !verification.coreIdentical) {
+    findings.push({ severity: 'warn', code: 'drift', detail: 'core sections not identical across docs' });
+  }
+  if (verification.missing.length) {
+    findings.push({ severity: 'warn', code: 'missing-section', detail: verification.missing.slice(0, 8).join(', ') });
+  }
+
+  const deadRefs = extractDeadRefs(resolved, docs);
+  if (deadRefs.length) findings.push({ severity: 'warn', code: 'dead-ref', detail: deadRefs.join(', ') });
+
+  const globalRules = globalRuleLines(options.home);
+  const claude = docs.find((doc) => doc.relative === 'CLAUDE.md');
+  if (claude && claude.exists && globalRules.size) {
+    const dup = claude.text.split(/\r?\n/).map((line) => line.trim()).filter((line) => globalRules.has(line));
+    if (dup.length) findings.push({ severity: 'warn', code: 'global-dup', detail: `${dup.length} rule line(s) duplicate ~/.claude/CLAUDE.md` });
+  }
+
+  const status = findings.some((finding) => finding.severity === 'fail') ? 'FAIL'
+    : findings.some((finding) => finding.severity === 'warn') ? 'WARN' : 'PASS';
+  return {
+    root: resolved,
+    name: path.basename(resolved),
+    label: resolved.split(/[\\/]/).slice(-2).join('/'),
+    status,
+    findings,
+    sizes,
+    maxLines: sizes.reduce((max, size) => Math.max(max, size.lines), 0),
+    coreIdentical: verification.coreIdentical,
+  };
+}
+
+function isProjectRoot(dir) {
+  return DOC_FILES.some((relative) => fs.existsSync(path.join(dir, relative))) || fs.existsSync(path.join(dir, 'GEMINI.md'));
+}
+
+function findProjectRoots(start, maxDepth, excludes) {
+  const roots = [];
+  const walk = (dir, depth) => {
+    if (isProjectRoot(dir)) roots.push(dir);
+    if (depth >= maxDepth) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_error) { return; }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      if (excludes.some((needle) => entry.name.toLowerCase().includes(needle))) continue;
+      walk(path.join(dir, entry.name), depth + 1);
+    }
+  };
+  walk(start, 0);
+  return roots;
+}
+
+function auditAllProjects(dirs, options = {}) {
+  const excludes = (options.exclude || []).map((needle) => needle.toLowerCase());
+  const maxDepth = options.maxDepth || 3;
+  const roots = new Set();
+  for (const dir of dirs) {
+    const resolved = path.resolve(dir);
+    if (!fs.existsSync(resolved)) continue;
+    findProjectRoots(resolved, maxDepth, excludes).forEach((root) => roots.add(root));
+  }
+  const rank = { FAIL: 0, WARN: 1, PASS: 2 };
+  const results = [...roots]
+    .filter((root) => !excludes.some((needle) => root.toLowerCase().includes(needle)))
+    .map((root) => auditProjectDocs(root, options))
+    .sort((left, right) => rank[left.status] - rank[right.status] || right.maxLines - left.maxLines);
+  const summary = results.reduce(
+    (acc, result) => ({ ...acc, [result.status]: acc[result.status] + 1 }),
+    { FAIL: 0, WARN: 0, PASS: 0 },
+  );
+  return { results, summary, scanned: results.length, success: summary.FAIL === 0 };
+}
+
 module.exports = {
   CANONICAL_DOC,
   CORE_SECTIONS,
@@ -242,5 +376,7 @@ module.exports = {
   parseMarkdownSections,
   initOrSyncProjectDocs,
   verifyProjectDocs,
+  auditProjectDocs,
+  auditAllProjects,
   projectKey,
 };

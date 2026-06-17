@@ -12,6 +12,7 @@ const {
   parseMarkdownSections,
   initOrSyncProjectDocs,
   verifyProjectDocs,
+  auditProjectDocs,
 } = require('./project-docs-core');
 
 function write(file, text) {
@@ -114,6 +115,23 @@ function testSyncPreservesPreambleRules() {
   assert.match(read(path.join(root, 'AGENTS.md')), /Do not erase this\./);
 }
 
+function testAuditFlagsBloatAndMissingDoc() {
+  const root = tempProject('project-docs-audit');
+  write(path.join(root, 'CLAUDE.md'), coreDoc('\n' + 'extra line\n'.repeat(260)));
+  const result = auditProjectDocs(root, { home: path.join(root, 'home') });
+  assert.equal(result.status, 'FAIL');
+  assert.ok(result.findings.some((f) => f.code === 'bloat' && f.severity === 'fail'));
+  assert.ok(result.findings.some((f) => f.code === 'missing-doc'));
+}
+
+function testAuditPassesCleanSyncedProject() {
+  const root = tempProject('project-docs-audit-clean');
+  initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'init' });
+  const result = auditProjectDocs(root, { home: path.join(root, 'home') });
+  assert.equal(result.status, 'PASS');
+  assert.equal(result.findings.length, 0);
+}
+
 function main() {
   testParseMarkdownSections();
   testCreateModeBootstrapsProject();
@@ -122,6 +140,8 @@ function main() {
   testSyncMakesCoreSectionsIdentical();
   testAgentsMdWinsWhenSectionCoverageTies();
   testSyncPreservesPreambleRules();
+  testAuditFlagsBloatAndMissingDoc();
+  testAuditPassesCleanSyncedProject();
   process.stdout.write('project-docs tests: PASS\n');
 }
 
