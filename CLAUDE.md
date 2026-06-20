@@ -1,51 +1,57 @@
 # Pipeline Setupper — Command Center
 
 ## Overview
-Центральный репозиторий управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Antigravity. Хранит аудиты, планы апгрейдов, документацию пайплайна.
+Центральный репозиторий управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Gemini. Хранит аудиты, планы апгрейдов, документацию пайплайна.
 
-## Stack
-- Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`)
-- **CodeGraph (MCP)** — единственный движок структурного поиска (read-gate блокирует полное чтение кодовых файлов >80 строк). Graphify (Python codemap) — legacy fallback.
-- Shared memory: `memory_summary.md` (startup payload) под `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
+> ⚠ **AMOS-слой хуков СНЯТ 2026-06-18** (был advisory-спам). Бэкап `~/.claude/_backup-amos-full-2026-06-18/`, restore: `restore-amos.ps1`. Доки в `.planning/` про AMOS/гейты — **исторические**. Живое состояние — `settings.json` + `claude plugin list` + `/skills`. Памятка пользователю — **`CHEATSHEET.html`**.
+
+## Active global layer (что РЕАЛЬНО живёт)
+- **Хуки в `~/.claude/settings.json`:** только `PreCompact` → `precompact-handoff.js`. Гейты AMOS (read-gate / ship-gate / verify-gate / checkpoint-nudge / auto-checkpoint) лежат в `~/.claude/hooks/`, но **НЕ подключены** — мёртвый код, ничего не делают.
+- **Плагины (enabled):** ponytail (anti-overengineering, активен), claude-mem (память, worker `:37777`), code-review, commit-commands, security-guidance, claude-code-setup, skill-creator.
+- **MCP:** codegraph (структурный поиск, `codegraph_context` первым), claude-mem mcp-search, claude.ai law.
+- **Скилы:** ~70 user-скилов (`/pipeline`, `/tdd`, `/checkpoint`, `/harness-method`…) + on-demand `/pm`, `/lifecycle`.
+- **Память:** auto-memory (`MEMORY.md` индекс + `memory/*.md` on-demand) под `~/.claude/projects/C--/memory/` + claude-mem (passive capture, инъекция со 2-й сессии).
+
+## Метод работы
+- **Карта работы — `PLAYBOOK.md`** (корень репо): что делать с задачей, какой скилл когда, когда команда агентов. Точка входа в систему, если непонятно.
+- **Новый/эталонный проект — `/project-bootstrap`**: один ритуал (доки `init-project` + харнесс с зубами `harness-method` + codegraph-индекс + память проекта + Context7-привычка). Идемпотентно.
+- Точка входа задачи — `/pipeline`. Per-project качество — **harness-method** (guide + sensor + gate + live-fire).
+- **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой; MCP-плагин намеренно **OFF** (токен-налог на сессию).
+- Дисциплина (codegraph перед Read, тесты-как-proof, `/checkpoint`) теперь **на пользователе** — авто-гейтов больше нет.
 
 ## Commands
 Полный список — `.planning/COMMANDS-REFERENCE.md`. Частые:
 ```bash
-node ~/.claude/hooks/test-all-hooks.js          # sanity (35/35)
-node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW (44/44)
-node tools/doctor.js                            # health: docs/skills/hooks/Graphify/git
-# структурный поиск → codegraph MCP (codegraph_context первым); НЕ читать файлы целиком
-node "%USERPROFILE%\.amos\bin\amos.js" doctor   # AMOS ядро
+npx claude-mem status         # worker памяти жив?
+node tools/doctor.js          # health: docs/skills/git
+cmd /c graphify update .       # обновить codegraph-индекс проекта
 ```
 
+## Stack
+- Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`).
+- **CodeGraph (MCP)** — структурный поиск (экономит токены vs Read). Graphify (Python codemap) — legacy fallback. ⚠ read-gate СНЯТ — codegraph больше не форсится, использовать по привычке.
+- Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
+
 ## Architecture
-Детальная карта хуков и tools — **`.planning/HOOKS-ARCHITECTURE.md`**. Кратко:
-- `~/.claude/hooks/` — 48 хуков (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop). Workflow-gates advisory; hard-block только для freeze/secrets/destructive/commit-quality.
-- `~/.claude/tools/` — doctor, pipeline-state, codemap, harness-runner/gates, agent-surface-audit, token-impact и др.
-- `~/.claude/skills/` — ~60 скилов (база + 12 curated gap-скилов + `hindsight-docs`) + 2 on-demand диспетчера (`/pm` → 68 PM-скилов, `/lifecycle` → 24 addyosmani). `settings.json` — конфиг/permissions.
-- `~/.claude/agents/` — 16 НАТИВНЫХ субагентов (haiku по умолч.; sonnet для architect/security/reviewer), генерит `tools/agent-library.js`. Вызов: `/agents`, Task(subagent_type), Team/SendMessage, `/company`. **Активируются после рестарта** (реестр subagent_type грузится на старте сессии).
-- `~/.claude/skill-packs/` — глобальные vendored-паки (pm-skills 68, addyosmani 24) для диспетчеров; провенанс — в `config/agent-skill-sources.json`.
-- `tools/skill-scan.js` — обёртка SkillSpector (static); честный гейт (exec-код/malware → block, markdown-паттерны → advisory). `tools/agent-skill-supply-chain.js scan-candidates` — гейт ДО установки.
-- `~/.codex/hooks.json` — 44 команды (те же .js, без FileChanged/Notification — Codex их не поддерживает). Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; агенты — только Claude.
-- AMOS (`~/.amos`, отдельный git-репо) — CLI-ядро v4, синк-копии в `amos/`.
-- `vendor/` (gitignored) — shallow-клоны 5 внешних skill-репо + SkillSpector venv (py3.12/uv); в git идёт только провенанс в манифесте.
+Трёхслойная рабочая система (см. `PLAYBOOK.md`), всё on-demand, без per-turn налога:
+- **Глобально (тонко):** PreCompact-хук + codegraph MCP + плагины (ponytail, claude-mem). Ничего не инжектится каждый ход.
+- **Карта (`PLAYBOOK.md`):** какой скилл когда / как совмещать / когда команда агентов — по всем доменам.
+- **Роутер (`/pipeline`):** классификация задачи → маршрут → бюджет скилов.
+- **Ритуал (`/project-bootstrap`):** делает проект эталонным (доки + харнесс с зубами + индекс + память + Context7).
+Метод — Fowler harness (`/harness-method`): guide → sensor → блокирующий gate → steering. Per-project, не глобально.
 
 ## Gotchas
-- **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Конфиг в своём репо `~/.claude`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
+- **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
 - **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
 - **Codex не поддерживает** FileChanged и Notification (Claude Code only).
-- **loop-guardian** ловит ОДИНАКОВЫЕ едиты (same old_string), не «3 едита одного файла».
 - **cwd в хуках** — всегда из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
-- **Stdout хуков** — только silent exit ИЛИ валидный JSON с `hookSpecificOutput`/`decision`. Хуки <4s (spawnSync timeout 5000ms).
-- **Codex sandbox** — тесты, спавнящие child node, могут падать `spawnSync EPERM`; запускать вне sandbox.
+- **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s (spawnSync timeout 5000ms).
+- **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для других тулов.
 
-## Current State
-- **Score ~97/100**. Полная история S1-S60: `.planning/PROJECT-HISTORY.md`. Форматы вывода хуков: `.planning/HOOKS-ARCHITECTURE.md`.
-- **49 hook-команд** в settings.json; workflow-discipline advisory-only (кроме Sprint 0 ниже — hard enforcement).
-- **AMOS** (Agent Mini-OS, v4→v5): CLI-ядро заменяет хуки единым `bin/amos.js` (SQLite state, cross-client resume). Спринты 0-8 закрыты. S6: `amos graph ensure` (авто-граф через `graphify update .`) + SessionStart-хинт. S7: таблица `instincts` + Stop-hook запись повторённых команд + `amos evolve` (PR-style SKILL.md, без авто-коммита). S8: `amos roster [--write]` — 12 ролей (триада persona/process/metrics, только haiku|sonnet) в `~/.claude/skills/agents`. Roadmap: `.planning/ARCHITECTURE-AGENT-OS-V5.md`.
-- **Context-fix 2026-06-11**: системный промпт ужат (MCP-чистка, CLAUDE.md 13.7→5KB, MEMORY архив, токен в env). Источник раздувания — не хуки (UserPromptSubmit/PostToolUse инжектят 0Б), а раздутый промпт в cache_read каждый ход.
-- **Skill-packs + agent-library 2026-06-12**: интегрированы 5 внешних репо (addyosmani/agent-skills, phuryn/pm-skills, NVIDIA/SkillSpector, vectorize-io/hindsight, mattpocock/skills). SkillSpector вётит кандидатов перед установкой (0 blocking). Анти-bloat: 12 curated gap-скилов always-available, большие паки (PM 68, lifecycle 24) — через on-demand `/pm`+`/lifecycle` (per-turn = 2 описания вместо 92). 16 нативных haiku-агентов в `~/.claude/agents/`. Hindsight — только doc-skill, сервер не поднят.
-- **Sprint 0 (AMOS roadmap) закрыт 2026-06-15**: `subagent-verify-gate.js` (Stop) — HARD BLOCK, если editor-субагент (backend/frontend/devops/3d-animation/docs/general-purpose/claude) менял код-файлы без последующего test-run/reviewer-security-qa-субагента ("SUBAGENT VERIFY REQUIRED"), либо менял UI-пути (.tsx/.jsx/.vue/.svelte, components|pages|views/) без agent-browser-скриншота ("UI VISUAL GATE"). ship-gate.js skip требует непустого `reason` при активном verify-gate. Override — только с причиной, логируется в `policy_events`. Naming-fix `code-reviewer`→`reviewer`, `security-reviewer`→`security`, `architect` opus→sonnet. Детали: `.planning/ROADMAP-AMOS-IMPROVEMENTS-2026-06-15.md` Sprint 0.
+## Current State (2026-06-19)
+- AMOS декомиссия 2026-06-18 → глобально остался PreCompact + плагины. История S1-S60 + AMOS S0-S8 — `.planning/PROJECT-HISTORY.md` (историческое, НЕ текущее).
+- 2026-06-19: ponytail + claude-mem поставлены глобально (по явному решению юзера, несмотря на риск повторения AMOS-паттерна); gstack обновлён v1.15→v1.58; `CHEATSHEET.html` переписан под реальность; следы AMOS убраны из `CLAUDE.md`/`MEMORY.md`.
+- Все 31 проект юзера (D:\Ametrin projects\, C:\Claude playground\) проверены — AMOS-следов в их `CLAUDE.md` нет. Per-project cleanup-ритуал НЕ нужен.
 
 ## Git Workflow
 - Одна задача = одна ветка (`system-upgrade/<slug>` или `fix/<slug>`). Commit: `<type>: <description>`.
