@@ -1,51 +1,43 @@
 # Pipeline Setupper — Command Center
 
 ## Overview
-Центральный репозиторий управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Antigravity. Хранит аудиты, планы апгрейдов, документацию пайплайна.
+Центральный репозиторий управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Gemini. Хранит аудиты, планы апгрейдов, документацию пайплайна.
+
+> ⚠ **AMOS-слой хуков СНЯТ 2026-06-18** (был advisory-спам). Бэкап `~/.claude/_backup-amos-full-2026-06-18/`, restore: `restore-amos.ps1`. Доки в `.planning/` про AMOS/гейты — **исторические**. Живое состояние — `settings.json` + `claude plugin list` + `/skills`. Памятка пользователю — **`CHEATSHEET.html`**.
 
 ## Stack
-- Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`)
-- Graphify (Python codemap) + CodeGraph (MCP) — структурный поиск
-- Shared memory: `memory_summary.md` (startup payload) под `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
+- Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`).
+- **CodeGraph (MCP)** — структурный поиск (экономит токены vs Read), npm-инструмент (`codegraph serve --mcp`). Индекс `.codegraph/codegraph.db` **обновляется САМ** (file-watcher вкл. по умолчанию, проверено live на Windows; `.md` не индексируется; mtime `.db` ≠ свежесть из-за WAL — проверять `codegraph status .`). ⚠ read-gate СНЯТ — codegraph не форсится, звать по привычке. **`graphify` — ОТДЕЛЬНЫЙ продукт** (Python, индекс `graphify-out/graph.json`), к codegraph-индексу отношения НЕ имеет — не путать.
+- Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
 
 ## Commands
 Полный список — `.planning/COMMANDS-REFERENCE.md`. Частые:
 ```bash
-node ~/.claude/hooks/test-all-hooks.js          # sanity (35/35)
-node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW (37/37)
-node tools/doctor.js                            # health: docs/skills/hooks/Graphify/git
-cmd /c graphify query "что делает X?"           # структурный поиск (вместо чтения файлов)
-node "%USERPROFILE%\.amos\bin\amos.js" doctor   # AMOS ядро
+npx claude-mem status         # worker памяти жив?
+node tools/doctor.js          # health: docs/skills/git
+codegraph status .            # codegraph-индекс свежий? (обновляется САМ — watcher в serve --mcp)
 ```
 
 ## Architecture
-Детальная карта хуков и tools — **`.planning/HOOKS-ARCHITECTURE.md`**. Кратко:
-- `~/.claude/hooks/` — 48 хуков (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop). Workflow-gates advisory; hard-block только для freeze/secrets/destructive/commit-quality.
-- `~/.claude/tools/` — doctor, pipeline-state, codemap, harness-runner/gates, agent-surface-audit, token-impact и др.
-- `~/.claude/skills/` — ~60 скилов (база + 12 curated gap-скилов + `hindsight-docs`) + 2 on-demand диспетчера (`/pm` → 68 PM-скилов, `/lifecycle` → 24 addyosmani). `settings.json` — конфиг/permissions.
-- `~/.claude/agents/` — 16 НАТИВНЫХ субагентов (haiku по умолч.; sonnet для architect/security/reviewer), генерит `tools/agent-library.js`. Вызов: `/agents`, Task(subagent_type), Team/SendMessage, `/company`. **Активируются после рестарта** (реестр subagent_type грузится на старте сессии).
-- `~/.claude/skill-packs/` — глобальные vendored-паки (pm-skills 68, addyosmani 24) для диспетчеров; провенанс — в `config/agent-skill-sources.json`.
-- `tools/skill-scan.js` — обёртка SkillSpector (static); честный гейт (exec-код/malware → block, markdown-паттерны → advisory). `tools/agent-skill-supply-chain.js scan-candidates` — гейт ДО установки.
-- `~/.codex/hooks.json` — 44 команды (те же .js, без FileChanged/Notification — Codex их не поддерживает). Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; агенты — только Claude.
-- AMOS (`~/.amos`, отдельный git-репо) — CLI-ядро v4, синк-копии в `amos/`.
-- `vendor/` (gitignored) — shallow-клоны 5 внешних skill-репо + SkillSpector venv (py3.12/uv); в git идёт только провенанс в манифесте.
+Трёхслойная рабочая система (см. `PLAYBOOK.md`), всё on-demand, без per-turn налога:
+- **Глобально (тонко):** PreCompact-хук + codegraph MCP + плагины (ponytail, claude-mem). Ничего не инжектится каждый ход.
+- **Карта (`PLAYBOOK.md`):** какой скилл когда / как совмещать / когда команда агентов — по всем доменам.
+- **Роутер (`/pipeline`):** классификация задачи → маршрут → бюджет скилов.
+- **Ритуал (`/project-bootstrap`):** делает проект эталонным (доки + харнесс с зубами + индекс + память + Context7).
+Метод — Fowler harness (`/harness-method`): guide → sensor → блокирующий gate → steering. Per-project, не глобально.
 
 ## Gotchas
-- **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Конфиг в своём репо `~/.claude`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
-- **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
+- **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
+- **`graphify` ≠ `codegraph`** — разные продукты/индексы (`graphify-out/graph.json` vs `.codegraph/codegraph.db`). `graphify update` НЕ обновляет codegraph-индекс (codegraph сам через watcher). `graphify claude install` = ЗАПРЕЩЕНО.
 - **Codex не поддерживает** FileChanged и Notification (Claude Code only).
-- **loop-guardian** ловит ОДИНАКОВЫЕ едиты (same old_string), не «3 едита одного файла».
 - **cwd в хуках** — всегда из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
-- **Stdout хуков** — только silent exit ИЛИ валидный JSON с `hookSpecificOutput`/`decision`. Хуки <4s (spawnSync timeout 5000ms).
-- **Codex sandbox** — тесты, спавнящие child node, могут падать `spawnSync EPERM`; запускать вне sandbox.
+- **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s (spawnSync timeout 5000ms).
+- **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для других тулов.
 
 ## Current State
-- **Score ~97/100**. Полная история S1-S60: `.planning/PROJECT-HISTORY.md`. Форматы вывода хуков: `.planning/HOOKS-ARCHITECTURE.md`.
-- **49 hook-команд** в settings.json; workflow-discipline advisory-only (кроме Sprint 0 ниже — hard enforcement).
-- **AMOS** (Agent Mini-OS, v4): CLI-ядро заменяет хуки единым `bin/amos.js` (SQLite state, cross-client resume). Спринты 0-4 закрыты, следующий — Sprint 5.
-- **Context-fix 2026-06-11**: системный промпт ужат (MCP-чистка, CLAUDE.md 13.7→5KB, MEMORY архив, токен в env). Источник раздувания — не хуки (UserPromptSubmit/PostToolUse инжектят 0Б), а раздутый промпт в cache_read каждый ход.
-- **Skill-packs + agent-library 2026-06-12**: интегрированы 5 внешних репо (addyosmani/agent-skills, phuryn/pm-skills, NVIDIA/SkillSpector, vectorize-io/hindsight, mattpocock/skills). SkillSpector вётит кандидатов перед установкой (0 blocking). Анти-bloat: 12 curated gap-скилов always-available, большие паки (PM 68, lifecycle 24) — через on-demand `/pm`+`/lifecycle` (per-turn = 2 описания вместо 92). 16 нативных haiku-агентов в `~/.claude/agents/`. Hindsight — только doc-skill, сервер не поднят.
-- **Sprint 0 (AMOS roadmap) закрыт 2026-06-15**: `subagent-verify-gate.js` (Stop) — HARD BLOCK, если editor-субагент (backend/frontend/devops/3d-animation/docs/general-purpose/claude) менял код-файлы без последующего test-run/reviewer-security-qa-субагента ("SUBAGENT VERIFY REQUIRED"), либо менял UI-пути (.tsx/.jsx/.vue/.svelte, components|pages|views/) без agent-browser-скриншота ("UI VISUAL GATE"). ship-gate.js skip требует непустого `reason` при активном verify-gate. Override — только с причиной, логируется в `policy_events`. Naming-fix `code-reviewer`→`reviewer`, `security-reviewer`→`security`, `architect` opus→sonnet. Детали: `.planning/ROADMAP-AMOS-IMPROVEMENTS-2026-06-15.md` Sprint 0.
+- AMOS декомиссия 2026-06-18 → глобально остался PreCompact + плагины. История S1-S60 + AMOS S0-S8 — `.planning/PROJECT-HISTORY.md` (историческое, НЕ текущее).
+- 2026-06-19: ponytail + claude-mem поставлены глобально (по явному решению юзера, несмотря на риск повторения AMOS-паттерна); gstack обновлён v1.15→v1.58; `CHEATSHEET.html` переписан под реальность; следы AMOS убраны из `CLAUDE.md`/`MEMORY.md`.
+- Все 31 проект юзера (D:\Ametrin projects\, C:\Claude playground\) проверены — AMOS-следов в их `CLAUDE.md` нет. Per-project cleanup-ритуал НЕ нужен.
 
 ## Git Workflow
 - Одна задача = одна ветка (`system-upgrade/<slug>` или `fix/<slug>`). Commit: `<type>: <description>`.

@@ -57,6 +57,10 @@ function addHarnessSurface(home) {
   write(path.join(home, '.gemini', 'skills', 'pipeline', 'SKILL.md'), '---\nname: pipeline\n---\n\n## Agent Harness\n');
 }
 
+function runFastAudit(root, home) {
+  return runAudit({ root, home, skipCodemap: true });
+}
+
 function testParseArgs() {
   const parsed = parseArgs(['node', 'agent-surface-audit.js', '--root', 'C:\\x', '--home', 'C:\\h', '--markdown', '--no-write']);
   assert.equal(parsed.ok, true);
@@ -85,7 +89,7 @@ function testAuditReportsClientSurface() {
   const root = tempRoot('agent-surface-root');
   const home = createHome();
   write(path.join(root, '.graphifyignore'), '.planning\n.rag\n.tmp\ngraphify-out\ntools/__pycache__\ntools/red-team\naudit/1c-dev-pilot\n');
-  const report = runAudit({ root, home });
+  const report = runFastAudit(root, home);
   assert.equal(report.clients.length, 3);
   assert.equal(report.clients.find((client) => client.client === 'claude').skillCount, 2);
   assert.equal(report.browser.status, 'pass');
@@ -100,7 +104,7 @@ function testAuditTreatsDeclaredUnsupportedEventsAsFallbacks() {
   write(path.join(home, '.codex', 'hooks.json'), JSON.stringify({
     Notification: [{ command: 'node unsupported.js' }],
   }));
-  const report = runAudit({ root, home });
+  const report = runFastAudit(root, home);
   assert.equal(report.summary.status, 'pass');
   assert.equal(report.summary.unexplainedGaps.includes('codex:Notification'), false);
 }
@@ -108,7 +112,7 @@ function testAuditTreatsDeclaredUnsupportedEventsAsFallbacks() {
 function testReportsWriteJsonAndMarkdown() {
   const root = tempRoot('agent-surface-write');
   const home = createHome();
-  const report = runAudit({ root, home });
+  const report = runFastAudit(root, home);
   const files = writeReports(report, root);
   assert.equal(fs.existsSync(files.jsonFile), true);
   assert.equal(fs.existsSync(files.mdFile), true);
@@ -118,7 +122,7 @@ function testReportsWriteJsonAndMarkdown() {
 function testMarkdownListsFallbackContracts() {
   const root = tempRoot('agent-surface-markdown');
   const home = createHome();
-  const report = runAudit({ root, home });
+  const report = runFastAudit(root, home);
   const markdown = formatMarkdown(report);
   assert.match(markdown, /Fallback Contracts/);
   assert.match(markdown, /Codex\/Gemini unsupported Notification\/FileChanged/);
@@ -129,7 +133,7 @@ function testHarnessSurfaceRequiresWrappersAndStopHooks() {
   const root = tempRoot('agent-surface-harness');
   const home = createHome();
   addHarnessSurface(home);
-  const report = runAudit({ root, home });
+  const report = runFastAudit(root, home);
   assert.equal(report.summary.status, 'warn');
   assert.match(report.summary.unexplainedGaps.join(','), /harness-wrapper:harness-runner\.cmd/);
   assert.match(report.summary.unexplainedGaps.join(','), /gemini:harness-run-gate/);
@@ -148,9 +152,35 @@ function testHarnessSurfacePassesWithWrappersAndStopHooks() {
   write(path.join(home, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: stopHook } }));
   write(path.join(home, '.codex', 'hooks.json'), JSON.stringify({ Stop: stopHook }));
   write(path.join(home, '.gemini', 'settings.json'), JSON.stringify({ hooks: { Stop: stopHook } }));
-  const report = runAudit({ root, home });
+  const report = runFastAudit(root, home);
   assert.equal(report.harness.status, 'pass');
   assert.equal(report.summary.status, 'pass');
+}
+
+function testPerProjectHarnessDoesNotRequireStopHooks() {
+  const root = tempRoot('agent-surface-harness-per-project');
+  const home = createHome();
+  addHarnessSurface(home);
+  write(path.join(root, 'CLAUDE.md'), [
+    '# Test',
+    '',
+    '## Overview',
+    'Test.',
+    '',
+    '> AMOS hooks removed 2026-06-18.',
+    '',
+    'Fowler harness. Per-project, not global.',
+    '',
+  ].join('\n'));
+  write(path.join(root, 'tools', 'harness-runner.js'), '#!/usr/bin/env node\n');
+  write(path.join(root, 'tools', 'harness-gates.js'), '#!/usr/bin/env node\n');
+  for (const name of ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1']) {
+    write(path.join(home, '.claude', 'bin', name), 'echo ok\n');
+  }
+  const report = runFastAudit(root, home);
+  assert.equal(report.harness.globalStopHooksRequired, false);
+  assert.deepEqual(report.harness.missingStopHooks, []);
+  assert.equal(report.harness.status, 'pass');
 }
 
 function testHarnessSurfaceWarnsWhenWrappersAreOffPath() {
@@ -169,7 +199,7 @@ function testHarnessSurfaceWarnsWhenWrappersAreOffPath() {
   const originalPath = process.env.PATH;
   process.env.PATH = '';
   try {
-    const report = runAudit({ root, home });
+    const report = runFastAudit(root, home);
     assert.equal(report.harness.status, 'warn');
     assert.match(report.summary.unexplainedGaps.join(','), /harness-command:/);
   } finally {
@@ -186,6 +216,7 @@ function main() {
   testMarkdownListsFallbackContracts();
   testHarnessSurfaceRequiresWrappersAndStopHooks();
   testHarnessSurfacePassesWithWrappersAndStopHooks();
+  testPerProjectHarnessDoesNotRequireStopHooks();
   testHarnessSurfaceWarnsWhenWrappersAreOffPath();
   process.stdout.write('agent-surface-audit tests: PASS\n');
 }

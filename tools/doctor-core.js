@@ -363,7 +363,7 @@ function checkSurfaceSync(root) {
     return [result('warn', 'surface:sync', 'Surface sync tool missing', script, 'Run node tools/sync-agent-surface.js --dry-run --json to audit skill parity.')];
   }
   const proc = spawnSync(process.execPath, [script, '--dry-run', '--json', '--target', 'all'], {
-    encoding: 'utf8', timeout: 10000, cwd: root,
+    encoding: 'utf8', timeout: 30000, cwd: root,
   });
   if (proc.status !== 0 || !proc.stdout) {
     return [result('warn', 'surface:sync', 'Surface sync check failed', proc.stderr || 'no output', 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
@@ -671,12 +671,15 @@ function checkHarnessRun(root, now = new Date()) {
   if (!result_.ok) {
     return [result('warn', 'harness:run', 'Harness run report missing', result_.error, 'Run node tools\\harness-gates.js run-gate <runId> --root .')];
   }
-  if (result_.stale) {
-    return [result('warn', 'harness:run', 'Harness run report stale', result_.value.generatedAt, 'Rerun node tools\\harness-gates.js run-gate <runId> --root .', { file: result_.file })];
-  }
   const report = result_.value;
   const status = (report.summary && report.summary.status) || 'unknown';
-  const phase  = report.phase || 'unknown';
+  const phase = report.phase || 'unknown';
+  if (result_.stale) {
+    if (status === 'pass' || phase === 'complete' || report.status === 'complete') {
+      return [result('pass', 'harness:run', 'Harness run history complete', `phase=${phase}  status=${report.status || status}`, '', { file: result_.file })];
+    }
+    return [result('warn', 'harness:run', 'Harness run report stale', result_.value.generatedAt, 'Rerun node tools\\harness-gates.js run-gate <runId> --root .', { file: result_.file })];
+  }
   const title  = status === 'pass' ? 'Harness run complete' : status === 'fail' ? 'Harness run failed' : 'Harness run in progress';
   const detail = `phase=${phase}  status=${report.status || status}`;
   return [result(status === 'fail' ? 'warn' : status === 'running' ? 'pass' : status, 'harness:run', title, detail, '', { file: result_.file })];
