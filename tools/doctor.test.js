@@ -388,6 +388,16 @@ function testHarnessRunCheck() {
   assert.equal(stale[0].status, 'warn');
   assert.match(stale[0].title, /stale/i);
 
+  // stale complete history remains valid evidence
+  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-01T10:00:00Z',
+    runId: 'run-001', phase: 'complete', status: 'complete',
+    summary: { status: 'pass', phase: 'complete' },
+  }));
+  const staleComplete = checkHarnessRun(root, now);
+  assert.equal(staleComplete[0].status, 'pass');
+  assert.match(staleComplete[0].title, /history complete/i);
+
   // running → pass (non-blocking)
   write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
     generatedAt: '2026-05-30T11:00:00Z',

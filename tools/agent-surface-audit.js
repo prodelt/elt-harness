@@ -183,6 +183,13 @@ function clientHasHarnessStopHook(client) {
   return Boolean(stop && stop.commands.some((command) => /harness-run-gate\.js/i.test(command)));
 }
 
+function projectUsesPerProjectHarness(root) {
+  const docs = ['CLAUDE.md', 'AGENTS.md'].map((name) => readText(path.join(root, name)));
+  return docs.some((doc) => doc.ok
+    && /AMOS(?:-|\s)[^\n]*(?:СНЯТ|removed)/i.test(doc.value)
+    && /Per-project,\s*не глобально|per-project,\s*not global/i.test(doc.value));
+}
+
 function auditHarness(home, root, clients) {
   const bin = path.join(home, '.claude', 'bin');
   const wrapperNames = ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1'];
@@ -201,9 +208,12 @@ function auditHarness(home, root, clients) {
     configured: clientHasHarnessStopHook(client),
   }));
   const pipelineHasHarness = hasPipelineHarnessSection(clients);
+  const globalStopHooksRequired = pipelineHasHarness && !projectUsesPerProjectHarness(root);
   const missingWrappers = wrappers.filter((item) => !item.exists).map((item) => item.name);
   const missingScripts = scripts.filter((item) => !item.exists).map((item) => item.name);
-  const missingStopHooks = stopHooks.filter((item) => !item.configured).map((item) => item.client);
+  const missingStopHooks = globalStopHooksRequired
+    ? stopHooks.filter((item) => !item.configured).map((item) => item.client)
+    : [];
   const commands = [
     commandStatus('cmd.exe', ['/c', 'where', 'harness-runner.cmd'], root),
     commandStatus('cmd.exe', ['/c', 'where', 'harness-gates.cmd'], root),
@@ -220,6 +230,7 @@ function auditHarness(home, root, clients) {
   return {
     status,
     pipelineHasHarness,
+    globalStopHooksRequired,
     wrappers,
     scripts,
     stopHooks,
@@ -318,10 +329,15 @@ function runAudit(options = {}) {
   const root = path.resolve(options.root || process.cwd());
   const home = path.resolve(options.home || os.homedir());
   const clients = Object.keys(CLIENTS).map((client) => auditClient(client, home));
-  const codemap = {
-    graphify: runCodemapDoctor({ root }),
-    codegraph: runCodemapDoctor({ root, provider: 'codegraph' }),
-  };
+  const codemap = options.skipCodemap
+    ? {
+      graphify: { summary: {}, checks: [] },
+      codegraph: { summary: {}, checks: [] },
+    }
+    : {
+      graphify: runCodemapDoctor({ root }),
+      codegraph: runCodemapDoctor({ root, provider: 'codegraph' }),
+    };
   const report = {
     version: 1,
     generatedAt: new Date().toISOString(),

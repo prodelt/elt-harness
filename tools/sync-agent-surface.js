@@ -33,7 +33,24 @@ const CLIENT_ONLY = {
   gemini: new Set(['architect', 'autofix', 'backend', 'devops', 'frontend', 'graphify', 'nextjs', 'security', 'security-agent', 'supabase']),
 };
 
-const SYNC_IGNORE_NAMES = new Set(['.git']);
+const COPY_IGNORE_NAMES = new Set(['.git']);
+const HASH_IGNORE_NAMES = new Set([
+  '.git',
+  '.agents',
+  '.claude',
+  '.cursor',
+  '.factory',
+  '.gbrain',
+  '.github',
+  '.gstack',
+  '.hermes',
+  '.kiro',
+  '.openclaw',
+  '.opencode',
+  '.slate',
+  '.windsurf',
+  'node_modules',
+]);
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,7 +67,7 @@ function listSkillDirs(dir) {
 function dirContentsHash(dir) {
   const entries = [];
   for (const f of fs.readdirSync(dir).sort()) {
-    if (SYNC_IGNORE_NAMES.has(f)) continue;
+    if (HASH_IGNORE_NAMES.has(f)) continue;
     const full = path.join(dir, f);
     if (fs.statSync(full).isDirectory()) {
       entries.push(`d:${f}:${dirContentsHash(full)}`);
@@ -65,7 +82,7 @@ function dirContentsHash(dir) {
 function copyDirSync(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   for (const f of fs.readdirSync(src)) {
-    if (SYNC_IGNORE_NAMES.has(f)) continue;
+    if (COPY_IGNORE_NAMES.has(f)) continue;
     const srcPath = path.join(src, f);
     const dstPath = path.join(dst, f);
     if (fs.statSync(srcPath).isDirectory()) {
@@ -111,7 +128,9 @@ function analyzeTarget(targetName, targetDir, sourceSkills, sourceDir, opts = {}
       missing.push(skill);
     } else {
       // both exist — check if different
-      const srcHash = dirContentsHash(path.join(sourceDir, skill));
+      const srcHash = opts.sourceHashes && opts.sourceHashes.has(skill)
+        ? opts.sourceHashes.get(skill)
+        : dirContentsHash(path.join(sourceDir, skill));
       const dstHash = dirContentsHash(path.join(targetDir, skill));
       if (srcHash !== dstHash) {
         conflicts.push({ skill, note: 'content-differs' });
@@ -130,6 +149,10 @@ function analyzeTarget(targetName, targetDir, sourceSkills, sourceDir, opts = {}
 function analyzeAll(opts = {}) {
   const sourceDir = CLIENTS.claude;
   const sourceSkills = listSkillDirs(sourceDir);
+  const sourceHashes = new Map(sourceSkills.map((skill) => [
+    skill,
+    dirContentsHash(path.join(sourceDir, skill)),
+  ]));
 
   const results = {};
   const targets = opts.target === 'all'
@@ -138,7 +161,7 @@ function analyzeAll(opts = {}) {
 
   for (const t of targets) {
     if (!CLIENTS[t]) continue;
-    results[t] = analyzeTarget(t, CLIENTS[t], sourceSkills, sourceDir, opts);
+    results[t] = analyzeTarget(t, CLIENTS[t], sourceSkills, sourceDir, { ...opts, sourceHashes });
   }
 
   return { source: 'claude', sourceSkillCount: sourceSkills.length, results };
