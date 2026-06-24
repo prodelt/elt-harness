@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { summarizeSupplyChainAudit } = require('./agent-skill-supply-chain-status');
@@ -369,10 +370,96 @@ function closeState(options) {
   return next;
 }
 
+// ── judge_verdict logging (elt-code Step 4) ────────────────────────────────
+// ponytail: this CLI exists because the model hand-writing the ledger line
+// loses entries under context pressure (audit: 3 judge runs -> 1 logged).
+// One deterministic append call replaces free-hand JSON.
+
+const HARD_REQUIRED_KEYS = ['H1', 'H2'];
+const HARD_RESULTS = new Set(['pass', 'fail', 'na']);
+
+function buildVerdictEvent(raw, now = new Date()) {
+  if (!raw || typeof raw !== 'object') throw new Error('verdict payload must be an object');
+  if (raw.verdict !== 'pass' && raw.verdict !== 'block') {
+    throw new Error('verdict must be "pass" or "block"');
+  }
+  const hard = raw.hard || {};
+  for (const key of HARD_REQUIRED_KEYS) {
+    if (!hard[key] || !HARD_RESULTS.has(hard[key].r)) {
+      throw new Error(`hard.${key}.r must be one of pass|fail|na`);
+    }
+  }
+  return {
+    type: 'judge_verdict',
+    ts: raw.ts || toIso(now),
+    task: raw.task || '',
+    complexity: raw.complexity || '',
+    slice: raw.slice ?? null,
+    model: raw.model || '',
+    verdict: raw.verdict,
+    hard,
+    soft: raw.soft || {},
+    summary: raw.summary || '',
+  };
+}
+
+function logVerdictToLedger(options) {
+  const { root, home, raw, now } = options;
+  const event = buildVerdictEvent(raw, now);
+  const stateFile = projectStatePath(root, home);
+  const state = readState(stateFile);
+  const ledgerPath = (state && state.ledgerPath) || projectLedgerPath(root, home);
+  appendLedgerEvent(ledgerPath, event);
+  return { event, ledgerPath };
+}
+
+// ── cli ──────────────────────────────────────────────────────────────────────
+
+function cliLogVerdict(args) {
+  let root = process.cwd();
+  let jsonArg = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--root') { root = args[++i]; }
+    else if (args[i] === '--json') { jsonArg = args[++i]; }
+  }
+  const raw = jsonArg || (() => { try { return fs.readFileSync(0, 'utf8'); } catch { return ''; } })();
+  if (!raw || !raw.trim()) {
+    process.stderr.write('Usage: node tools/pipeline-state.js log-verdict --root <path> --json \'<verdict JSON>\' (or pipe JSON via stdin)\n');
+    process.exit(1);
+  }
+
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (err) {
+    process.stderr.write(`Invalid JSON: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  try {
+    const { ledgerPath } = logVerdictToLedger({ root, home: os.homedir(), raw: parsed });
+    const lineCount = fs.readFileSync(ledgerPath, 'utf8').trim().split(/\r?\n/).filter(Boolean).length;
+    process.stdout.write(`Logged judge_verdict (${parsed.verdict}) to ${ledgerPath} (line ${lineCount})\n`);
+  } catch (err) {
+    process.stderr.write(`Invalid verdict: ${err.message}\n`);
+    process.exit(1);
+  }
+}
+
+function cliMain(argv) {
+  const [cmd, ...rest] = argv.slice(2);
+  if (cmd === 'log-verdict') return cliLogVerdict(rest);
+  process.stderr.write('Usage: node tools/pipeline-state.js log-verdict --root <path> --json \'<verdict JSON>\'\n');
+  process.exit(1);
+}
+
+if (require.main === module) {
+  cliMain(process.argv);
+}
+
 module.exports = {
   STATE_TTL_MS,
   appendLedgerEvent,
   attachHarnessRun,
+  buildVerdictEvent,
   closeState,
   createClassifiedState,
   isClosedState,
