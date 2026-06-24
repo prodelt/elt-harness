@@ -21,7 +21,31 @@
 - `.planning/ELT-CODE-v0.6-UPGRADE.md` и CHECKPOINT — **не закоммичены** (юзер не просил commit; auto-mode теперь страхует git).
 - `/usage` — юзер запускает сам (UI); свежего report.html нет.
 
-### Resume Pointer
-- **Focus:** Тир 3 live-fire — прогнать автономную петлю `/elt-code` (Шаг 6) на одной реальной COMPLEX-задаче под присмотром; проверить, что судья корректно гейтит ScheduleWakeup (PASS→след.слайс / BLOCK→тот же) и loop-guardian ловит застревание.
-- **Resume command:** новая сессия (свежий контекст) → `/loop` с kickoff из выбранной COMPLEX-задачи; перед этим подключить `loop-guardian.js` на loop-сессию + задать max-iterations.
-- **Перед стартом:** проверить, что `auto`-режим в новой сессии ловит `git reset --hard` (поведенческий тест Тира 1).
+## Обновление 2026-06-24 (свежая сессия) — Тир 1 закрыт через guardrail
+
+- **Поведенческий тест Тира 1 ПРОВАЛЕН:** `auto`-режим **НЕ блокирует** `git reset --hard` —
+  выполнился молча (тест в одноразовых репо: scratchpad + вложенный на боевом пути; файл откатился).
+  Причина НЕ классификатор, а `~/.claude/settings.json:209,214`
+  `skipDangerousModePermissionPrompt:true`+`skipAutoPermissionPrompt:true` подавляют эти промпты.
+  Посылка «auto страхует git» — **неверна**.
+- **Ремедиация (решение юзера):** поставлен `git-guardrails-claude-code` как **node-порт**
+  `.claude/hooks/block-dangerous-git.js` (PreToolUse matcher Bash; deny push/reset --hard/clean -f[d]/
+  branch -D/checkout ./restore ./push --force; exit 2). Project-scope `.claude/settings.json` (gitignored).
+  **Подхватился на лету** — заблокировал реальный Bash-вызов в этой же сессии; danger→exit2, safe→exit0,
+  ложных нет. Это и есть детерминированное дно петли вместо неработающего auto. Note: блокирует и
+  легитимный `git push` → push петли остаётся ручным (= git workflow rule).
+- **Готовность к live-fire подтверждена:** loop-guardian.js работает (deps целы, blockAt:6); `/loop` —
+  нативная команда; elt-code v0.7.0 Шаг 6 на месте.
+
+### Resume Pointer (live-fire петли — следующая СВЕЖАЯ сессия)
+- **Focus:** прогнать автономную петлю `/elt-code` (Шаг 6) на одной реальной COMPLEX-задаче под
+  присмотром; проверить, что судья гейтит ScheduleWakeup (PASS+слайсы→след / PASS+нет→Шаг5 / BLOCK→тот же)
+  и loop-guardian ловит застревание.
+- **Рецепт запуска (свежий контекст):**
+  1. Тир 1 уже закрыт guardrail'ом (рестарт не нужен — project-хук активен).
+  2. Подключить `loop-guardian.js` **на время loop-сессии** как PostToolUse(Edit|Write|Bash) —
+     снять после прогона (PostToolUse = per-turn налог вне петли).
+  3. Задать max-iterations cap.
+  4. `/loop` (dynamic) с kickoff-промптом выбранной COMPLEX-задачи.
+- **Открытый вопрос:** judge → structured output (schema не подтверждена); как чисто подключать/снимать
+  loop-guardian per-session без правки project settings каждый раз.
