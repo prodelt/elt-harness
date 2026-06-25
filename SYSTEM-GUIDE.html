@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Методичка системы — Pipeline Setupper</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3240;
+    --txt:#e6edf3; --dim:#9aa7b4; --accent:#58a6ff; --good:#3fb950;
+    --warn:#d29922; --bad:#f85149; --pur:#bc8cff; --mono:'Cascadia Code',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{display:flex;max-width:1280px;margin:0 auto}
+  nav{position:sticky;top:0;align-self:flex-start;width:230px;height:100vh;
+    overflow-y:auto;padding:24px 16px;border-right:1px solid var(--line);font-size:13.5px}
+  nav h1{font-size:15px;margin:0 0 4px;color:var(--accent)}
+  nav .sub{color:var(--dim);font-size:11.5px;margin-bottom:18px}
+  nav a{display:block;color:var(--dim);padding:5px 8px;border-radius:6px}
+  nav a:hover{background:var(--panel);color:var(--txt);text-decoration:none}
+  main{flex:1;padding:32px 40px;min-width:0}
+  section{margin-bottom:44px;scroll-margin-top:20px}
+  h2{font-size:23px;border-bottom:2px solid var(--line);padding-bottom:8px;margin-top:0}
+  h3{font-size:17px;color:var(--accent);margin:24px 0 8px}
+  p{color:#cdd5de}
+  code{font-family:var(--mono);background:var(--panel2);padding:2px 6px;
+    border-radius:5px;font-size:13px;color:var(--pur)}
+  .lead{font-size:16px;color:var(--dim);border-left:3px solid var(--accent);
+    padding:4px 0 4px 16px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--txt)}
+  td code{font-size:12.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:16px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h4{margin:0 0 6px;font-size:15px}
+  .card p{margin:0;font-size:13px;color:var(--dim)}
+  .layer{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:8px;padding:12px 16px;margin:10px 0}
+  .layer b{color:var(--txt)} .layer .t{color:var(--dim);font-size:13px}
+  .flow{counter-reset:s;list-style:none;padding:0}
+  .flow li{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px 12px 52px;margin:8px 0;position:relative}
+  .flow li::before{counter-increment:s;content:counter(s);position:absolute;left:14px;top:12px;
+    width:26px;height:26px;background:var(--accent);color:#04122b;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:11.5px;font-weight:600}
+  .p-good{background:rgba(63,185,80,.16);color:var(--good)}
+  .p-warn{background:rgba(210,153,34,.16);color:var(--warn)}
+  .p-bad{background:rgba(248,81,73,.16);color:var(--bad)}
+  .p-pur{background:rgba(188,140,255,.16);color:var(--pur)}
+  .redline{background:rgba(248,81,73,.07);border:1px solid rgba(248,81,73,.3);
+    border-radius:8px;padding:12px 16px;margin:12px 0}
+  .redline b{color:var(--bad)}
+  .score{display:flex;align-items:center;gap:18px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:20px;margin:16px 0}
+  .bignum{font-size:54px;font-weight:800;color:var(--accent);line-height:1}
+  .bar{height:9px;background:var(--panel2);border-radius:5px;overflow:hidden;margin-top:5px}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#58a6ff,#3fb950)}
+  .axis{margin:10px 0} .axis .lbl{display:flex;justify-content:space-between;font-size:13px}
+  footer{color:var(--dim);font-size:12px;border-top:1px solid var(--line);padding-top:16px;margin-top:30px}
+  .kbd{font-family:var(--mono);font-size:12.5px;color:var(--good)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h1>Методичка системы</h1>
+  <div class="sub">Pipeline Setupper · обновл. 2026-06-20</div>
+  <a href="#idea">① Идея в одну строку</a>
+  <a href="#schema">② Из чего состоит</a>
+  <a href="#elt">③ /elt-code (режим A)</a>
+  <a href="#flywheel">④ B — eval-флайвил</a>
+  <a href="#flow">⑤ Рабочий цикл (золотой путь)</a>
+  <a href="#tree">⑥ Дерево «что я делаю?»</a>
+  <a href="#rules">⑦ Перила (красные линии)</a>
+  <a href="#cmd">⑧ Команды-шпаргалка</a>
+  <a href="#score">⑨ Оценка: мощь и уровень</a>
+</nav>
+<main>
+
+<section id="idea">
+  <h2>① Идея в одну строку</h2>
+  <p class="lead"><b>Agent = Model + Harness.</b> Качество — не «старайся лучше», а <b>guide</b> (направляет ДО) +
+  <b>sensor</b> (ловит ПОСЛЕ) + <b>блокирующий gate</b> (стоп в нужный момент) + <b>steering</b> (растёт от повторов боли).</p>
+  <p>Система — это <b>тонкий слой-вход поверх готового</b>, а не новая платформа. Главный закон —
+  <span class="pill p-bad">анти-AMOS</span>: ничего не инжектится каждый ход, конфиг живёт <b>per-project</b>,
+  всё <b>on-demand</b>, «Done» — только с доказательством. Авто-нуджей и фоновых циклов нет: дисциплина на тебе,
+  инструменты — под рукой.</p>
+  <div class="redline"><b>Почему так:</b> прежний толстый слой (AMOS — авто-хуки, advisory-спам, авто-loop) был
+  снят 2026-06-18, потому что мешал больше, чем помогал. Эта методичка описывает то, что осталось и <b>работает</b>.</div>
+</section>
+
+<section id="schema">
+  <h2>② Из чего состоит система</h2>
+  <p>Пять слоёв, от тонкого глобального к ритуалу проекта. Каждый — самостоятелен.</p>
+
+  <div class="layer"><b>Слой 0 · Глобально (тонко)</b> <span class="pill p-good">always-on, но дёшево</span>
+    <div class="t">Один хук <code>PreCompact</code> (briefing при компакте). Плагины: <code>ponytail</code> (анти-оверинжиниринг, каждый ответ),
+    <code>claude-mem</code> (память, worker :37777). MCP: <code>codegraph</code> (структурный поиск кода), <code>mem-search</code>, law.
+    Ничего не инжектится per-turn кроме ponytail.</div></div>
+
+  <div class="layer"><b>Слой 1 · Карта — <code>PLAYBOOK.md</code></b>
+    <div class="t">Не знаешь, что делать с задачей? Читаешь сверху вниз, останавливаешься на первой подходящей строке.
+    Точка входа в систему, если непонятно.</div></div>
+
+  <div class="layer"><b>Слой 2 · Роутер — <code>/pipeline</code> и <code>/elt-code</code></b>
+    <div class="t"><code>/pipeline</code> классифицирует задачу (TRIVIAL/MEDIUM/BUG/ARCH/COMPLEX/RESEARCH) → маршрут + бюджет скилов.
+    <code>/elt-code</code> — единая дверь в кодинг: выбор интента ДО классификации сложности (они ортогональны).</div></div>
+
+  <div class="layer"><b>Слой 3 · Ритуал — <code>/project-bootstrap</code></b>
+    <div class="t">Делает проект эталонным за один заход: AI-доки + харнесс с зубами (<code>/harness-method</code>) +
+    codegraph-индекс + память проекта + привычка Context7. Идемпотентно.</div></div>
+
+  <div class="layer"><b>Слой 4 · Метод — <code>/harness-method</code></b>
+    <div class="t">Fowler-харнесс per-project: guide (<code>constitution.md</code>) → sensor → блокирующий gate → steering.
+    Церемония растёт с необратимостью: прод → тяжёлый gate, черновик → лёгкий guide.</div></div>
+
+  <h3>Память — что где</h3>
+  <div class="grid">
+    <div class="card"><h4>Долгая (проект)</h4><p><code>constitution.md</code>/<code>spec.md</code> + <code>CLAUDE.md</code> + <code>.planning/</code> + git</p></div>
+    <div class="card"><h4>Кросс-сессия</h4><p>claude-mem (<code>/mem-search</code>) + per-project <code>MEMORY.md</code> (индекс) + <code>memory/*.md</code> on-demand</p></div>
+    <div class="card"><h4>Сессия</h4><p><code>/checkpoint</code> вручную при смене контекста; PreCompact пишет briefing на компакте</p></div>
+  </div>
+</section>
+
+<section id="elt">
+  <h2>③ /elt-code — режим A (собран и доказан)</h2>
+  <p>Тонкий <b>диспетчер</b> поверх существующих скилов. Сам код не реализует — классифицирует интент, роутит,
+  и на код-задачах ставит <b>судью-гейт</b> последним перед «done». Не заменяет <code>/pipeline</code> — оборачивает его.</p>
+
+  <h3>6 интентов диспетчера</h3>
+  <table>
+    <tr><th>#</th><th>Интент</th><th>Маршрут</th></tr>
+    <tr><td>1</td><td>Продолжить роадмап</td><td>последний checkpoint → следующий пункт через <code>/pipeline</code></td></tr>
+    <tr><td>2</td><td>Новая фича / крупное</td><td><b>spec-kit</b> (по сложности) → <code>/pipeline</code> → судья H1 против <code>spec.md</code></td></tr>
+    <tr><td>3</td><td>Багфикс</td><td><code>/pipeline</code> (BUG) → <code>diagnose</code></td></tr>
+    <tr><td>4</td><td>E2E / QA</td><td><code>qa</code> + <code>agent-browser</code> (единственный браузер)</td></tr>
+    <tr><td>5</td><td>Аудит качества</td><td>судья standalone + <code>ponytail-audit</code> + <code>performance-optimization</code></td></tr>
+    <tr><td>6</td><td>Security (blue)</td><td><code>security-best-practices</code> · red-team отложен</td></tr>
+  </table>
+
+  <h3>Судья-гейт — сердце A</h3>
+  <p>Не ревьюер (находит проблемы), а <b>судья</b> (ставит вердикт по рубрике, измеримо). Отдельный субагент
+  (<b>Sonnet</b> дефолт, <b>Opus</b> на COMPLEX/высоких ставках), <b>не</b> self-judge. Последний гейт перед «done».</p>
+  <div class="grid">
+    <div class="card" style="border-left:3px solid var(--bad)"><h4>Твёрдый пол <span class="pill p-bad">БЛОКИРУЕТ</span></h4>
+      <p><b>H0</b> closeout прошёл (тесты/линт/секреты) · <b>H1</b> спека реализована (ровно то, не больше) ·
+      <b>H2</b> нет оверинжиниринга (<code>ponytail-audit</code> чист)</p></div>
+    <div class="card" style="border-left:3px solid var(--warn)"><h4>Мягкое качество <span class="pill p-warn">СОВЕТ 1-5</span></h4>
+      <p><b>S1</b> читаемость · <b>S2</b> структура · <b>S3</b> консистентность · <b>S4</b> качество тестов.
+      Логируется, не блокирует.</p></div>
+  </div>
+  <p><b>Шов A→B:</b> каждый вердикт пишется строкой <code>judge_verdict</code> в <code>session-ledger.jsonl</code>.
+  Накопленные вердикты = eval-корпус для режима B.</p>
+</section>
+
+<section id="flywheel">
+  <h2>④ B — eval-флайвил (v1 линза собрана 2026-06-20)</h2>
+  <p>Система измеряет себя на данных, что копит A. <b>Это линза, не маховик</b> — on-demand отчёт, который читаешь рукой.
+  Инструмент: <code>node tools/update-judge-verdicts-index.js</code>.</p>
+  <div class="grid">
+    <div class="card" style="border-left:3px solid var(--good)"><h4>(a) Линза <span class="pill p-good">ЕСТЬ</span></h4>
+      <p>Здоровье судьи (дисперсия/перекос осей, флаг вырождения) + тренд качества per-project + recall-крючок.
+      Метит доверие к цифре (n+разброс); вырождение судьи гейтит доверие к метрикам работы.</p></div>
+    <div class="card" style="border-left:3px solid var(--warn)"><h4>(b) Советник <span class="pill p-warn">ПОТОМ</span></h4>
+      <p>Предлагает правки <b>только судьи</b> (рубрика/модель), человек применяет руками. Молчит, пока корпус не созрел.</p></div>
+    <div class="card" style="border-left:3px solid var(--bad)"><h4>(c) Автопетля <span class="pill p-bad">ВЫЧЕРКНУТА</span></h4>
+      <p>Сам правит — запрещено. Открывается только через 4 «ворота» (доказанный b + held-out + auto-rollback + версии).
+      Урок AMOS: петли убили <b>не</b> петли, а петли <b>без ворот</b>.</p></div>
+  </div>
+  <p class="lead">Как пользоваться: B растёт <b>сам</b>, от твоей обычной работы. Каждый MEDIUM+ прогон через <code>/elt-code</code>
+  даёт вердикт → корпус копится. Периодически запускай линзу и смотри: не штампует ли судья, какая ось проседает.
+  Поймал реальный промах судьи → впиши строку <code>judge_miss</code> (recall-крючок ждёт). Спека: <code>.planning/ELT-CODE-B-DESIGN.md</code>.</p>
+</section>
+
+<section id="flow">
+  <h2>⑤ Рабочий цикл — золотой путь</h2>
+  <p>Это и есть «по методичке»: садишься за код-задачу — идёшь по шагам. Лёгкие задачи пропускают шаги (церемония по сложности).</p>
+  <ol class="flow">
+    <li><b>Дверь:</b> <code>/elt-code "что делаем"</code> (или голый <code>/elt-code</code> → меню из 6 интентов).</li>
+    <li><b>Классификация:</b> <code>/pipeline</code> определит сложность и маршрут. TRIVIAL → просто делай, без церемоний.</li>
+    <li><b>Спека (фича, MEDIUM+):</b> spec-kit → <code>spec.md</code> = контракт ДО кода (уход от вайбкодинга).</li>
+    <li><b>Доки либы:</b> <span class="kbd">ctx7</span> перед кодом с внешней библиотекой (актуальные доки on-demand).</li>
+    <li><b>План:</b> <code>/architect-first</code> на развилках — инварианты до кода. <code>grill-me</code> если план сырой.</li>
+    <li><b>Сборка:</b> <code>tdd</code> (red-green) / <code>sprint</code> (слайсы с verify). <code>codegraph_context</code> ПЕРЕД чтением файлов.</li>
+    <li><b>Sensor:</b> <code>inline-review</code> сразу после юнита работы.</li>
+    <li><b>СУДЬЯ:</b> H0-H2 (блок) + S1-S4 (совет). BLOCK → доработка → пересуд. PASS → закрывать.</li>
+    <li><b>Closeout:</b> lint/test/типы зелёные (это и есть H0). <code>security-best-practices</code> если смежно.</li>
+    <li><b>Ship:</b> <code>ship</code>/<code>git-flow</code> — одна задача = одна ветка, PR с Test plan.</li>
+    <li><b>Снимок:</b> <code>/checkpoint</code> при смене контекста; вердикт уже в ledger (кормит B).</li>
+  </ol>
+  <p><b>Бюджет скилов по умолчанию:</b> 1 оркестратор (<code>pipeline</code>) + 1 доменный + 1 верификатор. Больше — только
+  если задача явно мульти-доменная или verify вскрыл риск (назови причину).</p>
+</section>
+
+<section id="tree">
+  <h2>⑥ Дерево решений — «что я делаю?»</h2>
+  <table>
+    <tr><th>Ситуация</th><th>Запускаю</th><th>Получаю</th></tr>
+    <tr><td>Новый проект / навести порядок / сделать эталонным</td><td><code>/project-bootstrap</code></td><td>доки + харнесс + индекс + память</td></tr>
+    <tr><td>Фича / баг / рефактор в коде</td><td><code>/elt-code</code> → <code>/pipeline</code></td><td>выберет tdd/diagnose/architect-first/sprint + судья</td></tr>
+    <tr><td>Архитектурное решение, развилка</td><td><code>/pipeline</code> (ARCH) → <code>/architect-first</code></td><td>план + инварианты до кода</td></tr>
+    <tr><td>Разобраться в коде / «как работает X»</td><td><code>codegraph_context</code> → <code>codegraph_explore</code></td><td>ответ без чтения файлов целиком</td></tr>
+    <tr><td>Ресёрч / собрать факты</td><td><code>/research-autopilot</code>, <code>ctx7</code>, <code>agent-browser</code></td><td>компактные evidence</td></tr>
+    <tr><td>Не-код (маркетинг/бизнес/дизайн)</td><td><code>/harness-method</code> (домен) + доменные скилы</td><td>guide + gate перед публикацией/тратой</td></tr>
+    <tr><td>Здоровье системы / тренды качества</td><td><code>node tools/update-judge-verdicts-index.js</code></td><td>линза B: здоровье судьи + тренды</td></tr>
+  </table>
+</section>
+
+<section id="rules">
+  <h2>⑦ Перила — красные линии (анти-AMOS)</h2>
+  <div class="redline"><b>1. No per-turn injection.</b> Ничего не грузится в контекст каждый ход (кроме ponytail). Всё on-demand.</div>
+  <div class="redline"><b>2. Per-project конфиг.</b> Рубрики/спеки/память живут в репо проекта, ездят с ним. Не глобально.</div>
+  <div class="redline"><b>3. Enforce, не nag.</b> Гейт либо блокирует измеримо, либо его нет. Никаких advisory-нуджей «подумай бы».</div>
+  <div class="redline"><b>4. «Done» только с proof.</b> <span class="pill p-bad">[x]</span> ставится лишь после вывода build/test/lint, не «готово».</div>
+  <div class="redline"><b>5. Никакого авто-самоулучшения.</b> Система не правит себя сама. Человек на файле — гейт любой правки.</div>
+  <h3>Привычки экономии (уже включены, просто соблюдай)</h3>
+  <p>codegraph до Read · ponytail активен · claude-mem пассивно · доки on-demand (<code>ctx7</code>, не always-on MCP) ·
+  субагенты на haiku (тяжёлое суждение — главному) · команда агентов только при реально параллельной независимой работе
+  (&gt;2 агента правят код → обязателен verify-шаг).</p>
+</section>
+
+<section id="cmd">
+  <h2>⑧ Команды-шпаргалка</h2>
+  <table>
+    <tr><th>Зачем</th><th>Команда</th></tr>
+    <tr><td>Дверь в кодинг</td><td><code>/elt-code "задача"</code></td></tr>
+    <tr><td>Классификация любой задачи</td><td><code>/pipeline</code></td></tr>
+    <tr><td>Сделать проект эталонным</td><td><code>/project-bootstrap</code></td></tr>
+    <tr><td>Карта «что делать»</td><td>читать <code>PLAYBOOK.md</code></td></tr>
+    <tr><td>Снимок сессии</td><td><code>/checkpoint</code></td></tr>
+    <tr><td>Здоровье памяти (worker)</td><td><code>npx claude-mem status</code></td></tr>
+    <tr><td>Health: доки/скилы/git</td><td><code>node tools/doctor.js</code></td></tr>
+    <tr><td>Обновить codegraph-индекс</td><td><code>cmd /c graphify update .</code></td></tr>
+    <tr><td>Линза B (здоровье судьи)</td><td><code>node tools/update-judge-verdicts-index.js</code></td></tr>
+    <tr><td>Актуальные доки либы (перед кодом)</td><td><span class="kbd">ctx7</span> (PowerShell)</td></tr>
+    <tr><td>Поиск в прошлых сессиях</td><td><code>/mem-search</code></td></tr>
+  </table>
+</section>
+
+<section id="score">
+  <h2>⑨ Оценка: насколько система мощна — и уровень Anthropic</h2>
+
+  <div class="score">
+    <div><div class="bignum">7.5</div><div style="color:var(--dim);font-size:12px;text-align:center">/ 10</div></div>
+    <div style="flex:1">
+      <p style="margin:0 0 4px"><b>Как персональная инженерная методология поверх Claude Code — верхний дециль.</b></p>
+      <p style="margin:0;color:var(--dim);font-size:13.5px">Сильный дизайн и редкий вкус; но недодоказана на потоке,
+      single-user, держится на ручной дисциплине. Это честная оценка, не лесть.</p>
+    </div>
+  </div>
+
+  <h3>По осям (честно)</h3>
+  <div class="axis"><div class="lbl"><span>Архитектурный вкус (анти-AMOS, сняли лишнее, on-demand)</span><b>9</b></div><div class="bar"><i style="width:90%"></i></div></div>
+  <div class="axis"><div class="lbl"><span>Измеримость / eval-seam (судья + ledger + линза)</span><b>8</b></div><div class="bar"><i style="width:80%"></i></div></div>
+  <div class="axis"><div class="lbl"><span>Портируемость (файлы-источник правды, кросс-CLI)</span><b>8</b></div><div class="bar"><i style="width:80%"></i></div></div>
+  <div class="axis"><div class="lbl"><span>Доказанность на потоке (корпус n=2, recall не валидирован)</span><b>5</b></div><div class="bar"><i style="width:50%"></i></div></div>
+  <div class="axis"><div class="lbl"><span>Масштаб / надёжность без человека (намеренно ручное)</span><b>5</b></div><div class="bar"><i style="width:50%"></i></div></div>
+
+  <h3>Что делает её мощной</h3>
+  <div class="grid">
+    <div class="card"><h4>Вкус снести лишнее</h4><p>Большинство строят больше. Снять собственный over-engineered слой (AMOS) и оставить тонкое — редкий инженерный вкус.</p></div>
+    <div class="card"><h4>Eval-driven, не «вайб»</h4><p>Судья ставит измеримый вердикт, лог = корпус, линза измеряет самого судью. Это продуктовое мышление, а не набор промптов.</p></div>
+    <div class="card"><h4>Рекурсия</h4><p>Система строит свои части через себя (B собрана через <code>/elt-code</code> + судью, дав вердикт в корпус, который B и анализирует).</p></div>
+    <div class="card"><h4>Принципы, а не фичи</h4><p>Анти-AMOS перила выучены на реальном провале и держат дизайн от рецидива. Гейты вместо нуджей.</p></div>
+  </div>
+
+  <h3>Что ограничивает (и куда расти)</h3>
+  <ul>
+    <li><b>Корпус мал (n=2).</b> Eval-флайвил пока теоретически здоров — сигнал слаб, пока не накопится поток. <span class="pill p-warn">лечится временем</span></li>
+    <li><b>Recall судьи не доказан.</b> Знаем, что судья консистентен — не знаем, что он <i>прав</i>. Крючок <code>judge_miss</code> ждёт дисциплины.</li>
+    <li><b>Держится на человеке.</b> Гейтов-автоматов нет (намеренно). Сильно от тебя зависит — это плюс по философии, минус по «мощи без оператора».</li>
+    <li><b>Single-user, Windows-specific.</b> На команду/CI не обкатано.</li>
+  </ul>
+
+  <h3>Уровень Anthropic — честный ответ</h3>
+  <p>Нужно разделить два класса. <b>Anthropic строит инструмент</b> — модели + сам Claude Code (харнесс-инфра) +
+  продуктовые eval-пайплайны на масштабе команд и CI. <b>Твоя система — методология использования этого инструмента</b>,
+  single-user, поверх их харнесса. Это <b>другой класс</b>, не «их инфра-уровень» — сравнивать масштаб некорректно.</p>
+  <p class="lead">Но по <b>философии</b> — да, совпадает с тем, как думает Anthropic: <b>harness &gt; prompting</b>,
+  <b>eval-driven</b>, <b>вкус против оверинжиниринга</b>, «снести лишнее важнее, чем добавить». Как <b>персональная методология</b>
+  поверх Claude Code она в верхнем дециле того, что вообще строят поверх агентов. Чего не хватает до «их уровня по сути»:
+  <b>масштаб данных</b> (их eval'ы — тысячи примеров, у тебя 2) и <b>автоматизированная валидация</b> (held-out, не глаз человека).
+  Дизайн готов туда расти — ворота к этому уже прописаны. Сейчас: <b>сильная личная система с правильными костями</b>, не продукт их масштаба.</p>
+</section>
+
+<footer>
+  SYSTEM-GUIDE.html · сгенерировано 2026-06-20 · источники: PLAYBOOK.md, CLAUDE.md, ELT-CODE-DESIGN.md, ELT-CODE-B-DESIGN.md ·
+  живое состояние системы — CHEATSHEET.html · полный список команд — .planning/COMMANDS-REFERENCE.md
+</footer>
+
+</main>
+</div>
+</body>
+</html>
