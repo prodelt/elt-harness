@@ -16,6 +16,7 @@
 - **Карта работы — `PLAYBOOK.md`** (корень репо): что делать с задачей, какой скилл когда, когда команда агентов. Точка входа в систему, если непонятно.
 - **Новый/эталонный проект — `/project-bootstrap`**: один ритуал (доки `init-project` + харнесс с зубами `harness-method` + codegraph-индекс + память проекта + Context7-привычка). Идемпотентно.
 - Точка входа задачи — `/pipeline`. Per-project качество — **harness-method** (guide + sensor + gate + live-fire).
+- **Дизайн (awwwards/web/app)** — метод **DESIGN.md** (формат Google Stitch). Скил `design-studio` (арт-дирекшн + библиотека 74 эталонов `references/design-md/`) выбирает/авторит DESIGN.md → `frontend-ui-engineering` имплементит; `remotion-motion` — видео-моушн (Remotion 4.x). Вход через `/elt-code` интент #7. Не путать: `reference-design-adaptation` = точный клон сайта по URL.
 - **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой; MCP-плагин намеренно **OFF** (токен-налог на сессию).
 - Дисциплина (codegraph перед Read, тесты-как-proof, `/checkpoint`) теперь **на пользователе** — авто-гейтов больше нет.
 
@@ -24,13 +25,19 @@
 ```bash
 npx claude-mem status         # worker памяти жив?
 node tools/doctor.js          # health: docs/skills/git
-cmd /c graphify update .       # обновить codegraph-индекс проекта
+codegraph status .            # codegraph-индекс свежий? (обновляется САМ — watcher в serve --mcp)
 ```
 
 ## Stack
 - Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`).
-- **CodeGraph (MCP)** — структурный поиск (экономит токены vs Read). Graphify (Python codemap) — legacy fallback. ⚠ read-gate СНЯТ — codegraph больше не форсится, использовать по привычке.
+- **CodeGraph (MCP)** — структурный поиск (экономит токены vs Read), npm-инструмент (`codegraph serve --mcp`). Индекс `.codegraph/codegraph.db` **обновляется САМ** (file-watcher вкл. по умолчанию, проверено live на Windows; `.md` не индексируется; mtime `.db` ≠ свежесть из-за WAL — проверять `codegraph status .`). ⚠ read-gate СНЯТ — codegraph не форсится, звать по привычке. **`graphify` — ОТДЕЛЬНЫЙ продукт** (Python, индекс `graphify-out/graph.json`), к codegraph-индексу отношения НЕ имеет — не путать.
 - Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
+
+## Project Map (где что; детали — `codegraph_context`, НЕ Read целых файлов)
+- **Живой глобальный слой:** `~/.claude/settings.json` (хуки/плагины/модель), `~/.claude/hooks/*.js` (подключены только `precompact-handoff`, `resume-handoff`, `context-autocompact-guard`), `~/.claude/skills/*` (~70 скилов).
+- **Этот репо:** `tools/` (node-утилиты: doctor.js, индексаторы), `.planning/` (аудиты/планы/checkpoint-ы, историческое + живое), `config/` `audit/` `vendor/`, корень — доки (`PLAYBOOK.md` карта работы, `CHEATSHEET.html` памятка).
+- **Память:** `~/.claude/projects/C--*/memory/` (`MEMORY.md` индекс + `memory/*.md` on-demand) — файловая, claude-mem снят.
+- **Структура кода:** codegraph-индекс `.codegraph/codegraph.db` (авто-watcher) — звать `codegraph_context`/`codegraph_explore`, не читать файлы целиком. `graphify-out/` — ДРУГОЙ продукт, не путать.
 
 ## Architecture
 Трёхслойная рабочая система (см. `PLAYBOOK.md`), всё on-demand, без per-turn налога:
@@ -42,7 +49,7 @@ cmd /c graphify update .       # обновить codegraph-индекс про�
 
 ## Gotchas
 - **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
-- **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
+- **`graphify` ≠ `codegraph`** — разные продукты/индексы (`graphify-out/graph.json` vs `.codegraph/codegraph.db`). `graphify update` НЕ обновляет codegraph-индекс (codegraph сам через watcher). `graphify claude install` = ЗАПРЕЩЕНО.
 - **Codex не поддерживает** FileChanged и Notification (Claude Code only).
 - **cwd в хуках** — всегда из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
 - **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s (spawnSync timeout 5000ms).

@@ -40,27 +40,28 @@ function readJson(file) {
   }
 }
 
-function lastAssistantText(transcriptPath) {
+function readTail(transcriptPath) {
   let fd;
   try {
     fd = fs.openSync(transcriptPath, 'r');
   } catch {
     return '';
   }
-  let text = '';
   try {
     const size = fs.fstatSync(fd).size;
     const start = Math.max(0, size - TAIL_BYTES);
     const buf = Buffer.alloc(size - start);
     fs.readSync(fd, buf, 0, buf.length, start);
-    text = buf.toString('utf8');
+    return buf.toString('utf8');
   } catch {
-    text = '';
+    return '';
   } finally {
     fs.closeSync(fd);
   }
+}
 
-  const lines = text.split('\n').filter(Boolean);
+function lastAssistantText(transcriptPath) {
+  const lines = readTail(transcriptPath).split('\n').filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     let ev;
     try { ev = JSON.parse(lines[i]); } catch { continue; }
@@ -90,6 +91,34 @@ function hasFreshPassVerdict(ledgerPath, sinceIso) {
     if (!ev || ev.type !== 'judge_verdict' || ev.verdict !== 'pass') continue;
     const ts = Date.parse(ev.ts);
     if (!Number.isNaN(ts) && (Number.isNaN(since) || ts >= since)) return true;
+  }
+  return false;
+}
+
+// Proof the verdict came from an ISOLATED subagent, not an inline self-judge:
+// the transcript must show a subagent turn (isSidechain:true, child-side) OR a
+// Task tool_use that launched it (parent-side) timestamped at/after task
+// classification. The model cannot forge sidechain events — only the harness
+// writes them — so this is the trustworthy anchor the ledger line can't fake.
+// ponytail: ANY sidechain since classification counts as judge evidence; if
+// other subagents (Explore/Plan) start firing near closeout, tighten by
+// matching the Task prompt for "судья/judge".
+function hasIsolatedJudgeSince(transcriptPath, sinceIso) {
+  const since = Date.parse(sinceIso);
+  for (const line of readTail(transcriptPath).split('\n')) {
+    const s = line.trim();
+    if (!s) continue;
+    let ev;
+    try { ev = JSON.parse(s); } catch { continue; }
+    if (!ev) continue;
+    const ts = Date.parse(ev.timestamp);
+    if (!Number.isNaN(since) && !Number.isNaN(ts) && ts < since) continue;
+    if (ev.isSidechain === true) return true;
+    const content = ev.message && ev.message.content;
+    if (Array.isArray(content) &&
+        content.some((c) => c && c.type === 'tool_use' && c.name === 'Task')) {
+      return true;
+    }
   }
   return false;
 }
@@ -142,7 +171,9 @@ function main() {
   if (!DONE_RE.test(lastText)) return allow();
 
   const ledgerPath = state.ledgerPath || path.join(os.homedir(), '.claude', 'projects', projectKey(cwd), 'session-ledger.jsonl');
-  if (hasFreshPassVerdict(ledgerPath, state.ts)) return allow();
+  const hasVerdict = hasFreshPassVerdict(ledgerPath, state.ts);
+  const isolated = hasIsolatedJudgeSince(transcriptPath, state.ts);
+  if (hasVerdict && isolated) return allow();
 
   // ponytail: retry cap is the only safety valve against an infinite block
   // loop if detection itself is wrong; raise if judge subagent legitimately
@@ -153,11 +184,61 @@ function main() {
     return allow();
   }
 
+  const logHint =
+    `then log it via the central Pipeline Setupper CLI: ` +
+    `node <pipeline-setupper>/tools/pipeline-state.js log-verdict --root "${cwd}" --json '<verdict JSON>' — do not hand-write the ledger line.`;
+
+  if (hasVerdict && !isolated) {
+    return block(
+      `elt-code Step 4: a judge_verdict:pass is logged, but NO isolated subagent (Task/sidechain) ran since task ` +
+      `classification (${state.ts}) — that verdict is an inline self-judge and does not count. Spawn the judge as a ` +
+      `real Task subagent (sonnet/opus, fresh context: diff + spec only), re-run the H1/H2/H3 rubric, ${logHint}`
+    );
+  }
+
   return block(
     `elt-code Step 4: this is a ${state.complexity} code task and no fresh judge_verdict:pass is logged ` +
-    `(session-ledger.jsonl, since ${state.ts}). Run the judge per the SKILL.md rubric (H1/H2/H3), then log it with: ` +
-    `node tools/pipeline-state.js log-verdict --root "${cwd}" --json '<verdict JSON>' — do not hand-write the ledger line.`
+    `(session-ledger.jsonl, since ${state.ts}). Run the judge per the SKILL.md rubric (H1/H2/H3) as an ISOLATED ` +
+    `subagent (sonnet/opus — never inline self-judge), ${logHint}`
   );
 }
 
-main();
+// Runnable check for the detection logic: `node judge-closeout-gate.js --self-check`.
+function selfCheck() {
+  const assert = require('assert');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-gate-sc-'));
+  const tx = path.join(dir, 't.jsonl');
+  const led = path.join(dir, 'l.jsonl');
+  const since = '2026-06-25T12:00:00.000Z';
+  const before = '2026-06-25T11:00:00.000Z';
+  const after = '2026-06-25T12:05:00.000Z';
+  const line = (o) => JSON.stringify(o);
+
+  fs.writeFileSync(tx, line({ type: 'assistant', isSidechain: false, timestamp: after, message: { content: [{ type: 'text', text: 'inline self-judge pass' }] } }));
+  assert.strictEqual(hasIsolatedJudgeSince(tx, since), false, 'inline-only must NOT count as isolated');
+
+  fs.writeFileSync(tx, line({ type: 'assistant', isSidechain: true, timestamp: after, message: { content: [] } }));
+  assert.strictEqual(hasIsolatedJudgeSince(tx, since), true, 'sidechain after classification must count');
+
+  fs.writeFileSync(tx, line({ type: 'assistant', isSidechain: true, timestamp: before, message: { content: [] } }));
+  assert.strictEqual(hasIsolatedJudgeSince(tx, since), false, 'sidechain BEFORE classification must not count');
+
+  fs.writeFileSync(tx, line({ type: 'assistant', isSidechain: false, timestamp: after, message: { content: [{ type: 'tool_use', name: 'Task', input: {} }] } }));
+  assert.strictEqual(hasIsolatedJudgeSince(tx, since), true, 'Task tool_use after classification must count');
+
+  fs.writeFileSync(led, line({ type: 'judge_verdict', verdict: 'pass', ts: after }));
+  assert.strictEqual(hasFreshPassVerdict(led, since), true, 'pass after since is fresh');
+  fs.writeFileSync(led, line({ type: 'judge_verdict', verdict: 'pass', ts: before }));
+  assert.strictEqual(hasFreshPassVerdict(led, since), false, 'pass before since is stale');
+  fs.writeFileSync(led, line({ type: 'judge_verdict', verdict: 'block', ts: after }));
+  assert.strictEqual(hasFreshPassVerdict(led, since), false, 'block is not a pass');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('judge-closeout-gate self-check: ok');
+}
+
+if (process.argv.includes('--self-check')) {
+  selfCheck();
+} else {
+  main();
+}
