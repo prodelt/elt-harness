@@ -15,6 +15,7 @@ const GATED_COMPLEXITIES = new Set(['MEDIUM', 'BUG', 'ARCH', 'COMPLEX']);
 const CLOSED_PHASES = new Set(['closed', 'shipped']);
 const MAX_RETRIES = 3;
 const TAIL_BYTES = 200000;
+const STALE_MS = 24 * 60 * 60 * 1000;
 
 // ponytail: closeout-intent heuristic, not exact intent-route match. Plain
 // substring (no \b) for Cyrillic — JS \b is ASCII-\w-based and misfires on it.
@@ -38,6 +39,16 @@ function readJson(file) {
   } catch {
     return null;
   }
+}
+
+// A task classified > STALE_MS ago is treated as abandoned, not current work.
+// Without this, a months-old non-closed pipeline-state.json (e.g. a non-code
+// course project) arms the gate on every future "done". Unparseable ts => not
+// stale (keep the gate, don't silently disarm on bad data).
+function isStale(tsIso) {
+  const ts = Date.parse(tsIso);
+  if (Number.isNaN(ts)) return false;
+  return (Date.now() - ts) > STALE_MS;
 }
 
 function readTail(transcriptPath) {
@@ -165,6 +176,11 @@ function main() {
   if (!state) return allow();
   if (!GATED_COMPLEXITIES.has(state.complexity)) return allow();
   if (CLOSED_PHASES.has(state.phase)) return allow();
+  // ponytail: stale-task guard — a non-closed task older than 24h is a
+  // forgotten mine, not the task you're finishing now. Ceiling: a single task
+  // worked >24h in one sitting bypasses the gate; the per-slice /pipeline
+  // re-stamp keeps state.ts fresh in the normal loop.
+  if (isStale(state.ts)) return allow();
 
   if (!transcriptPath) return allow();
   const lastText = lastAssistantText(transcriptPath);
@@ -232,6 +248,12 @@ function selfCheck() {
   assert.strictEqual(hasFreshPassVerdict(led, since), false, 'pass before since is stale');
   fs.writeFileSync(led, line({ type: 'judge_verdict', verdict: 'block', ts: after }));
   assert.strictEqual(hasFreshPassVerdict(led, since), false, 'block is not a pass');
+
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  assert.strictEqual(isStale(hourAgo), false, 'task classified 1h ago is current');
+  assert.strictEqual(isStale(weekAgo), true, 'task classified a week ago is a stale mine');
+  assert.strictEqual(isStale('not-a-date'), false, 'unparseable ts keeps the gate');
 
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('judge-closeout-gate self-check: ok');
