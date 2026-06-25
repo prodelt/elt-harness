@@ -29,6 +29,23 @@ judge-closeout-gate self-check: ok
 3 копии IDENTICAL источнику
 ```
 
+## Догон той же сессии — staleness-guard + сканер мин
+Боевой сигнал сразу после пропагации: гейт **ложно заблокировал** «готово» в `Itstep_AI` —
+там объясняли Make-сценарий (чистый текст, non-code, даже не git-репо). Корень — **не судья, а
+протухший state**: `pipeline-state.json` держал `MEDIUM/implementing` от 2026-05-14 (42д, не закрыт);
+не-терминальная фаза висит вечно и взводит гейт на любое будущее «готово».
+
+1. **Staleness-guard в хук** — `isStale(ts)`: задача классифицирована >24ч назад = заброшена, не
+   текущая → `allow`. Закрыл и латентную мину в Fasoli (`COMPLEX/classified`, 6д). Live-fire сценарий
+   D (stale → ALLOW) зелёный. Ceiling: задача >24ч в одной сессии обходит гейт (per-slice /pipeline
+   рестампит ts).
+2. **`tools/scan-stale-gates.js`** — находит мины (gated + не-closed + >24ч + gate установлен) по
+   `--root` или по всему ПК; `--fix` закрывает (`phase→closed`). Есть `--self-check`. Нашёл 3 мины
+   (2 Itstep + 1 Fasoli) → закрыл, повторный скан чист.
+3. **Вшито в `/project-bootstrap` v1.2.0** — Шаг 3 после установки зубов гонит
+   `scan-stale-gates --root . --fix`; closeout-proof включает скан. Зеркало codex/gemini.
+4. Хук со staleness-guard перепропагирован в 3 репо (байт-идентично, self-check на копии ok).
+
 ## Открыто / дальше
 - Live-validation на реальной задаче: судья как Task-субагент, увидеть первый **block** в ledger
   (block-ratio пока 0% — изменится только при реальном использовании).
