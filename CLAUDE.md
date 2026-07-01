@@ -1,66 +1,44 @@
 # Pipeline Setupper — Command Center
 
-## Overview
-Центральный репозиторий управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Gemini. Хранит аудиты, планы апгрейдов, документацию пайплайна.
+Центральный репо управления инфраструктурой разработки (хуки, скилы, настройки Claude Code / Codex / Gemini). Живое состояние проверять: `settings.json` + `claude plugin list` + `/skills`. Памятка — `CHEATSHEET.html`. История — `.planning/PROJECT-HISTORY.md`.
 
-> ⚠ **AMOS-слой хуков СНЯТ 2026-06-18** (был advisory-спам). Бэкап `~/.claude/_backup-amos-full-2026-06-18/`, restore: `restore-amos.ps1`. Доки в `.planning/` про AMOS/гейты — **исторические**. Живое состояние — `settings.json` + `claude plugin list` + `/skills`. Памятка пользователю — **`CHEATSHEET.html`**.
+## Метод работы (точка входа — `PLAYBOOK.md`)
+- **Карта — `PLAYBOOK.md`** (корень): какой скилл когда, когда команда агентов. Непонятно — сюда.
+- **Задача разработчика → `/elt-code`** (роутер). Автономная спек-драйвен петля → **`/elt-loop`**: следующая задача из `specs/*/tasks.md` → имплемент по конституции → тесты-оракул → self-heal → commit + `.planning/STATE.md`. Оракул = тесты, судья = advisory.
+- **Офисная задача (нетехнарь) → `/elt-work`**: office-скилы (`docx`/`xlsx`/`pptx`/`pdf`/`doc-coauthoring`/`internal-comms`) + бизнес-скилы; оракул = verify-чеклист.
+- **Эталонный/«мусорный» проект → `/project-bootstrap`** (идемпотентно: конституция + харнесс-зубы + codegraph-индекс + память-в-проект).
+- Качество per-project — **`/harness-method`** (guide → sensor → блокирующий gate → live-fire).
+- **Дизайн** — `design-studio` (DESIGN.md) → `frontend-ui-engineering` / `remotion-motion`. Клон URL → `reference-design-adaptation`.
+- **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой (MCP-плагин OFF намеренно — токен-налог).
 
-## Active global layer (что РЕАЛЬНО живёт)
-- **Хуки в `~/.claude/settings.json`:** только `PreCompact` → `precompact-handoff.js`. Гейты AMOS (read-gate / ship-gate / verify-gate / checkpoint-nudge / auto-checkpoint) лежат в `~/.claude/hooks/`, но **НЕ подключены** — мёртвый код, ничего не делают.
-- **Плагины (enabled):** ponytail (anti-overengineering, активен), claude-mem (память, worker `:37777`), code-review, commit-commands, security-guidance, claude-code-setup, skill-creator.
-- **MCP:** codegraph (структурный поиск, `codegraph_context` первым), claude-mem mcp-search, claude.ai law.
-- **Скилы:** ~70 user-скилов (`/pipeline`, `/tdd`, `/checkpoint`, `/harness-method`…) + on-demand `/pm`, `/lifecycle`.
-- **Память:** auto-memory (`MEMORY.md` индекс + `memory/*.md` on-demand) под `~/.claude/projects/C--/memory/` + claude-mem (passive capture, инъекция со 2-й сессии).
+## Dogfood + память
+- Строим систему самой системой: `constitution → spec → tasks → loop (механический оракул) → checkpoint`.
+- **Память/состояние — В ПРОЕКТЕ**: `<project>/.planning/STATE.md` (хребет) + `CHECKPOINT-*.md`. НЕ в корень ПК.
+- Дисциплина (codegraph перед Read, тесты-как-proof, checkpoint) — на пользователе; авто-гейтов нет.
 
-## Метод работы
-- **Карта работы — `PLAYBOOK.md`** (корень репо): что делать с задачей, какой скилл когда, когда команда агентов. Точка входа в систему, если непонятно.
-- **Новый/эталонный проект — `/project-bootstrap`**: один ритуал (доки `init-project` + харнесс с зубами `harness-method` + codegraph-индекс + память проекта + Context7-привычка). Идемпотентно.
-- Точка входа задачи — `/pipeline`. Per-project качество — **harness-method** (guide + sensor + gate + live-fire).
-- **Дизайн (awwwards/web/app)** — метод **DESIGN.md** (формат Google Stitch). Скил `design-studio` (арт-дирекшн + библиотека 74 эталонов `references/design-md/`) выбирает/авторит DESIGN.md → `frontend-ui-engineering` имплементит; `remotion-motion` — видео-моушн (Remotion 4.x). Вход через `/elt-code` интент #7. Не путать: `reference-design-adaptation` = точный клон сайта по URL.
-- **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой; MCP-плагин намеренно **OFF** (токен-налог на сессию).
-- Дисциплина (codegraph перед Read, тесты-как-proof, `/checkpoint`) теперь **на пользователе** — авто-гейтов больше нет.
+## Активный слой (проверять живьём, не по этому файлу)
+- Хуки — `~/.claude/settings.json` (базово PreCompact + git-guardrails/codegraph-гейты). Плагины — `claude plugin list`. Скилы — `/skills`.
+- **codegraph MCP** — структурный поиск: `codegraph_context` первым, НЕ Read целых файлов. Индекс обновляется САМ (watcher); свежесть — `codegraph status .` (mtime `.db` ≠ свежесть из-за WAL; `.md` не индексируется).
 
 ## Commands
-Полный список — `.planning/COMMANDS-REFERENCE.md`. Частые:
 ```bash
-npx claude-mem status         # worker памяти жив?
-node tools/doctor.js          # health: docs/skills/git
-codegraph status .            # codegraph-индекс свежий? (обновляется САМ — watcher в serve --mcp)
+node tools/doctor.js       # health: docs/skills/git
+codegraph status .         # codegraph-индекс свежий?
 ```
+Полный список — `.planning/COMMANDS-REFERENCE.md`.
 
 ## Stack
-- Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`).
-- **CodeGraph (MCP)** — структурный поиск (экономит токены vs Read), npm-инструмент (`codegraph serve --mcp`). Индекс `.codegraph/codegraph.db` **обновляется САМ** (file-watcher вкл. по умолчанию, проверено live на Windows; `.md` не индексируется; mtime `.db` ≠ свежесть из-за WAL — проверять `codegraph status .`). ⚠ read-gate СНЯТ — codegraph не форсится, звать по привычке. **`graphify` — ОТДЕЛЬНЫЙ продукт** (Python, индекс `graphify-out/graph.json`), к codegraph-индексу отношения НЕ имеет — не путать.
-- Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
-
-## Project Map (где что; детали — `codegraph_context`, НЕ Read целых файлов)
-- **Живой глобальный слой:** `~/.claude/settings.json` (хуки/плагины/модель), `~/.claude/hooks/*.js` (подключены только `precompact-handoff`, `resume-handoff`, `context-autocompact-guard`), `~/.claude/skills/*` (~70 скилов).
-- **Этот репо:** `tools/` (node-утилиты: doctor.js, индексаторы), `.planning/` (аудиты/планы/checkpoint-ы, историческое + живое), `config/` `audit/` `vendor/`, корень — доки (`PLAYBOOK.md` карта работы, `CHEATSHEET.html` памятка).
-- **Память:** `~/.claude/projects/C--*/memory/` (`MEMORY.md` индекс + `memory/*.md` on-demand) — файловая, claude-mem снят.
-- **Структура кода:** codegraph-индекс `.codegraph/codegraph.db` (авто-watcher) — звать `codegraph_context`/`codegraph_explore`, не читать файлы целиком. `graphify-out/` — ДРУГОЙ продукт, не путать.
-
-## Architecture
-Трёхслойная рабочая система (см. `PLAYBOOK.md`), всё on-demand, без per-turn налога:
-- **Глобально (тонко):** PreCompact-хук + codegraph MCP + плагины (ponytail, claude-mem). Ничего не инжектится каждый ход.
-- **Карта (`PLAYBOOK.md`):** какой скилл когда / как совмещать / когда команда агентов — по всем доменам.
-- **Роутер (`/pipeline`):** классификация задачи → маршрут → бюджет скилов.
-- **Ритуал (`/project-bootstrap`):** делает проект эталонным (доки + харнесс с зубами + индекс + память + Context7).
-Метод — Fowler harness (`/harness-method`): guide → sensor → блокирующий gate → steering. Per-project, не глобально.
+Node.js 18+ (хуки .js), Claude Code hooks API (`~/.claude/settings.json`), Codex CLI hooks (`~/.codex/hooks.json`). Скилы зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
 
 ## Gotchas
-- **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
-- **`graphify` ≠ `codegraph`** — разные продукты/индексы (`graphify-out/graph.json` vs `.codegraph/codegraph.db`). `graphify update` НЕ обновляет codegraph-индекс (codegraph сам через watcher). `graphify claude install` = ЗАПРЕЩЕНО.
-- **Codex не поддерживает** FileChanged и Notification (Claude Code only).
-- **cwd в хуках** — всегда из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
-- **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s (spawnSync timeout 5000ms).
-- **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для других тулов.
-
-## Current State (2026-06-19)
-- AMOS декомиссия 2026-06-18 → глобально остался PreCompact + плагины. История S1-S60 + AMOS S0-S8 — `.planning/PROJECT-HISTORY.md` (историческое, НЕ текущее).
-- 2026-06-19: ponytail + claude-mem поставлены глобально (по явному решению юзера, несмотря на риск повторения AMOS-паттерна); gstack обновлён v1.15→v1.58; `CHEATSHEET.html` переписан под реальность; следы AMOS убраны из `CLAUDE.md`/`MEMORY.md`.
-- Все 31 проект юзера (D:\Ametrin projects\, C:\Claude playground\) проверены — AMOS-следов в их `CLAUDE.md` нет. Per-project cleanup-ритуал НЕ нужен.
+- **C:\ — НЕ git-worktree** (2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`.
+- **`graphify` ≠ `codegraph`** — разные продукты/индексы (`graphify-out/graph.json` vs `.codegraph/codegraph.db`). `graphify claude install` = ЗАПРЕЩЕНО.
+- **Codex не поддерживает** FileChanged/Notification (Claude Code only).
+- **cwd в хуках** — из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
+- **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s.
+- **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для др. тулов.
 
 ## Git Workflow
-- Одна задача = одна ветка (`system-upgrade/<slug>` или `fix/<slug>`). Commit: `<type>: <description>`.
+- Одна задача = одна ветка (`feature/<slug>` / `fix/<slug>`). Commit: `<type>: <description>`.
 - PR title <70 chars; body = Summary + Test plan. No force-push to main.
-- Никогда не коммитить `.env`, секреты, `node_modules`, кэши, артефакты.
+- Не коммитить `.env`, секреты, `node_modules`, кэши, артефакты (`target/`, `.turbo/`).
