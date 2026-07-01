@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Схема системы — elt-code / elt-loop / судья</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #1a1d27;
+    --bg3: #232738;
+    --border: #2e3248;
+    --text: #e2e8f0;
+    --muted: #8892a4;
+    --accent: #7c6af7;   /* router / entry — purple */
+    --accent2: #56cfb2;  /* office lane / proof — teal */
+    --accent3: #f7914d;  /* judge / advisory — orange */
+    --accent4: #f76c6c;  /* blocking / red path */
+    --green: #4ade80;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --code-bg: #161925;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .page { max-width: 1240px; margin: 0 auto; padding: 32px 24px 60px; }
+  h1 { font-size: 26px; font-weight: 700; color: #fff; }
+  h1 span { color: var(--accent); }
+  .subtitle { color: var(--muted); font-size: 13px; margin: 6px 0 28px; }
+  h2 { font-size: 16px; font-weight: 700; color: #fff; margin: 40px 0 16px;
+       display:flex; align-items:center; gap:8px; }
+  h2 .num { background: var(--accent); color:#fff; width:22px; height:22px; border-radius:50%;
+            display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+  code { background: var(--code-bg); color: var(--accent2); padding: 1px 6px; border-radius: 4px;
+         font-family: 'Consolas','Fira Code',monospace; font-size: 12px; }
+
+  /* ---------- flow diagram ---------- */
+  .diagram { display:flex; flex-direction:column; align-items:center; }
+  .node { background: var(--bg2); border:2px solid var(--border); border-radius:12px;
+          padding:12px 22px; text-align:center; font-weight:600; }
+  .node .t { display:block; font-size:11px; font-weight:400; color:var(--muted); margin-top:3px; }
+  .node.entry { border-color: var(--accent2); }
+  .node.router { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,106,247,.12); font-size:15px; }
+
+  .arrow-v { width:2px; height:26px; background: var(--border); position:relative; }
+  .arrow-v::after { content:''; position:absolute; bottom:-1px; left:-4px;
+                    border:5px solid transparent; border-top-color: var(--border); }
+  .branch-label { color: var(--muted); font-size:11.5px; margin:2px 0; text-align:center; }
+
+  .routes-grid { display:grid; grid-template-columns: repeat(7, minmax(110px,1fr));
+                 gap:8px; width:100%; margin: 2px 0 4px; }
+  .route { background: var(--bg3); border:1px solid var(--border); border-radius:9px;
+           padding:8px 8px; text-align:center; font-size:11.5px; }
+  .route b { display:block; color:var(--accent); font-size:13px; }
+  .route.feeds-loop { border-color: var(--accent2); }
+
+  .loop-wrap { width:100%; background: rgba(124,106,247,.06); border:1px solid var(--accent);
+               border-radius:14px; padding:18px 20px; margin-top:8px; }
+  .loop-wrap > .cap { font-size:12px; color: var(--accent); font-weight:700; text-transform:uppercase;
+                       letter-spacing:.03em; margin-bottom:10px; }
+  .loop-steps { display:flex; align-items:center; flex-wrap:wrap; gap:6px; justify-content:center; }
+  .step { background: var(--bg2); border:1px solid var(--border); border-radius:8px;
+          padding:8px 12px; font-size:12.5px; text-align:center; }
+  .step-arrow { color: var(--muted); font-weight:700; font-size:16px; }
+  .branch-row { display:flex; gap:22px; justify-content:center; margin-top:12px; flex-wrap:wrap; }
+  .branch { border-radius:9px; padding:8px 14px; font-size:12px; text-align:center; border:1px solid; }
+  .branch.g { border-color: var(--green); color: var(--green); background: rgba(74,222,128,.08); }
+  .branch.r { border-color: var(--red); color: var(--red); background: rgba(248,113,113,.08); }
+  .branch .arrow-back { display:block; color: var(--muted); font-size:11px; margin-top:4px; }
+
+  .side-by-side { display:flex; gap:16px; width:100%; margin-top:14px; align-items:stretch; flex-wrap:wrap; }
+  .judge-box, .office-box { flex:1; min-width:280px; border-radius:12px; padding:16px 18px; }
+  .judge-box { background: rgba(247,145,77,.06); border:1px solid var(--accent3); }
+  .office-box { background: rgba(86,207,178,.06); border:1px solid var(--accent2); }
+  .box-title { font-weight:700; font-size:13px; margin-bottom:8px; }
+  .judge-box .box-title { color: var(--accent3); }
+  .office-box .box-title { color: var(--accent2); }
+  .box-title .t { display:block; font-weight:400; color:var(--muted); font-size:11px; margin-top:2px; }
+  ul.tooth { list-style:none; padding:0; }
+  ul.tooth li { padding:6px 0; border-top:1px dashed var(--border); font-size:12.5px; }
+  ul.tooth li:first-child { border-top:none; }
+  ul.tooth b { color: var(--text); }
+
+  .infra-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-top:16px; width:100%; }
+  .infra { background: var(--bg2); border:1px solid var(--border); border-radius:9px; padding:10px 12px; font-size:12px; }
+  .infra b { display:block; color:var(--accent); font-size:12.5px; margin-bottom:3px; }
+
+  /* ---------- proof panel ---------- */
+  .proof { background: var(--bg2); border:1px solid var(--border); border-radius:12px; padding:18px 20px; }
+  .pill { display:inline-block; padding:1px 9px; border-radius:20px; font-size:11px; font-weight:700; margin-right:6px; }
+  .p-pass { background: rgba(74,222,128,.15); color: var(--green); }
+  .p-warn { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .p-fail { background: rgba(248,113,113,.15); color: var(--red); }
+  .proof-row { display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--border); font-size:13px; }
+  .proof-row:first-child { border-top:none; }
+  .proof-row .lbl { flex:0 0 230px; color: var(--muted); }
+
+  .legend { display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:10px; }
+  .legend span::before { content:''; display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  .lg-purple::before { background: var(--accent); }
+  .lg-teal::before { background: var(--accent2); }
+  .lg-orange::before { background: var(--accent3); }
+  .lg-green::before { background: var(--green); }
+  .lg-red::before { background: var(--red); }
+
+  footer { margin-top:36px; color: var(--muted); font-size:11.5px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>Схема системы: <span>elt-code → elt-loop → судья</span></h1>
+  <div class="subtitle">Как задача превращается в закоммиченный код. Сгенерировано 2026-07-01, проверено живым прогоном на demo-репо AWE3.</div>
+
+  <h2><span class="num">1</span>Общий поток</h2>
+  <div class="diagram">
+    <div class="node entry">PLAYBOOK.md<span class="t">карта: какой скилл когда</span></div>
+    <div class="arrow-v"></div>
+    <div class="node router">/elt-code — тонкий роутер<span class="t">детектит интент → объявляет маршрут первой строкой → передаёт ход</span></div>
+    <div class="arrow-v"></div>
+
+    <div class="routes-grid">
+      <div class="route feeds-loop"><b>1</b>Продолжить роадмап</div>
+      <div class="route feeds-loop"><b>2</b>Новая фича</div>
+      <div class="route"><b>3</b>Багфикс → diagnose</div>
+      <div class="route"><b>4</b>E2E/QA → agent-browser</div>
+      <div class="route"><b>5</b>Аудит → ponytail-audit</div>
+      <div class="route"><b>6</b>Security</div>
+      <div class="route"><b>7</b>Дизайн → design-studio</div>
+    </div>
+    <div class="branch-label">маршруты 1 и 2, если проект spec-driven (есть <code>specs/*/tasks.md</code>) → передают ход петле ↓</div>
+    <div class="arrow-v"></div>
+
+    <div class="loop-wrap">
+      <div class="cap">/elt-loop — автономная spec-driven петля (движок)</div>
+      <div class="loop-steps">
+        <div class="step">① след. задача<br><span style="color:var(--muted)">из tasks.md</span></div>
+        <span class="step-arrow">→</span>
+        <div class="step">② implement<br><span style="color:var(--muted)">по constitution</span></div>
+        <span class="step-arrow">→</span>
+        <div class="step" style="border-color:var(--accent2)">③ ORACLE<br><span style="color:var(--muted)">тесты: just test/fitness</span></div>
+      </div>
+      <div class="branch-row">
+        <div class="branch g">ЗЕЛЁНОЕ → auto-commit + STATE.md/checkpoint
+          <span class="arrow-back">↺ к шагу ① (след. задача)</span>
+        </div>
+        <div class="branch r">КРАСНОЕ → self-heal (retry, cap N попыток)
+          <span class="arrow-back">⟲ назад к шагу ②</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-by-side">
+      <div class="judge-box">
+        <div class="box-title">СУДЬЯ (judge)<span class="t">внутри петли — advisory. Отдельно — блокирующий Stop-hook на весь харнесс.</span></div>
+        <ul class="tooth">
+          <li><b>judge-closeout-gate</b> — Stop-хук блокирует заявление «done» на MEDIUM+ задачах без свежего <code>judge_verdict:pass</code> <code>bf54f1d</code></li>
+          <li><b>изоляция (isolation tooth)</b> — <code>pass</code> без sidechain/Task = inline self-judge → BLOCK, самому себе оценку не поставить <code>c87a991</code></li>
+          <li><b>staleness guard</b> — задача заброшена &gt;24ч → allow (не ложный блок «мусорного» состояния) <code>9301d69</code></li>
+          <li><b>log-verdict CLI</b> — <code>tools/pipeline-state.js log-verdict</code> пишет вердикт в <code>session-ledger.jsonl</code></li>
+        </ul>
+      </div>
+      <div class="office-box">
+        <div class="box-title">/elt-work — параллельный путь<span class="t">для нетехнаря, не для кода</span></div>
+        <ul class="tooth">
+          <li>office-скилы: <b>docx / xlsx / pptx / pdf / doc-coauthoring / internal-comms</b> + бизнес-скилы</li>
+          <li>оракул = <b>verify-чеклист</b>, не тесты</li>
+          <li><b>всегда ручное подтверждение</b> — без авто-коммита, без авто-перезаписи</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="infra-row">
+      <div class="infra"><b>/project-bootstrap</b>идемпотентный ритуал: constitution + харнесс-зубы + codegraph-индекс + память-в-проект</div>
+      <div class="infra"><b>/harness-method</b>per-project качество: guide → sensor → блокирующий gate → live-fire</div>
+      <div class="infra"><b>codegraph MCP</b>структурный поиск по индексу, вместо Read целых файлов</div>
+      <div class="infra"><b>git-guardrails</b>отдельный хук, блокирует опасный git (не зависит от elt-code)</div>
+    </div>
+  </div>
+
+  <h2><span class="num">2</span>Живое доказательство (не по памяти — проверено сейчас)</h2>
+  <div class="proof">
+    <div class="proof-row"><span class="lbl"><span class="pill p-pass">PASS</span>AWE3 tasks.md</span>45/56 задач закрыто. US1 (T020-T035, MVP) и US2 (T036-T045) <b>полностью</b> закрыты, 10 коммитов через husky pre-commit gate.</div>
+    <div class="proof-row"><span class="lbl"><span class="pill p-pass">PASS</span>Оракул just test</span>прогнан живьём только что: 11 contract + 2 integration + 2 sdk_smoke (rust) + 1 vitest — всё зелёное, 0 failed.</div>
+    <div class="proof-row"><span class="lbl"><span class="pill p-warn">WARN</span>Инфра-баг найден и починен</span>перед прогоном тест падал — висел демо-стек (gateway.exe+node.exe) от прошлой репетиции, держал файловый лок на Windows. Убит с подтверждения юзера.</div>
+    <div class="proof-row"><span class="lbl"><span class="pill p-warn">WARN</span>US3 не начата</span>Phase 5 (T046-T052, «переживает отказ модуля») — 11 задач впереди.</div>
+    <div class="proof-row"><span class="lbl"><span class="pill p-warn">WARN</span>DB test-pollution</span>тесты пишут в тот же <code>DATABASE_URL</code>, что и dev — мусор копится при каждом <code>just test</code>, нет <code>TEST_DATABASE_URL</code>.</div>
+    <div class="proof-row"><span class="lbl"><span class="pill p-warn">WARN</span>Кросс-CLI зеркало скилов</span>Claude 684 скила vs codex 140 (−12) vs gemini 143 (−13). Чинится <code>sync-agent-surface.js --apply</code>, не блокер основной петли.</div>
+    <div class="proof-row"><span class="lbl"><span class="pill p-pass">PASS</span>Судья — зубы живы</span>изоляция + staleness guard закоммичены, closeout-gate live-fire доказан (block→log→allow цикл воспроизведён).</div>
+  </div>
+
+  <div class="legend">
+    <span class="lg-purple">роутер / вход</span>
+    <span class="lg-teal">параллельный офисный путь / оракул петли</span>
+    <span class="lg-orange">судья — advisory внутри петли, blocking на closeout</span>
+    <span class="lg-green">зелёный путь / доказано live-fire</span>
+    <span class="lg-red">красный путь / self-heal</span>
+  </div>
+
+  <footer>Pipeline Setupper — Command Center · схема отражает состояние на 2026-07-01 · подробности: CLAUDE.md, PLAYBOOK.md, .planning/STATE.md</footer>
+</div>
+</body>
+</html>

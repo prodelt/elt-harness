@@ -11,9 +11,9 @@
 - **Дизайн** — `design-studio` (DESIGN.md) → `frontend-ui-engineering` / `remotion-motion`. Клон URL → `reference-design-adaptation`.
 - **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой (MCP-плагин OFF намеренно — токен-налог).
 
-## Dogfood + память
-- Строим систему самой системой: `constitution → spec → tasks → loop (механический оракул) → checkpoint`.
-- **Память/состояние — В ПРОЕКТЕ**: `<project>/.planning/STATE.md` (хребет) + `CHECKPOINT-*.md`. НЕ в корень ПК.
+## Memory
+- **Указатель, не журнал.** Живая память/состояние — `.planning/STATE.md` (хребет) + `CHECKPOINT-*.md`; история — `.planning/PROJECT-HISTORY.md`. НЕ в корень ПК, НЕ инлайн сюда.
+- Dogfood: строим систему самой системой — `constitution → spec → tasks → loop (механический оракул) → checkpoint`.
 - Дисциплина (codegraph перед Read, тесты-как-proof, checkpoint) — на пользователе; авто-гейтов нет.
 
 ## Активный слой (проверять живьём, не по этому файлу)
