@@ -7,7 +7,8 @@ const crypto = require('node:crypto');
 
 const CANONICAL_DOC = 'AGENTS.md';
 const DOC_FILES = [CANONICAL_DOC, 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
-const CORE_SECTIONS = ['Overview', 'Stack', 'Commands', 'Architecture', 'Gotchas', 'Current State'];
+const CORE_SECTIONS = ['Commands', 'Stack', 'Gotchas', 'Memory'];
+const MEMORY_LEAK_RE = /^-\s*\d{4}-\d{2}-\d{2}/m;
 const PROTECTED_RE = /<!--\s*project-docs:protected:start\s+([A-Za-z0-9_.-]+)\s*-->[\s\S]*?<!--\s*project-docs:protected:end\s+\1\s*-->/g;
 
 function normalizePath(value) {
@@ -82,14 +83,12 @@ function selectSourceDoc(docs) {
 
 function inferCoreSections(root, docs) {
   const source = selectSourceDoc(docs);
-  const readme = readText(path.join(root, 'README.md')).split(/\r?\n/).find((line) => line.trim()) || '# Project';
   const fallback = {
-    Overview: `${readme.replace(/^#\s*/, '').trim()}.\n`,
     Stack: 'Detected from repository files; no package manifest was required for this bootstrap.\n',
     Commands: 'Run project-specific tests or doctor commands listed in this repository.\n',
-    Architecture: 'Project documentation, hooks, skills, and tools live in this repository.\n',
     Gotchas: 'Preserve local rules and Windows path handling when syncing docs.\n',
-    'Current State': `Docs initialized by project-docs v2 for ${path.basename(root)}.\n`,
+    Memory: 'Long-lived state lives in .planning/STATE.md (spine) + .planning/PROJECT-HISTORY.md ' +
+      '(archive). This section is a pointer, not a log — do not write dated entries here.\n',
   };
   return CORE_SECTIONS.reduce((acc, section) => ({
     ...acc,
@@ -275,6 +274,12 @@ function extractDeadRefs(root, docs) {
     .slice(0, 20);
 }
 
+function extractMemoryLeaks(docs) {
+  return docs
+    .filter((doc) => doc.exists && MEMORY_LEAK_RE.test(doc.parsed.sections.Memory || ''))
+    .map((doc) => doc.relative);
+}
+
 function auditProjectDocs(root, options = {}) {
   const resolved = path.resolve(root);
   const docs = readDocs(resolved);
@@ -304,6 +309,15 @@ function auditProjectDocs(root, options = {}) {
 
   const deadRefs = extractDeadRefs(resolved, docs);
   if (deadRefs.length) findings.push({ severity: 'warn', code: 'dead-ref', detail: deadRefs.join(', ') });
+
+  const memoryLeaks = extractMemoryLeaks(docs);
+  if (memoryLeaks.length) {
+    findings.push({
+      severity: 'warn',
+      code: 'memory-leak',
+      detail: `${memoryLeaks.join(', ')} — dated journal entries in Memory section; move to .planning/STATE.md / PROJECT-HISTORY.md`,
+    });
+  }
 
   const globalRules = globalRuleLines(options.home);
   const claude = docs.find((doc) => doc.relative === 'CLAUDE.md');

@@ -11,6 +11,7 @@ const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
 const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
+const { CORE_SECTIONS } = require('./project-docs-core');
 const {
   legacyStatePath,
   normalizePath,
@@ -19,7 +20,7 @@ const {
 } = require('./pipeline-state');
 
 const DOCS = ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
-const SECTIONS = ['Overview', 'Stack', 'Commands', 'Architecture', 'Gotchas', 'Current State'];
+const SECTIONS = CORE_SECTIONS;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'runtime', 'sources']);
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -645,7 +646,7 @@ function checkDocsGate(root, now = new Date()) {
   const codeCount = Array.isArray(gate.codeChanged) ? gate.codeChanged.length : 0;
   const title = status === 'pass' ? 'Docs gate OK' : status === 'warn' ? 'Docs gate: docs recommended' : 'Docs gate: docs required';
   const detail = `complexity=${complexity}  code=${codeCount}  docs=${docCount}`;
-  const repair = status === 'fail' ? 'Update AGENTS.md (Current State + Architecture). Run /sync-docs.' : '';
+  const repair = status === 'fail' ? 'Update AGENTS.md (Memory section — pointer only, no dates). Run /sync-docs.' : '';
   return [result(status === 'fail' ? 'warn' : status, 'docs:gate', title, detail, repair, { file: result_.file })];
 }
 

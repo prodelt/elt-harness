@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-06-12T05:36:40.326Z",
+  "generatedAt": "2026-07-01T12:50:14.702Z",
   "projectRoot": "C:/Claude playground/Pipiline setupper",
   "gitRoot": "C:/Claude playground/Pipiline setupper",
-  "branch": "amos/sprint1-kernel",
+  "branch": "feature/elt-code-judge-teeth",
   "summary": {
     "status": "warn",
     "pass": 2,
@@ -27,23 +27,24 @@
       "status": "pass",
       "id": "git:branch",
       "title": "Branch detected",
-      "detail": "amos/sprint1-kernel",
+      "detail": "feature/elt-code-judge-teeth",
       "repair": "",
       "data": {
-        "branch": "amos/sprint1-kernel"
+        "branch": "feature/elt-code-judge-teeth"
       }
     },
     {
       "status": "warn",
       "id": "git:dirty",
-      "title": "2 uncommitted change(s) in project scope",
-      "detail": "?? .planning/handoffs/564296b2-b191-4a95-bc2e-170ea3f07369.yaml; ?? .planning/implementation_plan-global-guarantee.md",
+      "title": "3 uncommitted change(s) in project scope",
+      "detail": "M .planning/STATE.md; ?? .cursor/rules/codegraph.mdc; ?? docs/hermes-agent/README.md",
       "repair": "Commit or stash changes before session closeout.",
       "data": {
-        "count": 2,
+        "count": 3,
         "files": [
-          "?? .planning/handoffs/564296b2-b191-4a95-bc2e-170ea3f07369.yaml",
-          "?? .planning/implementation_plan-global-guarantee.md"
+          "M .planning/STATE.md",
+          "?? .cursor/rules/codegraph.mdc",
+          "?? docs/hermes-agent/README.md"
         ]
       }
     }

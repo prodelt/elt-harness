@@ -135,7 +135,7 @@ function buildChecks(analysis) {
       id: 'docs:delta',
       status: 'warn',
       detail: `MEDIUM change (${codeFiles.length} code file(s)) but no docs delta — docs recommended`,
-      repair: `Update ${CANONICAL_DOC} Current State section, then run /sync-docs.`,
+      repair: `Update ${CANONICAL_DOC} Memory section (pointer only), then run /sync-docs.`,
     });
   } else {
     // COMPLEX
@@ -143,7 +143,7 @@ function buildChecks(analysis) {
       id: 'docs:delta',
       status: 'fail',
       detail: `COMPLEX change (${codeFiles.length} code file(s)) with no docs delta — docs update required`,
-      repair: `Update ${CANONICAL_DOC} (Current State + Architecture). Run /sync-docs. P5.1 hookup pending.`,
+      repair: `Update ${CANONICAL_DOC} (Memory section — pointer only). Run /sync-docs. P5.1 hookup pending.`,
     });
   }
 
