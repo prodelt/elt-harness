@@ -1,53 +1,44 @@
 # Pipeline Setupper — Command Center
 
-## Overview
-Центральный репозиторий управления глобальной инфраструктурой разработки: хуки, скиллы, настройки Claude Code / Codex CLI / Antigravity. Хранит аудиты, планы апгрейдов, документацию пайплайна.
+Центральный репо управления инфраструктурой разработки (хуки, скилы, настройки Claude Code / Codex / Gemini). Живое состояние проверять: `settings.json` + `claude plugin list` + `/skills`. Памятка — `CHEATSHEET.html`. История — `.planning/PROJECT-HISTORY.md`.
 
-## Stack
-- Node.js 18+ (хуки на .js); Claude Code hooks API (`~/.claude/settings.json`); Codex CLI hooks (`~/.codex/hooks.json`)
-- Graphify (Python codemap) + CodeGraph (MCP) — структурный поиск
-- Shared memory: `memory_summary.md` (startup payload) под `~/.claude/projects/C--/memory/` (junction ↔ `~/.codex/memories/`)
+## Метод работы (точка входа — `PLAYBOOK.md`)
+- **Карта — `PLAYBOOK.md`** (корень): какой скилл когда, когда команда агентов. Непонятно — сюда.
+- **Задача разработчика → `/elt-code`** (роутер). Автономная спек-драйвен петля → **`/elt-loop`**: следующая задача из `specs/*/tasks.md` → имплемент по конституции → тесты-оракул → self-heal → commit + `.planning/STATE.md`. Оракул = тесты, судья = advisory.
+- **Офисная задача (нетехнарь) → `/elt-work`**: office-скилы (`docx`/`xlsx`/`pptx`/`pdf`/`doc-coauthoring`/`internal-comms`) + бизнес-скилы; оракул = verify-чеклист.
+- **Эталонный/«мусорный» проект → `/project-bootstrap`** (идемпотентно: конституция + харнесс-зубы + codegraph-индекс + память-в-проект).
+- Качество per-project — **`/harness-method`** (guide → sensor → блокирующий gate → live-fire).
+- **Дизайн** — `design-studio` (DESIGN.md) → `frontend-ui-engineering` / `remotion-motion`. Клон URL → `reference-design-adaptation`.
+- **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой (MCP-плагин OFF намеренно — токен-налог).
+
+## Memory
+- **Указатель, не журнал.** Живая память/состояние — `.planning/STATE.md` (хребет) + `CHECKPOINT-*.md`; история — `.planning/PROJECT-HISTORY.md`. НЕ в корень ПК, НЕ инлайн сюда.
+- Dogfood: строим систему самой системой — `constitution → spec → tasks → loop (механический оракул) → checkpoint`.
+- Дисциплина (codegraph перед Read, тесты-как-proof, checkpoint) — на пользователе; авто-гейтов нет.
+
+## Активный слой (проверять живьём, не по этому файлу)
+- Хуки — `~/.claude/settings.json` (базово PreCompact + git-guardrails/codegraph-гейты). Плагины — `claude plugin list`. Скилы — `/skills`.
+- **codegraph MCP** — структурный поиск: `codegraph_context` первым, НЕ Read целых файлов. Индекс обновляется САМ (watcher); свежесть — `codegraph status .` (mtime `.db` ≠ свежесть из-за WAL; `.md` не индексируется).
 
 ## Commands
-Полный список — `.planning/COMMANDS-REFERENCE.md`. Частые:
 ```bash
-node ~/.claude/hooks/test-all-hooks.js          # sanity (35/35)
-node ~/.claude/hooks/test-hooks-behavior.js     # BLOCK/ALLOW (37/37)
-node tools/doctor.js                            # health: docs/skills/hooks/Graphify/git
-cmd /c graphify query "что делает X?"           # структурный поиск (вместо чтения файлов)
-node "%USERPROFILE%\.amos\bin\amos.js" doctor   # AMOS ядро
+node tools/doctor.js       # health: docs/skills/git
+codegraph status .         # codegraph-индекс свежий?
 ```
+Полный список — `.planning/COMMANDS-REFERENCE.md`.
 
-## Architecture
-Детальная карта хуков и tools — **`.planning/HOOKS-ARCHITECTURE.md`**. Кратко:
-- `~/.claude/hooks/` — 48 хуков (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop). Workflow-gates advisory; hard-block только для freeze/secrets/destructive/commit-quality.
-- `~/.claude/tools/` — doctor, pipeline-state, codemap, harness-runner/gates, agent-surface-audit, token-impact и др.
-- `~/.claude/skills/` — ~60 скилов (база + 12 curated gap-скилов + `hindsight-docs`) + 2 on-demand диспетчера (`/pm` → 68 PM-скилов, `/lifecycle` → 24 addyosmani). `settings.json` — конфиг/permissions.
-- `~/.claude/agents/` — 16 НАТИВНЫХ субагентов (haiku по умолч.; sonnet для architect/security/reviewer), генерит `tools/agent-library.js`. Вызов: `/agents`, Task(subagent_type), Team/SendMessage, `/company`. **Активируются после рестарта** (реестр subagent_type грузится на старте сессии).
-- `~/.claude/skill-packs/` — глобальные vendored-паки (pm-skills 68, addyosmani 24) для диспетчеров; провенанс — в `config/agent-skill-sources.json`.
-- `tools/skill-scan.js` — обёртка SkillSpector (static); честный гейт (exec-код/malware → block, markdown-паттерны → advisory). `tools/agent-skill-supply-chain.js scan-candidates` — гейт ДО установки.
-- `~/.codex/hooks.json` — 44 команды (те же .js, без FileChanged/Notification — Codex их не поддерживает). Скилы/диспетчеры зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; агенты — только Claude.
-- AMOS (`~/.amos`, отдельный git-репо) — CLI-ядро v4, синк-копии в `amos/`.
-- `vendor/` (gitignored) — shallow-клоны 5 внешних skill-репо + SkillSpector venv (py3.12/uv); в git идёт только провенанс в манифесте.
+## Stack
+Node.js 18+ (хуки .js), Claude Code hooks API (`~/.claude/settings.json`), Codex CLI hooks (`~/.codex/hooks.json`). Скилы зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
 
 ## Gotchas
-- **C:\ — НЕ git-worktree** (вылечено 2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`. Конфиг в своём репо `~/.claude`. Детали: `project_git_cdrive_repo_2026-05-29.md`.
-- **`graphify claude install` = ЗАПРЕЩЕНО** — только `cmd /c graphify update .`
-- **Codex не поддерживает** FileChanged и Notification (Claude Code only).
-- **loop-guardian** ловит ОДИНАКОВЫЕ едиты (same old_string), не «3 едита одного файла».
-- **cwd в хуках** — всегда из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
-- **Stdout хуков** — только silent exit ИЛИ валидный JSON с `hookSpecificOutput`/`decision`. Хуки <4s (spawnSync timeout 5000ms).
-- **Codex sandbox** — тесты, спавнящие child node, могут падать `spawnSync EPERM`; запускать вне sandbox.
-
-## Current State
-- **Score ~97/100**. Полная история S1-S60: `.planning/PROJECT-HISTORY.md`. Форматы вывода хуков: `.planning/HOOKS-ARCHITECTURE.md`.
-- **49 hook-команд** в settings.json; workflow-discipline advisory-only (кроме Sprint 0 ниже — hard enforcement).
-- **AMOS** (Agent Mini-OS, v4): CLI-ядро заменяет хуки единым `bin/amos.js` (SQLite state, cross-client resume). Спринты 0-4 закрыты, следующий — Sprint 5.
-- **Context-fix 2026-06-11**: системный промпт ужат (MCP-чистка, CLAUDE.md 13.7→5KB, MEMORY архив, токен в env). Источник раздувания — не хуки (UserPromptSubmit/PostToolUse инжектят 0Б), а раздутый промпт в cache_read каждый ход.
-- **Skill-packs + agent-library 2026-06-12**: интегрированы 5 внешних репо (addyosmani/agent-skills, phuryn/pm-skills, NVIDIA/SkillSpector, vectorize-io/hindsight, mattpocock/skills). SkillSpector вётит кандидатов перед установкой (0 blocking). Анти-bloat: 12 curated gap-скилов always-available, большие паки (PM 68, lifecycle 24) — через on-demand `/pm`+`/lifecycle` (per-turn = 2 описания вместо 92). 16 нативных haiku-агентов в `~/.claude/agents/`. Hindsight — только doc-skill, сервер не поднят.
-- **Sprint 0 (AMOS roadmap) закрыт 2026-06-15**: `subagent-verify-gate.js` (Stop) — HARD BLOCK, если editor-субагент (backend/frontend/devops/3d-animation/docs/general-purpose/claude) менял код-файлы без последующего test-run/reviewer-security-qa-субагента ("SUBAGENT VERIFY REQUIRED"), либо менял UI-пути (.tsx/.jsx/.vue/.svelte, components|pages|views/) без agent-browser-скриншота ("UI VISUAL GATE"). ship-gate.js skip требует непустого `reason` при активном verify-gate. Override — только с причиной, логируется в `policy_events`. Naming-fix `code-reviewer`→`reviewer`, `security-reviewer`→`security`, `architect` opus→sonnet. Детали: `.planning/ROADMAP-AMOS-IMPROVEMENTS-2026-06-15.md` Sprint 0.
+- **C:\ — НЕ git-worktree** (2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`.
+- **`graphify` ≠ `codegraph`** — разные продукты/индексы (`graphify-out/graph.json` vs `.codegraph/codegraph.db`). `graphify claude install` = ЗАПРЕЩЕНО.
+- **Codex не поддерживает** FileChanged/Notification (Claude Code only).
+- **cwd в хуках** — из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
+- **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s.
+- **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для др. тулов.
 
 ## Git Workflow
-- Одна задача = одна ветка (`system-upgrade/<slug>` или `fix/<slug>`). Commit: `<type>: <description>`.
+- Одна задача = одна ветка (`feature/<slug>` / `fix/<slug>`). Commit: `<type>: <description>`.
 - PR title <70 chars; body = Summary + Test plan. No force-push to main.
-- Никогда не коммитить `.env`, секреты, `node_modules`, кэши, артефакты.
+- Не коммитить `.env`, секреты, `node_modules`, кэши, артефакты (`target/`, `.turbo/`).

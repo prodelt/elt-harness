@@ -1,8 +1,8 @@
 # Docs Gate
 
-Generated: 2026-05-31T17:45:05.939Z
+Generated: 2026-07-01T12:50:17.264Z
 Project root: `C:/Claude playground/Pipiline setupper`
-Complexity: **COMPLEX**
+Complexity: **TRIVIAL**
 
 ## Summary
 
@@ -10,13 +10,13 @@ Status: **PASS** — 2 pass / 0 warn / 0 fail
 
 ## Changed Files
 
-Code: tools/agent-surface-audit.js, tools/doctor-core.js, tools/harness-checklist.js, tools/sync-agent-surface.js
-Docs: .gemini/GEMINI.md, .planning/ARCHITECTURE-2026-05-31-global-harness-rollout.md, AGENTS.md, CLAUDE.md
+Code: (none)
+Docs: (none)
 
 ## Checks
 
-### ✅ `docs:delta`
-**Status:** pass  **Detail:** Docs updated: .gemini/GEMINI.md, .planning/ARCHITECTURE-2026-05-31-global-harness-rollout.md, AGENTS.md, CLAUDE.md
+### ✅ `docs:trivial`
+**Status:** pass  **Detail:** Trivial change (0 code file(s)) — docs delta not required
 
 ### ✅ `docs:canonical`
 **Status:** pass  **Detail:** AGENTS.md exists

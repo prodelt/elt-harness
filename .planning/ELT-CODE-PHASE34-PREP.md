@@ -10,9 +10,11 @@
 `~/.codex/skills/`, `~/.gemini/skills/`. Копирует недостающее рекурсивно, сверяет SHA256.
 
 **Шаги (после того как судья вписан в скил — уже сделано, v0.2.0):**
-1. Добавить `/elt-code` в манифест `config/agent-skill-sources.json` (массив `skills`): id/name `elt-code`,
-   tier `core`, status `approved`, source `local-client`/`claude`/`elt-code`. (Сейчас манифеста для него нет
-   → скрипт не видит.)
+1. ~~Добавить `/elt-code` в манифест `config/agent-skill-sources.json`~~ ⛔ **НЕВЕРНО (исправлено
+   2026-06-20):** `sync-agent-surface.js` манифест **НЕ читает** — источник правды = директории в
+   `~/.claude/skills/`. Скил уже там → скрипт видит его автоматически, правки манифеста НЕ нужны для
+   зеркала. Манифест = только governance-запись. Опц.: добавить запись для governance-полноты, но на
+   синк не влияет.
 2. Dry-run: `node tools/sync-agent-surface.js --dry-run --target all --json` (покажет missing/conflicts).
 3. Apply: `node tools/sync-agent-surface.js --apply --target all` (или `--target codex` / `--target gemini`).
 

@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const {
   attachHarnessRun,
+  buildVerdictEvent,
   closeState,
   projectStatePath,
   readState,
@@ -328,8 +329,26 @@ function testAttachHarnessRunThrowsWhenNoState() {
   );
 }
 
+function testBuildVerdictEventValidatesAndFillsDefaults() {
+  const event = buildVerdictEvent({
+    verdict: 'pass',
+    hard: { H1: { r: 'pass' }, H2: { r: 'pass' } },
+  }, new Date('2026-06-24T10:00:00Z'));
+  assert.equal(event.type, 'judge_verdict');
+  assert.equal(event.ts, '2026-06-24T10:00:00.000Z');
+  assert.equal(event.slice, null);
+  assert.deepEqual(event.soft, {});
+
+  assert.throws(() => buildVerdictEvent({ verdict: 'maybe', hard: {} }), /verdict must be/);
+  assert.throws(
+    () => buildVerdictEvent({ verdict: 'pass', hard: { H1: { r: 'pass' } } }),
+    /hard\.H2\.r/
+  );
+}
+
 function main() {
   testTrivialRouteBypassesInterviewAndHeavySkills();
+  testBuildVerdictEventValidatesAndFillsDefaults();
   testArchTaskEntersInterviewAndWritesStateBeforePlanning();
   testStaleStateIsReplacedBeforeNewWork();
   testFinalResponseRequiresArtifactAndProof();

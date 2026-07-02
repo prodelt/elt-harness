@@ -73,7 +73,7 @@ function listSkillDirs(dir) {
 function dirContentsHash(dir) {
   const entries = [];
   for (const f of fs.readdirSync(dir).sort()) {
-    if (SYNC_IGNORE_NAMES.has(f)) continue;
+    if (HASH_IGNORE_NAMES.has(f)) continue;
     const full = path.join(dir, f);
     if (fs.statSync(full).isDirectory()) {
       entries.push(`d:${f}:${dirContentsHash(full)}`);
@@ -88,7 +88,7 @@ function dirContentsHash(dir) {
 function copyDirSync(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   for (const f of fs.readdirSync(src)) {
-    if (SYNC_IGNORE_NAMES.has(f)) continue;
+    if (COPY_IGNORE_NAMES.has(f)) continue;
     const srcPath = path.join(src, f);
     const dstPath = path.join(dst, f);
     if (fs.statSync(srcPath).isDirectory()) {
@@ -109,7 +109,8 @@ function assertInside(parentDir, childPath) {
 }
 
 const SENSITIVE_SKILLS = new Set(['red-team']);
-const SYNC_IGNORE_NAMES = new Set(['.git']);
+const COPY_IGNORE_NAMES = new Set(['.git']);
+const HASH_IGNORE_NAMES = new Set(['.git', '.agents', 'node_modules']);
 
 function analyzeTarget(targetName, targetDir, sourceSkills, sourceDir, opts = {}) {
   const targetSkills = listSkillDirs(targetDir);
@@ -218,6 +219,10 @@ process.stdout.write('\n[Suite 2] dirContentsHash\n');
   makeSkillDir(tmp, 'c', { 'SKILL.md': 'different content' });
   fs.mkdirSync(path.join(a, '.git', 'objects'), { recursive: true });
   fs.writeFileSync(path.join(a, '.git', 'objects', 'ignored'), 'local metadata');
+  fs.mkdirSync(path.join(a, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(a, '.agents', 'generated'), 'source-only generated copy');
+  fs.mkdirSync(path.join(a, 'node_modules', 'pkg'), { recursive: true });
+  fs.writeFileSync(path.join(a, 'node_modules', 'pkg', 'index.js'), 'source-only dependency');
 
   assert(dirContentsHash(a) === dirContentsHash(b), 'identical content = same hash');
   assert(dirContentsHash(a) !== dirContentsHash(c), 'different content = different hash');
