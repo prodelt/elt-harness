@@ -95,24 +95,31 @@ function testSyncMakesCoreSectionsIdentical() {
 
 function testAgentsMdWinsWhenSectionCoverageTies() {
   const root = tempProject('project-docs-canonical');
-  write(path.join(root, CANONICAL_DOC), coreDoc().replace('Overview content.', 'Canonical overview.'));
-  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Overview content.', 'Stale overview.'));
-  write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc().replace('Overview content.', 'Other overview.'));
+  write(path.join(root, CANONICAL_DOC), coreDoc().replace('Stack content.', 'Canonical stack.'));
+  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Stack content.', 'Stale stack.'));
+  write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc().replace('Stack content.', 'Other stack.'));
   const result = initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
   assert.equal(result.success, true);
   DOC_FILES.forEach((relative) => {
-    assert.match(read(path.join(root, relative)), /Canonical overview\./);
+    assert.match(read(path.join(root, relative)), /Canonical stack\./);
   });
 }
 
 function testSyncPreservesPreambleRules() {
   const root = tempProject('project-docs-preamble');
   write(path.join(root, 'AGENTS.md'), `# Local Agent Rules\n\nDo not erase this.\n\n${coreDoc()}`);
-  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Overview content.', 'Different overview.'));
+  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Stack content.', 'Different stack.'));
   write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc());
   const result = initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
   assert.equal(result.success, true);
   assert.match(read(path.join(root, 'AGENTS.md')), /Do not erase this\./);
+}
+
+function testAuditFlagsMemoryLeak() {
+  const root = tempProject('project-docs-audit-memory-leak');
+  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Memory content.', 'Memory content.\n- 2026-01-01: did something'));
+  const result = auditProjectDocs(root, { home: path.join(root, 'home') });
+  assert.ok(result.findings.some((f) => f.code === 'memory-leak'));
 }
 
 function testAuditFlagsBloatAndMissingDoc() {
@@ -142,6 +149,7 @@ function main() {
   testSyncPreservesPreambleRules();
   testAuditFlagsBloatAndMissingDoc();
   testAuditPassesCleanSyncedProject();
+  testAuditFlagsMemoryLeak();
   process.stdout.write('project-docs tests: PASS\n');
 }
 

@@ -1,6 +1,6 @@
 # Agent Surface Audit
 
-Generated: 2026-06-12T05:39:14.476Z
+Generated: 2026-07-01T12:50:37.177Z
 Root: C:\Claude playground\Pipiline setupper
 Status: pass
 
@@ -8,35 +8,35 @@ Status: pass
 
 | Client | Hook commands | Skills | Unsupported configured events | Missing skills vs Claude |
 |---|---:|---:|---|---:|
-| claude | 130 | 99 | none | 0 |
-| codex | 115 | 106 | none | 0 |
-| gemini | 140 | 109 | Notification, FileChanged | 1 |
+| claude | 9 | 684 | none | 0 |
+| codex | 3 | 140 | none | 12 |
+| gemini | 3 | 143 | none | 13 |
 
 ## Clients
 
 ### claude
 - settings: present (C:\Users\user\.claude\settings.json)
-- hook commands: 130
-- skills: 99 (C:\Users\user\.claude\skills)
+- hook commands: 9
+- skills: 684 (C:\Users\user\.claude\skills)
 - unsupported events: none
 
 ### codex
 - settings: present (C:\Users\user\.codex\hooks.json)
-- hook commands: 115
-- skills: 106 (C:\Users\user\.codex\skills)
+- hook commands: 3
+- skills: 140 (C:\Users\user\.codex\skills)
 - unsupported events: Notification, FileChanged
 
 ### gemini
 - settings: present (C:\Users\user\.gemini\settings.json)
-- hook commands: 140
-- skills: 109 (C:\Users\user\.gemini\skills)
+- hook commands: 3
+- skills: 143 (C:\Users\user\.gemini\skills)
 - unsupported events: Notification, FileChanged
 
 ## Tooling
 
 - Context7 npx: available (cmd.exe /c where npx.cmd)
 - Command shims: 8/8 present
-- Harness CLI: pass (4/4 wrappers, Stop hooks: 3/3)
+- Harness CLI: pass (4/4 wrappers, Stop hooks: 0/3)
 - Codemap graphify: PASS=4 WARN=0 FAIL=0
 - Codemap codegraph: PASS=1 WARN=0 FAIL=0
 - Browser tooling: pass
