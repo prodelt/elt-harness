@@ -444,10 +444,42 @@ function cliLogVerdict(args) {
   }
 }
 
+// Explicit human decision to unblock judge-closeout-gate when judge
+// infrastructure itself is failing (not to forgive a real red oracle or a
+// missing verdict the agent just hasn't tried to get yet). One-shot: scoped
+// to the current pipeline-state.json row, which replaceStateForNewTask()
+// replaces wholesale on the next task — so this never leaks into future work.
+function cliOverrideJudgeGate(args) {
+  let root = process.cwd();
+  let reason = null;
+  let approvedBy = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--root') { root = args[++i]; }
+    else if (args[i] === '--reason') { reason = args[++i]; }
+    else if (args[i] === '--approved-by') { approvedBy = args[++i]; }
+  }
+  if (!reason || !reason.trim()) {
+    process.stderr.write('Usage: node tools/pipeline-state.js override-judge-gate --root <path> --reason "<why, human decision>" [--approved-by <name>]\n');
+    process.exit(1);
+  }
+  const home = os.homedir();
+  const stateFile = projectStatePath(root, home);
+  const state = readState(stateFile);
+  if (!state) {
+    process.stderr.write(`No pipeline-state.json at ${stateFile} — nothing to override.\n`);
+    process.exit(1);
+  }
+  state.judgeGateOverride = { reason: reason.trim(), approvedBy: approvedBy || 'user', ts: new Date().toISOString() };
+  writeState(stateFile, state);
+  process.stdout.write(`judge-closeout-gate override recorded (reason: ${reason.trim()}) — next Stop for this task will allow once.\n`);
+}
+
 function cliMain(argv) {
   const [cmd, ...rest] = argv.slice(2);
   if (cmd === 'log-verdict') return cliLogVerdict(rest);
+  if (cmd === 'override-judge-gate') return cliOverrideJudgeGate(rest);
   process.stderr.write('Usage: node tools/pipeline-state.js log-verdict --root <path> --json \'<verdict JSON>\'\n');
+  process.stderr.write('   or: node tools/pipeline-state.js override-judge-gate --root <path> --reason "<why>"\n');
   process.exit(1);
 }
 
