@@ -380,8 +380,14 @@ function checkSurfaceSync(root) {
     const details = targets.map(([t, r]) => r.missing.length ? `${t}:${r.missing.length}` : null).filter(Boolean).join(', ');
     return [result('warn', 'surface:sync', `Skill sync gap — ${missingTotal} missing`, details, 'Run node tools/sync-agent-surface.js --apply --target all')];
   }
-  const detail = conflictTotal ? `${conflictTotal} known conflict(s)` : 'all targets in sync';
-  return [result('pass', 'surface:sync', 'Skill surface sync OK', detail)];
+  // Step F (elt-system upgrade 2026-07-02): a conflict means the skill's
+  // content (incl. `version:` frontmatter) diverged from source across
+  // claude/codex/gemini — surface it, don't bury it as a "pass" detail.
+  if (conflictTotal > 0) {
+    const details = targets.map(([t, r]) => r.conflicts && r.conflicts.length ? `${t}:${r.conflicts.map((c) => c.skill).join(',')}` : null).filter(Boolean).join(' | ');
+    return [result('warn', 'surface:sync', `Skill versions diverge across claude/codex/gemini — ${conflictTotal} conflict(s)`, details, 'Compare version: frontmatter, then node tools/sync-agent-surface.js --apply --target all --force to re-sync intentionally.')];
+  }
+  return [result('pass', 'surface:sync', 'Skill surface sync OK', 'all targets in sync')];
 }
 
 function supplyChainTargets(manifest, audit) {
@@ -763,6 +769,37 @@ function checkRedTeam(root, home) {
   return [result('warn', 'red-team:risk', 'Defender-risk files present', detail, 'Place a .quarantined marker file in the directory to suppress after review.')];
 }
 
+// Step F (elt-system upgrade 2026-07-02): mini "Loop Ready" score — 10 yes/no
+// checks against elt-loop's own SKILL.md text, grounded in the dimensions the
+// 2026-07-02 audit used to grade this system L2 (state, kill-switch, hard-cap,
+// self-heal cap, mechanical oracle, run-log, prune, fresh-context, isolated
+// judge, judge-not-a-slice-gate). Informational scorecard, not a gate.
+const LOOP_READY_ITEMS = [
+  ['STATE.md хребет в проекте', /\.planning\/STATE\.md/],
+  ['Kill-switch (loop: PAUSED)', /PAUSED/],
+  ['Hard-cap на слайсы', /[Hh]ard-cap/],
+  ['Self-heal с capped retries', /self-heal[^\n]{0,30}(≤\s*\d|<=\s*\d)/i],
+  ['Оракул = механика (тесты), не LLM-судья', /[Оо]ракул\s*=\s*(механика|тесты)/],
+  ['Run-log / наблюдаемость петли', /loop-run-log\.md/],
+  ['Prune памяти на завершении', /[Pp]rune/],
+  ['Fresh-context правило на длинных прогонах', /[Ff]resh context/],
+  ['Судья изолирован (не inline self-judge)', /отдельный субагент|изолирован|sidechain/],
+  ['Судья не гейт слайса (не может простить красный оракул)', /не гейт|не закрывает/],
+];
+
+function checkLoopReady(home) {
+  const skillFile = path.join(home, '.claude', 'skills', 'elt-loop', 'SKILL.md');
+  let text;
+  try { text = fs.readFileSync(skillFile, 'utf8'); } catch {
+    return [result('warn', 'loop:ready', 'Loop Ready score unavailable', `elt-loop SKILL.md not found at ${skillFile}`, 'Install/restore elt-loop skill.')];
+  }
+  const hits = LOOP_READY_ITEMS.map(([label, re]) => ({ label, ok: re.test(text) }));
+  const score = hits.filter((h) => h.ok).length;
+  const detail = hits.map((h) => `${h.ok ? '✓' : '✗'} ${h.label}`).join(' | ');
+  const status = score === LOOP_READY_ITEMS.length ? 'pass' : 'warn';
+  return [result(status, 'loop:ready', `Loop Ready score: ${score}/${LOOP_READY_ITEMS.length}`, detail, score < LOOP_READY_ITEMS.length ? 'Missing items are informational — see elt-loop SKILL.md.' : '')];
+}
+
 function runDoctor(options) {
   const home = os.homedir();
   const root = findProjectRoot(options.root);
@@ -791,6 +828,7 @@ function runDoctor(options) {
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
+    ...checkLoopReady(home),
   ];
   const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
   return { root: normalizePath(root), projectKey: projectKey(root), summary, checks };
