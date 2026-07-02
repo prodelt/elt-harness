@@ -13,7 +13,7 @@ const crypto = require('crypto');
 
 const GATED_COMPLEXITIES = new Set(['MEDIUM', 'BUG', 'ARCH', 'COMPLEX']);
 const CLOSED_PHASES = new Set(['closed', 'shipped']);
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 1;
 const TAIL_BYTES = 200000;
 const STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -134,6 +134,12 @@ function hasIsolatedJudgeSince(transcriptPath, sinceIso) {
   return false;
 }
 
+// Explicit human decision recorded via `pipeline-state.js override-judge-gate`
+// (design E, item 5) — the only escape once the retry cap is exhausted.
+function hasHumanOverride(state) {
+  return !!(state && state.judgeGateOverride && state.judgeGateOverride.reason);
+}
+
 function retryGatePath(cwd, sessionId) {
   const key = crypto.createHash('sha1').update(`${cwd}|${sessionId}`).digest('hex');
   return path.join(os.tmpdir(), 'claude-judge-gate', `${key}.json`);
@@ -176,6 +182,10 @@ function main() {
   if (!state) return allow();
   if (!GATED_COMPLEXITIES.has(state.complexity)) return allow();
   if (CLOSED_PHASES.has(state.phase)) return allow();
+  // Explicit human override (design E, item 5): judge-infra failure/timeout
+  // must surface to a person, not auto-pass silently. This is the ONLY way
+  // through once retries are exhausted — see the retry-cap block below.
+  if (hasHumanOverride(state)) return allow();
   // ponytail: stale-task guard — a non-closed task older than 24h is a
   // forgotten mine, not the task you're finishing now. Ceiling: a single task
   // worked >24h in one sitting bypasses the gate; the per-slice /pipeline
@@ -191,18 +201,26 @@ function main() {
   const isolated = hasIsolatedJudgeSince(transcriptPath, state.ts);
   if (hasVerdict && isolated) return allow();
 
-  // ponytail: retry cap is the only safety valve against an infinite block
-  // loop if detection itself is wrong; raise if judge subagent legitimately
-  // needs >3 turns to land a verdict.
-  const count = bumpRetry(retryGatePath(cwd, sessionId));
-  if (count > MAX_RETRIES) {
-    process.stderr.write(`judge-closeout-gate: ${MAX_RETRIES} blocks reached for this session, allowing stop without a verdict.\n`);
-    return allow();
-  }
-
   const logHint =
     `then log it via the central Pipeline Setupper CLI: ` +
     `node <pipeline-setupper>/tools/pipeline-state.js log-verdict --root "${cwd}" --json '<verdict JSON>' — do not hand-write the ledger line.`;
+
+  // Design E, item 5: judge-infra failure/timeout must surface to a human,
+  // not auto-pass silently. Retry cap = 1 block; past that, stop trying to
+  // force a verdict and instead ask the user directly whether to proceed
+  // without one. The ONLY way through from here is the explicit override
+  // below — no timeout-based or silent escape.
+  const count = bumpRetry(retryGatePath(cwd, sessionId));
+  if (count > MAX_RETRIES) {
+    return block(
+      `elt-code Step 4: judge verdict still missing after ${MAX_RETRIES} retry. This looks like a judge-infra ` +
+      `problem (subagent not spawning, timing out, or failing), not a real red oracle — do NOT invent a pass ` +
+      `verdict and do NOT keep silently retrying. Ask the user directly: "судья не отрабатывает — разрешаешь ` +
+      `закрыть без вердикта?" Only on an explicit "да" from the user, run: ` +
+      `node <pipeline-setupper>/tools/pipeline-state.js override-judge-gate --root "${cwd}" --reason "<explicit reason from user>" — ` +
+      `this is a one-shot, human-recorded decision, not a bypass you invoke on your own.`
+    );
+  }
 
   if (hasVerdict && !isolated) {
     return block(
@@ -254,6 +272,11 @@ function selfCheck() {
   assert.strictEqual(isStale(hourAgo), false, 'task classified 1h ago is current');
   assert.strictEqual(isStale(weekAgo), true, 'task classified a week ago is a stale mine');
   assert.strictEqual(isStale('not-a-date'), false, 'unparseable ts keeps the gate');
+
+  assert.strictEqual(hasHumanOverride(null), false, 'no state => no override');
+  assert.strictEqual(hasHumanOverride({}), false, 'no override field => no override');
+  assert.strictEqual(hasHumanOverride({ judgeGateOverride: {} }), false, 'override without reason does not count');
+  assert.strictEqual(hasHumanOverride({ judgeGateOverride: { reason: 'user said так закрывай' } }), true, 'explicit reason => override holds');
 
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('judge-closeout-gate self-check: ok');
