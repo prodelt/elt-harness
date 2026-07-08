@@ -90,8 +90,13 @@ param([string]$Project=".", [int]$Slices=4, [int]$MaxMinutes=120,
 Прогнать bootstrap v2 по: tg-bot, PDV, Marketing_tg_bot, Route_API_1C, lawyer_skill_ametrin, Itstep_AI, Fasoli, AWE4. По одному, с показом диффа доков юзеру.
 
 ## ЗАДАЧА D (хвосты, мелочь)
-- PLAYBOOK.md + CLAUDE.md этого репо: elt-code/elt-loop → `/elt`, упомянуть elt CLI и драйвер. CHEATSHEET.html — строка про v2.
-- Грепнуть `elt-loop|elt-code` по `~/.claude/skills/*/SKILL.md` (checkpoint, pipeline, auto-ship…) — поправить ссылки на /elt.
+- ~~PLAYBOOK.md + CLAUDE.md~~ СДЕЛАНО (коммит `a82a77e`). ~~Ссылки в других скилах~~ проверено:
+  остатки косметические (алиасы форвардят); project-bootstrap Шаг 3 УЖЕ переписан на
+  `elt init` + запрет install-harness-teeth (judge-closeout-gate устарел), зеркала ×3.
+  Осталось: CHEATSHEET.html — строка про v2.
+- **/elt 2.1.0** (2026-07-08, после live-репорта юзера «голый /elt не разобрался»): добавлена
+  секция «Восстановление контекста» (elt status → свежайший CHECKPOINT → STATE.md → меню
+  конкретики). При live-fire проверить именно голый вызов в новом чате.
 - PDV: 59 dirty files на `bugfix/critical-fix` — разобрать С ЮЗЕРОМ (что коммитить/что мусор). Pipeline setupper: presentation/ закоммитить по команде юзера.
 - Судья в интерактивных сессиях: `CLAUDE_CODE_SUBAGENT_MODEL=haiku` глобально в settings.json — субагент-судья должен вызываться с явным model sonnet (в /elt так и написано); проверить на первом живом слайсе.
 
