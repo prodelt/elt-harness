@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// PreToolUse(Bash) guardrail: hard-deny destructive git commands.
-// Ported from git-guardrails-claude-code skill (.sh -> .js for Windows reliability).
-// Anti-AMOS: ONE deterministic deny on truly destructive ops, no advisory spam.
-// Exit 2 + stderr = block the tool call and tell Claude why.
+// PreToolUse(Bash|PowerShell) guardrail: hard-deny destructive git commands.
+// v2 (2026-07-08): fixed false positives — patterns now apply ONLY to the args of a real
+// `git` invocation per shell segment, with quoted strings stripped first (echo "git reset
+// --hard" in docs/commit messages no longer blocks). Exit 2 + stderr = block.
 
 let raw = '';
 process.stdin.on('data', (c) => (raw += c));
@@ -14,26 +14,33 @@ process.stdin.on('end', () => {
     process.exit(0); // not parseable -> don't block
   }
 
-  // ponytail: literal substring/regex match on the command string, same as upstream .sh
-  const patterns = [
-    /git\s+push/,
-    /git\s+reset\s+--hard/,
-    /git\s+clean\s+-fd/,
-    /git\s+clean\s+-f/,
-    /git\s+branch\s+-D/,
-    /git\s+checkout\s+\./,
-    /git\s+restore\s+\./,
-    /push\s+--force/,
-    /reset\s+--hard/,
+  // dangerous git subcommand patterns, tested against args of a git invocation only
+  const dangerous = [
+    /^push\b/,                      // any push: stays human-confirmed in sessions (driver pushes by flag itself)
+    /^reset\s+(.*\s)?--hard/,
+    /^clean\s+-\w*f/,
+    /^branch\s+(.*\s)?-D\b/,
+    /^checkout\s+(--\s+)?\.(\s|$)/,
+    /^restore\s+(--\s+)?\.(\s|$)/,
   ];
 
-  for (const p of patterns) {
-    if (p.test(cmd)) {
-      process.stderr.write(
-        `BLOCKED: '${cmd}' matches dangerous git pattern '${p}'. ` +
-          `The user has prevented you from running this. Ask the user to run it manually if truly needed.\n`
-      );
-      process.exit(2);
+  // strip quoted strings FIRST (whole command) so text payloads can't match,
+  // THEN split compound commands (order matters: quoted payload may contain && or |)
+  const stripped = cmd.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+  const segments = stripped.split(/&&|\|\||;|\||\r?\n/);
+  for (const seg of segments) {
+    const clean = seg.trim();
+    const m = clean.match(/(?:^|[\s(])git\s+(.+)$/);
+    if (!m) continue;
+    const args = m[1].replace(/^(-c\s+\S+\s+|-C\s+\S+\s+)+/, ''); // skip git -C <dir> / -c k=v
+    for (const p of dangerous) {
+      if (p.test(args)) {
+        process.stderr.write(
+          `BLOCKED: git segment '${seg.trim().slice(0, 120)}' matches dangerous pattern '${p}'. ` +
+            `The user has prevented you from running this. Ask the user to run it manually if truly needed.\n`
+        );
+        process.exit(2);
+      }
     }
   }
   process.exit(0);
