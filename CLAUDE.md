@@ -4,7 +4,7 @@
 
 ## Метод работы (точка входа — `PLAYBOOK.md`)
 - **Карта — `PLAYBOOK.md`** (корень): какой скилл когда, когда команда агентов. Непонятно — сюда.
-- **Задача разработчика → `/elt-code`** (роутер). Автономная спек-драйвен петля → **`/elt-loop`**: следующая задача из `specs/*/tasks.md` → имплемент по конституции → тесты-оракул → self-heal → commit + `.planning/STATE.md`. Оракул = тесты, судья = advisory.
+- **Задача разработчика → `/elt`** (v2, elt-code+elt-loop слиты; старые имена = алиасы). Слайс закрыт ⇔ `elt commit` прошёл (CLI `~/.claude/bin/elt.js`: оракул exit 0 → авто-ветка → `[X]` → commit → `.harness/run-log.jsonl`). Судья обязателен (sonnet, REJECT-default). Автономно → драйвер `tools/elt-loop.ps1` (fresh `claude -p` на слайс); стоп = файл `.harness/STOP`.
 - **Офисная задача (нетехнарь) → `/elt-work`**: office-скилы (`docx`/`xlsx`/`pptx`/`pdf`/`doc-coauthoring`/`internal-comms`) + бизнес-скилы; оракул = verify-чеклист.
 - **Эталонный/«мусорный» проект → `/project-bootstrap`** (идемпотентно: конституция + харнесс-зубы + codegraph-индекс + память-в-проект).
 - Качество per-project — **`/harness-method`** (guide → sensor → блокирующий gate → live-fire).
