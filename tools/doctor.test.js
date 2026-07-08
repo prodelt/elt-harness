@@ -20,6 +20,7 @@ const {
   checkHarnessChecklist,
   checkHarnessRun,
   checkHarnessGlobal,
+  checkFleet,
   runDoctor,
 } = require('./doctor-core');
 
@@ -438,6 +439,33 @@ function testHarnessGlobalCheck() {
   assert.match(pathWarn[0].title, /PATH/);
 }
 
+function testFleetCheck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-fleet-'));
+  const home = path.join(dir, 'home');
+  const withHarness = path.join(dir, 'with-harness');
+  const bare = path.join(dir, 'bare');
+  fs.mkdirSync(path.join(withHarness, '.git'), { recursive: true });
+  fs.mkdirSync(path.join(withHarness, '.harness'), { recursive: true });
+  write(path.join(withHarness, '.harness', 'harness.json'), '{}');
+  fs.mkdirSync(bare, { recursive: true });
+  write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({
+    version: 1,
+    projects: {
+      a: { key: 'a', name: 'with-harness', path: withHarness },
+      b: { key: 'b', name: 'bare', path: bare },
+      c: { key: 'c', name: 'gone', path: path.join(dir, 'does-not-exist') },
+    },
+  }));
+  const fakeGit = () => ({ status: 0, output: '' });
+  const checks = checkFleet(home, { runner: fakeGit });
+  const byKey = Object.fromEntries(checks.map((c) => [c.id, c]));
+  assert.equal(byKey['fleet:a'].status, 'pass');
+  assert.equal(byKey['fleet:b'].status, 'warn');
+  assert.match(byKey['fleet:b'].detail, /no oracle/);
+  assert.equal(byKey['fleet:c'].status, 'warn');
+  assert.match(byKey['fleet:c'].title, /path missing/);
+}
+
 function withHome(home, fn) {
   const previous = process.env.USERPROFILE;
   process.env.USERPROFILE = home;
@@ -465,6 +493,7 @@ function main() {
   testHarnessChecklistCheck();
   testHarnessRunCheck();
   testHarnessGlobalCheck();
+  testFleetCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 

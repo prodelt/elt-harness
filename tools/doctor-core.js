@@ -67,12 +67,13 @@ function findProjectRoot(start) {
 }
 
 function parseArgs(argv) {
-  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
+  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, fleet: false, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
   const parseNext = (index, state) => {
     if (index >= argv.length) return { ok: true, value: state };
     const arg = argv[index];
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
     if (arg === '--register') return parseNext(index + 1, { ...state, register: true });
+    if (arg === '--fleet') return parseNext(index + 1, { ...state, fleet: true });
     if (arg === '--no-graphify') return parseNext(index + 1, { ...state, graphify: false });
     if (arg === '--memory-provider') return parseNext(index + 2, { ...state, memoryProvider: argv[index + 1] || state.memoryProvider });
     if (arg === '--root') {
@@ -787,6 +788,57 @@ const LOOP_READY_ITEMS = [
   ['Судья не гейт слайса (не может простить красный оракул)', /не гейт|не закрывает/],
 ];
 
+// Fleet mode (Задача C, ELT v2 2026-07-08): iterate ~/.claude/projects-registry.json
+// (written by `doctor --register`) and report per-project git/harness/stale-gate health.
+// Reuses the existing registry instead of a new harness-projects.json.
+function checkFleetProject(entry, runner = run) {
+  const root = entry.path;
+  if (!fs.existsSync(root)) {
+    return result('warn', `fleet:${entry.key}`, `${entry.name}: path missing`, root, 'Project moved or deleted — update or drop the registry entry.');
+  }
+  const notes = [];
+  let warn = false;
+
+  const isRepo = fs.existsSync(path.join(root, '.git'));
+  if (!isRepo) {
+    notes.push('not a git repo');
+    warn = true;
+  } else {
+    const status = runner('git', ['status', '--porcelain'], root, 8000);
+    notes.push(status.status === 0 && status.output.trim() ? `dirty (${status.output.trim().split(/\r?\n/).length} files)` : 'clean');
+  }
+
+  const hasHarness = fs.existsSync(path.join(root, '.harness', 'harness.json'));
+  if (!hasHarness) {
+    notes.push('no oracle (.harness/harness.json missing)');
+    warn = true;
+  } else {
+    notes.push('oracle configured');
+  }
+
+  const settingsFile = path.join(root, '.claude', 'settings.json');
+  const settingsText = readText(settingsFile);
+  if (settingsText.ok && /judge-closeout-gate/.test(settingsText.value)) {
+    notes.push('stale judge-closeout-gate wiring');
+    warn = true;
+  }
+
+  return result(warn ? 'warn' : 'pass', `fleet:${entry.key}`, `${entry.name}`, notes.join(' | '), warn ? 'See project-bootstrap SKILL.md for retrofit steps.' : '', { path: root });
+}
+
+function checkFleet(home, options = {}) {
+  const registry = readJson(registryPath(home));
+  if (!registry.ok) {
+    return [result('warn', 'fleet:registry', 'Project registry missing', registry.error, 'Run doctor --register in each project first.')];
+  }
+  const projects = registry.value.projects || {};
+  const entries = Object.values(projects);
+  if (entries.length === 0) {
+    return [result('warn', 'fleet:registry', 'Project registry empty', registryPath(home), 'Run doctor --register in each project first.')];
+  }
+  return entries.map((entry) => checkFleetProject(entry, options.runner));
+}
+
 function checkLoopReady(home) {
   const skillFile = path.join(home, '.claude', 'skills', 'elt-loop', 'SKILL.md');
   let text;
@@ -834,6 +886,13 @@ function runDoctor(options) {
   return { root: normalizePath(root), projectKey: projectKey(root), summary, checks };
 }
 
+function runFleet(options = {}) {
+  const home = options.home || os.homedir();
+  const checks = checkFleet(home, options);
+  const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
+  return { root: 'fleet', projectKey: 'all', summary, checks };
+}
+
 function formatText(report) {
   const header = [
     `Doctor root: ${report.root}`,
@@ -866,6 +925,8 @@ module.exports = {
   checkHarnessRun,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
+  checkFleet,
+  runFleet,
   runDoctor,
   formatText,
 };
