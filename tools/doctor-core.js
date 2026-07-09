@@ -816,6 +816,14 @@ function checkFleetProject(entry, runner = run) {
     notes.push('oracle configured');
   }
 
+  // Half-cycle (ELT v2 bridge, 2026-07-09): oracle armed (back half wired) but no
+  // specs/ at all means the front half — the plan the loop grinds — was never used.
+  // This is the exact gap the specify↔loop bridge closes; the doctor must name it.
+  if (hasHarness && !fs.existsSync(path.join(root, 'specs'))) {
+    notes.push('half-cycle: oracle armed, no specs/ (front half unused — run /elt план-шаг)');
+    warn = true;
+  }
+
   const settingsFile = path.join(root, '.claude', 'settings.json');
   const settingsText = readText(settingsFile);
   if (settingsText.ok && /judge-closeout-gate/.test(settingsText.value)) {

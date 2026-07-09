@@ -444,16 +444,24 @@ function testFleetCheck() {
   const home = path.join(dir, 'home');
   const withHarness = path.join(dir, 'with-harness');
   const bare = path.join(dir, 'bare');
+  const halfCycle = path.join(dir, 'half-cycle');
+  // Full cycle: oracle armed AND a plan exists (specs/) → pass.
   fs.mkdirSync(path.join(withHarness, '.git'), { recursive: true });
   fs.mkdirSync(path.join(withHarness, '.harness'), { recursive: true });
   write(path.join(withHarness, '.harness', 'harness.json'), '{}');
+  write(path.join(withHarness, 'specs', '001-x', 'tasks.md'), '- [ ] **T001** x\n');
   fs.mkdirSync(bare, { recursive: true });
+  // Half cycle: oracle armed but no specs/ → front half unused → warn.
+  fs.mkdirSync(path.join(halfCycle, '.git'), { recursive: true });
+  fs.mkdirSync(path.join(halfCycle, '.harness'), { recursive: true });
+  write(path.join(halfCycle, '.harness', 'harness.json'), '{}');
   write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({
     version: 1,
     projects: {
       a: { key: 'a', name: 'with-harness', path: withHarness },
       b: { key: 'b', name: 'bare', path: bare },
       c: { key: 'c', name: 'gone', path: path.join(dir, 'does-not-exist') },
+      d: { key: 'd', name: 'half-cycle', path: halfCycle },
     },
   }));
   const fakeGit = () => ({ status: 0, output: '' });
@@ -464,6 +472,8 @@ function testFleetCheck() {
   assert.match(byKey['fleet:b'].detail, /no oracle/);
   assert.equal(byKey['fleet:c'].status, 'warn');
   assert.match(byKey['fleet:c'].title, /path missing/);
+  assert.equal(byKey['fleet:d'].status, 'warn');
+  assert.match(byKey['fleet:d'].detail, /half-cycle/);
 }
 
 function withHome(home, fn) {
