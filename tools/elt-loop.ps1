@@ -108,14 +108,22 @@ $tail
       Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить, стоп."
       break
     }
+    # Рубрика scope: constitution + spec.md рядом с tasks.md ($slice.file). Тогда судья меряет
+    # scope creep против спеки, а не однострочного заголовка задачи (ELT v2 bridge 2026-07-09).
+    $rubric = ""
+    $specMd = Join-Path (Split-Path $slice.file -Parent) "spec.md"
+    $constMd = Join-Path $Project ".specify\memory\constitution.md"
+    if (Test-Path $constMd) { $rubric += "`n--- constitution.md (инварианты проекта) ---`n" + (Get-Content $constMd -Raw -Encoding UTF8) }
+    if (Test-Path $specMd)  { $rubric += "`n--- spec.md (объём и что ВНЕ scope) ---`n" + (Get-Content $specMd -Raw -Encoding UTF8) }
     $judgePrompt = @"
-Ты судья качества кода. Вход: задача "${id} ${text}" и дифф ниже.
+Ты судья качества кода. Вход: задача "${id} ${text}", РУБРИКА SCOPE (ниже, если есть) и дифф.
 Стойка REJECT-default: ищи причины ОТКЛОНИТЬ:
-(1) сделано не то или больше, чем задача; (2) тесты удалены/ослаблены/замоканы до пустоты;
-(3) side-effects вне scope задачи; (4) оверинжиниринг.
+(1) сделано не то или больше, чем требует спека/задача; (2) тесты удалены/ослаблены/замоканы до пустоты;
+(3) side-effects вне scope (сверься с секцией «вне scope» спеки); (4) оверинжиниринг.
 ФОРМАТ ОТВЕТА (критично): ПОСЛЕДНЕЙ строкой выведи РОВНО один JSON-объект и ничего после:
 {"verdict":"pass","reasons":["..."]}  либо  {"verdict":"block","reasons":["..."]}
 Ключ "verdict" обязан присутствовать буквально в JSON. Без него вердикт считается block.
+$rubric
 
 --- git status --porcelain ---
 $porcelain
