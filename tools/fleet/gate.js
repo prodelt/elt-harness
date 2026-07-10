@@ -13,11 +13,35 @@ const providers = require('./providers');
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 const JUDGE_TIMEOUT_MS = 5 * 60 * 1000;
 
+// Схема для --json-schema: судья зовётся через structured output (T016 live-fire —
+// prose-парсер регулярно мимо: модель пишет "принято"/"зачёт" вместо литерального pass/block,
+// REJECT-default тогда блокирует легитимные слайсы). claude -p --output-format json оборачивает
+// весь транскрипт в JSON-массив; последний элемент (type:"result") несёт structured_output.
+const VERDICT_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: { verdict: { type: 'string', enum: ['pass', 'block'] }, reasons: { type: 'array', items: { type: 'string' } } },
+  required: ['verdict', 'reasons'],
+});
+
+// Структурированный путь: последний элемент JSON-массива --output-format json → structured_output.verdict.
+function parseStructuredVerdict(text) {
+  try {
+    const arr = JSON.parse(text);
+    const last = Array.isArray(arr) ? arr[arr.length - 1] : arr;
+    const v = last && last.structured_output && last.structured_output.verdict;
+    return (v === 'pass' || v === 'block') ? v : null;
+  } catch { return null; }
+}
+
 // Парсер вердикта, REJECT-default (портирован из tools/elt-loop.ps1):
-//  (1) JSON-ключ "verdict":"pass|block"; (2) проза «verdict/вердикт ... pass|block».
+//  (0) структурированный output (--json-schema, надёжный путь — T016);
+//  (1) JSON-ключ "verdict":"pass|block"; (2) проза «verdict/вердикт ... pass|block» (фолбэк,
+//  на случай если структурированный вызов почему-то не сработал).
 //  Не нашли явного вердикта → block (НЕ ловим любой {...}: в прозе бывают литералы кода).
 function parseVerdict(text) {
   if (!text) return 'block';
+  const structured = parseStructuredVerdict(text);
+  if (structured) return structured;
   const mJson = text.match(/"verdict"\s*:\s*"(pass|block)"/i);
   if (mJson) return mJson[1].toLowerCase();
   const mProse = text.match(/(?:verdict|вердикт)\W{0,5}(pass|block)/i);
@@ -41,9 +65,7 @@ ${status}
 --- git diff HEAD ---
 ${diff}
 
-Ответь СТРОГО JSON одной строкой. Ключ "verdict" обязан присутствовать буквально:
-{"verdict":"pass","reasons":["..."]}  либо  {"verdict":"block","reasons":["..."]}
-Без ключа "verdict" вердикт считается block.`;
+Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).`;
 }
 
 function slurpDiff(cwd, cap = 12000) {
@@ -57,9 +79,13 @@ function slurpDiff(cwd, cap = 12000) {
 async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS }) {
   const { diff, status } = slurpDiff(cwd);
   const prompt = judgePrompt(tid, taskText, diff, status);
-  const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs });
-  let output = r.lastMsg || '';
-  try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
+  const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
+  // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
+  // ответа. Лог-файл (stdout+stderr вперемешку) — только фолбэк для старого prose-парсера.
+  let output = r.stdout || r.lastMsg || '';
+  if (!parseStructuredVerdict(output)) {
+    try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
+  }
   // pass требует И чистого прогона судьи (r.ok), И явного verdict:pass. Зависший/упавший/
   // пустой судья (r.ok=false) → block, не доверяем частичному выводу (REJECT-default).
   const verdict = (r.ok && parseVerdict(output) === 'pass') ? 'pass' : 'block';
