@@ -153,4 +153,89 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
   }
 }
 
-module.exports = { run, eventsPath, currentBranch };
+// --- status (T013): срез прогона из claims + events.jsonl ---
+function readEvents(cwd) {
+  const p = eventsPath(cwd);
+  if (!fs.existsSync(p)) return [];
+  return fs.readFileSync(p, 'utf8').split(/\r?\n/).filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+}
+
+const STATE_BY_EVENT = {
+  'slice-work': 'working', healed: 'healed', 'heal-failed': 'heal-failed',
+  'gate-pass': 'gated', 'gate-reject': 'rejected', merged: 'merged', 'redo-merged': 'merged',
+  'merge-conflict': 'conflict', 'requeue-serial': 'requeue', 'redo-conflict': 'conflict',
+  'redo-gate-reject': 'rejected', 'slice-error': 'error', 'skip-held': 'held',
+};
+
+function status({ cwd = process.cwd(), tasksPath = null } = {}) {
+  const perTid = new Map();
+  for (const e of readEvents(cwd)) {
+    if (!e.tid) continue;
+    const cur = perTid.get(e.tid) || { tid: e.tid, startedAt: e.ts };
+    if (STATE_BY_EVENT[e.event]) cur.state = STATE_BY_EVENT[e.event];
+    if (e.provider) cur.provider = e.provider;
+    cur.updatedAt = e.ts;
+    perTid.set(e.tid, cur);
+  }
+  // активные claims = кто СЕЙЧАС держит слайс (перекрывает историю событий)
+  for (const c of claims.list({ cwd })) {
+    const cur = perTid.get(c.tid) || { tid: c.tid, startedAt: c.ts };
+    cur.worker = c.worker;
+    cur.provider = cur.provider || c.provider;
+    cur.stale = c.stale;
+    if (!c.stale) cur.state = 'in-progress';
+    perTid.set(c.tid, cur);
+  }
+  const slices = [...perTid.values()];
+  const counts = { merged: 0, failed: 0, conflict: 0, working: 0 };
+  for (const s of slices) {
+    if (s.state === 'merged') counts.merged++;
+    else if (['rejected', 'error', 'heal-failed'].includes(s.state)) counts.failed++;
+    else if (['conflict', 'requeue'].includes(s.state)) counts.conflict++;
+    else if (['working', 'in-progress'].includes(s.state)) counts.working++;
+  }
+  let planCounts = null;
+  if (tasksPath && fs.existsSync(tasksPath)) {
+    const ps = plan.parseFile(tasksPath);
+    planCounts = { total: ps.length, done: ps.filter((x) => x.done).length, open: ps.filter((x) => !x.done).length };
+  }
+  return { slices, counts, plan: planCounts, stopped: fs.existsSync(path.join(cwd, '.harness', 'STOP')) };
+}
+
+function renderStatus(st) {
+  const head = 'TID    STATE        PROVIDER WORKER        UPDATED';
+  const rows = st.slices.map((s) =>
+    [(s.tid || '').padEnd(6), (s.state || '?').padEnd(12), (s.provider || '-').padEnd(8),
+      (s.worker || '-').padEnd(13), s.updatedAt || ''].join(' '));
+  const planLine = st.plan ? `\nПлан: ${st.plan.done}/${st.plan.total} закрыто, ${st.plan.open} открыто` : '';
+  const stopLine = st.stopped ? '  [STOP активен]' : '';
+  const cnt = st.counts;
+  return [head, ...rows].join('\n') +
+    `\nИтог: merged=${cnt.merged} failed=${cnt.failed} conflict=${cnt.conflict} working=${cnt.working}` +
+    planLine + stopLine;
+}
+
+module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents };
+
+// --- CLI (для обёртки tools/elt-fleet.ps1) ---
+if (require.main === module) {
+  const [, , cmd, ...rest] = process.argv;
+  const arg = (f, d) => { const i = rest.indexOf(f); return i >= 0 ? rest[i + 1] : d; };
+  const cwd = process.cwd();
+  const tasksPath = arg('--tasks', null);
+  if (cmd === 'status') {
+    console.log(renderStatus(status({ cwd, tasksPath })));
+  } else if (cmd === 'stop') {
+    fs.mkdirSync(path.join(cwd, '.harness'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, '.harness', 'STOP'), '');
+    console.log('fleet: STOP выставлен');
+  } else if (cmd === 'run') {
+    run({ cwd, tasksPath, integration: arg('--integration', undefined), workers: Number(arg('--workers', 2)) })
+      .then((s) => console.log('fleet summary: ' + JSON.stringify(s)))
+      .catch((e) => { console.error(e.message); process.exit(1); });
+  } else {
+    console.error('usage: fleet.js status|run|stop [--tasks <path>] [--workers N] [--integration <branch>]');
+    process.exit(2);
+  }
+}
