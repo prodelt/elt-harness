@@ -29,7 +29,7 @@
 ## Phase E — обвязка
 - [X] **T013** [P] fleet.js status (таблица: слайс/воркер/провайдер/статус/время из claims+events) + обёртка tools/elt-fleet.ps1 с -Panes (wt split-pane, Get-Content -Wait по логам воркеров); тест status на фикстурах [files:tools/fleet/fleet*,tools/elt-fleet.ps1]
 - [X] **T014** [P] doctor: чеки воркеров (stale claims, брошенные .fleet-wt, `<cli> --version` pre-flight) в ДЕФОЛТНЫЙ прогон doctor текущего проекта — НЕ под существующий `--fleet` (тот = здоровье парка проектов, 549f15a); тест [files:tools/project-docs-core.js,tools/doctor*]
-- [ ] **T015** доки: /elt SKILL.md — режим «fleet» (порог ≥3 [P]-слайсов, как запускать/следить/стопить) + PLAYBOOK.md + CLAUDE.md Commands; оракул: doctor docs-чеки зелёные
+- [X] **T015** доки: /elt SKILL.md — режим «fleet» (порог ≥3 [P]-слайсов, как запускать/следить/стопить) + PLAYBOOK.md + CLAUDE.md Commands; оракул: doctor docs-чеки зелёные
 
 ## Phase F — live-fire
 - [ ] **T016** [live] бенч: scratch-план с 4+ честными [P]-слайсами — `fleet run --workers 2` до конца vs последовательный baseline; метрики (wall-clock, провайдеры, судья 100%) в run-log; итог в чекпоинт
