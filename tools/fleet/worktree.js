@@ -35,11 +35,44 @@ function create(tid, { cwd = process.cwd(), base = 'HEAD' } = {}) {
   return { path: p, branch, tid };
 }
 
+// Синхронный busy-wait: короткий (≤900мс суммарно за все ретраи), только на пути ошибки.
+// Без Atomics/SharedArrayBuffer — не тянет версионные/threading оговорки Node.
+function sleepSync(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { /* busy-wait */ }
+}
+
+// ponytail: на Windows хендл на файл worktree иногда переживает завершение child-процесса
+// (антивирус/индексатор/отложенный close дескриптора лога) на доли секунды — `git worktree
+// remove --force` тогда падает "Directory not empty" (T016 live-fire, fleet-бенч), и следующий
+// create() падает "already exists". Ретраим git-путь, затем ручное удаление директории; если
+// и оно не помогло — громко предупреждаем и бросаем ошибку (молчать нельзя: маскировка сделает
+// будущий "already exists" необъяснимым).
+function removeWorktreeRetrying(p, cwd, force) {
+  const attempts = 3;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      execFileSync('git', ['worktree', 'remove', ...(force ? ['--force'] : []), p], { cwd, stdio: 'ignore' });
+      return;
+    } catch {
+      if (i < attempts - 1) sleepSync(300 * (i + 1));
+    }
+  }
+  gitOk(['worktree', 'prune'], cwd); // снять git-метаданные сразу, независимо от исхода ниже
+  for (let i = 0; i < attempts; i++) {
+    try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* ретраим ниже */ }
+    if (!fs.existsSync(p)) return;
+    if (i < attempts - 1) sleepSync(300 * (i + 1));
+  }
+  console.warn(`worktree.remove: не удалось снести ${p} после ${attempts * 2} попыток — директория занята другим процессом`);
+  throw new Error(`worktree.remove: directory still locked: ${p}`);
+}
+
 // Убрать worktree. force снимает грязное дерево; deleteBranch дропает и ветку fleet/<Tid>
 // (после успешного merge оркестратор чистит; при requeue ветку сохраняем).
 function remove(tid, { cwd = process.cwd(), force = true, deleteBranch = false } = {}) {
   const p = wtPath(cwd, tid);
-  git(['worktree', 'remove', ...(force ? ['--force'] : []), p], cwd);
+  removeWorktreeRetrying(p, cwd, force);
   if (deleteBranch) gitOk(['branch', '-D', branchName(tid)], cwd);
   return { path: p, branch: branchName(tid) };
 }
