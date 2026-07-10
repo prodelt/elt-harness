@@ -142,7 +142,10 @@ $diff
     # --json-schema/--output-format json (T016 live-fire): prose-парсер регулярно мимо —
     # модель пишет "принято"/"зачёт" вместо литерального pass/block, REJECT-default тогда
     # блокирует легитимные слайсы. Structured output — надёжный путь, regex ниже — фолбэк.
-    $verdictSchema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","block"]},"reasons":{"type":"array","items":{"type":"string"}}},"required":["verdict","reasons"]}'
+    # backslash-escaped кавычки (не литеральные "): PowerShell splatting в нативный .exe
+    # ломает JSON с литеральными " (T016 live-fire — "--json-schema is not valid JSON"),
+    # нативная argv-конвенция ждёт \" внутри аргумента.
+    $verdictSchema = '{\"type\":\"object\",\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"pass\",\"block\"]},\"reasons\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"verdict\",\"reasons\"]}'
     $judgeOut = Invoke-Claude @('-p', $judgePrompt, '--model', $JudgeModel, '--json-schema', $verdictSchema, '--output-format', 'json', '--dangerously-skip-permissions') $judgeLog
 
     # Парс вердикта: (0) structured_output из JSON-массива --output-format json (надёжный путь);
