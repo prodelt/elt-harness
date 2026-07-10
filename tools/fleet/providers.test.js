@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { run } = require('./providers');
+const { run, resolveBin, claudeExe, needsShell } = require('./providers');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-prov-'));
 const stub = (name, body) => { const p = path.join(TMP, name); fs.writeFileSync(p, body); return p; };
@@ -69,6 +69,25 @@ test('лог пишется и содержит вывод стаба', async ()
   const r = await withStub(STUBS.echo);
   assert.ok(fs.existsSync(r.logPath));
   assert.match(fs.readFileSync(r.logPath, 'utf8'), /hello world/);
+});
+
+test('баг #10: claude резолвится в .exe → спавн БЕЗ shell (inline JSON schema не рвётся cmd.exe)', () => {
+  const prev = process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE; // без стаб-оверрайда — реальный резолв
+  try {
+    const bin = resolveBin('claude');
+    const exe = claudeExe();
+    if (exe) {
+      // claude.exe найден на этой машине → resolveBin вернул путь к нему, и needsShell=false
+      assert.match(bin[0], /claude\.exe$/i, 'claude резолвится в .exe, а не в .cmd-шим');
+      assert.equal(needsShell(bin[0]), false, '.exe спавнится без shell → node квотит JSON-схему сам');
+    } else {
+      // claude.exe не найден (напр. CI без установленного claude) → fallback на голое имя
+      assert.deepEqual(bin, ['claude']);
+    }
+  } finally {
+    if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev;
+  }
 });
 
 test('неизвестный провайдер → reason unknown-provider, без спавна', async () => {
