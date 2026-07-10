@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Обёртка запуска/просмотра ELT Fleet (tools/fleet/fleet.js).
 .DESCRIPTION
