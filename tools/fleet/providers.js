@@ -17,7 +17,7 @@
 //    не hang, наблюдались холодные старты 15–90с).
 //  - пустой stdout при exit 0 = fail (эвристика на случай выхода без ответа);
 //  - лог (stdout+stderr) в .harness/fleet/logs/.
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -33,14 +33,36 @@ const PROVIDERS = {
   agy: (model, prompt, cwd) => ['-p', prompt, '--add-dir', cwd, '--dangerously-skip-permissions', '--print-timeout', '5m', ...(model ? ['--model', model] : [])],
 };
 
+// Баг #10 (T016 live-fire): судья зовётся с inline `--json-schema {…}` (JSON с кавычками).
+// `claude` на PATH — это claude.cmd-шим → node спавнит через cmd.exe (shell:true, .cmd иначе
+// не спавнится на node ≥18.20) → cmd.exe рвёт кавычки JSON → "not valid JSON" → судья падает →
+// REJECT-default блокирует КАЖДЫЙ слайс. Резолвим шим в реальный claude.exe (шим и указывает на
+// node_modules/@anthropic-ai/claude-code/bin/claude.exe): .exe спавнится БЕЗ shell (needsShell) →
+// node сам корректно квотит argv → схема долетает целой. Не нашли exe → fallback 'claude' (старое).
+let _claudeExe; // кеш: undefined=не искали, null=не нашли, string=путь
+function claudeExe() {
+  if (_claudeExe !== undefined) return _claudeExe;
+  _claudeExe = null;
+  if (!IS_WIN) return _claudeExe;
+  try {
+    const hits = execFileSync('where', ['claude'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
+    for (const h of hits) {
+      const exe = path.join(path.dirname(h), 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+      if (fs.existsSync(exe)) { _claudeExe = exe; break; }
+    }
+  } catch { /* where/шим недоступен → fallback на 'claude' */ }
+  return _claudeExe;
+}
+
 // Переопределение бинарника: env FLEET_BIN_<PROVIDER> = JSON-массив argv-префикса
-// (напр. ["node","/path/stub.js"]) или строка-путь. Дефолт — имя CLI из PATH.
+// (напр. ["node","/path/stub.js"]) или строка-путь. Дефолт — имя CLI из PATH (claude → .exe, баг #10).
 function resolveBin(provider) {
   const env = process.env['FLEET_BIN_' + provider.toUpperCase()];
   if (env) {
     try { const j = JSON.parse(env); return Array.isArray(j) ? j.map(String) : [String(j)]; }
     catch { return [env]; }
   }
+  if (provider === 'claude') { const exe = claudeExe(); if (exe) return [exe]; }
   return [provider];
 }
 
@@ -128,4 +150,4 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
   });
 }
 
-module.exports = { run, PROVIDERS, DEFAULT_TIMEOUT_MS, resolveBin };
+module.exports = { run, PROVIDERS, DEFAULT_TIMEOUT_MS, resolveBin, claudeExe, needsShell };
