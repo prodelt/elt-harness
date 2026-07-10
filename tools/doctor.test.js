@@ -21,6 +21,7 @@ const {
   checkHarnessRun,
   checkHarnessGlobal,
   checkFleet,
+  checkFleetWorkers,
   runDoctor,
 } = require('./doctor-core');
 
@@ -476,6 +477,29 @@ function testFleetCheck() {
   assert.match(byKey['fleet:d'].detail, /half-cycle/);
 }
 
+function testFleetWorkersCheck() {
+  // проект без fleet → тихо (пустой массив)
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-fleet-bare-'));
+  assert.deepEqual(checkFleetWorkers(bare), [], 'нет fleet → нет чеков');
+  fs.rmSync(bare, { recursive: true, force: true });
+
+  // проект с политикой + залежавшийся claim + CLI pre-flight (инжект runner)
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-fleet-'));
+  require('node:child_process').execFileSync('git', ['init', '-q'], { cwd: root }); // worktree.list тихо
+  const claimsDir = path.join(root, '.harness', 'fleet', 'claims');
+  write(path.join(claimsDir, 'T1.json'), JSON.stringify({ tid: 'T1', pid: 2147480000, worker: 'ghost' }));
+  write(path.join(root, '.harness', 'fleet', 'fleet.json'), JSON.stringify({ default: ['claude'], policy: { S: ['codex'] } }));
+  const fakeRunner = (cmd) => (cmd === 'claude' ? { status: 0, output: 'claude 2.1.0' } : { status: 1, error: 'not found' });
+
+  const checks = checkFleetWorkers(root, fakeRunner);
+  const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
+  assert.equal(byId['fleet:claims'].status, 'warn');
+  assert.match(byId['fleet:claims'].detail, /T1/);
+  assert.equal(byId['fleet:cli:claude'].status, 'pass', 'claude --version ок → pass');
+  assert.equal(byId['fleet:cli:codex'].status, 'warn', 'codex недоступен → warn');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function withHome(home, fn) {
   const previous = process.env.USERPROFILE;
   process.env.USERPROFILE = home;
@@ -504,6 +528,7 @@ function main() {
   testHarnessRunCheck();
   testHarnessGlobalCheck();
   testFleetCheck();
+  testFleetWorkersCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 
