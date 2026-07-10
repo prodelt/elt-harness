@@ -22,7 +22,7 @@
 - [X] **T009** fleet.js run MVP: планер+claims+N воркеров+gate+merge, events.jsonl, STOP-файл (grace 30с → kill), resume по claims; интеграционный тест: стабы, 2 воркера, 3 слайса, 1 конфликт — всё закрыто
 
 ## Phase D — роутер
-- [ ] **T010** router.js: fleet.json policy (size-тег → цепочка провайдеров), cooldown, ledger-поля в run-log (provider/model/durationSec/failoverFrom/limitHit); тесты [files:tools/fleet/router*]
+- [X] **T010** router.js: fleet.json policy (size-тег → цепочка провайдеров), cooldown, ledger-поля в run-log (provider/model/durationSec/failoverFrom/limitHit); тесты [files:tools/fleet/router*]
 - [ ] **T011** limit-детект в executor-результате (сигнатуры из T003) → cooldown провайдера + requeue слайса на следующего в цепочке; тест: стаб отдаёт 429 → слайс уезжает дальше
 - [ ] **T012** heal-эскалация: красный оракул → 1 heal тем же провайдером → 1 heal claude → слайс failed, fleet продолжает остальные; тест на стабах
 
