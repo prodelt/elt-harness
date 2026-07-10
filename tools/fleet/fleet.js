@@ -63,9 +63,19 @@ async function run(opts = {}) {
   const stopFile = opts.stopFile || path.join(cwd, '.harness', 'STOP');
   const judgeModel = opts.judgeModel || 'sonnet';
   const maxLoops = opts.maxLoops || 100;
+  const maxAttempts = opts.maxAttempts || 3;
 
-  const summary = { merged: [], failed: [], conflicts: [], requeued: [], stopped: false };
+  const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], stopped: false };
   const provFor = (slice) => slice.cli || chain[0];
+  // Баг #8: без верхнего предела попыток застрявший слайс (heal-failed/gate-reject) реквеился
+  // каждый loop бесконечно, сжигая реальные claude -p. Cap на попытки per-слайс → abandon.
+  const attempts = new Map();
+  const recordFail = (tid) => {
+    const n = (attempts.get(tid) || 0) + 1;
+    attempts.set(tid, n);
+    if (n >= maxAttempts) { emit(cwd, { event: 'batch-abandoned', tid, attempts: n }); summary.abandoned.push(tid); }
+  };
+  const isAbandoned = (tid) => (attempts.get(tid) || 0) >= maxAttempts;
 
   emit(cwd, { event: 'start', integration, workers, chain });
   const swept = claims.sweep({ cwd });
@@ -76,7 +86,7 @@ async function run(opts = {}) {
 
     const slices = plan.parseFile(tasksPath);
     const byId = new Map(slices.map((s) => [s.id, s]));
-    const batch = plan.nextBatch(slices).slice(0, workers);
+    const batch = plan.nextBatch(slices).filter((s) => !isAbandoned(s.id)).slice(0, workers);
     if (!batch.length) { emit(cwd, { event: 'done' }); break; }
     emit(cwd, { event: 'batch', tids: batch.map((s) => s.id) });
 
@@ -109,7 +119,7 @@ async function run(opts = {}) {
 
     // фаза 2: merge — сериально (интеграционная одна)
     for (const r of gated) {
-      if (!r.gateOk) { cleanupSlice(cwd, r.tid); summary.failed.push(r.tid); continue; }
+      if (!r.gateOk) { cleanupSlice(cwd, r.tid); summary.failed.push(r.tid); recordFail(r.tid); continue; }
       const m = merge.mergeSlice(r.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
       if (m.conflict) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
@@ -117,7 +127,7 @@ async function run(opts = {}) {
         summary.conflicts.push(r.tid);
         const ok = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor });
         if (ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
-        else { summary.failed.push(r.tid); }
+        else { summary.failed.push(r.tid); recordFail(r.tid); }
       } else {
         emit(cwd, { event: 'merged', tid: r.tid, oracleOk: m.oracleOk });
         cleanupSlice(cwd, r.tid);
@@ -166,6 +176,7 @@ const STATE_BY_EVENT = {
   'gate-pass': 'gated', 'gate-reject': 'rejected', merged: 'merged', 'redo-merged': 'merged',
   'merge-conflict': 'conflict', 'requeue-serial': 'requeue', 'redo-conflict': 'conflict',
   'redo-gate-reject': 'rejected', 'slice-error': 'error', 'skip-held': 'held',
+  'batch-abandoned': 'abandoned',
 };
 
 function status({ cwd = process.cwd(), tasksPath = null } = {}) {
@@ -191,7 +202,7 @@ function status({ cwd = process.cwd(), tasksPath = null } = {}) {
   const counts = { merged: 0, failed: 0, conflict: 0, working: 0 };
   for (const s of slices) {
     if (s.state === 'merged') counts.merged++;
-    else if (['rejected', 'error', 'heal-failed'].includes(s.state)) counts.failed++;
+    else if (['rejected', 'error', 'heal-failed', 'abandoned'].includes(s.state)) counts.failed++;
     else if (['conflict', 'requeue'].includes(s.state)) counts.conflict++;
     else if (['working', 'in-progress'].includes(s.state)) counts.working++;
   }
