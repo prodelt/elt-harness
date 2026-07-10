@@ -1,0 +1,1 @@
+{"ts":"2026-07-10T09:23:36.282Z","task":"T001","oracle":{"cmd":"node tools/doctor.test.js && node --test tools/fleet/*.test.js","exit":0,"skipped":false},"commit":"a7d1566","branch":"feature/elt-loop-driver","verdict":"pass","msg":"feat: T001 elt init этого репо (`--shell bash --oracle \"node tools/doctor.test.js && node "}
