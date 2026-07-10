@@ -98,6 +98,27 @@ test('баг #8: застрявший слайс (оракул всегда кр
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
+test('баг #9: ensureFleetIgnore прячет лог воркера от git (судья не видит его как scope creep)', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-ignore-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  g(['commit', '-q', '--allow-empty', '-m', 'base']);
+  // воркер сделал слайс (out/x.txt) + providers.run написал свой лог в worktree
+  fs.mkdirSync(path.join(repo, 'out'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'out', 'x.txt'), 'X\n');
+  fs.mkdirSync(path.join(repo, '.harness', 'fleet', 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'logs', 'claude-1.log'), 'весь транскрипт воркера\n');
+
+  const st = (r) => execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: r, encoding: 'utf8' });
+  assert.match(st(repo), /\.harness\/fleet\/logs\/claude-1\.log/, 'до фикса лог виден git (= судье)');
+
+  fleet.ensureFleetIgnore(repo);
+  const after = st(repo);
+  assert.doesNotMatch(after, /logs\/claude-1\.log/, 'после фикса лог скрыт от судьи');
+  assert.match(after, /out\/x\.txt/, 'слайс-файл по-прежнему виден');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
 test('2 воркера, 3 слайса, 1 конфликт → все закрыты, конфликтный дожат serial', async () => {
   // (repo уже прогнан в resume-тесте — план закрыт; проверяем итог того прогона)
   const tasks = fs.readFileSync(tasksPath(), 'utf8');

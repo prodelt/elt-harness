@@ -29,6 +29,26 @@ function eventsPath(cwd) {
   fs.mkdirSync(d, { recursive: true });
   return path.join(d, 'events.jsonl');
 }
+
+// Баг #9 (live-fire T016): воркер/судья бегут с cwd=worktree → providers.run пишет свой
+// лог в <worktree>/.harness/fleet/logs/. slurpDiff (git add -N .) стейджит его → судья
+// видит чужой лог ВНЕ зоны [files:] → block каждого слайса (и логи текли бы в merge).
+// Пишем в .git/info/exclude (локальный, ОБЩИЙ для всех worktree, не коммитится и не мёржится
+// — трекаемый .gitignore создавал бы merge-трение одинаковым путём в параллельных ветках).
+// Игнорим только runtime-артефакты fleet (logs/events/claims), НЕ fleet.json (это конфиг).
+const FLEET_IGNORE_LINES = ['.harness/fleet/logs/', '.harness/fleet/events.jsonl', '.harness/fleet/claims/'];
+function ensureFleetIgnore(dir) {
+  try {
+    const rel = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8' }).trim();
+    const abs = path.isAbsolute(rel) ? rel : path.join(dir, rel);
+    let cur = '';
+    try { cur = fs.readFileSync(abs, 'utf8'); } catch { /* файла ещё нет */ }
+    const add = FLEET_IGNORE_LINES.filter((l) => !cur.includes(l));
+    if (!add.length) return;
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.appendFileSync(abs, (cur && !cur.endsWith('\n') ? '\n' : '') + add.join('\n') + '\n');
+  } catch { /* некритично */ }
+}
 function emit(cwd, ev) {
   const rec = { ts: new Date().toISOString(), ...ev };
   try { fs.appendFileSync(eventsPath(cwd), JSON.stringify(rec) + '\n'); } catch { /* лог не критичен */ }
@@ -77,6 +97,7 @@ async function run(opts = {}) {
   };
   const isAbandoned = (tid) => (attempts.get(tid) || 0) >= maxAttempts;
 
+  ensureFleetIgnore(cwd); // не тащить runtime-артефакты в git основного репо
   emit(cwd, { event: 'start', integration, workers, chain });
   const swept = claims.sweep({ cwd });
   if (swept.length) emit(cwd, { event: 'resume-sweep', freed: swept });
@@ -227,7 +248,7 @@ function renderStatus(st) {
     planLine + stopLine;
 }
 
-module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents };
+module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore };
 
 // --- CLI (для обёртки tools/elt-fleet.ps1) ---
 if (require.main === module) {
