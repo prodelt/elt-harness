@@ -102,6 +102,10 @@ $tail
     }
 
     # 6. СУДЬЯ (обязателен, REJECT-default)
+    # intent-to-add: `git diff HEAD` игнорирует untracked-файлы (новые файлы дают пустой
+    # дифф → судья без реального контента блуждает по репо своими tool-calls и путает
+    # задачу). Зеркало фикса из gate.js (T007/fleet) — без него diff слеп на новых файлах.
+    & git add -N -- . 2>$null | Out-Null
     $diff = (& git diff HEAD) -join "`n"
     $porcelain = (& git status --porcelain) -join "`n"
     if ([string]::IsNullOrWhiteSpace($diff) -and [string]::IsNullOrWhiteSpace($porcelain)) {
