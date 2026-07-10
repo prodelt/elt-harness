@@ -12,6 +12,9 @@ const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
 const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
 const { CORE_SECTIONS } = require('./project-docs-core');
+const fleetClaims = require('./fleet/claims');
+const fleetWorktree = require('./fleet/worktree');
+const fleetRouter = require('./fleet/router');
 const {
   legacyStatePath,
   normalizePath,
@@ -860,6 +863,59 @@ function checkLoopReady(home) {
   return [result(status, 'loop:ready', `Loop Ready score: ${score}/${LOOP_READY_ITEMS.length}`, detail, score < LOOP_READY_ITEMS.length ? 'Missing items are informational — see elt-loop SKILL.md.' : '')];
 }
 
+// Здоровье fleet-воркеров текущего проекта: залежавшиеся claims, брошенные worktrees,
+// доступность CLI провайдеров из политики. НЕ путать с runFleet/--fleet (тот = здоровье
+// парка ЗАРЕГИСТРИРОВАННЫХ проектов, 549f15a). Тихо, если проект не использует fleet.
+function checkFleetWorkers(root, runner = run) {
+  const fleetDir = path.join(root, '.harness', 'fleet');
+  const hasPolicy = fs.existsSync(path.join(fleetDir, 'fleet.json'));
+  const claimsDir = path.join(fleetDir, 'claims');
+  // по claim-ФАЙЛАМ, не по пустой папке: сам read-чек (claims.stale) делает mkdir,
+  // так что пустая .fleet/claims/ не должна считаться признаком использования fleet.
+  const hasClaims = fs.existsSync(claimsDir) && fs.readdirSync(claimsDir).some((f) => f.endsWith('.json'));
+  const usesFleet = hasPolicy || hasClaims || fs.existsSync(path.join(fleetDir, 'events.jsonl'));
+  if (!usesFleet) return [];
+
+  const checks = [];
+  // 1. залежавшиеся claims (pid воркера мёртв)
+  let stale = [];
+  try { stale = fleetClaims.stale({ cwd: root }); } catch { stale = []; }
+  checks.push(stale.length
+    ? result('warn', 'fleet:claims', `Fleet: ${stale.length} залежавшихся claim(ов)`,
+      `мёртвые воркеры: ${stale.map((c) => c.tid).join(', ')}`,
+      'снимутся при следующем fleet run (resume-sweep) или удалить .harness/fleet/claims/<Tid>.json')
+    : result('pass', 'fleet:claims', 'Fleet: claims чисты', 'нет залежавшихся claims'));
+
+  // 2. брошенные worktrees (.fleet-wt без активного воркера)
+  let wts = [];
+  try { wts = fleetWorktree.list({ cwd: root }); } catch { wts = []; }
+  let active = new Set();
+  try { active = new Set(fleetClaims.list({ cwd: root }).filter((c) => !c.stale).map((c) => c.tid)); } catch { /* пусто */ }
+  const orphan = wts.filter((w) => !active.has(w.tid));
+  if (orphan.length) {
+    checks.push(result('warn', 'fleet:worktrees', `Fleet: ${orphan.length} брошенных worktree`,
+      orphan.map((w) => w.tid).join(', '), 'git worktree remove .fleet-wt/<Tid> --force (или fleet run приберёт)'));
+  } else if (wts.length) {
+    checks.push(result('pass', 'fleet:worktrees', 'Fleet: worktrees', 'брошенных нет'));
+  }
+
+  // 3. CLI pre-flight — только при явной политике (fleet.json), чтобы не шуметь зря
+  if (hasPolicy) {
+    let policy;
+    try { policy = fleetRouter.loadPolicy(root); } catch { policy = fleetRouter.DEFAULT_POLICY; }
+    const provs = [...new Set([...(policy.default || []), ...Object.values(policy.policy || {}).flat()])];
+    for (const p of provs) {
+      const r = runner(p, ['--version'], root, 4000);
+      checks.push(r && r.status === 0 && !r.error
+        ? result('pass', `fleet:cli:${p}`, `Fleet CLI ${p} доступен`, (r.output || '').split('\n')[0] || '')
+        : result('warn', `fleet:cli:${p}`, `Fleet CLI ${p} недоступен`,
+          `провайдер в политике, но '${p} --version' не отвечает`,
+          `установить/залогинить ${p} или убрать из .harness/fleet/fleet.json`));
+    }
+  }
+  return checks;
+}
+
 function runDoctor(options) {
   const home = os.homedir();
   const root = findProjectRoot(options.root);
@@ -885,6 +941,7 @@ function runDoctor(options) {
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
+    ...checkFleetWorkers(root),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
@@ -934,6 +991,7 @@ module.exports = {
   checkHarnessGlobal,
   checkGitWorkflowAudit,
   checkFleet,
+  checkFleetWorkers,
   runFleet,
   runDoctor,
   formatText,
