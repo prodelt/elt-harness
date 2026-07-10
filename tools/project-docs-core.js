@@ -98,9 +98,10 @@ function inferCoreSections(root, docs) {
 
 function toolPreamble(relative, root) {
   const name = path.basename(root);
-  if (relative === 'AGENTS.md') return `# ${name} - Codex Agent Instructions\n\n`;
-  if (relative === 'CLAUDE.md') return `# ${name} - Claude Code Instructions\n\n`;
-  return `# ${name} - Gemini Instructions\n\n`;
+  // Эталон (Черни/Карпаты/стандарт agents.md): заголовок называет файл, не инструмент;
+  // AGENTS.md — источник, CLAUDE.md/GEMINI.md — его зеркала (один файл, все агенты).
+  if (relative === 'AGENTS.md') return `# AGENTS.md — ${name}\n\n`;
+  return `# ${name} — Project Instructions\n\n`;
 }
 
 function nonCoreSections(doc) {
