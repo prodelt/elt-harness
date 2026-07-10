@@ -53,10 +53,13 @@ function ledgerEntry({ tid = null, provider, model = null, durationSec = null, f
 }
 
 // --- лимит-детект + failover (T011) ---
-// ПРЕДВАРИТЕЛЬНЫЙ, эвристический набор сигнатур лимита/недоступности — собран из общих
-// HTTP/провайдерных паттернов, НЕ снят с живых CLI. T003 [live] пока не выполнена; когда
-// снимет реальные сигнатуры agy/codex/claude — этот список ПЕРЕСМАТРИВАЕТСЯ (добавить/убрать
-// записи по факту). До тех пор ловим распространённое + agy-квирк (empty-stdout при exit 0).
+// Эвристический набор сигнатур лимита/недоступности — общие HTTP/провайдерные паттерны.
+// T003 [live] подтвердила providers.js (stdin/argv/cwd для agy, см. providers.js), но
+// реальный rate-limit живьём не воспроизведён (нужен реальный 429 от провайдера — не
+// спровоцировать намеренно). Известный живой сигнал: agy при истечении своего
+// --print-timeout падает exit 1 + "Error: timeout waiting for response" (это уже
+// nonzero-exit → обычный retry/heal, не лимит-специфичный кейс). Пересмотреть при
+// первом реальном лимите в проде (T016/T017 бенч и драки могут его словить).
 const LIMIT_SIGNATURES = [
   /\b429\b/, /\b529\b/, /rate[\s_-]?limit/i, /quota/i, /usage limit/i,
   /resource_exhausted/i, /overloaded/i, /too many requests/i, /insufficient_quota/i,

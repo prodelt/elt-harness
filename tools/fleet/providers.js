@@ -2,13 +2,20 @@
 // providers.js — headless-executor для fleet-воркеров.
 // run({provider, prompt, cwd, model}) → {exit, ok, reason, logPath, lastMsg}.
 //
-// Инварианты слайса T002 (specs/002-elt-fleet):
+// Инварианты слайса T002 (specs/002-elt-fleet), уточнены T003 [live]:
 //  - spawn headless каждого провайдера (claude / codex / agy);
-//  - промпт идёт через STDIN у ВСЕХ (Windows: реальные CLI = .cmd-шимы → spawn
-//    промпта в argv требует shell:true + escaping кавычек; stdin это обходит и
-//    кросс-платформенно). Реальные argv/каналы каждого CLI фиксирует T003 [live];
-//  - hard-таймаут на ВСЕ вызовы (agy живьём виснет — см. дизайн);
-//  - пустой stdout при exit 0 = fail (agy-квирк: выходит 0 без логина/после hang);
+//  - claude/codex: промпт через STDIN (Windows: реальные CLI = .cmd-шимы → spawn
+//    промпта в argv требует shell:true + escaping кавычек; stdin это обходит).
+//  - agy: STDIN как канал промпта НЕ РАБОТАЕТ (T003 live-fire — CLI игнорирует
+//    stdin и отвечает про собственные argv-флаги вместо ввода); промпт идёт
+//    значением `-p` в argv. agy также игнорирует cwd процесса (пишет в фикс.
+//    ~/.gemini/antigravity-cli/scratch без явного --add-dir) — передаём cwd
+//    через --add-dir. agy — реальный .exe на PATH (не .cmd-шим) → спавним БЕЗ
+//    shell (needsShell), иначе argv-промпт открыл бы shell-injection.
+//  - hard-таймаут на ВСЕ вызовы; agy при истечении своего --print-timeout
+//    падает exit 1 + stderr "Error: timeout waiting for response" (T003 live —
+//    не hang, наблюдались холодные старты 15–90с).
+//  - пустой stdout при exit 0 = fail (эвристика на случай выхода без ответа);
 //  - лог (stdout+stderr) в .harness/fleet/logs/.
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -18,11 +25,12 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const KILL_GRACE_MS = 3000;
 const IS_WIN = process.platform === 'win32';
 
-// Дефолтные headless-флаги (БЕЗ промпта — он в stdin). model опционален.
+// Дефолтные headless-флаги. claude/codex: БЕЗ промпта (он в stdin). agy: промпт
+// и cwd — прямые аргументы (T003 live, см. комментарий вверху файла). model опционален.
 const PROVIDERS = {
   claude: (model) => ['-p', '--dangerously-skip-permissions', ...(model ? ['--model', model] : [])],
   codex: (model) => ['exec', '--sandbox', 'workspace-write', ...(model ? ['--model', model] : [])],
-  agy: (model) => ['-p', '--dangerously-skip-permissions', '--print-timeout', '5m', ...(model ? ['--model', model] : [])],
+  agy: (model, prompt, cwd) => ['-p', prompt, '--add-dir', cwd, '--dangerously-skip-permissions', '--print-timeout', '5m', ...(model ? ['--model', model] : [])],
 };
 
 // Переопределение бинарника: env FLEET_BIN_<PROVIDER> = JSON-массив argv-префикса
@@ -46,7 +54,9 @@ function logDirFor(cwd) {
 // CLI на Windows) — с node ≥18.20 прямой spawn .cmd бросает EINVAL. node-стабы и .exe
 // зовём без shell (иначе пробелы в пути ломают склейку аргументов при shell:true).
 function needsShell(cmd) {
-  return IS_WIN && cmd !== 'node' && !/\.exe$/i.test(cmd);
+  // agy резолвится в реальный .exe на PATH (T003 live: `where agy`), не .cmd-шим —
+  // спавним напрямую (без cmd.exe), иначе argv-промпт agy открыл бы shell-injection.
+  return IS_WIN && cmd !== 'node' && cmd !== 'agy' && !/\.exe$/i.test(cmd);
 }
 
 function hardKill(child) {
@@ -65,7 +75,7 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
     }
     const bin = resolveBin(provider);
     const cmd = bin[0];
-    const argv = [...bin.slice(1), ...PROVIDERS[provider](model)];
+    const argv = [...bin.slice(1), ...PROVIDERS[provider](model, prompt, cwd)];
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const logPath = path.join(logDirFor(cwd), `${provider}-${ts}-${process.pid}.log`);
     const logFd = fs.openSync(logPath, 'w');
@@ -90,7 +100,7 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
 
     if (child.stdin) {
       child.stdin.on('error', () => { /* CLI мог закрыть stdin раньше */ });
-      child.stdin.write(prompt);
+      if (provider !== 'agy') child.stdin.write(prompt); // agy: промпт уже в argv (T003 live)
       child.stdin.end();
     }
 
