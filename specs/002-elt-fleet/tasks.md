@@ -13,7 +13,7 @@
 
 ## Phase B — изоляция
 - [X] **T004** [P] worktree.js: create/remove/list `.fleet-wt/<Tid>` + ветка fleet/<Tid> от интеграционной; тесты на темп-репо [files:tools/fleet/worktree*]
-- [ ] **T005** [P] plan.js: парс тегов [P]/[S|M|L]/[cli:]/[files:] поверх elt slice-формата + выбор параллельного батча (только [P] с disjoint files-глобами, не-[P] = барьер); тесты [files:tools/fleet/plan*]
+- [X] **T005** [P] plan.js: парс тегов [P]/[S|M|L]/[cli:]/[files:] поверх elt slice-формата + выбор параллельного батча (только [P] с disjoint files-глобами, не-[P] = барьер); тесты [files:tools/fleet/plan*]
 - [ ] **T006** [P] claims.js: claim/release/stale-детект (pid жив?) в .harness/fleet/claims/; тесты [files:tools/fleet/claims*]
 
 ## Phase C — петля
