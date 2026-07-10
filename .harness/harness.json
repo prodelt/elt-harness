@@ -1,6 +1,6 @@
 {
-  "oracle": "node tools/doctor.test.js && node --test tools/fleet/*.test.js",
-  "shell": "bash",
+  "oracle": "node tools/doctor.test.js; if ($LASTEXITCODE -eq 0) { node --test tools/fleet/*.test.js }",
+  "shell": "powershell",
   "branchPolicy": "feature",
   "push": false,
   "judge": {

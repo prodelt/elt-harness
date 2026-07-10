@@ -29,7 +29,7 @@ function seedRepo() {
     '- [ ] **T1** пишет shared [P] [files:s1*]\n- [ ] **T2** пишет shared [P] [files:s2*]\n- [ ] **T3** пишет a [P] [files:a*]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
   return repo;
 }
@@ -81,7 +81,7 @@ test('баг #8: застрявший слайс (оракул всегда кр
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   // оракул всегда красный → healSlice исчерпает попытки → heal-failed каждый батч
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'exit 1', shell: 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ oracle: 'exit 1', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   let calls = 0;
@@ -138,4 +138,63 @@ test('2 воркера, 3 слайса, 1 конфликт → все закры
   // код влит на интеграционную
   git(['checkout', '-q', 'main']);
   assert.ok(fs.existsSync(path.join(REPO, 'a.txt')), 'файл T3 на main');
+});
+
+test('провайдер возвращает 429 → failover на следующего в цепочке', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-failover-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T80** слайс [P] [S] [files:s*]\n');
+  
+  fs.mkdirSync(path.join(repo, '.harness', 'fleet'), { recursive: true });
+  // fleet.json: для S цепочка: ['agy', 'claude']
+  fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'fleet.json'), JSON.stringify({
+    policy: { S: ['agy', 'claude'] },
+    cooldownSec: 60
+  }));
+  
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  // фейковый судья pass
+  const judgeStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+
+  let calls = [];
+  const mockWorker = async (slice, wt, ctx) => {
+    calls.push(ctx.provider);
+    if (ctx.provider === 'agy') {
+      return { ok: false, lastMsg: 'Error 429: Too Many Requests' };
+    }
+    fs.writeFileSync(path.join(wt, 's.txt'), 'done\n');
+    return { ok: true, stdout: 'done' };
+  };
+
+  const s = await fleet.run({
+    cwd: repo,
+    tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main',
+    workers: 1,
+    worker: mockWorker,
+    maxLoops: 5
+  });
+
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  // agy вернул 429 → failover на claude → claude сделал слайс → merged
+  assert.deepEqual(calls, ['agy', 'claude']);
+  assert.deepEqual(s.merged, ['T80']);
+  
+  // Проверим ledger
+  const runlog = fs.readFileSync(path.join(repo, '.harness', 'run-log.jsonl'), 'utf8');
+  assert.match(runlog, /"provider":"agy".*"limitHit":true.*"verdict":"limit"/);
+  assert.match(runlog, /"provider":"claude".*"limitHit":false.*"verdict":"pass"/);
+
+  fs.rmSync(repo, { recursive: true, force: true });
 });

@@ -28,7 +28,7 @@ function writeStub(name, body) { const p = path.join(REPO, name); fs.writeFileSy
 function writeHarness(oracle) {
   fs.mkdirSync(path.join(REPO, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'),
-    JSON.stringify({ oracle, shell: 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ oracle, shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
 }
 
 let PASS_STUB, BLOCK_STUB;

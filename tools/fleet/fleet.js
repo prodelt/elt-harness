@@ -16,12 +16,28 @@ const gate = require('./gate');
 const merge = require('./merge');
 const heal = require('./heal');
 const providers = require('./providers');
+const router = require('./router');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 
 function currentBranch(cwd) {
   try { return execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim(); }
   catch { return 'main'; }
+}
+function getChainForSlice(slice, policy) {
+  const c = router.chainFor(slice.size, policy);
+  if (slice.cli) {
+    return [slice.cli, ...c.filter((p) => p !== slice.cli)];
+  }
+  return c;
+}
+
+function appendRunLog(cwd, entry) {
+  const runlog = path.join(cwd, '.harness', 'run-log.jsonl');
+  try {
+    fs.mkdirSync(path.dirname(runlog), { recursive: true });
+    fs.appendFileSync(runlog, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
+  } catch { /* noop */ }
 }
 
 function eventsPath(cwd) {
@@ -86,7 +102,13 @@ async function run(opts = {}) {
   const maxAttempts = opts.maxAttempts || 3;
 
   const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], stopped: false };
-  const provFor = (slice) => slice.cli || chain[0];
+  const policy = router.loadPolicy(cwd);
+  const routerState = router.makeState();
+  const provFor = (slice) => {
+    const c = getChainForSlice(slice, policy);
+    return router.pick(c, routerState) || c[0];
+  };
+
   // Баг #8: без верхнего предела попыток застрявший слайс (heal-failed/gate-reject) реквеился
   // каждый loop бесконечно, сжигая реальные claude -p. Cap на попытки per-слайс → abandon.
   const attempts = new Map();
@@ -114,39 +136,82 @@ async function run(opts = {}) {
     // фаза 0: claim + worktree — сериально (git worktree add не конкурентен)
     const active = [];
     for (const slice of batch) {
-      const cl = claims.claim(slice.id, { cwd, worker: 'fleet', meta: { provider: provFor(slice) } });
+      const provider = provFor(slice);
+      const cl = claims.claim(slice.id, { cwd, worker: 'fleet', meta: { provider } });
       if (!cl.ok) { emit(cwd, { event: 'skip-held', tid: slice.id, heldBy: cl.heldBy && cl.heldBy.pid }); continue; }
       const wt = worktree.create(slice.id, { cwd, base: integration });
-      active.push({ slice, wtPath: wt.path });
+      active.push({ slice, wtPath: wt.path, provider });
     }
 
     // фаза 1: воркер + gate — параллельно (разные worktree)
-    const gated = await Promise.all(active.map(async ({ slice, wtPath }) => {
-      emit(cwd, { event: 'slice-work', tid: slice.id, provider: provFor(slice) });
+    const gated = await Promise.all(active.map(async ({ slice, wtPath, provider }) => {
+      emit(cwd, { event: 'slice-work', tid: slice.id, provider });
+      const started = Date.now();
       try {
-        await worker(slice, wtPath, { provider: provFor(slice), model });
+        const res = await worker(slice, wtPath, { provider, model });
+        const durationSec = Math.round((Date.now() - started) / 1000);
+
+        // Проверяем лимит
+        const c = getChainForSlice(slice, policy);
+        const limit = router.failover({ result: res, provider, chain: c, state: routerState, policy });
+        if (limit.limitHit) {
+          appendRunLog(cwd, {
+            tid: slice.id, provider, model, durationSec,
+            failoverFrom: limit.failoverFrom, limitHit: true, verdict: 'limit'
+          });
+          emit(cwd, { event: 'limit-hit', tid: slice.id, provider, next: limit.next });
+          return { tid: slice.id, gateOk: false, limitHit: true, nextProvider: limit.next };
+        }
+
         // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed)
-        const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider: provFor(slice), model, elt: ELT_CLI });
-        if (!h.ok) { emit(cwd, { event: 'heal-failed', tid: slice.id, attempts: h.attempts }); return { tid: slice.id, gateOk: false }; }
+        const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider, model, elt: ELT_CLI });
+        if (!h.ok) {
+          emit(cwd, { event: 'heal-failed', tid: slice.id, attempts: h.attempts });
+          appendRunLog(cwd, {
+            tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+            failoverFrom: null, limitHit: false, verdict: 'heal-failed'
+          });
+          return { tid: slice.id, gateOk: false };
+        }
         if (h.attempts) emit(cwd, { event: 'healed', tid: slice.id, attempts: h.attempts, by: h.healedBy });
+
         const g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel });
         emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
+
+        appendRunLog(cwd, {
+          tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+          failoverFrom: null, limitHit: false, verdict: g.ok ? 'pass' : 'gate-reject'
+        });
+
         return { tid: slice.id, gateOk: g.ok };
       } catch (e) {
         emit(cwd, { event: 'slice-error', tid: slice.id, err: e.message });
+        appendRunLog(cwd, {
+          tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+          failoverFrom: null, limitHit: false, verdict: 'error'
+        });
         return { tid: slice.id, gateOk: false };
       }
     }));
 
     // фаза 2: merge — сериально (интеграционная одна)
     for (const r of gated) {
-      if (!r.gateOk) { cleanupSlice(cwd, r.tid); summary.failed.push(r.tid); recordFail(r.tid); continue; }
+      if (!r.gateOk) {
+        cleanupSlice(cwd, r.tid);
+        if (r.limitHit) {
+          summary.requeued.push(r.tid);
+        } else {
+          summary.failed.push(r.tid);
+          recordFail(r.tid);
+        }
+        continue;
+      }
       const m = merge.mergeSlice(r.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
       if (m.conflict) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
         cleanupSlice(cwd, r.tid); // сбросить ветку/worktree
         summary.conflicts.push(r.tid);
-        const ok = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor });
+        const ok = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState });
         if (ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
         else { summary.failed.push(r.tid); recordFail(r.tid); }
       } else {
@@ -163,14 +228,30 @@ async function run(opts = {}) {
 
 // requeue-serial: пересобрать worktree с ОБНОВЛЁННОЙ интеграционной (там уже победивший
 // слайс) и переделать — теперь правки ложатся сверху, merge чистый.
-async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor }) {
-  emit(cwd, { event: 'requeue-serial', tid: slice.id });
-  const cl = claims.claim(slice.id, { cwd, worker: 'fleet-serial' });
+async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState }) {
+  const provider = provFor(slice);
+  emit(cwd, { event: 'requeue-serial', tid: slice.id, provider });
+  const cl = claims.claim(slice.id, { cwd, worker: 'fleet-serial', meta: { provider } });
   if (!cl.ok) return false;
   const wt = worktree.create(slice.id, { cwd, base: integration });
+  const started = Date.now();
   try {
-    await worker(slice, wt.path, { provider: provFor(slice), model });
+    const res = await worker(slice, wt.path, { provider, model });
+    const chain = getChainForSlice(slice, policy);
+    const limit = router.failover({ result: res, provider, chain, state: routerState, policy });
+    if (limit.limitHit) {
+      appendRunLog(cwd, {
+        tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+        failoverFrom: limit.failoverFrom, limitHit: true, verdict: 'limit'
+      });
+      cleanupSlice(cwd, slice.id);
+      return false;
+    }
     const g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel });
+    appendRunLog(cwd, {
+      tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+      failoverFrom: null, limitHit: false, verdict: g.ok ? 'pass' : 'gate-reject'
+    });
     if (!g.ok) { emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: g.stage }); cleanupSlice(cwd, slice.id); return false; }
     const m = merge.mergeSlice(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
     cleanupSlice(cwd, slice.id);
@@ -179,6 +260,10 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     return true;
   } catch (e) {
     emit(cwd, { event: 'redo-error', tid: slice.id, err: e.message });
+    appendRunLog(cwd, {
+      tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+      failoverFrom: null, limitHit: false, verdict: 'error'
+    });
     cleanupSlice(cwd, slice.id);
     return false;
   }

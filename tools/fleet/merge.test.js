@@ -22,7 +22,7 @@ before(() => {
   fs.writeFileSync(tasksPath(), '- [ ] **T1** правит shared\n- [ ] **T2** правит shared иначе\n- [ ] **T3** правит новый файл\n');
   fs.mkdirSync(path.join(REPO, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
   git(['add', '-A']); git(['commit', '-q', '-m', 'base']);
 
   // три fleet-ветки от base
