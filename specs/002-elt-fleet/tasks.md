@@ -17,7 +17,7 @@
 - [X] **T006** [P] claims.js: claim/release/stale-детект (pid жив?) в .harness/fleet/claims/; тесты [files:tools/fleet/claims*]
 
 ## Phase C — петля
-- [ ] **T007** gate.js: в worktree — elt oracle → судья (`claude -p --model sonnet`, промпт+REJECT-default-парсер портировать из elt-loop.ps1) → `elt commit --skip-oracle --verdict pass` БЕЗ [X]-марка; тест с фейк-судьёй [files:tools/fleet/gate*]
+- [X] **T007** gate.js: в worktree — elt oracle → судья (`claude -p --model sonnet`, промпт+REJECT-default-парсер портировать из elt-loop.ps1) → `elt commit --skip-oracle --verdict pass` БЕЗ [X]-марка; тест с фейк-судьёй [files:tools/fleet/gate*]
 - [ ] **T008** merge.js: очередь merge --no-ff fleet/<Tid> → интеграционная + [X]-марк в tasks.md + smoke-оракул после merge; конфликт → пометка requeue-serial; тест с искусственным конфликтом на темп-репо [files:tools/fleet/merge*]
 - [ ] **T009** fleet.js run MVP: планер+claims+N воркеров+gate+merge, events.jsonl, STOP-файл (grace 30с → kill), resume по claims; интеграционный тест: стабы, 2 воркера, 3 слайса, 1 конфликт — всё закрыто
 
