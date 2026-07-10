@@ -23,11 +23,12 @@
 `C:\Ametrin projects\Ametrin web ecosystem 3` (AWE3) — Rust+Node, spec-kit стоит, `justfile` оракул, husky-зубы (live-fire 2026-06-19), `specs/001-service-aggregator-platform/tasks.md` = источник слайсов.
 
 ## Текущий фокус
-**ELT Fleet (specs/002-elt-fleet): 15/17 слайсов закрыты 2026-07-10** (T001–T015 + T003 [live])
-на `feature/elt-loop-driver`, оракул 56 тестов зелёные, `tools/fleet/` + `tools/elt-fleet.ps1`
-живьём. T003 живьём переписала допущения о agy в `providers.js`/`router.js` (см. CHECKPOINT).
-Осталось только [live]: T016 (бенч fleet vs baseline), T017 (драки: STOP/resume, failover)
-→ вердикт v1 → merge в main. Resume: `.planning/CHECKPOINT-2026-07-10-elt-fleet-T003-live-fire.md`.
+**ELT Fleet (specs/002-elt-fleet): 15/17 слайсов закрыты**, T016 (бенч fleet vs baseline) **в
+процессе** — за сессию 2026-07-10 живьём найдены и починены 4 реальных бага судьи (diff-blindness
+на untracked-файлах, ID-collision по git-истории, prose-парсер вердикта мимо синонимов, PS-экранирование
+кавычек в --json-schema), но сам бенч T104/T105-T108 ЕЩЁ НЕ ЗАКРЫТ — T104 retry со всеми 4 фиксами
+не подтверждён end-to-end. Осталось: T104 retry → fleet run T105-T108 → метрики → T016 commit →
+T017 (драки) → вердикт v1 → merge в main. Resume: `.planning/CHECKPOINT-2026-07-10-elt-fleet-T016-bench-4fixes.md`.
 
 ### (архив фокуса) AWE3-демо
 US1 (MVP, T020-T035) и **US2 (Phase 4, T036-T045) ОБЕ ЗАКРЫТЫ** — чекпоинт tasks.md
