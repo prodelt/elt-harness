@@ -14,6 +14,7 @@ const claims = require('./claims');
 const worktree = require('./worktree');
 const gate = require('./gate');
 const merge = require('./merge');
+const heal = require('./heal');
 const providers = require('./providers');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
@@ -93,6 +94,10 @@ async function run(opts = {}) {
       emit(cwd, { event: 'slice-work', tid: slice.id, provider: provFor(slice) });
       try {
         await worker(slice, wtPath, { provider: provFor(slice), model });
+        // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed)
+        const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider: provFor(slice), model, elt: ELT_CLI });
+        if (!h.ok) { emit(cwd, { event: 'heal-failed', tid: slice.id, attempts: h.attempts }); return { tid: slice.id, gateOk: false }; }
+        if (h.attempts) emit(cwd, { event: 'healed', tid: slice.id, attempts: h.attempts, by: h.healedBy });
         const g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel });
         emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
         return { tid: slice.id, gateOk: g.ok };
