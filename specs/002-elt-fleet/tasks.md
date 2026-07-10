@@ -8,7 +8,7 @@
 
 ## Phase A — фундамент
 - [X] **T001** elt init этого репо (`--shell bash --oracle "node tools/doctor.test.js && node --test tools/fleet/*.test.js"`) + `tools/fleet/` со smoke-тестом (node --test проходит на пустом модуле)
-- [ ] **T002** providers.js: executor-интерфейс run({provider, prompt, cwd, model}) → {exit, logPath, lastMsg} для claude/codex/agy (spawn headless; agy: промпт через STDIN, hard-таймаут на ВСЕ вызовы, пустой stdout при exit 0 = fail; лог в .harness/fleet/logs/); тесты на фейк-CLI-стабах *.cmd [files:tools/fleet/*]
+- [X] **T002** providers.js: executor-интерфейс run({provider, prompt, cwd, model}) → {exit, logPath, lastMsg} для claude/codex/agy (spawn headless; agy: промпт через STDIN, hard-таймаут на ВСЕ вызовы, пустой stdout при exit 0 = fail; лог в .harness/fleet/logs/); тесты на фейк-CLI-стабах *.cmd [files:tools/fleet/*]
 - [ ] **T003** [live] live-fire каждого провайдера: scratch-git, тривиальная правка файла через claude -p / codex exec --sandbox workspace-write / `echo … | agy -p --dangerously-skip-permissions --print-timeout 5m`; PREREQ: юзер залогинен в agy (браузер-OAuth, проверка `agy models` с таймаутом); зафиксировать в providers.js реальные инвокации, exit-коды и сигнатуры лимитов (agy: + пустой stdout, + hang); оракул = скрипт проверяет правки на диске
 
 ## Phase B — изоляция
