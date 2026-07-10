@@ -71,6 +71,33 @@ test('resume-sweep снимает stale-claim мёртвого воркера н
   assert.ok(s.merged.includes('T1'));
 });
 
+test('баг #8: застрявший слайс (оракул всегда красный) abandon после maxAttempts, не бесконечно', async () => {
+  // свежий репо: 1 слайс, воркер ломает оракул (пустой diff → heal не поможет).
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-cap-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T9** застрял [P] [files:z*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  // оракул всегда красный → healSlice исчерпает попытки → heal-failed каждый батч
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'exit 1', shell: 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  let calls = 0;
+  const brokenWorker = async (_slice, wt) => { calls++; fs.writeFileSync(path.join(wt, 'z.txt'), 'x\n'); };
+  const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main', workers: 1, worker: brokenWorker, maxAttempts: 3 });
+
+  assert.deepEqual(s.merged, [], 'ничего не влито');
+  assert.ok(s.abandoned.includes('T9'), 'T9 помечен abandoned');
+  // ключевое: воркер вызван РОВНО maxAttempts раз (+ healSlice внутри), не maxLoops=100
+  assert.equal(calls, 3, `воркер вызван ${calls} раз, ожидалось 3 (cap)`);
+  const events = fs.readFileSync(path.join(repo, '.harness', 'fleet', 'events.jsonl'), 'utf8');
+  assert.match(events, /"event":"batch-abandoned"/);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
 test('2 воркера, 3 слайса, 1 конфликт → все закрыты, конфликтный дожат serial', async () => {
   // (repo уже прогнан в resume-тесте — план закрыт; проверяем итог того прогона)
   const tasks = fs.readFileSync(tasksPath(), 'utf8');
