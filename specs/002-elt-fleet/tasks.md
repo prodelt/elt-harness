@@ -23,7 +23,7 @@
 
 ## Phase D — роутер
 - [X] **T010** router.js: fleet.json policy (size-тег → цепочка провайдеров), cooldown, ledger-поля в run-log (provider/model/durationSec/failoverFrom/limitHit); тесты [files:tools/fleet/router*]
-- [ ] **T011** limit-детект в executor-результате (сигнатуры из T003) → cooldown провайдера + requeue слайса на следующего в цепочке; тест: стаб отдаёт 429 → слайс уезжает дальше
+- [X] **T011** limit-детект в executor-результате (сигнатуры из T003) → cooldown провайдера + requeue слайса на следующего в цепочке; тест: стаб отдаёт 429 → слайс уезжает дальше
 - [ ] **T012** heal-эскалация: красный оракул → 1 heal тем же провайдером → 1 heal claude → слайс failed, fleet продолжает остальные; тест на стабах
 
 ## Phase E — обвязка

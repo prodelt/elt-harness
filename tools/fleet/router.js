@@ -52,4 +52,41 @@ function ledgerEntry({ tid = null, provider, model = null, durationSec = null, f
   return { tid, provider, model, durationSec, failoverFrom, limitHit };
 }
 
-module.exports = { loadPolicy, chainFor, makeState, inCooldown, cool, pick, ledgerEntry, DEFAULT_POLICY };
+// --- лимит-детект + failover (T011) ---
+// ПРЕДВАРИТЕЛЬНЫЙ, эвристический набор сигнатур лимита/недоступности — собран из общих
+// HTTP/провайдерных паттернов, НЕ снят с живых CLI. T003 [live] пока не выполнена; когда
+// снимет реальные сигнатуры agy/codex/claude — этот список ПЕРЕСМАТРИВАЕТСЯ (добавить/убрать
+// записи по факту). До тех пор ловим распространённое + agy-квирк (empty-stdout при exit 0).
+const LIMIT_SIGNATURES = [
+  /\b429\b/, /\b529\b/, /rate[\s_-]?limit/i, /quota/i, /usage limit/i,
+  /resource_exhausted/i, /overloaded/i, /too many requests/i, /insufficient_quota/i,
+  /ineligibletier/i, // agy free-tier мёртв → migrate to Antigravity (из ресерча дизайна, не live)
+];
+
+function readResultText(result, cap = 8000) {
+  let t = result.lastMsg || '';
+  try { if (result.logPath && fs.existsSync(result.logPath)) t = fs.readFileSync(result.logPath, 'utf8'); } catch { /* лог недоступен */ }
+  return t.slice(0, cap);
+}
+
+// Похоже ли на исчерпание лимита/недоступность провайдера (повод для failover).
+function detectLimit(result) {
+  if (!result) return false;
+  if (result.reason === 'empty-stdout') return true; // agy: пусто при exit 0 = недоступен
+  return LIMIT_SIGNATURES.some((re) => re.test(readResultText(result)));
+}
+
+// Решение по результату провайдера. Лимит → cooldown текущего + следующий не-остывший
+// в цепочке (failover). Не лимит → тот же провайдер (красный оракул лечит heal, T012).
+function failover({ result, provider, chain, state = makeState(), policy = DEFAULT_POLICY, now = Date.now() }) {
+  if (!detectLimit(result)) return { limitHit: false, next: provider, failoverFrom: null };
+  cool(state, provider, policy.cooldownSec, now);
+  const rest = chain.slice(chain.indexOf(provider) + 1);
+  const next = pick(rest, state, now) || pick(chain, state, now);
+  return { limitHit: true, next, failoverFrom: provider };
+}
+
+module.exports = {
+  loadPolicy, chainFor, makeState, inCooldown, cool, pick, ledgerEntry, DEFAULT_POLICY,
+  detectLimit, failover, LIMIT_SIGNATURES,
+};
