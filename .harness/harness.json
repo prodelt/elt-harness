@@ -1,0 +1,10 @@
+{
+  "oracle": "node tools/doctor.test.js && node --test tools/fleet/*.test.js",
+  "shell": "bash",
+  "branchPolicy": "feature",
+  "push": false,
+  "judge": {
+    "enabled": true,
+    "model": "sonnet"
+  }
+}
