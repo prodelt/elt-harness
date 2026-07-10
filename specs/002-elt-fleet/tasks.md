@@ -33,4 +33,4 @@
 
 ## Phase F — live-fire
 - [X] **T016** [live] бенч: scratch-план с 4+ честными [P]-слайсами — `fleet run --workers 2` до конца vs последовательный baseline; метрики (wall-clock, провайдеры, судья 100%) в run-log; итог в чекпоинт
-- [ ] **T017** [live] драки: STOP посреди прогона → resume добирает; 429-инъекция на живом плане → failover; счётчик agy-вызовов и limitHit видны в ledger; CHECKPOINT с вердиктом v1
+- [X] **T017** [live] драки: STOP посреди прогона → resume добирает; 429-инъекция на живом плане → failover; счётчик agy-вызовов и limitHit видны в ledger; CHECKPOINT с вердиктом v1
