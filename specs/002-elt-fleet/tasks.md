@@ -12,7 +12,7 @@
 - [ ] **T003** [live] live-fire каждого провайдера: scratch-git, тривиальная правка файла через claude -p / codex exec --sandbox workspace-write / `echo … | agy -p --dangerously-skip-permissions --print-timeout 5m`; PREREQ: юзер залогинен в agy (браузер-OAuth, проверка `agy models` с таймаутом); зафиксировать в providers.js реальные инвокации, exit-коды и сигнатуры лимитов (agy: + пустой stdout, + hang); оракул = скрипт проверяет правки на диске
 
 ## Phase B — изоляция
-- [ ] **T004** [P] worktree.js: create/remove/list `.fleet-wt/<Tid>` + ветка fleet/<Tid> от интеграционной; тесты на темп-репо [files:tools/fleet/worktree*]
+- [X] **T004** [P] worktree.js: create/remove/list `.fleet-wt/<Tid>` + ветка fleet/<Tid> от интеграционной; тесты на темп-репо [files:tools/fleet/worktree*]
 - [ ] **T005** [P] plan.js: парс тегов [P]/[S|M|L]/[cli:]/[files:] поверх elt slice-формата + выбор параллельного батча (только [P] с disjoint files-глобами, не-[P] = барьер); тесты [files:tools/fleet/plan*]
 - [ ] **T006** [P] claims.js: claim/release/stale-детект (pid жив?) в .harness/fleet/claims/; тесты [files:tools/fleet/claims*]
 
