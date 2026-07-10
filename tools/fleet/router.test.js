@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const router = require('./router');
+const providers = require('./providers');
 
 const CWD = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-router-'));
 after(() => { try { fs.rmSync(CWD, { recursive: true, force: true }); } catch { /* noop */ } });
@@ -61,4 +62,41 @@ test('ledgerEntry: форма + дефолты (failoverFrom null, limitHit fals
   const f = router.ledgerEntry({ provider: 'claude', failoverFrom: 'agy', limitHit: true });
   assert.equal(f.failoverFrom, 'agy');
   assert.equal(f.limitHit, true);
+});
+
+// --- T011: limit-детект + failover ---
+test('detectLimit: ловит сигнатуры лимита, пропускает чистый вывод', () => {
+  assert.equal(router.detectLimit({ lastMsg: 'Error: HTTP 429 Too Many Requests' }), true);
+  assert.equal(router.detectLimit({ lastMsg: 'quota exceeded for this month' }), true);
+  assert.equal(router.detectLimit({ reason: 'empty-stdout', lastMsg: '' }), true, 'agy-квирк');
+  assert.equal(router.detectLimit({ lastMsg: 'готово, файл записан' }), false);
+  assert.equal(router.detectLimit(null), false);
+});
+
+test('failover: лимит → cooldown текущего + следующий в цепочке', () => {
+  const st = router.makeState();
+  const now = 1_000_000;
+  const chain = ['agy', 'codex', 'claude'];
+  const r = router.failover({ result: { lastMsg: '429 rate limit' }, provider: 'agy', chain, state: st, now });
+  assert.equal(r.limitHit, true);
+  assert.equal(r.failoverFrom, 'agy');
+  assert.equal(r.next, 'codex', 'слайс уезжает на следующего');
+  assert.equal(router.inCooldown(st, 'agy', now), true, 'agy ушёл в cooldown');
+});
+
+test('failover: не-лимит → тот же провайдер (heal — T012), без cooldown', () => {
+  const st = router.makeState();
+  const r = router.failover({ result: { lastMsg: 'обычная ошибка компиляции' }, provider: 'agy', chain: ['agy', 'codex'], state: st });
+  assert.equal(r.limitHit, false);
+  assert.equal(r.next, 'agy');
+  assert.equal(router.inCooldown(st, 'agy'), false);
+});
+
+test('живой стаб отдаёт 429 → detectLimit по реальному executor-результату', async () => {
+  const stub = path.join(CWD, 'stub-429.js');
+  fs.writeFileSync(stub, "console.log('Request failed: HTTP 429 rate_limit');process.exit(1);");
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', stub]);
+  const res = await providers.run({ provider: 'codex', prompt: 'x', cwd: CWD, timeoutMs: 20000 });
+  delete process.env.FLEET_BIN_CODEX;
+  assert.equal(router.detectLimit(res), true, 'лимит виден в реальном результате провайдера');
 });
