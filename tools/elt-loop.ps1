@@ -129,9 +129,7 @@ spec-папках того же проекта (T001 в specs/001-foo — не �
 Стойка REJECT-default: ищи причины ОТКЛОНИТЬ:
 (1) сделано не то или больше, чем требует спека/задача; (2) тесты удалены/ослаблены/замоканы до пустоты;
 (3) side-effects вне scope (сверься с секцией «вне scope» спеки); (4) оверинжиниринг.
-ФОРМАТ ОТВЕТА (критично): ПОСЛЕДНЕЙ строкой выведи РОВНО один JSON-объект и ничего после:
-{"verdict":"pass","reasons":["..."]}  либо  {"verdict":"block","reasons":["..."]}
-Ключ "verdict" обязан присутствовать буквально в JSON. Без него вердикт считается block.
+Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).
 $rubric
 
 --- git status --porcelain ---
@@ -141,18 +139,32 @@ $porcelain
 $diff
 "@
     Write-Host "elt-loop: судья ($JudgeModel)…"
-    $judgeOut = Invoke-Claude @('-p', $judgePrompt, '--model', $JudgeModel, '--dangerously-skip-permissions') $judgeLog
+    # --json-schema/--output-format json (T016 live-fire): prose-парсер регулярно мимо —
+    # модель пишет "принято"/"зачёт" вместо литерального pass/block, REJECT-default тогда
+    # блокирует легитимные слайсы. Structured output — надёжный путь, regex ниже — фолбэк.
+    $verdictSchema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","block"]},"reasons":{"type":"array","items":{"type":"string"}}},"required":["verdict","reasons"]}'
+    $judgeOut = Invoke-Claude @('-p', $judgePrompt, '--model', $JudgeModel, '--json-schema', $verdictSchema, '--output-format', 'json', '--dangerously-skip-permissions') $judgeLog
 
-    # Парс вердикта. Судья-агент часто пишет прозу вместо голого JSON, поэтому два уровня:
-    # (1) JSON-ключ "verdict":"pass|block"; (2) проза «Вердикт/Verdict: pass|block».
+    # Парс вердикта: (0) structured_output из JSON-массива --output-format json (надёжный путь);
+    # (1) JSON-ключ "verdict":"pass|block"; (2) проза «Вердикт/Verdict: pass|block» (фолбэк).
     # НЕ ловим любой {...} — в прозе бывают Rust-литералы { status: "ok" }. REJECT-default: не нашли → block.
     $verdict = "block"
-    $mJson = [regex]::Match($judgeOut, '"verdict"\s*:\s*"(pass|block)"', 'IgnoreCase')
-    if ($mJson.Success) {
-      $verdict = $mJson.Groups[1].Value.ToLower()
-    } else {
-      $mProse = [regex]::Match($judgeOut, '(?i)(?:verdict|вердикт)\W{0,5}(pass|block)')
-      if ($mProse.Success) { $verdict = $mProse.Groups[1].Value.ToLower() }
+    try {
+      $parsed = $judgeOut | ConvertFrom-Json
+      $last = if ($parsed -is [array]) { $parsed[$parsed.Count - 1] } else { $parsed }
+      if ($last.structured_output -and $last.structured_output.verdict) {
+        $sv = [string]$last.structured_output.verdict
+        if ($sv -eq "pass" -or $sv -eq "block") { $verdict = $sv }
+      }
+    } catch { }
+    if ($verdict -ne "pass") {
+      $mJson = [regex]::Match($judgeOut, '"verdict"\s*:\s*"(pass|block)"', 'IgnoreCase')
+      if ($mJson.Success) {
+        $verdict = $mJson.Groups[1].Value.ToLower()
+      } else {
+        $mProse = [regex]::Match($judgeOut, '(?i)(?:verdict|вердикт)\W{0,5}(pass|block)')
+        if ($mProse.Success) { $verdict = $mProse.Groups[1].Value.ToLower() }
+      }
     }
 
     if ($verdict -ne "pass") {

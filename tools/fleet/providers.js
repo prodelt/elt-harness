@@ -68,14 +68,21 @@ function hardKill(child) {
   }
 }
 
-function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null }) {
   return new Promise((resolve) => {
     if (!PROVIDERS[provider]) {
       return resolve({ exit: null, ok: false, reason: 'unknown-provider', logPath: null, lastMsg: '' });
     }
     const bin = resolveBin(provider);
     const cmd = bin[0];
-    const argv = [...bin.slice(1), ...PROVIDERS[provider](model, prompt, cwd)];
+    // jsonSchema: только для вызовов, которым нужен структурированный ответ (судья) — НЕ
+    // трогает обычные слайс-вызовы имплементатора. Вызывающий отвечает за то, что провайдер
+    // поддерживает --json-schema/--output-format (claude поддерживает, T016 live-fire).
+    const argv = [
+      ...bin.slice(1),
+      ...PROVIDERS[provider](model, prompt, cwd),
+      ...(jsonSchema ? ['--json-schema', jsonSchema, '--output-format', 'json'] : []),
+    ];
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const logPath = path.join(logDirFor(cwd), `${provider}-${ts}-${process.pid}.log`);
     const logFd = fs.openSync(logPath, 'w');
@@ -114,9 +121,9 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
     child.on('close', (code) => {
       clearTimeout(timer);
       const lastMsg = out.split(/\r?\n/).filter((l) => l.trim()).pop() || '';
-      if (killed) return finish({ exit: null, ok: false, reason: 'timeout', logPath, lastMsg });
-      if (code === 0 && out.trim() === '') return finish({ exit: 0, ok: false, reason: 'empty-stdout', logPath, lastMsg });
-      finish({ exit: code, ok: code === 0, reason: code === 0 ? 'ok' : 'nonzero-exit', logPath, lastMsg });
+      if (killed) return finish({ exit: null, ok: false, reason: 'timeout', logPath, lastMsg, stdout: out });
+      if (code === 0 && out.trim() === '') return finish({ exit: 0, ok: false, reason: 'empty-stdout', logPath, lastMsg, stdout: out });
+      finish({ exit: code, ok: code === 0, reason: code === 0 ? 'ok' : 'nonzero-exit', logPath, lastMsg, stdout: out });
     });
   });
 }
