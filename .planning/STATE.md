@@ -23,6 +23,13 @@
 `C:\Ametrin projects\Ametrin web ecosystem 3` (AWE3) — Rust+Node, spec-kit стоит, `justfile` оракул, husky-зубы (live-fire 2026-06-19), `specs/001-service-aggregator-platform/tasks.md` = источник слайсов.
 
 ## Текущий фокус
+**ELT Fleet (specs/002-elt-fleet): фазы A–E ЗАКРЫТЫ 2026-07-10** — 14/17 слайсов (T001–T015
+кроме live) на `feature/elt-loop-driver`, оракул 56 тестов зелёные, `tools/fleet/` +
+`tools/elt-fleet.ps1` живьём (status CLI работает). Осталось только [live]: T003 (реальные
+сигнатуры провайдеров, нужен agy-логин юзера), T016 (бенч), T017 (драки) → вердикт v1 → merge в main.
+Resume: `.planning/CHECKPOINT-2026-07-10-elt-fleet-impl-A-E-DONE.md`.
+
+### (архив фокуса) AWE3-демо
 US1 (MVP, T020-T035) и **US2 (Phase 4, T036-T045) ОБЕ ЗАКРЫТЫ** — чекпоинт tasks.md
 «User Stories 1 AND 2 both work independently» достигнут. Следующий фронтир — **Phase 5, US3**
 («workflow survives one module being down», T046-T052): часть уже может быть закрыта
