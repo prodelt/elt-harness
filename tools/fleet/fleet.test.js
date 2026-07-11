@@ -485,3 +485,56 @@ test('T027: crash-resume чистит worktree упавшего implementing-cla
   assert.match(events, /"event":"resume-orphan-worktree-cleaned","tid":"T1"/, 'осиротевший worktree реально снесён на старте');
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+// --- T028 e2e: детерминированное воспроизведение живого блокера (agy self-commit) ---
+// Живой agy коммитил перемежающе (4 прогона да, 5-й нет) → живой прогон ненадёжен как регрессия.
+// Инжектируем ГАРАНТИРОВАННО само-коммитящий воркер: пишет scoped-файл + метит tasks.md [X] вне
+// зоны + САМ git commit (→ `git diff HEAD` пуст). Судья здесь diff-aware: block, если в диффе нет
+// out/a.txt — имитирует настоящий REJECT-default на пустой/шумный дифф (pass-стаб этого не ловил бы).
+// Без нормализации: self-commit → пустой дифф → судья block → abandoned. С фиксом: merged чисто. 0 LLM.
+// harness.json НАМЕРЕННО не трогаем: heal-фаза гоняет оракул ДО gate-нормализации, битый shell
+// (напр. zsh) дал бы искусственно красный оракул — реальный agy менял shell на ВАЛИДНЫЙ (powershell),
+// оракул от этого не падал. Восстановление harness.json проверяется отдельно в gate.test.js (там
+// нормализация идёт перед оракулом гейта → порядок безопасен).
+test('T028: воркер self-commit + правка tasks.md вне [files:] → нормализация чинит, merged, интеграционная чиста', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-selfcommit-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'out'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'out', '.gitkeep'), '');
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** пишет alpha [P] [files:out/a.txt]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  // diff-aware судья: block, если дифф (в промпте) не содержит out/a.txt — как реальный REJECT-default.
+  const judgeStub = path.join(repo, 'judge-diffaware.js');
+  fs.writeFileSync(judgeStub,
+    "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const ok=d.includes('out/a.txt');" +
+    "console.log(JSON.stringify({verdict:ok?'pass':'block',reasons:[ok?'ok':'дифф без out/a.txt']}));});");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+
+  const selfCommitWorker = async (_slice, wt) => {
+    fs.writeFileSync(path.join(wt, 'out', 'a.txt'), 'ALPHA\n');                  // scoped — законно
+    const tp = path.join(wt, 'specs', 'tasks.md');                              // вне зоны — прерогатива оркестратора
+    fs.writeFileSync(tp, fs.readFileSync(tp, 'utf8').replace('[ ] **T1**', '[X] **T1**'));
+    execFileSync('git', ['add', '-A'], { cwd: wt });                            // agy: сам коммитит всё
+    execFileSync('git', ['commit', '-q', '-m', 'feat: alpha (self-commit)'], { cwd: wt });
+    return { ok: true, exit: 0, stdout: 'done' };
+  };
+
+  const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main', workers: 1, worker: selfCommitWorker, maxLoops: 3 });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.deepEqual(s.merged, ['T1'], 'merged: нормализация сняла self-commit → diff-aware судья увидел out/a.txt → pass');
+  assert.deepEqual(s.failed, []);
+  assert.deepEqual(s.abandoned, []);
+  g(['checkout', '-q', 'main']);
+  assert.ok(fs.existsSync(path.join(repo, 'out', 'a.txt')), 'scoped-файл долетел до интеграционной');
+  // [X] в tasks.md — от ОРКЕСТРАТОРА при merge (markDoneInFile), не утечка воркерского коммита
+  assert.match(fs.readFileSync(path.join(repo, 'specs', 'tasks.md'), 'utf8'), /- \[X\] \*\*T1\*\*/, 'tasks.md закрыт оркестратором');
+  fs.rmSync(repo, { recursive: true, force: true });
+});

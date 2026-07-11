@@ -143,7 +143,7 @@ async function resumeParked(resumable, { cwd, integration, tasksPath, judgeModel
 
     if (c.state === 'judge_pending') {
       const judgeStart = Date.now();
-      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeModel });
+      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeModel, integration });
       logSpawn(cwd, {
         tid: c.tid, phase: 'judge', provider: 'claude', model: judgeModel,
         durationSec: Math.round((Date.now() - judgeStart) / 1000),
@@ -361,7 +361,7 @@ async function run(opts = {}) {
         const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
-        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '' }); }
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '', integration }); }
         finally { router.endCall(callTracker, 'claude'); }
         const judgeDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
@@ -512,7 +512,7 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
     if (!judgeCap.ok) return capBlock(judgeCap.reason);
     let g;
-    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel }); }
+    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel, integration }); }
     finally { router.endCall(callTracker, 'claude'); }
     logSpawn(cwd, {
       tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: Math.round((Date.now() - phaseStart) / 1000),
