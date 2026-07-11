@@ -70,10 +70,9 @@ round-trip, `rate_limit_info:{status:"allowed"}`, полный structured output
   `bcl3ewizp`, ещё выполняется на момент чекпоинта) — подхватит следующий открытый
   слайс после T004 (T005/T009 и т.д. по [P]-волне).
 - **Solo track**: `D:\Ametrin projects\Ametryn_protocol_bot-solo`, branch
-  `solo/001-rust-local-ai-rewrite`, last commit `2ea25b1` (T001). T002 uncommitted
-  (config.rs/protocol.rs/lib.rs/Cargo.toml/.lock) — judge-block (legit scope creep).
-  **Solo-прогон запущен повторно** (task `b68re5wox`, ещё выполняется) — фреш
-  имплементатор на T002, шанс, что в этот раз не добавит лишний protocol.rs.
+  `solo/001-rust-local-ai-rewrite`. **Update:** T002 закоммичен `6e00282` (фикс сработал,
+  scope creep не повторился), T003 закоммичен `49d1645` — solo теперь 3/14 (T001-T003).
+  Драйвер (task `bcl3ewizp`) продолжает молотить оставшиеся слайсы автономно.
 
 ### Completed Tasks
 - Диагностирован и починен PowerShell 5.1 native-argv-marshalling баг в
