@@ -149,7 +149,10 @@ if (cmd === 'commit') {
   let oracleExit = 0;
   if (!flag('--skip-oracle')) {
     oracleExit = runOracle(cfg);
-    if (oracleExit !== 0) die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit);
+    if (oracleExit !== 0) {
+      appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit } });
+      die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit);
+    }
   }
 
   // 2. auto-branch: never commit slices straight to main (policy: feature)
