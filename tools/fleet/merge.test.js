@@ -1,6 +1,6 @@
 'use strict';
 // Тесты merge.js на реальном темп-репо с искусственным конфликтом.
-const { test, before, after } = require('node:test');
+const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -86,4 +86,76 @@ test('markDoneInFile: [ ] → [X] только для нужного слайс�
   assert.match(t, /- \[X\] \*\*T10\*\*/);
   assert.match(t, /- \[ \] \*\*T11\*\*/, 'соседний слайс не тронут');
   assert.equal(merge.markDoneInFile(p, 'T99'), false, 'нет слайса → false');
+});
+
+describe('mergeSlice: scoped staging (T023) — [files:] вместо git add -A', () => {
+  const REPO2 = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-merge-scoped-'));
+  const git2 = (args) => execFileSync('git', args, { cwd: REPO2, encoding: 'utf8' });
+  const tasksPath2 = path.join(REPO2, 'tasks.md');
+
+  before(() => {
+    git2(['init', '-q', '-b', 'main']);
+    git2(['config', 'user.email', 't@t']); git2(['config', 'user.name', 't']);
+    fs.writeFileSync(path.join(REPO2, 'a.txt'), 'base\n');
+    fs.writeFileSync(tasksPath2, '- [ ] **T1** правит a [files:a.txt]\n');
+    fs.mkdirSync(path.join(REPO2, '.harness'), { recursive: true });
+    fs.writeFileSync(path.join(REPO2, '.harness', 'harness.json'), JSON.stringify({
+      oracle: 'node --version',
+      shell: process.platform === 'win32' ? 'powershell' : 'bash',
+      branchPolicy: 'feature', push: false,
+    }));
+    git2(['add', '-A']); git2(['commit', '-q', '-m', 'base']);
+    git2(['checkout', '-q', '-b', 'fleet/T1', 'main']);
+    fs.writeFileSync(path.join(REPO2, 'a.txt'), 'from-T1\n');
+    git2(['add', '-A']); git2(['commit', '-q', '-m', 'fleet/T1']);
+    git2(['checkout', '-q', 'main']);
+  });
+  after(() => { try { fs.rmSync(REPO2, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  test('посторонний dirty-файл вне [files:] остаётся нетронутым после merge', () => {
+    fs.writeFileSync(path.join(REPO2, 'foreign.txt'), 'untracked-foreign\n');
+    const r = merge.mergeSlice('T1', { cwd: REPO2, integration: 'main', tasksPath: tasksPath2, oracle: false });
+    assert.equal(r.ok, true);
+    assert.equal(fs.readFileSync(path.join(REPO2, 'a.txt'), 'utf8').trim(), 'from-T1', 'слайс влит');
+    assert.equal(git2(['status', '--porcelain', '--', 'foreign.txt']).trim(), '?? foreign.txt',
+      'foreign.txt остался untracked, git add -A его бы закоммитил');
+  });
+
+  test('sliceFiles: читает [files:] глобы конкретного слайса из tasks.md', () => {
+    assert.deepEqual(merge.sliceFiles(tasksPath2, 'T1'), ['a.txt']);
+    assert.deepEqual(merge.sliceFiles(tasksPath2, 'T99'), [], 'нет слайса → []');
+  });
+});
+
+describe('mergeSlice: error-path без git reset --hard (T023)', () => {
+  const REPO3 = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-merge-errpath-'));
+  const git3 = (args) => execFileSync('git', args, { cwd: REPO3, encoding: 'utf8' });
+  const tasksPath3 = path.join(REPO3, 'tasks.md');
+
+  before(() => {
+    git3(['init', '-q', '-b', 'main']);
+    git3(['config', 'user.email', 't@t']); git3(['config', 'user.name', 't']);
+    fs.writeFileSync(path.join(REPO3, 'a.txt'), 'base\n');
+    fs.writeFileSync(tasksPath3, '- [ ] **T1** правит a [files:a.txt]\n');
+    git3(['add', '-A']); git3(['commit', '-q', '-m', 'base']);
+    git3(['checkout', '-q', '-b', 'fleet/T1', 'main']);
+    fs.writeFileSync(path.join(REPO3, 'a.txt'), 'from-T1\n');
+    git3(['add', '-A']); git3(['commit', '-q', '-m', 'fleet/T1']);
+    git3(['checkout', '-q', 'main']);
+    // pre-commit хук всегда фейлит → форсирует stage:'commit' error-path
+    const hookDir = path.join(REPO3, '.git', 'hooks');
+    const hookPath = path.join(hookDir, 'pre-commit');
+    fs.writeFileSync(hookPath, '#!/bin/sh\nexit 1\n');
+    if (process.platform !== 'win32') fs.chmodSync(hookPath, 0o755);
+  });
+  after(() => { try { fs.rmSync(REPO3, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  test('commit-фейл → merge --abort БЕЗ reset --hard, чужой dirty-файл выживает', () => {
+    fs.writeFileSync(path.join(REPO3, 'foreign.txt'), 'survive-me\n');
+    const r = merge.mergeSlice('T1', { cwd: REPO3, integration: 'main', tasksPath: tasksPath3, oracle: false });
+    assert.equal(r.ok, false);
+    assert.equal(r.stage, 'commit');
+    assert.equal(fs.readFileSync(path.join(REPO3, 'foreign.txt'), 'utf8'), 'survive-me\n',
+      'reset --hard убрали — посторонний файл не стёрт');
+  });
 });
