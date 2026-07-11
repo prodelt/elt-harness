@@ -14,6 +14,17 @@
   `--fallback-model`, `Notification`/post-session hooks (verify-first). Строить на них, не изобретать.
 - Роадмап: `specs/004-elt-selfdrive/spec.md` + `tasks.md` (**14 слайсов**, `elt` их видит).
 
+## ЗАКРЫТО ЖИВЬЁМ (эта сессия, каждый: судья sonnet pass + test-of-the-test)
+- **T001** `30192dd` — единый источник elt.js (синк tools←bin) + гейт дрейфа в doctor.test.js.
+- **T002** `ad92d2a` — judge-liveness: solo-драйвер через `tools/judge-invoke.js`→`gate.runJudge`,
+  `runOk:false`=judge-dead (ERROR-STOP)≠block. Убит класс бага 3e73423. Тест `fleet/judge-invoke.test.js`.
+- **T003** `1f24da5` — проброс `--effort` через providers→claude-invoke→Invoke-Claude.
+- **T004** `0d71c91` — политика эскалации `tools/fleet/effort-policy.js` (impl=high, heal=max,
+  назад на high автоматически — stateless for-цикл). Драйвер объявляет `-Phase impl|heal`.
+  e2e-тест доказал: phase:heal→`--effort max`. Судья сперва ЗАБЛОКИРОВАЛ (мало контекста) — дан
+  полный цикл → pass. Фаза A+B закрыты.
+- Остаток: **T005–T014** (F1 ротация, F3 codegraph, F4 self-heal, гигиена). Next = T005.
+
 ## ДАЛЬШЕ (в НОВОМ чате — авто-запуск elt)
 Голый `/elt` в новом чате → Режим 1 (план есть) → возьмёт T001. Или автономно:
 ```powershell
