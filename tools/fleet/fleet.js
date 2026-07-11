@@ -40,6 +40,20 @@ function appendRunLog(cwd, entry) {
   } catch { /* noop */ }
 }
 
+// T026: одна ledger-строка на КАЖДЫЙ реальный spawn (implement/heal/judge), не одна
+// агрегированная строка на весь батч-проход слайса (дефект 7 — heal и judge раньше вообще
+// не попадали в ledger отдельно, длительности были смешаны). Строит форму через
+// router.ledgerEntry (T026 делает его реальным консьюмером, не только протестированной
+// в изоляции функцией) + произвольные доп.поля (verdict/attempts/healedBy) поверх.
+function logSpawn(cwd, fields) {
+  const { verdict, attempts, healedBy, ...rest } = fields;
+  const extra = {};
+  if (verdict !== undefined) extra.verdict = verdict;
+  if (attempts !== undefined) extra.attempts = attempts;
+  if (healedBy !== undefined) extra.healedBy = healedBy;
+  appendRunLog(cwd, { ...router.ledgerEntry(rest), ...extra });
+}
+
 function eventsPath(cwd) {
   const d = path.join(cwd, '.harness', 'fleet');
   fs.mkdirSync(d, { recursive: true });
@@ -121,7 +135,14 @@ async function resumeParked(resumable, { cwd, integration, tasksPath, judgeModel
     emit(cwd, { event: 'resume-parked', tid: c.tid, state: c.state });
 
     if (c.state === 'judge_pending') {
+      const judgeStart = Date.now();
       const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeModel });
+      logSpawn(cwd, {
+        tid: c.tid, phase: 'judge', provider: 'claude', model: judgeModel,
+        durationSec: Math.round((Date.now() - judgeStart) / 1000),
+        exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
+        verdict: g.stage === 'judge-unavailable' ? 'judge-unavailable' : (g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage)),
+      });
       if (g.stage === 'judge-unavailable') {
         emit(cwd, { event: 'judge-still-unavailable', tid: c.tid });
         claims.setState(c.tid, { state: 'judge_pending' }, { cwd }); // остаётся припаркован
@@ -241,13 +262,16 @@ async function run(opts = {}) {
     // фаза 1: воркер + gate — параллельно (разные worktree)
     const gated = await Promise.all(active.map(async ({ slice, wtPath, provider }) => {
       emit(cwd, { event: 'slice-work', tid: slice.id, provider });
-      const started = Date.now();
+      // T026: per-phase ledger — phase/phaseStart мутируются по мере прохождения
+      // implement → heal → judge, каждая фаза несёт СВОЮ длительность и свою строку.
+      let phase = 'implement';
+      let phaseStart = Date.now();
       // T020: hard cap ПЕРЕД spawn — превышение → слайс terminal-failed, ничего не спавнить.
       const capBlock = (reason) => {
         emit(cwd, { event: 'cap-exceeded', tid: slice.id, provider, reason });
-        appendRunLog(cwd, {
-          tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-          failoverFrom: null, limitHit: false, verdict: 'cap-exceeded'
+        logSpawn(cwd, {
+          tid: slice.id, phase, provider, model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+          exit: null, failoverFrom: null, limitHit: false, verdict: 'cap-exceeded',
         });
         return { tid: slice.id, gateOk: false, capped: true };
       };
@@ -257,16 +281,27 @@ async function run(opts = {}) {
         let res;
         try { res = await worker(slice, wtPath, { provider, model }); }
         finally { router.endCall(callTracker, provider); }
-        const durationSec = Math.round((Date.now() - started) / 1000);
+        // Инжектируемые воркеры (тесты, часть live-стабов) могут вернуть undefined —
+        // отсутствие исключения трактуем как успех (старое поведение router.failover
+        // это уже терпело через !result; ledger теперь тоже не должен падать на res.exit).
+        res = res || {};
+        const implDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
         // Проверяем лимит
         const c = getChainForSlice(slice, policy);
         const limit = router.failover({ result: res, provider, chain: c, state: routerState, policy });
+        // T026: implement-строка пишется ВСЕГДА (раньше — только на limit/error-ветках,
+        // успешный воркер вообще не попадал в ledger). model — реальный дефолт роутера,
+        // если caller не передал явный (иначе ledger врал бы null там, где providers.js
+        // внутри себя всё равно резолвит --model).
+        const implModel = model || router.modelFor(provider, policy);
+        logSpawn(cwd, {
+          tid: slice.id, phase: 'implement', provider, model: implModel, durationSec: implDurationSec,
+          exit: res.exit != null ? res.exit : (res.ok === false ? 1 : 0),
+          failoverFrom: limit.failoverFrom, limitHit: limit.limitHit,
+          verdict: limit.limitHit ? 'limit' : (res.ok === false ? (res.reason || 'fail') : 'ok'),
+        });
         if (limit.limitHit) {
-          appendRunLog(cwd, {
-            tid: slice.id, provider, model, durationSec,
-            failoverFrom: limit.failoverFrom, limitHit: true, verdict: 'limit'
-          });
           emit(cwd, { event: 'limit-hit', tid: slice.id, provider, next: limit.next });
           return { tid: slice.id, gateOk: false, limitHit: true, nextProvider: limit.next };
         }
@@ -276,34 +311,43 @@ async function run(opts = {}) {
         // T022: healUsedSoFar — суммарный heal-бюджет (≤2) переживает batch-retry этого
         // слайса; callTracker/policy — heal-спавны тоже под T020 hard-cap, не только implement/judge.
         const healSoFar = healUsed.get(slice.id) || 0;
+        phase = 'heal'; phaseStart = Date.now();
         const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider, model, elt: ELT_CLI, healUsedSoFar: healSoFar, callTracker, policy });
         healUsed.set(slice.id, healSoFar + h.attempts);
+        // heal.js паковал ≤2 внутренних попытки в один вызов (heal.js вне scope T026) —
+        // одна ledger-строка на вызов, только если реально был spawn (h.attempts>0),
+        // иначе оракул был зелёным сразу и heal ничего не спавнил.
+        if (h.attempts > 0) {
+          logSpawn(cwd, {
+            tid: slice.id, phase: 'heal', provider, model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+            exit: h.ok ? 0 : 1, failoverFrom: null, limitHit: false,
+            verdict: h.ok ? 'ok' : 'heal-failed', attempts: h.attempts, healedBy: h.healedBy,
+          });
+        }
         if (!h.ok) {
           emit(cwd, { event: 'heal-failed', tid: slice.id, attempts: h.attempts });
-          appendRunLog(cwd, {
-            tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-            failoverFrom: null, limitHit: false, verdict: 'heal-failed'
-          });
           return { tid: slice.id, gateOk: false };
         }
         if (h.attempts) emit(cwd, { event: 'healed', tid: slice.id, attempts: h.attempts, by: h.healedBy });
 
         // Судья всегда claude (gate.gate/runJudge) — cap проверяем под провайдером 'claude'.
         claims.setState(slice.id, { state: 'judge_pending' }, { cwd });
+        phase = 'judge'; phaseStart = Date.now();
         const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
         try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '' }); }
         finally { router.endCall(callTracker, 'claude'); }
+        const judgeDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
         // T021: судья НЕ отработал (timeout/spawn-error) — паркуем worktree на judge_pending,
         // НЕ трогаем реализацию. Слайс остаётся claimed (наш живой pid) → следующий loop его
         // не re-claim'ит (parkedIds), резюмируется на старте следующего run() без воркера.
         if (g.stage === 'judge-unavailable') {
           emit(cwd, { event: 'judge-unavailable-park', tid: slice.id });
-          appendRunLog(cwd, {
-            tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-            failoverFrom: null, limitHit: false, verdict: 'judge-unavailable'
+          logSpawn(cwd, {
+            tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: judgeDurationSec,
+            exit: null, failoverFrom: null, limitHit: false, verdict: 'judge-unavailable',
           });
           return { tid: slice.id, gateOk: false, parked: true };
         }
@@ -315,17 +359,18 @@ async function run(opts = {}) {
         emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
         if (g.ok) claims.setState(slice.id, { state: 'merge_pending' }, { cwd });
 
-        appendRunLog(cwd, {
-          tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-          failoverFrom: null, limitHit: false, verdict: g.ok ? 'pass' : 'gate-reject'
+        logSpawn(cwd, {
+          tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: judgeDurationSec,
+          exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
+          verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
         });
 
         return { tid: slice.id, gateOk: g.ok };
       } catch (e) {
         emit(cwd, { event: 'slice-error', tid: slice.id, err: e.message });
-        appendRunLog(cwd, {
-          tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-          failoverFrom: null, limitHit: false, verdict: 'error'
+        logSpawn(cwd, {
+          tid: slice.id, phase, provider, model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+          exit: null, failoverFrom: null, limitHit: false, verdict: 'error',
         });
         return { tid: slice.id, gateOk: false };
       }
@@ -391,12 +436,13 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
   const cl = claims.claim(slice.id, { cwd, worker: 'fleet-serial', meta: { provider } });
   if (!cl.ok) return { ok: false };
   const wt = worktree.create(slice.id, { cwd, base: integration });
-  const started = Date.now();
+  let phase = 'implement';
+  let phaseStart = Date.now();
   const capBlock = (reason) => {
     emit(cwd, { event: 'cap-exceeded', tid: slice.id, provider, reason });
-    appendRunLog(cwd, {
-      tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-      failoverFrom: null, limitHit: false, verdict: 'cap-exceeded'
+    logSpawn(cwd, {
+      tid: slice.id, phase, provider, model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+      exit: null, failoverFrom: null, limitHit: false, verdict: 'cap-exceeded',
     });
     cleanupSlice(cwd, slice.id);
     return { ok: false, capped: true };
@@ -407,24 +453,31 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     let res;
     try { res = await worker(slice, wt.path, { provider, model }); }
     finally { router.endCall(callTracker, provider); }
+    res = res || {}; // инжектируемый воркер без return — не исключение, трактуем как успех
+    const implDurationSec = Math.round((Date.now() - phaseStart) / 1000);
     const chain = getChainForSlice(slice, policy);
     const limit = router.failover({ result: res, provider, chain, state: routerState, policy });
+    const implModel = model || router.modelFor(provider, policy);
+    logSpawn(cwd, {
+      tid: slice.id, phase: 'implement', provider, model: implModel, durationSec: implDurationSec,
+      exit: res.exit != null ? res.exit : (res.ok === false ? 1 : 0),
+      failoverFrom: limit.failoverFrom, limitHit: limit.limitHit,
+      verdict: limit.limitHit ? 'limit' : (res.ok === false ? (res.reason || 'fail') : 'ok'),
+    });
     if (limit.limitHit) {
-      appendRunLog(cwd, {
-        tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-        failoverFrom: limit.failoverFrom, limitHit: true, verdict: 'limit'
-      });
       cleanupSlice(cwd, slice.id);
       return { ok: false };
     }
+    phase = 'judge'; phaseStart = Date.now();
     const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
     if (!judgeCap.ok) return capBlock(judgeCap.reason);
     let g;
     try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel }); }
     finally { router.endCall(callTracker, 'claude'); }
-    appendRunLog(cwd, {
-      tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-      failoverFrom: null, limitHit: false, verdict: g.ok ? 'pass' : 'gate-reject'
+    logSpawn(cwd, {
+      tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+      exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
+      verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
     });
     if (!g.ok) { emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: g.stage }); cleanupSlice(cwd, slice.id); return { ok: false }; }
     const m = merge.mergeSlice(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
@@ -438,9 +491,9 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     return { ok: true };
   } catch (e) {
     emit(cwd, { event: 'redo-error', tid: slice.id, err: e.message });
-    appendRunLog(cwd, {
-      tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
-      failoverFrom: null, limitHit: false, verdict: 'error'
+    logSpawn(cwd, {
+      tid: slice.id, phase, provider, model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+      exit: null, failoverFrom: null, limitHit: false, verdict: 'error',
     });
     cleanupSlice(cwd, slice.id);
     return { ok: false };

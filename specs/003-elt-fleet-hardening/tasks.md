@@ -20,7 +20,7 @@
 
 ## Phase J — рубрика судьи + ledger
 - [X] **T025** [P] Судья получает рубрику: подать `spec.md` + `constitution.md` (если есть рядом с tasks.md) в промпт судьи вместе с диффом; `block`-причина персистится и переживает retry. Тест с фейк-судьёй: промпт содержит путь/текст spec, причина block читается на следующей попытке. [files:tools/fleet/gate.js]
-- [ ] **T026** Полный per-phase call-ledger: одна строка run-log на КАЖДЫЙ spawn `{sliceId, phase: implement|heal|judge, provider, model, tokens, costUsd, durationSec, exit}` — heal и judge посчитаны, длительности фаз раздельны (дефект 7). Тест: прогон-стаб на N слайсов → ledger содержит по строке на каждый spawn с непустыми phase/model. [files:tools/fleet/router.js,tools/fleet/fleet.js]
+- [X] **T026** Полный per-phase call-ledger: одна строка run-log на КАЖДЫЙ spawn `{sliceId, phase: implement|heal|judge, provider, model, tokens, costUsd, durationSec, exit}` — heal и judge посчитаны, длительности фаз раздельны (дефект 7). Тест: прогон-стаб на N слайсов → ledger содержит по строке на каждый spawn с непустыми phase/model. [files:tools/fleet/router.js,tools/fleet/fleet.js]
 
 ## Phase K — владение процессами
 - [ ] **T027** Настоящее владение child-процессами: трекинг PID каждого воркера; STOP → tree-kill (`taskkill /T /F` на win / kill process-group), STOP→мертво ≤10с (не 5-мин timeout, дефект 3); crash-resume не оставляет orphan `.fleet-wt`. Тест: спавн стаб-child со `sleep`, запись STOP → процесс мёртв ≤10с, worktree не осиротел. [files:tools/fleet/fleet.js,tools/fleet/worktree.js,tools/fleet/providers.js]
