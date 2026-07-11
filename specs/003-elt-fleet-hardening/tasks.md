@@ -15,7 +15,7 @@
 - [X] **T022** Ограничить heal планом: красный оракул → ≤2 heal ВСЕГО на слайс (убрать ×3-размножение worker+2heal по батчам, дефект 1), суммарный потолок ≤4 LLM-вызова/слайс сверяется с cap из T020; `block`-причина судьи прокидывается в следующий prompt (не повтор того же). Тест: стаб-красный слайс → ровно ≤2 heal, счётчик Claude-вызовов ≤ maxClaudeCalls. [files:tools/fleet/heal.js,tools/fleet/gate.js]
 
 ## Phase I — честность merge и exit
-- [ ] **T023** [P] Безопасный staging в merge.js: scoped `git add <файлы слайса из [files:]>` вместо `git add -A` (не захватывать чужие правки); убрать `git reset --hard` из error-path → безопасный abort (merge.js:47). Тест на темп-репо: посторонний dirty-файл вне [files:] остаётся нетронутым после merge и после ошибки. [files:tools/fleet/merge.js]
+- [X] **T023** [P] Безопасный staging в merge.js: scoped `git add <файлы слайса из [files:]>` вместо `git add -A` (не захватывать чужие правки); убрать `git reset --hard` из error-path → безопасный abort (merge.js:47). Тест на темп-репо: посторонний dirty-файл вне [files:] остаётся нетронутым после merge и после ошибки. [files:tools/fleet/merge.js]
 - [ ] **T024** Честность результата: non-conflict `m.ok=false` = terminal-failed (НЕ объявлять merged, дефект 5); обязательный integration-оракул после КАЖДОГО merge, включая production — снять возможность skip (fleet.js:209, дефект 4); любой failed/abandoned слайс → прогон возвращает nonzero exit. Тест на стабах: 1 abandoned слайс → CLI exit≠0, integration-оракул вызван после merge. [files:tools/fleet/merge.js,tools/fleet/fleet.js]
 
 ## Phase J — рубрика судьи + ledger
