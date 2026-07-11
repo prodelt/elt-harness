@@ -7,12 +7,29 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const plan = require('./plan');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 
 function gitTry(args, cwd) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
   return { ok: r.status === 0, out: ((r.stdout || '') + (r.stderr || '')).trim(), status: r.status };
+}
+
+// Зона правок слайса из [files:] в tasks.md — глобы для scoped git add (T023).
+function sliceFiles(tasksPath, tid) {
+  if (!tasksPath || !fs.existsSync(tasksPath)) return [];
+  const slice = plan.parse(fs.readFileSync(tasksPath, 'utf8')).find((s) => s.id === tid);
+  return slice ? slice.files : [];
+}
+
+// Стейджим только зону слайса (+ сам tasksPath ради [X]-марка), НЕ git add -A —
+// иначе захватываем чужие dirty-файлы, лежащие в интеграционной рабочей копии.
+// Нет [files:] тега (старый/ручной слайс) → безопасный дефолт как раньше.
+function stageSlice(cwd, files, tasksPath) {
+  if (!files.length) return gitTry(['add', '-A'], cwd);
+  const paths = tasksPath ? files.concat([tasksPath]) : files;
+  return gitTry(['add', '--', ...paths], cwd);
 }
 
 // [ ] → [X] для конкретного слайса в tasks.md интеграционной ветки.
@@ -45,15 +62,15 @@ function mergeSlice(tid, { cwd = process.cwd(), integration = 'main', tasksPath 
   // Реальный merge (есть MERGE_HEAD) vs «already up to date» (--no-ff без изменений).
   const inMerge = gitTry(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd).ok;
   const marked = tasksPath && fs.existsSync(tasksPath) ? markDoneInFile(tasksPath, tid) : false;
-  gitTry(['add', '-A'], cwd);
+  stageSlice(cwd, sliceFiles(tasksPath, tid), tasksPath);
   const hasStaged = !gitTry(['diff', '--cached', '--quiet'], cwd).ok; // exit≠0 ⇒ есть staged
 
   if (inMerge || hasStaged) {
     const c = gitTry(['commit', '--no-edit', '-m', `merge(fleet): ${tid}${marked ? ' [X]' : ''}`], cwd);
     if (!c.ok) {
-      // реальный merge не закоммитился — не оставляем грязь: откат состояния, явный отказ
+      // реальный merge не закоммитился — merge --abort сам откатывает merge-состояние
+      // (git reset --merge внутри), не трогая посторонние dirty-файлы; --hard убрали (T023)
       gitTry(['merge', '--abort'], cwd);
-      gitTry(['reset', '--hard'], cwd);
       return { ok: false, stage: 'commit', tid, err: c.out };
     }
   }
@@ -75,4 +92,4 @@ function mergeAll(tids, opts = {}) {
   return { merged, conflicts, oracleFails };
 }
 
-module.exports = { mergeSlice, mergeAll, markDoneInFile };
+module.exports = { mergeSlice, mergeAll, markDoneInFile, sliceFiles, stageSlice };
