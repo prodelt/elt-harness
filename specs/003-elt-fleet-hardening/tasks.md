@@ -16,7 +16,7 @@
 
 ## Phase I — честность merge и exit
 - [X] **T023** [P] Безопасный staging в merge.js: scoped `git add <файлы слайса из [files:]>` вместо `git add -A` (не захватывать чужие правки); убрать `git reset --hard` из error-path → безопасный abort (merge.js:47). Тест на темп-репо: посторонний dirty-файл вне [files:] остаётся нетронутым после merge и после ошибки. [files:tools/fleet/merge.js]
-- [ ] **T024** Честность результата: non-conflict `m.ok=false` = terminal-failed (НЕ объявлять merged, дефект 5); обязательный integration-оракул после КАЖДОГО merge, включая production — снять возможность skip (fleet.js:209, дефект 4); любой failed/abandoned слайс → прогон возвращает nonzero exit. Тест на стабах: 1 abandoned слайс → CLI exit≠0, integration-оракул вызван после merge. [files:tools/fleet/merge.js,tools/fleet/fleet.js]
+- [X] **T024** Честность результата: non-conflict `m.ok=false` = terminal-failed (НЕ объявлять merged, дефект 5); обязательный integration-оракул после КАЖДОГО merge, включая production — снять возможность skip (fleet.js:209, дефект 4); любой failed/abandoned слайс → прогон возвращает nonzero exit. Тест на стабах: 1 abandoned слайс → CLI exit≠0, integration-оракул вызван после merge. [files:tools/fleet/merge.js,tools/fleet/fleet.js]
 
 ## Phase J — рубрика судьи + ledger
 - [ ] **T025** [P] Судья получает рубрику: подать `spec.md` + `constitution.md` (если есть рядом с tasks.md) в промпт судьи вместе с диффом; `block`-причина персистится и переживает retry. Тест с фейк-судьёй: промпт содержит путь/текст spec, причина block читается на следующей попытке. [files:tools/fleet/gate.js]
