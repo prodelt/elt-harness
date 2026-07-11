@@ -7,7 +7,7 @@
 
 ## Phase G — заморозка + caps до spawn
 - [X] **T018** Пометить Fleet experimental в доках (CLAUDE.md Commands, /elt SKILL.md, PLAYBOOK.md): «не для реальной работы, пока 003 не закрыт»; в шапке 002/tasks.md — ссылка на переоткрытие T008/T009/T012/T016/T017. Оракул: doctor docs-чеки зелёные. [files:CLAUDE.md,skills/elt/SKILL.md,tools/PLAYBOOK.md,specs/002-elt-fleet/tasks.md]
-- [ ] **T019** Явная модель на КАЖДОМ spawn (implementer/heal/judge) + lean CLI-профиль (флаг/env, отключающий глобальную массу skills/MCP/hooks для fleet-воркеров) — убить model-less opus/high вызовы и 25k-токенный профиль-догруз. Тест: аргументы spawn содержат `--model <явная>`, профиль-флаг проброшен. [files:tools/fleet/router.js,tools/fleet/providers.js]
+- [X] **T019** Явная модель на КАЖДОМ spawn (implementer/heal/judge) + lean CLI-профиль (флаг/env, отключающий глобальную массу skills/MCP/hooks для fleet-воркеров) — убить model-less opus/high вызовы и 25k-токенный профиль-догруз. Тест: аргументы spawn содержат `--model <явная>`, профиль-флаг проброшен. [files:tools/fleet/router.js,tools/fleet/providers.js]
 - [ ] **T020** Hard caps до любого spawn: `maxCalls`, `maxClaudeCalls`, `maxMinutes`, `concurrencyPerProvider` в `fleet.json`; превышение → слайс terminal-failed, прогон не спавнит дальше. Все провайдеры cooling/down = stop прогона (nonzero), НЕ fallback на остывающего. Добавить сигнатуру `session limit` в limit-детект (router.js:63). Тест на стабах: cap=4 → 5-й spawn заблокирован; все-cooling → stop. [files:tools/fleet/router.js,tools/fleet/fleet.js]
 
 ## Phase H — state machine + ограниченный heal

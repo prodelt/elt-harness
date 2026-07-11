@@ -6,10 +6,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+// T019: явная модель на каждый spawn — аудит 2026-07-10 нашёл ≥86 claude-вызовов БЕЗ
+// --model, упавших на ambient-дефолт аккаунта (opus/high). Значения — текущие дефолты
+// каждого CLI на этой машине (~/.codex/config.toml model=, ~/.gemini/antigravity/settings.json
+// model=), НЕ произвольные догадки; claude — 'sonnet' (конвенция всей системы: судья/ладдер).
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.1-pro-preview' };
+
 const DEFAULT_POLICY = {
   policy: { S: ['agy', 'codex', 'claude'], M: ['codex', 'claude'], L: ['claude'] },
   default: ['claude'],
   cooldownSec: 300,
+  models: DEFAULT_MODELS,
 };
 
 function policyPath(cwd) { return path.join(cwd, '.harness', 'fleet', 'fleet.json'); }
@@ -22,8 +29,16 @@ function loadPolicy(cwd = process.cwd()) {
       policy: { ...DEFAULT_POLICY.policy, ...(j.policy || {}) },
       default: j.default || DEFAULT_POLICY.default,
       cooldownSec: j.cooldownSec || DEFAULT_POLICY.cooldownSec,
+      models: { ...DEFAULT_POLICY.models, ...(j.models || {}) },
     };
   } catch { return { ...DEFAULT_POLICY }; }
+}
+
+// Явная модель провайдера: policy.models (fleet.json-override) → DEFAULT_MODELS → null.
+// providers.js зовёт это, когда caller не передал model явно — так КАЖДЫЙ spawn несёт
+// --model, а не молчаливый ambient-дефолт аккаунта/CLI.
+function modelFor(provider, policy = DEFAULT_POLICY) {
+  return (policy.models && policy.models[provider]) || DEFAULT_MODELS[provider] || null;
 }
 
 // Цепочка провайдеров для размера слайса (нет размера/неизвестен → default).
@@ -91,5 +106,5 @@ function failover({ result, provider, chain, state = makeState(), policy = DEFAU
 
 module.exports = {
   loadPolicy, chainFor, makeState, inCooldown, cool, pick, ledgerEntry, DEFAULT_POLICY,
-  detectLimit, failover, LIMIT_SIGNATURES,
+  detectLimit, failover, LIMIT_SIGNATURES, modelFor, DEFAULT_MODELS,
 };
