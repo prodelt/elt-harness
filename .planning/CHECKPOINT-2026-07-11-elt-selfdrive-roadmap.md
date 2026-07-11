@@ -5,11 +5,14 @@
 сессий на 200k, codegraph-liveness, self-heal харнесса. Уровень «harness, не vibes».
 
 ## РЕЗУЛЬТАТ ЭТОГО ЧАТА
-- Аудит проведён по РЕАЛЬНОМУ коду (elt.js, elt-loop.ps1, providers.js, 3 контекст-хука,
-  codegraph-гейты, run-log 45 записей, doctor). Не по памяти.
-- Роадмап: `specs/004-elt-selfdrive/spec.md` + `tasks.md` (13 слайсов, `elt` их видит).
-- Ключевой факт-чек: `claude --effort <level>` — реальный headless-флаг → F2 реализуема
-  в драйвере per-инвокацию. `--fallback-model`, `--append-system-prompt` тоже есть.
+- Аудит по РЕАЛЬНОМУ коду (elt.js, elt-loop.ps1, providers.js, 3 контекст-хука, гейты, run-log, doctor).
+- **+ кросс-сессионный скан 278 сессий / 4 дня** (`scratchpad/scan-sessions.js`): 29 сессий ≥200k
+  (43× `/clear`, 37× `/effort` — ручной toil), elt реально принят (89 commit/25 loop/21 fleet),
+  судья block 159/pass 141 (~53% — часть = dead-judge, не reject), codegraph почти мёртв (24/278).
+- **+ весь changelog CC 2.0→2.1.207** (установлена latest): нативные примитивы ротации
+  `--session-id`/`--resume`/`--bg`/`claude agents` (подтв. `--help`), `--effort`/`MAX_THINKING_TOKENS`,
+  `--fallback-model`, `Notification`/post-session hooks (verify-first). Строить на них, не изобретать.
+- Роадмап: `specs/004-elt-selfdrive/spec.md` + `tasks.md` (**14 слайсов**, `elt` их видит).
 
 ## ДАЛЬШЕ (в НОВОМ чате — авто-запуск elt)
 Голый `/elt` в новом чате → Режим 1 (план есть) → возьмёт T001. Или автономно:
