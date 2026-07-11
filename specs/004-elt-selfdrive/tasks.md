@@ -46,7 +46,7 @@
   Сейчас `context-autocompact-guard.js` лишь подсказывает; пользователь пишет чекпоинт руками (43× `/clear` в скане).
   Тест: синтетический транскрипт ≥200k → райтер создаёт файл с секциями git/last-run/next-slice/resume-prompt; < порога — молчит.
 
-- [ ] **T007** OPTIONAL Session-rotation драйвер `tools/elt-drive.ps1` на НАТИВНЫХ примитивах (T014): goal-driven петля — `claude --session-id <uuid> -p` bounded → чекпоинт → `claude --resume <id>` (или свежий id), STOP kill-switch. Это «авто new+elt» для автономной цели (не спек-плана), но через нативные `--session-id`/`--resume`/`--bg`, не ручной джагглинг.
+- [X] **T007** OPTIONAL Session-rotation драйвер `tools/elt-drive.ps1` на НАТИВНЫХ примитивах (T014): goal-driven петля — `claude --session-id <uuid> -p` bounded → чекпоинт → `claude --resume <id>` (или свежий id), STOP kill-switch. Это «авто new+elt» для автономной цели (не спек-плана), но через нативные `--session-id`/`--resume`/`--bg`, не ручной джагглинг.
   Тест: `-DryRun` показывает N bounded-инвокаций с пробросом session-id + чекпоинт между + уважает `.harness/STOP`; без живого claude.
 
 ## Фаза D — codegraph: адопция + liveness (F3) · скан: 24 вызова на 278 сессий — почти мёртв

@@ -40,6 +40,8 @@ async function main() {
     logPath = null,
     effort = null, // T003: адаптивный эффорт (claude --effort), проброс из elt-loop.ps1
     phase = null,  // T004: 'impl'|'heal' — драйвер объявляет фазу, политика маппит в уровень
+    sessionId = null, // T007: session-rotation (elt-drive.ps1) — проброс к providers.run()
+    resume = false,   // T007: true → -r/--resume <sessionId>; false → --session-id <sessionId>
   } = desc;
 
   // T004: явный effort побеждает; иначе резолвим из фазы (impl→high, heal→max). Нет ни того,
@@ -50,7 +52,7 @@ async function main() {
   // контекст: skills/MCP/hooks/CLAUDE.md). providers.run() по умолчанию
   // включает lean (--safe-mode) для fleet-воркеров — здесь это был бы
   // незапрошенный побочный эффект, искажающий A/B-сравнение fleet vs solo.
-  const r = await run({ provider: 'claude', prompt, cwd, model, jsonSchema, timeoutMs, lean: false, effort: resolvedEffort });
+  const r = await run({ provider: 'claude', prompt, cwd, model, jsonSchema, timeoutMs, lean: false, effort: resolvedEffort, sessionId, resume });
 
   // Append, не overwrite: сохраняет старую семантику elt-loop.ps1 (self-heal дописывался
   // в тот же $implLog, что и имплементатор). Для свежего logPath (implLog/judgeLog в первый

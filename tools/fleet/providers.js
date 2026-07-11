@@ -112,7 +112,7 @@ function hardKill(child) {
 // tree-kill (taskkill /T /F на Windows) — не хватало только быстрого триггера.
 const STOP_POLL_MS_DEFAULT = 1000;
 
-function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, effort = null, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT } = {}) {
+function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, effort = null, sessionId = null, resume = false, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT } = {}) {
   return new Promise((resolve) => {
     if (!PROVIDERS[provider]) {
       return resolve({ exit: null, ok: false, reason: 'unknown-provider', logPath: null, lastMsg: '' });
@@ -133,6 +133,10 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
       // (подтв. `claude --help`, 2.1.207). Только claude: codex/agy своего эквивалента не имеют.
       // Проброс на месте (не в PROVIDERS.claude) — argv-строитель провайдера остаётся про модель/lean.
       ...(effort && provider === 'claude' ? ['--effort', String(effort)] : []),
+      // T007 (004-elt-selfdrive): session-rotation драйвер (elt-drive.ps1). --session-id/-r
+      // confirmed claude-only flags (T014 probe) — resume:false → fresh id (--session-id);
+      // resume:true → continue that id (-r/--resume). codex/agy get neither.
+      ...(sessionId && provider === 'claude' ? (resume ? ['-r', String(sessionId)] : ['--session-id', String(sessionId)]) : []),
       ...(jsonSchema ? ['--json-schema', jsonSchema, '--output-format', 'json'] : []),
     ];
     const ts = new Date().toISOString().replace(/[:.]/g, '-');

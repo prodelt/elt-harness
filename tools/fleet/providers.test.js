@@ -184,6 +184,26 @@ test('T003: --effort только для claude — codex/agy своего фл�
   assert.ok(!codex.argv.includes('--effort'), 'codex не поддерживает --effort → не прокидываем');
 });
 
+// --- T007 (004-elt-selfdrive): session-rotation (elt-drive.ps1) ---
+test('T007: sessionId → argv несёт --session-id <id> (claude); без sessionId флага нет', async () => {
+  const withId = await spawnArgs('claude', { sessionId: 'abc-123' });
+  assert.match(withId.argv.join(' '), /--session-id abc-123\b/);
+  const without = await spawnArgs('claude');
+  assert.ok(!without.argv.includes('--session-id'), 'без sessionId — флага нет');
+});
+
+test('T007: resume+sessionId → argv несёт -r <id> вместо --session-id', async () => {
+  const r = await spawnArgs('claude', { sessionId: 'abc-123', resume: true });
+  assert.ok(r.argv.includes('-r'), 'resume:true → -r флаг');
+  assert.ok(r.argv.includes('abc-123'), 'id идёт значением');
+  assert.ok(!r.argv.includes('--session-id'), 'resume вытесняет --session-id');
+});
+
+test('T007: sessionId только для claude — codex/agy своего флага не получают', async () => {
+  const codex = await spawnArgs('codex', { sessionId: 'abc-123' });
+  assert.ok(!codex.argv.includes('--session-id') && !codex.argv.includes('-r'), 'codex не поддерживает session-id/resume');
+});
+
 test('неизвестный провайдер → reason unknown-provider, без спавна', async () => {
   const r = await run({ provider: 'nope', prompt: 'x', cwd: TMP });
   assert.equal(r.ok, false);
