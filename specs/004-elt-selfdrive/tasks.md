@@ -12,7 +12,7 @@
   Тест: новый `tools/elt-singlesource.test.js` утверждает, что публичное поведение bin==tools
   (байтовая идентичность ИЛИ bin = `require('../tools/elt.js')`). Падает на текущем дрейфе, зеленеет после сведения.
 
-- [ ] **T002** Liveness-инвариант судьи/имплементатора: пустой/timeout/spawn-fail вывод → статус `judge-dead`/`impl-dead` (ERROR-STOP), НЕ маскируется под `block`/`pass`.
+- [X] **T002** Liveness-инвариант судьи/имплементатора: пустой/timeout/spawn-fail вывод → статус `judge-dead`/`impl-dead` (ERROR-STOP), НЕ маскируется под `block`/`pass`.
   Корень бага `3e73423`: пустой лог судьи = REJECT-default block, неотличимо от реального reject.
   **Скан подтверждает:** block 159 vs pass 141 (~53% block) аномально высок — часть «блоков» это
   dead-judge, а не reject. `providers.run()` уже возвращает `reason` (`empty-stdout`/`timeout`/
