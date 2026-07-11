@@ -628,11 +628,44 @@ function testCheckpointWriter() {
   execFileSync(process.execPath, [path.join(__dirname, 'checkpoint-writer.js'), '--selftest'], { encoding: 'utf8' });
 }
 
+// T007 (004-elt-selfdrive): elt-drive.ps1 session-rotation драйвер. -DryRun не спавнит
+// живой claude — только он и портативно тестируем через оракул. Проверяем: N раундов
+// показаны с session-id, чекпоинт-между упомянут, STOP-файл (до старта) обрывает ВСЕ раунды —
+// тот же STOP-до-старта паттерн, что и fleet.test.js.
+function testEltDriveDryRun() {
+  const { execFileSync } = require('node:child_process');
+  const script = path.join(__dirname, 'elt-drive.ps1');
+
+  const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-drive-'));
+  const out1 = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Project', dir1, '-Goal', 'test goal', '-Rounds', '3', '-DryRun',
+  ], { encoding: 'utf8' });
+  const rounds = out1.match(/раунд \d+\/3/g) || [];
+  assert.equal(rounds.length, 3, 'DryRun показывает все 3 раунда');
+  assert.match(out1, /session-id=/, 'session-id проброшен в вывод раунда');
+  assert.match(out1, /чекпоинт/i, 'чекпоинт между раундами упомянут');
+  fs.rmSync(dir1, { recursive: true, force: true });
+
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-drive-stop-'));
+  fs.mkdirSync(path.join(dir2, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(dir2, '.harness', 'STOP'), '');
+  const out2 = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Project', dir2, '-Goal', 'test goal', '-Rounds', '3', '-DryRun',
+  ], { encoding: 'utf8' });
+  const rounds2 = out2.match(/раунд \d+\/3/g) || [];
+  assert.equal(rounds2.length, 0, 'STOP-файл до старта — ни одного раунда');
+  assert.match(out2, /STOP/i, 'STOP явно упомянут в выводе');
+  fs.rmSync(dir2, { recursive: true, force: true });
+}
+
 function main() {
   testEltSingleSource();
   testStuckDetectorUnit();
   testEltCommitLogsRedStopOnOracleFail();
   testCheckpointWriter();
+  testEltDriveDryRun();
   testProbePrimitivesParsing();
   testParseArgs();
   testProjectKeyStable();
