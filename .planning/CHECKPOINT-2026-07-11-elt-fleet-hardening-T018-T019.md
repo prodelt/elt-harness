@@ -21,7 +21,7 @@
 ### Git State
 - Branch: `feature/elt-loop-driver`
 - Uncommitted changes: 0
-- Last commit: `ade9e7f` chore: run-log (T019 ledger entry)
+- Last commit: `1250b81` docs(checkpoint): T018/T019 закрыты, ELT Fleet hardening 003 в работе (`ade9e7f` chore: run-log перед ним)
 - Слайс-коммиты: `f696683` T018, `7594487` T019 (оба судья=pass, оракул зелёный)
 
 ### Completed Tasks
