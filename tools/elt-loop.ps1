@@ -49,9 +49,10 @@ function Invoke-Claude {
     [string]$LogPath,
     [string]$Model = $null,
     [string]$JsonSchema = $null,
-    [int]$TimeoutMs = 1200000
+    [int]$TimeoutMs = 1200000,
+    [string]$Effort = $null
   )
-  $desc = @{ prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath }
+  $desc = @{ prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath; effort = $Effort }
   $descFile = [System.IO.Path]::GetTempFileName()
   try {
     ($desc | ConvertTo-Json -Depth 6 -Compress) | Out-File -FilePath $descFile -Encoding utf8
