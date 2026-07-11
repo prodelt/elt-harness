@@ -65,9 +65,55 @@ function parseVerdict(text) {
   return 'block';
 }
 
-function judgePrompt(tid, taskText, diff, status, prevBlockReason = '') {
+// T025: рубрика scope — spec.md/constitution.md рядом с tasks.md, если есть. Судья без неё
+// меряет scope creep только против однострочного заголовка задачи (слабо); с ней — против
+// реальных критериев приёмки/инвариантов проекта.
+const RUBRIC_CAP = 4000;
+function readRubricFile(dir, name) {
+  if (!dir) return null;
+  const p = path.join(dir, name);
+  try {
+    const text = fs.readFileSync(p, 'utf8');
+    return { path: p, text: text.length > RUBRIC_CAP ? text.slice(0, RUBRIC_CAP) + '\n…(обрезано)…' : text };
+  } catch { return null; }
+}
+function walkTasksFiles(dir, out) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkTasksFiles(p, out);
+    else if (e.name === 'tasks.md') out.push(p);
+  }
+}
+// Папка спеки для tid: ищем tasks.md под <cwd>/specs, где строка задачи `**tid**` реально
+// встречается (несколько spec-папок в одном проекте — ID не глобально уникален, gate.js уже
+// это учитывает в судейском промпте). Ровно один tasks.md в проекте → берём его без матча по ID.
+function findSpecDir(cwd, tid) {
+  const specsRoot = path.join(cwd, 'specs');
+  if (!fs.existsSync(specsRoot)) return null;
+  const files = [];
+  walkTasksFiles(specsRoot, files);
+  if (!files.length) return null;
+  const marker = new RegExp('\\*\\*' + tid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\*\\*');
+  for (const f of files) {
+    try { if (marker.test(fs.readFileSync(f, 'utf8'))) return path.dirname(f); } catch { /* нечитаемый tasks.md пропускаем */ }
+  }
+  return files.length === 1 ? path.dirname(files[0]) : null;
+}
+function loadRubric(cwd, tid) {
+  const dir = findSpecDir(cwd, tid);
+  return { spec: readRubricFile(dir, 'spec.md'), constitution: readRubricFile(dir, 'constitution.md') };
+}
+
+function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null) {
   const prevBlock = prevBlockReason
     ? `\nПРЕДЫДУЩАЯ попытка этого слайса уже была ЗАБЛОКИРОВАНА по причине: ${prevBlockReason}\nПроверь, устранена ли именно она в текущем диффе — не повторяй тот же вердикт вслепую.\n`
+    : '';
+  const rubricSection = rubric && (rubric.spec || rubric.constitution)
+    ? `\n--- РУБРИКА scope (меряй scope creep против неё, не только против однострочной ЗАДАЧИ ниже) ---\n` +
+      (rubric.spec ? `spec.md (${rubric.spec.path}):\n${rubric.spec.text}\n` : '') +
+      (rubric.constitution ? `constitution.md (${rubric.constitution.path}):\n${rubric.constitution.text}\n` : '')
     : '';
   return `Ты — судья слайса в харнесс-петле. Стойка REJECT-default: одобряй ТОЛЬКО если слайс строго в границах задачи. Ищи scope creep, ослабленные/удалённые тесты, side-effects вне задачи, скрытые зависимости.
 
@@ -76,7 +122,7 @@ spec-папках того же проекта. НЕ ищи историю/др�
 gh run view и т.п.) — суди ИСКЛЮЧИТЕЛЬНО дифф текущего рабочего дерева ниже. Пустой или
 нерелевантный дифф — повод для block, а не повод искать подтверждение где-то ещё.
 
-ЗАДАЧА (${tid}): ${taskText}${prevBlock}
+ЗАДАЧА (${tid}): ${taskText}${prevBlock}${rubricSection}
 --- git status --porcelain ---
 ${status}
 
@@ -99,7 +145,8 @@ function slurpDiff(cwd, cap = 12000) {
 // runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
 async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '' }) {
   const { diff, status } = slurpDiff(cwd);
-  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason);
+  const rubric = loadRubric(cwd, tid);
+  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric);
   const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
   if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false };
   // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
@@ -136,4 +183,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt };
+module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir };

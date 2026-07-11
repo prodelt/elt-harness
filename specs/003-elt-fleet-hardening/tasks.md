@@ -19,7 +19,7 @@
 - [X] **T024** Честность результата: non-conflict `m.ok=false` = terminal-failed (НЕ объявлять merged, дефект 5); обязательный integration-оракул после КАЖДОГО merge, включая production — снять возможность skip (fleet.js:209, дефект 4); любой failed/abandoned слайс → прогон возвращает nonzero exit. Тест на стабах: 1 abandoned слайс → CLI exit≠0, integration-оракул вызван после merge. [files:tools/fleet/merge.js,tools/fleet/fleet.js]
 
 ## Phase J — рубрика судьи + ledger
-- [ ] **T025** [P] Судья получает рубрику: подать `spec.md` + `constitution.md` (если есть рядом с tasks.md) в промпт судьи вместе с диффом; `block`-причина персистится и переживает retry. Тест с фейк-судьёй: промпт содержит путь/текст spec, причина block читается на следующей попытке. [files:tools/fleet/gate.js]
+- [X] **T025** [P] Судья получает рубрику: подать `spec.md` + `constitution.md` (если есть рядом с tasks.md) в промпт судьи вместе с диффом; `block`-причина персистится и переживает retry. Тест с фейк-судьёй: промпт содержит путь/текст spec, причина block читается на следующей попытке. [files:tools/fleet/gate.js]
 - [ ] **T026** Полный per-phase call-ledger: одна строка run-log на КАЖДЫЙ spawn `{sliceId, phase: implement|heal|judge, provider, model, tokens, costUsd, durationSec, exit}` — heal и judge посчитаны, длительности фаз раздельны (дефект 7). Тест: прогон-стаб на N слайсов → ledger содержит по строке на каждый spawn с непустыми phase/model. [files:tools/fleet/router.js,tools/fleet/fleet.js]
 
 ## Phase K — владение процессами
