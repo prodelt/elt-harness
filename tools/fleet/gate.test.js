@@ -18,6 +18,20 @@ test('parseVerdict: JSON/проза → verdict, иначе block', () => {
   assert.equal(gate.parseVerdict('код вернул { status: "ok" }'), 'block', 'чужой JSON не ловим');
 });
 
+// --- T022: block-причина прокидывается в prompt следующей попытки ---
+test('parseReasons: читает reasons из JSON-фолбэка', () => {
+  assert.deepEqual(gate.parseReasons('{"verdict":"block","reasons":["scope creep"]}'), ['scope creep']);
+  assert.deepEqual(gate.parseReasons(''), []);
+  assert.deepEqual(gate.parseReasons('текст без reasons'), []);
+});
+
+test('judgePrompt: prevBlockReason добавляет секцию «предыдущая попытка заблокирована»', () => {
+  const p0 = gate.judgePrompt('T1', 'задача', 'diff', 'status');
+  assert.doesNotMatch(p0, /ПРЕДЫДУЩАЯ/);
+  const p1 = gate.judgePrompt('T1', 'задача', 'diff', 'status', 'scope creep вне [files:]');
+  assert.match(p1, /ПРЕДЫДУЩАЯ попытка.*ЗАБЛОКИРОВАНА.*scope creep вне \[files:\]/s);
+});
+
 // --- gate() end-to-end на темп-репо с фейк-судьёй ---
 const REPO = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-gate-'));
 const git = (args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8' });
@@ -77,6 +91,7 @@ test('gate: судья block → НЕ коммитит, stage judge', async () =
   assert.equal(r.ok, false);
   assert.equal(r.stage, 'judge');
   assert.equal(r.verdict, 'block');
+  assert.deepEqual(r.reasons, ['stub'], 'T022: причина block доступна caller-у для проброса дальше');
   assert.equal(commits(), n, 'блок → дерево не закоммичено');
 });
 

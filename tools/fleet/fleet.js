@@ -154,6 +154,12 @@ async function run(opts = {}) {
   // Баг #8: без верхнего предела попыток застрявший слайс (heal-failed/gate-reject) реквеился
   // каждый loop бесконечно, сжигая реальные claude -p. Cap на попытки per-слайс → abandon.
   const attempts = new Map();
+  // T022: heal-бюджет и block-причина судьи ПЕРЕЖИВАЮТ повторные batch-попытки одного
+  // слайса (attempts выше их не сбрасывает) — иначе каждая попытка implement заново
+  // открывала полный heal-бюджет (×3-размножение, дефект 1) и судья каждый раз получал
+  // тот же пустой контекст без памяти о прошлом block.
+  const healUsed = new Map();
+  const blockReasons = new Map();
   const recordFail = (tid) => {
     const n = (attempts.get(tid) || 0) + 1;
     attempts.set(tid, n);
@@ -245,10 +251,12 @@ async function run(opts = {}) {
         }
 
         claims.setState(slice.id, { state: 'oracle' }, { cwd });
-        // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed)
-        // T020-cap на сам heal.healSlice-вызов НЕ ставим здесь: heal сам решает, спавнить ли
-        // (0 spawn'ов, если оракул уже зелёный) — точный per-spawn cap внутри heal — T022.
-        const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider, model, elt: ELT_CLI });
+        // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed).
+        // T022: healUsedSoFar — суммарный heal-бюджет (≤2) переживает batch-retry этого
+        // слайса; callTracker/policy — heal-спавны тоже под T020 hard-cap, не только implement/judge.
+        const healSoFar = healUsed.get(slice.id) || 0;
+        const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider, model, elt: ELT_CLI, healUsedSoFar: healSoFar, callTracker, policy });
+        healUsed.set(slice.id, healSoFar + h.attempts);
         if (!h.ok) {
           emit(cwd, { event: 'heal-failed', tid: slice.id, attempts: h.attempts });
           appendRunLog(cwd, {
@@ -264,7 +272,7 @@ async function run(opts = {}) {
         const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
-        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel }); }
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '' }); }
         finally { router.endCall(callTracker, 'claude'); }
 
         // T021: судья НЕ отработал (timeout/spawn-error) — паркуем worktree на judge_pending,
@@ -278,6 +286,10 @@ async function run(opts = {}) {
           });
           return { tid: slice.id, gateOk: false, parked: true };
         }
+
+        // T022: block-причина → следующей batch-попытке этого слайса; pass чистит её.
+        if (g.stage === 'judge' && g.verdict === 'block') blockReasons.set(slice.id, (g.reasons || []).join('; '));
+        else if (g.ok) blockReasons.delete(slice.id);
 
         emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
         if (g.ok) claims.setState(slice.id, { state: 'merge_pending' }, { cwd });
