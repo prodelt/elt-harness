@@ -527,8 +527,59 @@ function testEltSingleSource() {
   );
 }
 
+// T005 (004-elt-selfdrive): stuck-detector. Unit-level streak/threshold logic
+// PLUS a live spawn of `elt.js commit` against a deliberately failing oracle —
+// proves the red-stop entry the hook reads is real, not just a synthetic
+// fixture (same dead-signal class T002 fixed for the judge).
+function testStuckDetectorUnit() {
+  const { runLogStreak, buildNudge, THRESHOLD } = require('./stuck-detector');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stuck-detector-'));
+  const rl = path.join(dir, 'run-log.jsonl');
+  assert.equal(runLogStreak(rl), 0, 'нет файла → 0');
+
+  const lines = [];
+  for (let i = 0; i < THRESHOLD - 1; i++) lines.push(JSON.stringify({ status: 'red-stop' }));
+  write(rl, lines.join('\n') + '\n');
+  assert.equal(runLogStreak(rl), THRESHOLD - 1);
+  assert.equal(buildNudge(runLogStreak(rl)), null, 'ниже порога — тишина');
+
+  fs.appendFileSync(rl, JSON.stringify({ status: 'red-stop' }) + '\n');
+  assert.equal(runLogStreak(rl), THRESHOLD);
+  assert.match(buildNudge(runLogStreak(rl)), /Застрял/, 'на пороге — nudge');
+
+  fs.appendFileSync(rl, JSON.stringify({ commit: 'deadbee' }) + '\n');
+  assert.equal(runLogStreak(rl), 0, 'зелёный commit сбрасывает счётчик');
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function testEltCommitLogsRedStopOnOracleFail() {
+  const { execFileSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-redstop-'));
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    oracle: 'exit 1', shell: 'powershell', branchPolicy: 'feature', push: false, judge: { enabled: false },
+  }));
+  write(path.join(root, 'dirty.txt'), 'change\n');
+
+  const eltPath = path.join(__dirname, 'elt.js');
+  try {
+    execFileSync(process.execPath, [eltPath, 'commit'], { cwd: root, encoding: 'utf8' });
+    assert.fail('красный оракул должен был провалить elt commit');
+  } catch (err) {
+    assert.notEqual(err.status, 0, 'elt commit падает на красном оракуле');
+  }
+
+  const runLog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  const entry = JSON.parse(runLog[runLog.length - 1]);
+  assert.equal(entry.status, 'red-stop', 'красный оракул оставил red-stop в run-log, а не тишину');
+  assert.equal(entry.oracle.exit, 1);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function main() {
   testEltSingleSource();
+  testStuckDetectorUnit();
+  testEltCommitLogsRedStopOnOracleFail();
   testParseArgs();
   testProjectKeyStable();
   testSkillFrontmatter();
