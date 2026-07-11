@@ -4,13 +4,18 @@
 /**
  * UserPromptSubmit hook: nudge when N oracle failures pile up in a row.
  *
- * Signal is the project's own `.harness/run-log.jsonl` — elt.js now appends a
- * `red-stop` entry whenever `elt commit` hits a red oracle (before this, red
- * runs left no trace at all, so a stuck loop was invisible outside the
- * transcript). A trailing run of `red-stop` entries, uninterrupted by a real
- * commit, is the streak. The transcript tail is a best-effort second source
- * for the case where the user re-runs `elt oracle` standalone between
- * commits — same die/exit-code text elt.js already prints.
+ * Signal is the project's own `.harness/run-log.jsonl` — elt.js appends a
+ * `red-stop` entry whenever `elt oracle` OR `elt commit` hits a red oracle
+ * (before this, red runs left no trace, so a stuck loop was invisible).
+ * A trailing run of `red-stop` entries, uninterrupted by a real commit, is
+ * the streak.
+ *
+ * Dropped: a transcript-text fallback that scanned for "elt oracle: exit N"
+ * lines. Caught live during T005/T014 dogfood — this project's own oracle
+ * test suite intentionally spawns a failing oracle as a fixture, which
+ * printed matching text into the transcript and produced a false "stuck"
+ * nudge with zero real red-stops in run-log. Same lesson as T002: prefer
+ * the structured signal over parsing free text.
  *
  * Standalone: stdlib only, no AMOS deps. Never blocks; always exits 0.
  */
@@ -44,22 +49,6 @@ function runLogStreak(runLogPath) {
   return n;
 }
 
-// Best-effort fallback: same nonzero-exit line repeated in the transcript
-// tail, reset by a green "exit 0"/successful commit line.
-function transcriptStreak(transcriptPath) {
-  let txt;
-  try { txt = fs.readFileSync(transcriptPath, 'utf8'); } catch (_) { return 0; }
-  const lines = txt.split('\n').slice(-4000);
-  let n = 0;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const ln = lines[i];
-    if (!ln) continue;
-    if (/elt oracle: exit [1-9]/.test(ln)) { n++; continue; }
-    if (/elt oracle: exit 0|elt commit: [0-9a-f]/.test(ln)) break;
-  }
-  return n;
-}
-
 function buildNudge(streak) {
   if (streak < THRESHOLD) return null;
   return `Застрял ${streak} попыток подряд (красный оракул) — попробуй /effort max + /diagnose вместо ещё одной попытки на том же уровне.`;
@@ -74,8 +63,7 @@ function main() {
   const projectDir = inp.cwd || process.cwd();
 
   const runLogPath = path.join(projectDir, '.harness', 'run-log.jsonl');
-  const transcriptPath = inp.transcript_path || inp.transcriptPath;
-  const streak = Math.max(runLogStreak(runLogPath), transcriptPath ? transcriptStreak(transcriptPath) : 0);
+  const streak = runLogStreak(runLogPath);
   const msg = buildNudge(streak);
   if (!msg) return;
 
@@ -111,4 +99,4 @@ if (require.main === module && process.argv[2] === '--selftest') {
 
 try { main(); } catch (_) {}
 
-module.exports = { runLogStreak, transcriptStreak, buildNudge, THRESHOLD };
+module.exports = { runLogStreak, buildNudge, THRESHOLD };

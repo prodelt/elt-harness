@@ -135,7 +135,10 @@ if (cmd === 'slice' && sub === 'next') {
 }
 
 if (cmd === 'oracle') {
-  process.exit(runOracle(loadConfig()));
+  const cfg = loadConfig();
+  const exit = runOracle(cfg);
+  if (exit !== 0) appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit } });
+  process.exit(exit);
 }
 
 if (cmd === 'commit') {
