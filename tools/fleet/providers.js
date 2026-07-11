@@ -105,7 +105,14 @@ function hardKill(child) {
   }
 }
 
-function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean } = {}) {
+// T027 (дефект 3): STOP-файл раньше проверялся ТОЛЬКО между батчами fleet.js — in-flight
+// spawn переживал STOP до собственного 5-минутного timeoutMs. stopFile здесь — путь к
+// .harness/STOP КОРНЕВОГО проекта (не worktree-cwd, где реально не будет STOP-файла);
+// caller (fleet.js defaultWorker) прокидывает его явно. hardKill уже делает настоящий
+// tree-kill (taskkill /T /F на Windows) — не хватало только быстрого триггера.
+const STOP_POLL_MS_DEFAULT = 1000;
+
+function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT } = {}) {
   return new Promise((resolve) => {
     if (!PROVIDERS[provider]) {
       return resolve({ exit: null, ok: false, reason: 'unknown-provider', logPath: null, lastMsg: '' });
@@ -152,17 +159,26 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
       child.stdin.end();
     }
 
+    let stoppedByFile = false;
     const timer = setTimeout(() => { killed = true; hardKill(child); }, timeoutMs);
+    // T027: отдельный от timeout триггер — STOP-файл убивает child ≤stopPollMs (дефолт 1с),
+    // не ждёт timeoutMs (было до 5 минут) и не ждёт конца текущего батча fleet.js.
+    const stopTimer = stopFile
+      ? setInterval(() => {
+          if (!settled && fs.existsSync(stopFile)) { killed = true; stoppedByFile = true; hardKill(child); }
+        }, stopPollMs)
+      : null;
+    const clearTimers = () => { clearTimeout(timer); if (stopTimer) clearInterval(stopTimer); };
 
     child.on('error', () => {
-      clearTimeout(timer);
+      clearTimers();
       finish({ exit: null, ok: false, reason: 'spawn-error', logPath, lastMsg: '' });
     });
 
     child.on('close', (code) => {
-      clearTimeout(timer);
+      clearTimers();
       const lastMsg = out.split(/\r?\n/).filter((l) => l.trim()).pop() || '';
-      if (killed) return finish({ exit: null, ok: false, reason: 'timeout', logPath, lastMsg, stdout: out });
+      if (killed) return finish({ exit: null, ok: false, reason: stoppedByFile ? 'stopped' : 'timeout', logPath, lastMsg, stdout: out });
       if (code === 0 && out.trim() === '') return finish({ exit: 0, ok: false, reason: 'empty-stdout', logPath, lastMsg, stdout: out });
       finish({ exit: code, ok: code === 0, reason: code === 0 ? 'ok' : 'nonzero-exit', logPath, lastMsg, stdout: out });
     });

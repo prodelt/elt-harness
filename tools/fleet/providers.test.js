@@ -39,7 +39,7 @@ async function withStub(stubPath, opts = {}) {
   const prev = process.env.FLEET_BIN_CLAUDE;
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubPath]);
   try {
-    return await run({ provider: 'claude', prompt: opts.prompt || 'p', cwd: TMP, timeoutMs: opts.timeoutMs || 30000 });
+    return await run({ provider: 'claude', prompt: opts.prompt || 'p', cwd: TMP, timeoutMs: opts.timeoutMs || 30000, stopFile: opts.stopFile, stopPollMs: opts.stopPollMs });
   } finally {
     if (prev === undefined) delete process.env.FLEET_BIN_CLAUDE; else process.env.FLEET_BIN_CLAUDE = prev;
   }
@@ -71,6 +71,35 @@ test('hard-таймаут убивает зависший процесс → rea
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'timeout');
   assert.equal(r.exit, null);
+});
+
+// T027 (дефект 3): STOP-файл убивает child значительно быстрее hard-таймаута — раньше
+// in-flight spawn переживал STOP до собственного 5-минутного timeoutMs (проверялся только
+// МЕЖДУ батчами fleet.js). Стаб пишет свой pid в файл и спит 60с — если бы kill не сработал,
+// тест упёрся бы в timeoutMs=30000 (видно по времени, но здесь и так есть верхний assert).
+test('T027: STOP-файл убивает in-flight child ≤неск.секунд (не ждёт timeoutMs), процесс реально мёртв', async () => {
+  const pidFile = path.join(TMP, 'stop-pid.txt');
+  const stopFile = path.join(TMP, 'STOP');
+  try { fs.unlinkSync(stopFile); } catch { /* нет файла */ }
+  const hangPid = stub('hang-pid.js', `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(()=>{}, 60000);`);
+
+  const runPromise = withStub(hangPid, { timeoutMs: 60000, stopFile, stopPollMs: 150 });
+  // дать стабу время стартовать и записать pid, затем «нажать» STOP
+  await new Promise((r) => setTimeout(r, 300));
+  fs.writeFileSync(stopFile, '');
+
+  const started = Date.now();
+  const r = await runPromise;
+  const elapsedMs = Date.now() - started;
+
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'stopped');
+  assert.ok(elapsedMs < 10000, `убит за ${elapsedMs}мс, ожидалось <10000мс (не ждёт timeoutMs=60000)`);
+
+  const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+  const alive = (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
+  assert.equal(alive, false, 'child реально завершён, не просто "потерян" оркестратором');
+  fs.unlinkSync(stopFile);
 });
 
 test('промпт доходит до провайдера через stdin', async () => {

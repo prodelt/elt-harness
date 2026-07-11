@@ -448,3 +448,40 @@ test('T026: ledger несёт отдельные implement/judge строки н
   }
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+// --- T027: владение процессами — orphan-worktree cleanup на resume ---
+test('T027: crash-resume чистит worktree упавшего implementing-claim (не judge_pending) — не оставляет orphan .fleet-wt', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-orphan-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** слайс [P] [files:a*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  // симулируем «упавший на implementing прошлый процесс» (ДО judge_pending) — worktree
+  // реален, claim мёртв, state НЕ judge_pending/merge_pending → resumeParked его не тронет,
+  // а старый claims.sweep() снял бы только claim-файл, оставив .fleet-wt осиротевшим.
+  const wt = worktree.create('T1', { cwd: repo, base: 'main' });
+  const DEAD_PID = 2147480000;
+  claims.claim('T1', {
+    cwd: repo, pid: DEAD_PID, worker: 'ghost',
+    meta: { state: 'implementing', wtPath: wt.path, taskText: 'слайс', provider: 'claude' },
+  });
+  assert.ok(fs.existsSync(wt.path), 'предусловие: worktree реально на диске');
+
+  const judgeStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+
+  const mockWorker = async (slice, w) => { fs.writeFileSync(path.join(w, 'a.txt'), 'done\n'); return { ok: true, exit: 0 }; };
+  const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'), integration: 'main', workers: 1, worker: mockWorker, maxLoops: 3 });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.deepEqual(s.merged, ['T1'], 'слайс переделан заново и закрыт (реализация с упавшего процесса не переиспользуется)');
+  const events = fs.readFileSync(path.join(repo, '.harness', 'fleet', 'events.jsonl'), 'utf8');
+  assert.match(events, /"event":"resume-orphan-worktree-cleaned","tid":"T1"/, 'осиротевший worktree реально снесён на старте');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
