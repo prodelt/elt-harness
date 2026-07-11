@@ -171,6 +171,19 @@ test('T019: явный lean:false в опциях побеждает даже б
   assert.ok(!argv.includes('--safe-mode'));
 });
 
+// --- T003 (004-elt-selfdrive): адаптивный эффорт ---
+test('T003: effort → argv несёт --effort <level> (claude); без effort флага нет', async () => {
+  const withEffort = await spawnArgs('claude', { effort: 'max' });
+  assert.match(withEffort.argv.join(' '), /--effort max\b/, 'effort:max → --effort max в argv');
+  const without = await spawnArgs('claude');
+  assert.ok(!without.argv.includes('--effort'), 'без effort — флага нет (обратная совместимость)');
+});
+
+test('T003: --effort только для claude — codex/agy своего флага не получают', async () => {
+  const codex = await spawnArgs('codex', { effort: 'max' });
+  assert.ok(!codex.argv.includes('--effort'), 'codex не поддерживает --effort → не прокидываем');
+});
+
 test('неизвестный провайдер → reason unknown-provider, без спавна', async () => {
   const r = await run({ provider: 'nope', prompt: 'x', cwd: TMP });
   assert.equal(r.ok, false);

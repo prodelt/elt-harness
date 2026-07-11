@@ -112,7 +112,7 @@ function hardKill(child) {
 // tree-kill (taskkill /T /F на Windows) — не хватало только быстрого триггера.
 const STOP_POLL_MS_DEFAULT = 1000;
 
-function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT } = {}) {
+function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, effort = null, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT } = {}) {
   return new Promise((resolve) => {
     if (!PROVIDERS[provider]) {
       return resolve({ exit: null, ok: false, reason: 'unknown-provider', logPath: null, lastMsg: '' });
@@ -129,6 +129,10 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
     const argv = [
       ...bin.slice(1),
       ...PROVIDERS[provider](resolvedModel, prompt, cwd, leanFlag),
+      // T003 (004-elt-selfdrive): адаптивный эффорт. `claude --effort <level>` — headless-флаг
+      // (подтв. `claude --help`, 2.1.207). Только claude: codex/agy своего эквивалента не имеют.
+      // Проброс на месте (не в PROVIDERS.claude) — argv-строитель провайдера остаётся про модель/lean.
+      ...(effort && provider === 'claude' ? ['--effort', String(effort)] : []),
       ...(jsonSchema ? ['--json-schema', jsonSchema, '--output-format', 'json'] : []),
     ];
     const ts = new Date().toISOString().replace(/[:.]/g, '-');

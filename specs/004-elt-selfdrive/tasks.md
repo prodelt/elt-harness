@@ -21,7 +21,7 @@
 
 ## Фаза B — адаптивный эффорт (F2)
 
-- [ ] **T003** Проброс `--effort <level>` (+ опц. `MAX_THINKING_TOKENS`) через `providers.run()` → `claude-invoke.js` → `Invoke-Claude`.
+- [X] **T003** Проброс `--effort <level>` (+ опц. `MAX_THINKING_TOKENS`) через `providers.run()` → `claude-invoke.js` → `Invoke-Claude`.
   `claude --effort` — подтверждённый headless-флаг; `MAX_THINKING_TOKENS`/`--thinking` — второй рычаг (changelog 2.1.172).
   Добавить `effort` в дескриптор и в `PROVIDERS.claude` argv. Тест: `providers.js` строит argv с
   `--effort max`, когда `effort:'max'` передан; без него — флага нет (обратная совместимость).
