@@ -122,10 +122,13 @@ $tail
       }
     }
 
-    # 6. СУДЬЯ (обязателен, REJECT-default)
-    # intent-to-add: `git diff HEAD` игнорирует untracked-файлы (новые файлы дают пустой
-    # дифф → судья без реального контента блуждает по репо своими tool-calls и путает
-    # задачу). Зеркало фикса из gate.js (T007/fleet) — без него diff слеп на новых файлах.
+    # 6. СУДЬЯ (обязателен, REJECT-default) — делегирован в tools/judge-invoke.js → gate.runJudge().
+    # T002 (004-elt-selfdrive): inline-PS парсинг раньше НЕ отличал «судья не отработал»
+    # (пустой вывод/timeout/spawn-fail) от block → REJECT-default оставлял $verdict="block" →
+    # judge-block, неотличимо от реального reject (баг 3e73423 — судья молча блокировал ВСЁ).
+    # Теперь runOk:false = judge-dead (ERROR-STOP), а не тихий block. Один протестированный
+    # источник истины (gate.runJudge, инвариант runOk), а не хрупкий PS-дубль парсинга/рубрики.
+    # intent-to-add: `git diff HEAD` слеп на untracked — пометим, чтобы пустой-дифф-стоп сработал.
     & git add -N -- . 2>$null | Out-Null
     $diff = (& git diff HEAD) -join "`n"
     $porcelain = (& git status --porcelain) -join "`n"
@@ -133,66 +136,30 @@ $tail
       Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить, стоп."
       break
     }
-    # Рубрика scope: constitution + spec.md рядом с tasks.md ($slice.file). Тогда судья меряет
-    # scope creep против спеки, а не однострочного заголовка задачи (ELT v2 bridge 2026-07-09).
-    $rubric = ""
-    $specMd = Join-Path (Split-Path $slice.file -Parent) "spec.md"
-    $constMd = Join-Path $Project ".specify\memory\constitution.md"
-    if (Test-Path $constMd) { $rubric += "`n--- constitution.md (инварианты проекта) ---`n" + (Get-Content $constMd -Raw -Encoding UTF8) }
-    if (Test-Path $specMd)  { $rubric += "`n--- spec.md (объём и что ВНЕ scope) ---`n" + (Get-Content $specMd -Raw -Encoding UTF8) }
-    $judgePrompt = @"
-Ты судья качества кода. Вход: задача "${id} ${text}", РУБРИКА SCOPE (ниже, если есть) и дифф.
-ID задачи (T00X) — это порядковый номер ВНУТРИ одной spec-папки и МОЖЕТ повторяться в других
-spec-папках того же проекта (T001 в specs/001-foo — не то же самое, что T001 в specs/002-bar).
-НЕ ищи историю/другие коммиты/другие ветки по этому ID (git log, gh run view и т.п.) — суди
-ИСКЛЮЧИТЕЛЬНО дифф текущего рабочего дерева, приложенный ниже. Пустой или нерелевантный дифф —
-повод для block, а не повод искать подтверждение где-то ещё.
-Стойка REJECT-default: ищи причины ОТКЛОНИТЬ:
-(1) сделано не то или больше, чем требует спека/задача; (2) тесты удалены/ослаблены/замоканы до пустоты;
-(3) side-effects вне scope (сверься с секцией «вне scope» спеки); (4) оверинжиниринг.
-Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).
-$rubric
-
---- git status --porcelain ---
-$porcelain
-
---- git diff HEAD ---
-$diff
-"@
     Write-Host "elt-loop: судья ($JudgeModel)…"
-    # --json-schema/--output-format json (T016 live-fire): prose-парсер регулярно мимо —
-    # модель пишет "принято"/"зачёт" вместо литерального pass/block, REJECT-default тогда
-    # блокирует легитимные слайсы. Structured output — надёжный путь, regex ниже — фолбэк.
-    # Литеральные кавычки, доставляются через claude-invoke.js (см. Invoke-Claude выше) —
-    # PowerShell 5.1 сам их не маршалит, поэтому JSON идёт через дескриптор-файл, не argv.
-    $verdictSchema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","block"]},"reasons":{"type":"array","items":{"type":"string"}}},"required":["verdict","reasons"]}'
-    $judgeOut = Invoke-Claude -Prompt $judgePrompt -LogPath $judgeLog -Model $JudgeModel -JsonSchema $verdictSchema -TimeoutMs 300000
-
-    # Парс вердикта: (0) structured_output из JSON-массива --output-format json (надёжный путь);
-    # (1) JSON-ключ "verdict":"pass|block"; (2) проза «Вердикт/Verdict: pass|block» (фолбэк).
-    # НЕ ловим любой {...} — в прозе бывают Rust-литералы { status: "ok" }. REJECT-default: не нашли → block.
-    $verdict = "block"
+    # Дескриптор через файл (без argv-кавычек, PS5.1). judge-invoke сам грузит рубрику spec.md
+    # рядом с tasks.md слайса и строит промпт (gate.runJudge/loadRubric — уже под тестом).
+    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; model = $JudgeModel }
+    $jDescFile = [System.IO.Path]::GetTempFileName()
+    $judgeRaw = ""
     try {
-      $parsed = $judgeOut | ConvertFrom-Json
-      $last = if ($parsed -is [array]) { $parsed[$parsed.Count - 1] } else { $parsed }
-      if ($last.structured_output -and $last.structured_output.verdict) {
-        $sv = [string]$last.structured_output.verdict
-        if ($sv -eq "pass" -or $sv -eq "block") { $verdict = $sv }
-      }
-    } catch { }
-    if ($verdict -ne "pass") {
-      $mJson = [regex]::Match($judgeOut, '"verdict"\s*:\s*"(pass|block)"', 'IgnoreCase')
-      if ($mJson.Success) {
-        $verdict = $mJson.Groups[1].Value.ToLower()
-      } else {
-        $mProse = [regex]::Match($judgeOut, '(?i)(?:verdict|вердикт)\W{0,5}(pass|block)')
-        if ($mProse.Success) { $verdict = $mProse.Groups[1].Value.ToLower() }
-      }
+      ($jDesc | ConvertTo-Json -Compress) | Out-File -FilePath $jDescFile -Encoding utf8
+      $judgeRaw = (& node (Join-Path $PSScriptRoot "judge-invoke.js") $jDescFile 2>$null | Out-String)
+    } finally {
+      Remove-Item -Path $jDescFile -ErrorAction SilentlyContinue
     }
-
-    if ($verdict -ne "pass") {
+    $j = $null
+    try { $j = $judgeRaw | ConvertFrom-Json } catch { }
+    if (-not $j -or -not $j.runOk) {
+      # judge-dead: судья не отработал (нет JSON / runOk:false) — ERROR-STOP, НЕ молчаливый block.
+      $jl = if ($j) { $j.judgeLog } else { "(нет JSON от judge-invoke)" }
+      Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "judge-dead"; judgeLog = $jl }
+      Write-Host "elt-loop: судья НЕ отработал (judge-dead) — СТОП, НЕ коммичу. Лог: $jl"
+      break
+    }
+    if ($j.verdict -ne "pass") {
       Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; verdict = "block"; result = "judge-block" }
-      Write-Host "elt-loop: судья BLOCK по $id — НЕ коммичу. Лог: $judgeLog"
+      Write-Host "elt-loop: судья BLOCK по $id — НЕ коммичу. Лог: $($j.judgeLog)"
       break
     }
 
