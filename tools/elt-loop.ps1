@@ -50,9 +50,10 @@ function Invoke-Claude {
     [string]$Model = $null,
     [string]$JsonSchema = $null,
     [int]$TimeoutMs = 1200000,
-    [string]$Effort = $null
+    [string]$Effort = $null,
+    [string]$Phase = $null
   )
-  $desc = @{ prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath; effort = $Effort }
+  $desc = @{ prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath; effort = $Effort; phase = $Phase }
   $descFile = [System.IO.Path]::GetTempFileName()
   try {
     ($desc | ConvertTo-Json -Depth 6 -Compress) | Out-File -FilePath $descFile -Encoding utf8
@@ -101,8 +102,8 @@ try {
     }
 
     # 4. имплементатор (свежий контекст)
-    Write-Host "elt-loop: имплементатор…"
-    Invoke-Claude -Prompt $implPrompt -LogPath $implLog | Out-Null
+    Write-Host "elt-loop: имплементатор… (эффорт high)"
+    Invoke-Claude -Prompt $implPrompt -LogPath $implLog -Phase "impl" | Out-Null
 
     # 5. оракул + 1 retry
     & node $eltCli oracle
@@ -114,7 +115,8 @@ try {
 $tail
 Почини МИНИМАЛЬНО только то, на что указывает ошибка. Тесты не ослаблять и не удалять. НЕ коммить.
 "@
-      Invoke-Claude -Prompt $healPrompt -LogPath $implLog | Out-Null
+      Write-Host "elt-loop: self-heal… (эскалация эффорта → max)"
+      Invoke-Claude -Prompt $healPrompt -LogPath $implLog -Phase "heal" | Out-Null
       & node $eltCli oracle
       if ($LASTEXITCODE -ne 0) {
         Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; oracle = @{ exit = $LASTEXITCODE }; result = "red-stop" }

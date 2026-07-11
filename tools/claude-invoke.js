@@ -20,6 +20,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { run, DEFAULT_TIMEOUT_MS } = require('./fleet/providers');
+const { effortFor } = require('./fleet/effort-policy');
 
 async function main() {
   const descPath = process.argv[2];
@@ -38,13 +39,18 @@ async function main() {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     logPath = null,
     effort = null, // T003: адаптивный эффорт (claude --effort), проброс из elt-loop.ps1
+    phase = null,  // T004: 'impl'|'heal' — драйвер объявляет фазу, политика маппит в уровень
   } = desc;
+
+  // T004: явный effort побеждает; иначе резолвим из фазы (impl→high, heal→max). Нет ни того,
+  // ни другого → null (флаг не добавится, старое поведение). Единый источник — effort-policy.js.
+  const resolvedEffort = effort || (phase ? effortFor(phase) : null);
 
   // lean:false — сохраняем поведение elt-loop.ps1 ДО этого фикса (полный
   // контекст: skills/MCP/hooks/CLAUDE.md). providers.run() по умолчанию
   // включает lean (--safe-mode) для fleet-воркеров — здесь это был бы
   // незапрошенный побочный эффект, искажающий A/B-сравнение fleet vs solo.
-  const r = await run({ provider: 'claude', prompt, cwd, model, jsonSchema, timeoutMs, lean: false, effort });
+  const r = await run({ provider: 'claude', prompt, cwd, model, jsonSchema, timeoutMs, lean: false, effort: resolvedEffort });
 
   // Append, не overwrite: сохраняет старую семантику elt-loop.ps1 (self-heal дописывался
   // в тот же $implLog, что и имплементатор). Для свежего logPath (implLog/judgeLog в первый
