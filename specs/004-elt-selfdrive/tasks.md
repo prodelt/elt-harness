@@ -38,7 +38,7 @@
 
 ## Фаза C — авто-ротация сессий (F1) · скан: 29 сессий ≥200k, 43× `/clear` — верх боли
 
-- [ ] **T014** Verify-first спайк нативных примитивов ротации: probe-скрипт документирует, что реально есть в 2.1.207 — `--session-id`/`--resume`/`--continue`/`--bg`/`claude agents` (подтв.) и hook-события `Notification`/post-session lifecycle/`SessionEnd` (сверить именами против рантайма).
+- [X] **T014** Verify-first спайк нативных примитивов ротации: probe-скрипт документирует, что реально есть в 2.1.207 — `--session-id`/`--resume`/`--continue`/`--bg`/`claude agents` (подтв.) и hook-события `Notification`/post-session lifecycle/`SessionEnd` (сверить именами против рантайма).
   Делать ДО T006/T007 — строить на подтверждённом, не на changelog-суммаризации. Тест: probe пишет
   `specs/004-elt-selfdrive/primitives.md` с колонкой confirmed/absent по каждому примитиву (exit 0).
 

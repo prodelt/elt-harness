@@ -576,10 +576,37 @@ function testEltCommitLogsRedStopOnOracleFail() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// T014 (004-elt-selfdrive): probe-primitives parsing logic, tested against synthetic
+// fixtures — NOT a live claude spawn (install path/version varies per machine, so this
+// stays portable; the real live probe is `node tools/probe-primitives.js`, run manually
+// and committed as specs/004-elt-selfdrive/primitives.md).
+function testProbePrimitivesParsing() {
+  const {
+    parseHelpFlags, scanTokens, renderPrimitivesMd, probe, FLAG_CHECKS,
+  } = require('./probe-primitives');
+
+  const fakeHelp = '  --session-id <uuid>   Use a specific session ID\n  --effort <level>      Effort level\n';
+  const flags = parseHelpFlags(fakeHelp, FLAG_CHECKS);
+  assert.equal(flags['--session-id'], true, 'присутствующий флаг найден');
+  assert.equal(flags['--effort'], true);
+  assert.equal(flags['-r/--resume'], false, 'отсутствующий флаг — false, не throw');
+
+  const tokens = scanTokens(['SessionEnd', 'Stop', 'agent_completed'], ['SessionEnd', 'Notification']);
+  assert.equal(tokens.SessionEnd, true);
+  assert.equal(tokens.Notification, false, 'отсутствующий токен — false');
+
+  const results = probe({ helpText: fakeHelp, agentsHelpText: '', exeStrings: null, version: 'test-1.0' });
+  const md = renderPrimitivesMd(results);
+  assert.match(md, /--session-id \| confirmed/, 'найденный флаг попал в таблицу как confirmed');
+  assert.match(md, /-r\/--resume \| absent/, 'отсутствующий флаг — absent, не молчание');
+  assert.match(md, /hook: SessionEnd \| unknown/, 'без exeStrings хук-события честно unknown, не false-confirmed');
+}
+
 function main() {
   testEltSingleSource();
   testStuckDetectorUnit();
   testEltCommitLogsRedStopOnOracleFail();
+  testProbePrimitivesParsing();
   testParseArgs();
   testProjectKeyStable();
   testSkillFrontmatter();
