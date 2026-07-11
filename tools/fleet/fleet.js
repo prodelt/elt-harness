@@ -101,12 +101,16 @@ async function run(opts = {}) {
   const maxLoops = opts.maxLoops || 100;
   const maxAttempts = opts.maxAttempts || 3;
 
-  const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], stopped: false };
+  const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], stopped: false, stoppedReason: null };
   const policy = router.loadPolicy(cwd);
   const routerState = router.makeState();
+  const callTracker = router.makeCallTracker();
+  // T020: все провайдеры цепочки в cooldown → provFor вернёт null, а НЕ тихий fallback
+  // на c[0] (тот остыл тоже — спавнить на него значит бить по тому же лимиту, который
+  // его туда загнал).
   const provFor = (slice) => {
     const c = getChainForSlice(slice, policy);
-    return router.pick(c, routerState) || c[0];
+    return router.pick(c, routerState);
   };
 
   // Баг #8: без верхнего предела попыток застрявший слайс (heal-failed/gate-reject) реквеился
@@ -133,10 +137,20 @@ async function run(opts = {}) {
     if (!batch.length) { emit(cwd, { event: 'done' }); break; }
     emit(cwd, { event: 'batch', tids: batch.map((s) => s.id) });
 
+    // T020: все провайдеры доступного слайса в cooldown → СТОП всего прогона (nonzero),
+    // не fallback на остывающего. Проверяем ВЕСЬ батч до claim — ничего не спавнить дальше.
+    const providersForBatch = batch.map((slice) => ({ slice, provider: provFor(slice) }));
+    const allCooling = providersForBatch.find((x) => x.provider === null);
+    if (allCooling) {
+      emit(cwd, { event: 'all-providers-cooling', tids: batch.map((s) => s.id) });
+      summary.stoppedReason = 'all-providers-cooling';
+      summary.stopped = true;
+      break;
+    }
+
     // фаза 0: claim + worktree — сериально (git worktree add не конкурентен)
     const active = [];
-    for (const slice of batch) {
-      const provider = provFor(slice);
+    for (const { slice, provider } of providersForBatch) {
       const cl = claims.claim(slice.id, { cwd, worker: 'fleet', meta: { provider } });
       if (!cl.ok) { emit(cwd, { event: 'skip-held', tid: slice.id, heldBy: cl.heldBy && cl.heldBy.pid }); continue; }
       const wt = worktree.create(slice.id, { cwd, base: integration });
@@ -147,8 +161,21 @@ async function run(opts = {}) {
     const gated = await Promise.all(active.map(async ({ slice, wtPath, provider }) => {
       emit(cwd, { event: 'slice-work', tid: slice.id, provider });
       const started = Date.now();
+      // T020: hard cap ПЕРЕД spawn — превышение → слайс terminal-failed, ничего не спавнить.
+      const capBlock = (reason) => {
+        emit(cwd, { event: 'cap-exceeded', tid: slice.id, provider, reason });
+        appendRunLog(cwd, {
+          tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+          failoverFrom: null, limitHit: false, verdict: 'cap-exceeded'
+        });
+        return { tid: slice.id, gateOk: false, capped: true };
+      };
       try {
-        const res = await worker(slice, wtPath, { provider, model });
+        const workerCap = router.tryBeginCall(callTracker, policy, provider);
+        if (!workerCap.ok) return capBlock(workerCap.reason);
+        let res;
+        try { res = await worker(slice, wtPath, { provider, model }); }
+        finally { router.endCall(callTracker, provider); }
         const durationSec = Math.round((Date.now() - started) / 1000);
 
         // Проверяем лимит
@@ -164,6 +191,8 @@ async function run(opts = {}) {
         }
 
         // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed)
+        // T020-cap на сам heal.healSlice-вызов НЕ ставим здесь: heal сам решает, спавнить ли
+        // (0 spawn'ов, если оракул уже зелёный) — точный per-spawn cap внутри heal — T022.
         const h = await heal.healSlice({ slice, wtPath, cwd: wtPath, provider, model, elt: ELT_CLI });
         if (!h.ok) {
           emit(cwd, { event: 'heal-failed', tid: slice.id, attempts: h.attempts });
@@ -175,7 +204,12 @@ async function run(opts = {}) {
         }
         if (h.attempts) emit(cwd, { event: 'healed', tid: slice.id, attempts: h.attempts, by: h.healedBy });
 
-        const g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel });
+        // Судья всегда claude (gate.gate/runJudge) — cap проверяем под провайдером 'claude'.
+        const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
+        if (!judgeCap.ok) return capBlock(judgeCap.reason);
+        let g;
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel }); }
+        finally { router.endCall(callTracker, 'claude'); }
         emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
 
         appendRunLog(cwd, {
@@ -195,10 +229,15 @@ async function run(opts = {}) {
     }));
 
     // фаза 2: merge — сериально (интеграционная одна)
+    let stopHit = false;
+    let stopReason = null;
     for (const r of gated) {
       if (!r.gateOk) {
         cleanupSlice(cwd, r.tid);
-        if (r.limitHit) {
+        if (r.capped) {
+          summary.failed.push(r.tid); // terminal-failed, не транзиент — без retry
+          stopHit = true; stopReason = 'cap-exceeded';
+        } else if (r.limitHit) {
           summary.requeued.push(r.tid);
         } else {
           summary.failed.push(r.tid);
@@ -211,14 +250,25 @@ async function run(opts = {}) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
         cleanupSlice(cwd, r.tid); // сбросить ветку/worktree
         summary.conflicts.push(r.tid);
-        const ok = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState });
-        if (ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
-        else { summary.failed.push(r.tid); recordFail(r.tid); }
+        const rr = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker });
+        if (rr.ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
+        else {
+          summary.failed.push(r.tid);
+          if (rr.capped) { stopHit = true; stopReason = 'cap-exceeded'; }
+          else if (rr.allCooling) { stopHit = true; stopReason = 'all-providers-cooling'; }
+          else recordFail(r.tid);
+        }
       } else {
         emit(cwd, { event: 'merged', tid: r.tid, oracleOk: m.oracleOk });
         cleanupSlice(cwd, r.tid);
         summary.merged.push(r.tid);
       }
+    }
+    if (stopHit) {
+      emit(cwd, { event: 'cap-stop', reason: stopReason });
+      summary.stoppedReason = summary.stoppedReason || stopReason;
+      summary.stopped = true;
+      break;
     }
   }
 
@@ -227,16 +277,34 @@ async function run(opts = {}) {
 }
 
 // requeue-serial: пересобрать worktree с ОБНОВЛЁННОЙ интеграционной (там уже победивший
-// слайс) и переделать — теперь правки ложатся сверху, merge чистый.
-async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState }) {
+// слайс) и переделать — теперь правки ложатся сверху, merge чистый. Возвращает
+// {ok, capped?, allCooling?} — T020: caller решает, стопать ли весь прогон.
+async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker }) {
   const provider = provFor(slice);
+  if (provider === null) {
+    emit(cwd, { event: 'all-providers-cooling', tids: [slice.id] });
+    return { ok: false, allCooling: true };
+  }
   emit(cwd, { event: 'requeue-serial', tid: slice.id, provider });
   const cl = claims.claim(slice.id, { cwd, worker: 'fleet-serial', meta: { provider } });
-  if (!cl.ok) return false;
+  if (!cl.ok) return { ok: false };
   const wt = worktree.create(slice.id, { cwd, base: integration });
   const started = Date.now();
+  const capBlock = (reason) => {
+    emit(cwd, { event: 'cap-exceeded', tid: slice.id, provider, reason });
+    appendRunLog(cwd, {
+      tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+      failoverFrom: null, limitHit: false, verdict: 'cap-exceeded'
+    });
+    cleanupSlice(cwd, slice.id);
+    return { ok: false, capped: true };
+  };
   try {
-    const res = await worker(slice, wt.path, { provider, model });
+    const workerCap = router.tryBeginCall(callTracker, policy, provider);
+    if (!workerCap.ok) return capBlock(workerCap.reason);
+    let res;
+    try { res = await worker(slice, wt.path, { provider, model }); }
+    finally { router.endCall(callTracker, provider); }
     const chain = getChainForSlice(slice, policy);
     const limit = router.failover({ result: res, provider, chain, state: routerState, policy });
     if (limit.limitHit) {
@@ -245,19 +313,23 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
         failoverFrom: limit.failoverFrom, limitHit: true, verdict: 'limit'
       });
       cleanupSlice(cwd, slice.id);
-      return false;
+      return { ok: false };
     }
-    const g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel });
+    const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
+    if (!judgeCap.ok) return capBlock(judgeCap.reason);
+    let g;
+    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel }); }
+    finally { router.endCall(callTracker, 'claude'); }
     appendRunLog(cwd, {
       tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
       failoverFrom: null, limitHit: false, verdict: g.ok ? 'pass' : 'gate-reject'
     });
-    if (!g.ok) { emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: g.stage }); cleanupSlice(cwd, slice.id); return false; }
+    if (!g.ok) { emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: g.stage }); cleanupSlice(cwd, slice.id); return { ok: false }; }
     const m = merge.mergeSlice(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
     cleanupSlice(cwd, slice.id);
-    if (m.conflict) { emit(cwd, { event: 'redo-conflict', tid: slice.id }); return false; }
+    if (m.conflict) { emit(cwd, { event: 'redo-conflict', tid: slice.id }); return { ok: false }; }
     emit(cwd, { event: 'redo-merged', tid: slice.id });
-    return true;
+    return { ok: true };
   } catch (e) {
     emit(cwd, { event: 'redo-error', tid: slice.id, err: e.message });
     appendRunLog(cwd, {
@@ -265,7 +337,7 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
       failoverFrom: null, limitHit: false, verdict: 'error'
     });
     cleanupSlice(cwd, slice.id);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -349,7 +421,11 @@ if (require.main === module) {
     console.log('fleet: STOP выставлен');
   } else if (cmd === 'run') {
     run({ cwd, tasksPath, integration: arg('--integration', undefined), workers: Number(arg('--workers', 2)) })
-      .then((s) => console.log('fleet summary: ' + JSON.stringify(s)))
+      .then((s) => {
+        console.log('fleet summary: ' + JSON.stringify(s));
+        // T020: cap-exceeded/all-providers-cooling — честный nonzero, не тихий success.
+        if (s.stoppedReason) process.exit(1);
+      })
       .catch((e) => { console.error(e.message); process.exit(1); });
   } else {
     console.error('usage: fleet.js status|run|stop [--tasks <path>] [--workers N] [--integration <branch>]');
