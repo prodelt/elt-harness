@@ -618,10 +618,21 @@ function testProbePrimitivesParsing() {
   assert.match(md, /hook: SessionEnd \| unknown/, 'без exeStrings хук-события честно unknown, не false-confirmed');
 }
 
+// T006 (004-elt-selfdrive): checkpoint-writer. Below stage2 → silent, no
+// .planning/ side-effect; above stage2 → writes a checkpoint file sourced
+// from a REAL `elt status` spawn (T001 single-source), not a hand-built
+// fixture — proves git/last-run/next-slice/resume-prompt round-trip through
+// the actual harness CLI, not just through renderCheckpoint's string glue.
+function testCheckpointWriter() {
+  const { execFileSync } = require('node:child_process');
+  execFileSync(process.execPath, [path.join(__dirname, 'checkpoint-writer.js'), '--selftest'], { encoding: 'utf8' });
+}
+
 function main() {
   testEltSingleSource();
   testStuckDetectorUnit();
   testEltCommitLogsRedStopOnOracleFail();
+  testCheckpointWriter();
   testProbePrimitivesParsing();
   testParseArgs();
   testProjectKeyStable();
