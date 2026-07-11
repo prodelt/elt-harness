@@ -12,11 +12,16 @@ const path = require('node:path');
 // model=), НЕ произвольные догадки; claude — 'sonnet' (конвенция всей системы: судья/ладдер).
 const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.1-pro-preview' };
 
+// T020: hard caps до spawn — Infinity = выключено (дефолт не ломает существующие прогоны,
+// caps включаются явно через fleet.json). maxMinutes считается от старта fleet.run().
+const DEFAULT_CAPS = { maxCalls: Infinity, maxClaudeCalls: Infinity, maxMinutes: Infinity, concurrencyPerProvider: Infinity };
+
 const DEFAULT_POLICY = {
   policy: { S: ['agy', 'codex', 'claude'], M: ['codex', 'claude'], L: ['claude'] },
   default: ['claude'],
   cooldownSec: 300,
   models: DEFAULT_MODELS,
+  caps: DEFAULT_CAPS,
 };
 
 function policyPath(cwd) { return path.join(cwd, '.harness', 'fleet', 'fleet.json'); }
@@ -30,6 +35,7 @@ function loadPolicy(cwd = process.cwd()) {
       default: j.default || DEFAULT_POLICY.default,
       cooldownSec: j.cooldownSec || DEFAULT_POLICY.cooldownSec,
       models: { ...DEFAULT_POLICY.models, ...(j.models || {}) },
+      caps: { ...DEFAULT_CAPS, ...(j.caps || {}) },
     };
   } catch { return { ...DEFAULT_POLICY }; }
 }
@@ -79,6 +85,7 @@ const LIMIT_SIGNATURES = [
   /\b429\b/, /\b529\b/, /rate[\s_-]?limit/i, /quota/i, /usage limit/i,
   /resource_exhausted/i, /overloaded/i, /too many requests/i, /insufficient_quota/i,
   /ineligibletier/i, // agy free-tier мёртв → migrate to Antigravity (из ресерча дизайна, не live)
+  /session[\s_-]?limit/i, // T020: Claude CLI "session limit reached" — тот же класс, что 429/quota
 ];
 
 function readResultText(result, cap = 8000) {
@@ -104,7 +111,41 @@ function failover({ result, provider, chain, state = makeState(), policy = DEFAU
   return { limitHit: true, next, failoverFrom: provider };
 }
 
+// --- T020: hard caps до spawn ---
+// Общий счётчик на весь прогон fleet.run(): totalCalls/claudeCalls растут монотонно,
+// active[provider] — конкурентные spawn'ы прямо сейчас (begin/end вокруг await), чтобы
+// concurrencyPerProvider ловил параллельные слайсы одного провайдера, а не суммарные.
+function makeCallTracker() {
+  return { totalCalls: 0, claudeCalls: 0, active: {}, startedAt: Date.now() };
+}
+
+// Причина отказа spawn'у ДО того, как он случился (null = можно спавнить).
+function capReason(tracker, policy, provider, now = Date.now()) {
+  const caps = (policy && policy.caps) || DEFAULT_CAPS;
+  if (tracker.totalCalls >= caps.maxCalls) return 'maxCalls';
+  if (provider === 'claude' && tracker.claudeCalls >= caps.maxClaudeCalls) return 'maxClaudeCalls';
+  if ((now - tracker.startedAt) / 60000 >= caps.maxMinutes) return 'maxMinutes';
+  if ((tracker.active[provider] || 0) >= caps.concurrencyPerProvider) return 'concurrencyPerProvider';
+  return null;
+}
+
+function endCall(tracker, provider) {
+  tracker.active[provider] = Math.max(0, (tracker.active[provider] || 0) - 1);
+}
+
+// Проверить cap И, если разрешено, атомарно (синхронно, без await между проверкой и
+// инкрементом) занять слот — вызывающий обязан endCall() в finally после spawn.
+function tryBeginCall(tracker, policy, provider, now = Date.now()) {
+  const reason = capReason(tracker, policy, provider, now);
+  if (reason) return { ok: false, reason };
+  tracker.totalCalls++;
+  if (provider === 'claude') tracker.claudeCalls++;
+  tracker.active[provider] = (tracker.active[provider] || 0) + 1;
+  return { ok: true, reason: null };
+}
+
 module.exports = {
   loadPolicy, chainFor, makeState, inCooldown, cool, pick, ledgerEntry, DEFAULT_POLICY,
-  detectLimit, failover, LIMIT_SIGNATURES, modelFor, DEFAULT_MODELS,
+  detectLimit, failover, LIMIT_SIGNATURES, modelFor, DEFAULT_MODELS, DEFAULT_CAPS,
+  makeCallTracker, capReason, tryBeginCall, endCall,
 };

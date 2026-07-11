@@ -190,11 +190,89 @@ test('провайдер возвращает 429 → failover на следую
   // agy вернул 429 → failover на claude → claude сделал слайс → merged
   assert.deepEqual(calls, ['agy', 'claude']);
   assert.deepEqual(s.merged, ['T80']);
-  
+
   // Проверим ledger
   const runlog = fs.readFileSync(path.join(repo, '.harness', 'run-log.jsonl'), 'utf8');
   assert.match(runlog, /"provider":"agy".*"limitHit":true.*"verdict":"limit"/);
   assert.match(runlog, /"provider":"claude".*"limitHit":false.*"verdict":"pass"/);
 
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+// --- T020: hard caps до spawn ---
+test('T020: cap=4 → 5-й spawn заблокирован, слайс terminal-failed, прогон стопает (nonzero-сигнал)', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-cap4-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  // 3 слайса; happy-path даёт по 2 spawn'а (worker+judge) — 5-й spawn (worker T3) должен упереться в cap=4.
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'),
+    '- [ ] **T1** пишет 1 [P] [files:o1*]\n- [ ] **T2** пишет 2 [P] [files:o2*]\n- [ ] **T3** пишет 3 [P] [files:o3*]\n');
+  fs.mkdirSync(path.join(repo, '.harness', 'fleet'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'fleet.json'), JSON.stringify({ caps: { maxCalls: 4 } }));
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  const judgeStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+
+  const workerCalls = [];
+  const mockWorker = async (slice, wt) => {
+    workerCalls.push(slice.id);
+    fs.writeFileSync(path.join(wt, `${slice.id}.txt`), 'done\n');
+    return { ok: true, stdout: 'done' };
+  };
+
+  const s = await fleet.run({
+    cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main', workers: 1, worker: mockWorker, maxLoops: 10,
+  });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.deepEqual(workerCalls, ['T1', 'T2'], 'T3-воркер вообще не спавнится — cap словлен до его spawn');
+  assert.deepEqual(s.merged, ['T1', 'T2']);
+  assert.ok(s.failed.includes('T3'), 'T3 помечен terminal-failed');
+  assert.equal(s.stoppedReason, 'cap-exceeded');
+  assert.equal(s.stopped, true);
+  const events = fs.readFileSync(path.join(repo, '.harness', 'fleet', 'events.jsonl'), 'utf8');
+  assert.match(events, /"event":"cap-exceeded".*"tid":"T3"/);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('T020: все провайдеры цепочки в cooldown → стоп прогона (не fallback на остывающего)', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-allcool-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T90** слайс [P] [S] [files:s*]\n');
+  fs.mkdirSync(path.join(repo, '.harness', 'fleet'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'fleet.json'),
+    JSON.stringify({ policy: { S: ['agy', 'codex'] }, cooldownSec: 300 }));
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  // и agy, и codex всегда возвращают 429 — оба провайдера в цепочке уходят в cooldown
+  // за первые 2 итерации, на 3-й provFor(T90) отдаст null → прогон должен остановиться,
+  // а НЕ упасть обратно на c[0] (agy), который тоже остыл.
+  const providersSeen = [];
+  const mockWorker = async (_slice, _wt, ctx) => {
+    providersSeen.push(ctx.provider);
+    return { ok: false, lastMsg: 'Error 429: Too Many Requests' };
+  };
+
+  const s = await fleet.run({
+    cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main', workers: 1, worker: mockWorker, maxLoops: 10,
+  });
+
+  assert.deepEqual(s.merged, []);
+  assert.equal(s.stoppedReason, 'all-providers-cooling');
+  assert.equal(s.stopped, true);
+  assert.deepEqual([...new Set(providersSeen)].sort(), ['agy', 'codex'], 'оба провайдера реально пробованы, ни один не пропущен');
+  const events = fs.readFileSync(path.join(repo, '.harness', 'fleet', 'events.jsonl'), 'utf8');
+  assert.match(events, /"event":"all-providers-cooling"/);
   fs.rmSync(repo, { recursive: true, force: true });
 });

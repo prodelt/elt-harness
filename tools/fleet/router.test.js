@@ -92,6 +92,54 @@ test('failover: не-лимит → тот же провайдер (heal — T01
   assert.equal(router.inCooldown(st, 'agy'), false);
 });
 
+// --- T020: hard caps до spawn ---
+test('detectLimit: ловит session limit наравне с 429/quota', () => {
+  assert.equal(router.detectLimit({ lastMsg: 'Claude AI usage limit reached, session limit exceeded' }), true);
+});
+
+test('capReason: maxCalls/maxClaudeCalls/concurrencyPerProvider/maxMinutes — каждый ловится отдельно', () => {
+  const policy = { caps: { maxCalls: 2, maxClaudeCalls: 1, maxMinutes: Infinity, concurrencyPerProvider: 1 } };
+  const t = router.makeCallTracker();
+  assert.equal(router.capReason(t, policy, 'codex'), null, 'свежий трекер — можно');
+  t.totalCalls = 2;
+  assert.equal(router.capReason(t, policy, 'codex'), 'maxCalls');
+
+  const t2 = router.makeCallTracker();
+  t2.claudeCalls = 1;
+  assert.equal(router.capReason(t2, policy, 'claude'), 'maxClaudeCalls');
+  assert.equal(router.capReason(t2, policy, 'codex'), null, 'лимит claude не бьёт по codex');
+
+  const t3 = router.makeCallTracker();
+  t3.active.agy = 1;
+  assert.equal(router.capReason(t3, policy, 'agy'), 'concurrencyPerProvider');
+  assert.equal(router.capReason(t3, policy, 'codex'), null, 'конкурентность per-provider, не общая');
+
+  const t4 = router.makeCallTracker();
+  t4.startedAt = Date.now() - 10 * 60 * 1000; // 10 минут назад
+  assert.equal(router.capReason(t4, { caps: { ...router.DEFAULT_CAPS, maxMinutes: 5 } }, 'claude'), 'maxMinutes');
+});
+
+test('tryBeginCall: разрешает под cap и атомарно занимает слот, блокирует над cap без побочного инкремента', () => {
+  const policy = { caps: { ...router.DEFAULT_CAPS, maxCalls: 1 } };
+  const t = router.makeCallTracker();
+  const first = router.tryBeginCall(t, policy, 'claude');
+  assert.equal(first.ok, true);
+  assert.equal(t.totalCalls, 1);
+  const second = router.tryBeginCall(t, policy, 'claude');
+  assert.equal(second.ok, false, '5-й (тут 2-й) spawn заблокирован над cap');
+  assert.equal(second.reason, 'maxCalls');
+  assert.equal(t.totalCalls, 1, 'блокированная попытка не инкрементит счётчик');
+});
+
+test('tryBeginCall/endCall: concurrencyPerProvider освобождается после endCall', () => {
+  const policy = { caps: { ...router.DEFAULT_CAPS, concurrencyPerProvider: 1 } };
+  const t = router.makeCallTracker();
+  assert.equal(router.tryBeginCall(t, policy, 'agy').ok, true);
+  assert.equal(router.tryBeginCall(t, policy, 'agy').ok, false, 'второй конкурентный agy заблокирован');
+  router.endCall(t, 'agy');
+  assert.equal(router.tryBeginCall(t, policy, 'agy').ok, true, 'после освобождения снова можно');
+});
+
 test('живой стаб отдаёт 429 → detectLimit по реальному executor-результату', async () => {
   const stub = path.join(CWD, 'stub-429.js');
   fs.writeFileSync(stub, "console.log('Request failed: HTTP 429 rate_limit');process.exit(1);");
