@@ -68,9 +68,13 @@ function pick(chain, state = makeState(), now = Date.now()) {
   return chain.find((p) => !inCooldown(state, p, now)) || null;
 }
 
-// Запись в ledger (run-log.jsonl) о том, как отработал слайс у провайдера.
-function ledgerEntry({ tid = null, provider, model = null, durationSec = null, failoverFrom = null, limitHit = false }) {
-  return { tid, provider, model, durationSec, failoverFrom, limitHit };
+// Запись в ledger (run-log.jsonl) — одна строка на КАЖДЫЙ spawn (T026, дефект 7: раньше
+// heal/judge не считались отдельно, длительности фаз были не разделены). phase различает
+// implement/heal/judge; tokens/costUsd — null-плейсхолдеры (providers.js пока не парсит
+// usage из CLI-вывода, вне scope этого слайса) — форма готова, значения появятся отдельным
+// слайсом, когда providers.run() начнёт их извлекать.
+function ledgerEntry({ tid = null, phase = null, provider, model = null, durationSec = null, exit = null, tokens = null, costUsd = null, failoverFrom = null, limitHit = false }) {
+  return { tid, phase, provider, model, durationSec, exit, tokens, costUsd, failoverFrom, limitHit };
 }
 
 // --- лимит-детект + failover (T011) ---

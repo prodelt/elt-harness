@@ -404,3 +404,47 @@ test('T024: 1 abandoned слайс среди прочих → честный fa
   assert.match(events, /"event":"merged","tid":"T1","oracleOk":true/, 'merge-событие несёт РЕАЛЬНЫЙ oracleOk:true, не null (oracle:false)');
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+// --- T026: per-phase call-ledger — одна строка на КАЖДЫЙ spawn ---
+test('T026: ledger несёт отдельные implement/judge строки на КАЖДЫЙ slice-spawn, phase/model непусты', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-ledger-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'),
+    '- [ ] **T1** пишет 1 [P] [files:o1*]\n- [ ] **T2** пишет 2 [P] [files:o2*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  const judgeStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+
+  const mockWorker = async (slice, wt) => { fs.writeFileSync(path.join(wt, `${slice.id}.txt`), 'done\n'); return { ok: true, exit: 0, stdout: 'done' }; };
+
+  const s = await fleet.run({
+    cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main', workers: 2, worker: mockWorker, maxLoops: 5,
+  });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.deepEqual(s.merged.sort(), ['T1', 'T2']);
+  const lines = fs.readFileSync(path.join(repo, '.harness', 'run-log.jsonl'), 'utf8')
+    .split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+  for (const tid of ['T1', 'T2']) {
+    const implLine = lines.find((l) => l.tid === tid && l.phase === 'implement');
+    const judgeLine = lines.find((l) => l.tid === tid && l.phase === 'judge');
+    assert.ok(implLine, `${tid}: есть implement-строка`);
+    assert.ok(judgeLine, `${tid}: есть judge-строка`);
+    assert.ok(implLine.model, `${tid}: implement-строка несёт непустую model`);
+    assert.ok(judgeLine.model, `${tid}: judge-строка несёт непустую model`);
+    assert.equal(implLine.verdict, 'ok');
+    assert.equal(judgeLine.verdict, 'pass');
+    assert.equal(judgeLine.exit, 0);
+    // heal не спавнился (оракул сразу зелёный) — нет heal-строки для этого слайса
+    assert.ok(!lines.find((l) => l.tid === tid && l.phase === 'heal'), `${tid}: heal не спавнился, строки нет`);
+  }
+  fs.rmSync(repo, { recursive: true, force: true });
+});

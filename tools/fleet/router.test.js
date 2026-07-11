@@ -56,12 +56,16 @@ test('inCooldown истекает по времени', () => {
   assert.equal(router.inCooldown(st, 'agy', now + 150_000), false, 'через 150с остыл');
 });
 
-test('ledgerEntry: форма + дефолты (failoverFrom null, limitHit false)', () => {
-  const e = router.ledgerEntry({ tid: 'T1', provider: 'codex', model: 'gpt', durationSec: 12 });
-  assert.deepEqual(e, { tid: 'T1', provider: 'codex', model: 'gpt', durationSec: 12, failoverFrom: null, limitHit: false });
+test('ledgerEntry: форма + дефолты (T026: phase/exit/tokens/costUsd, failoverFrom null, limitHit false)', () => {
+  const e = router.ledgerEntry({ tid: 'T1', phase: 'implement', provider: 'codex', model: 'gpt', durationSec: 12, exit: 0 });
+  assert.deepEqual(e, {
+    tid: 'T1', phase: 'implement', provider: 'codex', model: 'gpt', durationSec: 12, exit: 0,
+    tokens: null, costUsd: null, failoverFrom: null, limitHit: false,
+  });
   const f = router.ledgerEntry({ provider: 'claude', failoverFrom: 'agy', limitHit: true });
   assert.equal(f.failoverFrom, 'agy');
   assert.equal(f.limitHit, true);
+  assert.equal(f.phase, null);
 });
 
 // --- T011: limit-детект + failover ---
