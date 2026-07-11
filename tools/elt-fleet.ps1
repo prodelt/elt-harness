@@ -32,21 +32,28 @@ if ($Action -eq 'run') {
   if ($Integration) { $fleetArgs += @('--integration', $Integration) }
 }
 
+# exit-честность (spec 003 §6, T024): fleet.js возвращает nonzero при failed/abandoned/
+# stopped — обёртка ОБЯЗАНА пробросить это, иначе автоматике прогон всегда «успешен».
+$code = 0
 Push-Location $Project
 try {
   if ($Panes -and $Action -eq 'run') {
     if (-not (Get-Command wt -ErrorAction SilentlyContinue)) {
       Write-Warning "-Panes требует Windows Terminal (wt) — запускаю без панелей"
       & node @fleetArgs
+      $code = $LASTEXITCODE
     }
     else {
       Start-Process node -ArgumentList $fleetArgs
       $logs = Join-Path $Project '.harness\fleet\logs'
       wt split-pane powershell -NoExit -Command "Get-Content -Wait -Path '$logs\*.log'"
+      $code = 0  # фоновый прогон — код неизвестен на момент возврата; панели для наблюдения
     }
   }
   else {
     & node @fleetArgs
+    $code = $LASTEXITCODE
   }
 }
 finally { Pop-Location }
+exit $code

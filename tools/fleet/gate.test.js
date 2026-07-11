@@ -165,3 +165,65 @@ test('gate: красный оракул → stage oracle, судья не зов
   assert.equal(r.stage, 'oracle');
   writeHarness('node --version'); // вернуть зелёный для гигиены
 });
+
+// --- inScope: чистая функция зоны [files:] ---
+test('inScope: точный путь и вне-зонные файлы', () => {
+  assert.equal(gate.inScope('out/alpha.txt', ['out/alpha.txt']), true);
+  assert.equal(gate.inScope('out/alpha.txt', ['out/*.txt']), true, 'глоб-зона по префиксу');
+  assert.equal(gate.inScope('.harness/harness.json', ['out/alpha.txt']), false, 'harness.json вне зоны');
+  assert.equal(gate.inScope('tasks.md', ['out/alpha.txt']), false, 'tasks.md вне зоны');
+  assert.equal(gate.inScope('.harness/run-log.jsonl', ['out/alpha.txt']), false, 'run-log вне зоны');
+});
+
+// --- T028 регрессия (живой блокер): воркер сам git commit'ит + правит вне [files:] ---
+// agy живьём: пишет scoped-файл → git add+commit (→ `git diff HEAD` ПУСТ) → на heal правит
+// harness.json/tasks.md вне зоны. Судья видел пустой/шумный дифф и REJECT-default бил чистую
+// работу. gate.normalizeWorktree обязан привести дерево к «base + только [files:], некоммичено».
+// Симулируем поведение обычным git (без реального agy) — детерминированно.
+test('gate: self-commit воркера + правка вне [files:] → нормализуются, судья видит чистый scoped-дифф → pass', async () => {
+  const R = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-norm-'));
+  const g2 = (args) => execFileSync('git', args, { cwd: R, encoding: 'utf8' });
+  try {
+    g2(['init', '-q']); g2(['config', 'user.email', 't@t']); g2(['config', 'user.name', 't']);
+    fs.mkdirSync(path.join(R, 'out'), { recursive: true });
+    fs.writeFileSync(path.join(R, 'out', '.gitkeep'), '');
+    fs.writeFileSync(path.join(R, 'tasks.md'), '- [ ] **T1** демо [files:out/alpha.txt]\n');
+    fs.mkdirSync(path.join(R, '.harness'), { recursive: true });
+    const baseShell = process.platform === 'win32' ? 'powershell' : 'bash';
+    fs.writeFileSync(path.join(R, '.harness', 'harness.json'),
+      JSON.stringify({ oracle: 'node --version', shell: baseShell, branchPolicy: 'feature', push: false }));
+    // capture-стаб судьи кладём в base (не часть слайса, чужой дифф не создаёт)
+    const cap = path.join(R, 'cap.txt');
+    fs.writeFileSync(path.join(R, 'judge.js'),
+      `const fs=require('fs');let d='';process.stdin.on('data',c=>d+=c);` +
+      `process.stdin.on('end',()=>{fs.writeFileSync(${JSON.stringify(cap)},d);` +
+      `console.log(JSON.stringify({verdict:'pass',reasons:['ok']}));});`);
+    g2(['add', '-A']); g2(['commit', '-q', '-m', 'seed']);
+    const base = g2(['rev-parse', 'HEAD']).trim();
+    g2(['checkout', '-q', '-b', 'fleet/T1']);
+
+    // СИМУЛЯЦИЯ agy: scoped-файл + правки tasks.md И harness.json вне зоны + САМ коммитит всё.
+    // (harness.json безопасно тут: gate нормализует ПЕРЕД своим оракулом — битый shell откатится
+    // до прогона оракула, в отличие от heal-фазы fleet.run, где оракул идёт раньше нормализации.)
+    fs.writeFileSync(path.join(R, 'out', 'alpha.txt'), 'ALPHA\n');
+    fs.writeFileSync(path.join(R, 'tasks.md'), '- [X] **T1** демо [files:out/alpha.txt]\n');
+    fs.writeFileSync(path.join(R, '.harness', 'harness.json'),
+      JSON.stringify({ oracle: 'node --version', shell: 'zsh', branchPolicy: 'feature', push: false }));
+    g2(['add', '-A']); g2(['commit', '-q', '-m', 'feat: add alpha output']);
+    assert.equal(g2(['diff', 'HEAD']).trim(), '', 'до нормализации git diff HEAD ПУСТ (self-commit спрятал работу)');
+
+    process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', path.join(R, 'judge.js')]);
+    const r = await gate.gate({ tid: 'T1', taskText: 'демо [files:out/alpha.txt]', cwd: R, integration: base });
+    delete process.env.FLEET_BIN_CLAUDE;
+
+    assert.equal(r.ok, true, 'нормализованный scoped-дифф → судья pass → commit (оракул зелёный: harness.json откачен ДО оракула)');
+    const promptSeen = fs.readFileSync(cap, 'utf8');
+    assert.match(promptSeen, /out\/alpha\.txt/, 'судья ВИДИТ scoped-файл в диффе (self-commit снят)');
+    assert.doesNotMatch(promptSeen, /\[X\] \*\*T1\*\*/, 'вне-зонная правка tasks.md НЕ в диффе судьи (возвращена к base)');
+    assert.match(fs.readFileSync(path.join(R, 'tasks.md'), 'utf8'), /- \[ \] \*\*T1\*\*/, 'tasks.md на диске восстановлен к base [ ]');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(R, '.harness', 'harness.json'), 'utf8')).shell, baseShell, 'harness.json shell восстановлен к base');
+  } finally {
+    delete process.env.FLEET_BIN_CLAUDE;
+    try { fs.rmSync(R, { recursive: true, force: true }); } catch { /* noop */ }
+  }
+});

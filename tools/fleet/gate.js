@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const providers = require('./providers');
+const plan = require('./plan');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 const JUDGE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -159,12 +160,72 @@ async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDG
   return { verdict, reasons: parseReasons(output), judgeLog: r.logPath, runOk: true };
 }
 
+// --- T028: нормализация worktree ПЕРЕД гейтом ------------------------------------
+// Воркер (agy доказанно живьём, но и claude/codex — агентные LLM статистически «доводят
+// до конца» коммитом, T016/T028 live-fire) может САМ `git add`+`git commit` работу и/или
+// тронуть файлы вне [files:] (tasks.md/harness.json/.harness/run-log.jsonl). Тогда
+// `git diff HEAD` пуст (работа уже в HEAD) или шумен → судья REJECT-default законно
+// блокирует чистую работу. Запрет в workerPrompt — ненадёжная первая линия (перебивает
+// сильный агентный прайор лишь иногда); здесь СТРУКТУРНАЯ гарантия под ним: приводим дерево
+// к «base + только зона [files:], НЕкоммичено», ЧТО БЫ воркер ни сделал. Провайдер-агностично.
+function gitSilent(args, cwd) {
+  try { execFileSync('git', args, { cwd, stdio: 'pipe' }); return true; } catch { return false; }
+}
+// Точка ветвления fleet/<tid> от интеграционной = база слайса. Иммунна к тому, что воркер
+// накоммитил сверху И что интеграционная уехала вперёд (merge-base = общий предок).
+function mergeBase(cwd, integration) {
+  if (!integration) return null;
+  try { return execFileSync('git', ['merge-base', 'HEAD', integration], { cwd, encoding: 'utf8' }).trim() || null; }
+  catch { return null; }
+}
+function scopeFilesFromTask(taskText) {
+  const m = (taskText || '').match(/\[files:([^\]]+)\]/);
+  return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : [];
+}
+// Путь в объявленной зоне [files:]? По префиксу глоба (как plan.filesConflict). Нужен лишь
+// чтобы НЕ откатывать харнесс-файл, который слайс ЯВНО объявил своей зоной (редкий барьер-слайс).
+function inScope(rel, files) {
+  const p = rel.replace(/\\/g, '/');
+  return files.some((g) => { const pre = plan.globPrefix(g); return p === g || (pre && p.startsWith(pre)); });
+}
+// Харнесс/оркестратор-владения: ни один слайс не трогает их легитимно. tasks.md — [X]-марку
+// ставит оркестратор ПОСЛЕ merge (gate.js:4); .harness/** — harness.json/run-log.jsonl/CLI-состояние.
+// Именно ЭТО agy контаминировал (shell bash→powershell, [ ]→[X], лишний elt commit). Откатываем
+// ТОЛЬКО их, а НЕ «всё вне [files:]»: настоящий scope-creep в РАБОТЕ (лишний out/beta.txt) обязан
+// увидеть и заблокировать судья, а не оркестратор молча спрятать.
+function isHarnessOwned(rel) {
+  const p = rel.replace(/\\/g, '/');
+  return p === 'tasks.md' || p.endsWith('/tasks.md') || p === '.harness' || p.startsWith('.harness/');
+}
+// reset --soft <base> некоммитит правки воркера (содержимое НЕ теряется — остаётся в дереве);
+// git-guardrails блокирует только --hard, и этот вызов идёт из child-процесса, не через тул.
+function normalizeWorktree(cwd, base, files) {
+  if (base) gitSilent(['reset', '--soft', base], cwd); // un-commit self-commit воркера (HEAD→base)
+  if (!base) return;                                   // без base откатывать нечем — только un-commit невозможен тоже
+  let status = '';
+  try { status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' }); } catch { return; }
+  for (const line of status.split(/\r?\n/)) {
+    if (line.length < 4) continue;                     // "XY path" — минимум 4 символа
+    const rel = line.slice(3).replace(/^"|"$/g, '').trim();
+    if (!rel || !isHarnessOwned(rel) || inScope(rel, files)) continue; // трогаем ТОЛЬКО харнесс-файлы вне явной зоны
+    // ponytail: rename в porcelain ("R old -> new") checkout не разберёт — редко; gitSilent молча мимо.
+    if (line.startsWith('??')) { try { fs.rmSync(path.join(cwd, rel), { force: true, recursive: true }); } catch { /* уже нет */ } }
+    else gitSilent(['checkout', base, '--', rel], cwd); // вернуть харнесс-файл к base
+  }
+}
+
 // Полный гейт слайса. Возвращает {ok, stage?, verdict?, tid, ...}.
 // stage: 'oracle' (красный оракул) | 'judge-unavailable' (судья не отработал, парковка,
 // НЕ reject) | 'judge' (легитимный block) | 'commit' (git-фейл).
-async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeModel = 'sonnet', prevBlockReason = '' }) {
+// integration — интеграционная ветка (база слайса): включает T028-нормализацию. Без неё
+// (тесты/ручной вызов) нормализация = no-op, поведение как раньше.
+async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeModel = 'sonnet', prevBlockReason = '', integration = null }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
+
+  // 0.5. нормализация (T028): снять self-commit воркера + вернуть вне-зонные правки к base,
+  //      иначе судья видит пустой/шумный дифф и REJECT-default бьёт по чистой работе.
+  normalizeWorktree(cwd, mergeBase(cwd, integration), scopeFilesFromTask(taskText));
 
   // 1. оракул (неизменный, из harness.json worktree)
   const o = spawnSync('node', [elt, 'oracle'], { cwd, encoding: 'utf8' });
@@ -183,4 +244,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir };
+module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase };
