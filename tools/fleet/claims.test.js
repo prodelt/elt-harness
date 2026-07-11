@@ -57,3 +57,13 @@ test('list помечает живой claim как не-stale', () => {
   const mine = claims.list({ cwd: CWD }).find((c) => c.tid === 'T5');
   assert.equal(mine.stale, false);
 });
+
+test('setState (T021) обновляет поля существующего claim, не трогая pid/worker', () => {
+  claims.claim('T6', { cwd: CWD, pid: process.pid, worker: 'w1', meta: { state: 'implementing' } });
+  const next = claims.setState('T6', { state: 'judge_pending', wtPath: '/tmp/x' }, { cwd: CWD });
+  assert.equal(next.state, 'judge_pending');
+  assert.equal(next.wtPath, '/tmp/x');
+  assert.equal(next.pid, process.pid, 'pid не тронут');
+  const read = claims.list({ cwd: CWD }).find((c) => c.tid === 'T6');
+  assert.equal(read.state, 'judge_pending');
+});

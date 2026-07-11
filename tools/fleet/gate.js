@@ -75,25 +75,28 @@ function slurpDiff(cwd, cap = 12000) {
   return { diff: diff.length > cap ? diff.slice(0, cap) + '\n…(обрезано)…' : diff, status };
 }
 
-// Прогнать судью. Битый/пустой/зависший судья → вердикт block (REJECT-default).
+// Прогнать судью. runOk=false = судья НЕ смог отработать (timeout/spawn-error/nonzero-exit/
+// пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
+// judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
+// runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
 async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS }) {
   const { diff, status } = slurpDiff(cwd);
   const prompt = judgePrompt(tid, taskText, diff, status);
   const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
+  if (!r.ok) return { verdict: null, judgeLog: r.logPath, runOk: false };
   // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
   // ответа. Лог-файл (stdout+stderr вперемешку) — только фолбэк для старого prose-парсера.
   let output = r.stdout || r.lastMsg || '';
   if (!parseStructuredVerdict(output)) {
     try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
   }
-  // pass требует И чистого прогона судьи (r.ok), И явного verdict:pass. Зависший/упавший/
-  // пустой судья (r.ok=false) → block, не доверяем частичному выводу (REJECT-default).
-  const verdict = (r.ok && parseVerdict(output) === 'pass') ? 'pass' : 'block';
-  return { verdict, judgeLog: r.logPath, runOk: r.ok };
+  const verdict = parseVerdict(output) === 'pass' ? 'pass' : 'block';
+  return { verdict, judgeLog: r.logPath, runOk: true };
 }
 
 // Полный гейт слайса. Возвращает {ok, stage?, verdict?, tid, ...}.
-// stage: 'oracle' (красный оракул) | 'judge' (block) | 'commit' (git-фейл).
+// stage: 'oracle' (красный оракул) | 'judge-unavailable' (судья не отработал, парковка,
+// НЕ reject) | 'judge' (легитимный block) | 'commit' (git-фейл).
 async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeModel = 'sonnet' }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
@@ -104,6 +107,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
 
   // 2. судья (обязателен, REJECT-default)
   const j = await runJudge({ cwd, tid, taskText, model: judgeModel });
+  if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
   if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, tid, judgeLog: j.judgeLog };
 
   // 3. commit БЕЗ [X]-марка (без --task): оракул уже прогнан → --skip-oracle

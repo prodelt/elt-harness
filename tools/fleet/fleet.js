@@ -87,6 +87,44 @@ function cleanupSlice(cwd, tid, { deleteBranch = true } = {}) {
   claims.release(tid, { cwd });
 }
 
+// T021: дожать слайсы, застрявшие на judge_pending/merge_pending (мёртвый pid, живой worktree).
+// НЕ зовёт worker — реализация уже лежит в worktree (judge_pending) или уже закоммичена
+// (merge_pending), передел исключён. Судья снова недоступен → ре-парковка, суммарный
+// прогон не считает это failed (ждёт следующего resume).
+async function resumeParked(resumable, { cwd, integration, tasksPath, judgeModel, summary }) {
+  for (const c of resumable) {
+    const wtPath = c.wtPath;
+    claims.claim(c.tid, { cwd, pid: process.pid, worker: 'fleet-resume', meta: { provider: c.provider, state: c.state, wtPath, taskText: c.taskText } });
+    emit(cwd, { event: 'resume-parked', tid: c.tid, state: c.state });
+
+    if (c.state === 'judge_pending') {
+      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeModel });
+      if (g.stage === 'judge-unavailable') {
+        emit(cwd, { event: 'judge-still-unavailable', tid: c.tid });
+        claims.setState(c.tid, { state: 'judge_pending' }, { cwd }); // остаётся припаркован
+        continue;
+      }
+      if (!g.ok) {
+        emit(cwd, { event: 'resume-gate-reject', tid: c.tid, stage: g.stage });
+        cleanupSlice(cwd, c.tid);
+        summary.failed.push(c.tid);
+        continue;
+      }
+      claims.setState(c.tid, { state: 'merge_pending' }, { cwd });
+    }
+
+    const m = merge.mergeSlice(c.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
+    if (m.conflict) {
+      emit(cwd, { event: 'resume-merge-conflict', tid: c.tid });
+      summary.conflicts.push(c.tid); // claim/worktree/branch остаются — следующий resume дожмёт
+      continue;
+    }
+    emit(cwd, { event: 'resume-merged', tid: c.tid, oracleOk: m.oracleOk });
+    cleanupSlice(cwd, c.tid);
+    summary.merged.push(c.tid);
+  }
+}
+
 async function run(opts = {}) {
   const cwd = opts.cwd || process.cwd();
   const tasksPath = opts.tasksPath;
@@ -101,7 +139,7 @@ async function run(opts = {}) {
   const maxLoops = opts.maxLoops || 100;
   const maxAttempts = opts.maxAttempts || 3;
 
-  const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], stopped: false, stoppedReason: null };
+  const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], parked: [], stopped: false, stoppedReason: null };
   const policy = router.loadPolicy(cwd);
   const routerState = router.makeState();
   const callTracker = router.makeCallTracker();
@@ -125,6 +163,16 @@ async function run(opts = {}) {
 
   ensureFleetIgnore(cwd); // не тащить runtime-артефакты в git основного репо
   emit(cwd, { event: 'start', integration, workers, chain });
+
+  // T021: распарковать слайсы, упавшие на judge_pending/merge_pending (мёртвый pid, живой
+  // worktree) ДО общего sweep — иначе sweep их же и освободит как обычный stale-claim, и
+  // следующий batch тупо перезапустит воркера поверх уже готовой (но неcommit'нутой) правки.
+  const staleAtStart = claims.stale({ cwd });
+  const resumable = staleAtStart.filter((c) => (c.state === 'judge_pending' || c.state === 'merge_pending') && c.wtPath && fs.existsSync(c.wtPath));
+  if (resumable.length) {
+    emit(cwd, { event: 'resume-parked-found', tids: resumable.map((c) => c.tid) });
+    await resumeParked(resumable, { cwd, integration, tasksPath, judgeModel, summary });
+  }
   const swept = claims.sweep({ cwd });
   if (swept.length) emit(cwd, { event: 'resume-sweep', freed: swept });
 
@@ -133,7 +181,12 @@ async function run(opts = {}) {
 
     const slices = plan.parseFile(tasksPath);
     const byId = new Map(slices.map((s) => [s.id, s]));
-    const batch = plan.nextBatch(slices).filter((s) => !isAbandoned(s.id)).slice(0, workers);
+    // Слайсы, припаркованные (живым) claim'ом на judge_pending/merge_pending, не re-claim'ятся
+    // обычным путём — их дожимает resumeParked при следующем запуске run(), не воркер здесь.
+    const parkedIds = new Set(claims.list({ cwd })
+      .filter((c) => !c.stale && (c.state === 'judge_pending' || c.state === 'merge_pending'))
+      .map((c) => c.tid));
+    const batch = plan.nextBatch(slices).filter((s) => !isAbandoned(s.id) && !parkedIds.has(s.id)).slice(0, workers);
     if (!batch.length) { emit(cwd, { event: 'done' }); break; }
     emit(cwd, { event: 'batch', tids: batch.map((s) => s.id) });
 
@@ -151,9 +204,10 @@ async function run(opts = {}) {
     // фаза 0: claim + worktree — сериально (git worktree add не конкурентен)
     const active = [];
     for (const { slice, provider } of providersForBatch) {
-      const cl = claims.claim(slice.id, { cwd, worker: 'fleet', meta: { provider } });
+      const cl = claims.claim(slice.id, { cwd, worker: 'fleet', meta: { provider, state: 'implementing', taskText: slice.text } });
       if (!cl.ok) { emit(cwd, { event: 'skip-held', tid: slice.id, heldBy: cl.heldBy && cl.heldBy.pid }); continue; }
       const wt = worktree.create(slice.id, { cwd, base: integration });
+      claims.setState(slice.id, { wtPath: wt.path }, { cwd });
       active.push({ slice, wtPath: wt.path, provider });
     }
 
@@ -190,6 +244,7 @@ async function run(opts = {}) {
           return { tid: slice.id, gateOk: false, limitHit: true, nextProvider: limit.next };
         }
 
+        claims.setState(slice.id, { state: 'oracle' }, { cwd });
         // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed)
         // T020-cap на сам heal.healSlice-вызов НЕ ставим здесь: heal сам решает, спавнить ли
         // (0 spawn'ов, если оракул уже зелёный) — точный per-spawn cap внутри heal — T022.
@@ -205,12 +260,27 @@ async function run(opts = {}) {
         if (h.attempts) emit(cwd, { event: 'healed', tid: slice.id, attempts: h.attempts, by: h.healedBy });
 
         // Судья всегда claude (gate.gate/runJudge) — cap проверяем под провайдером 'claude'.
+        claims.setState(slice.id, { state: 'judge_pending' }, { cwd });
         const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
         try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel }); }
         finally { router.endCall(callTracker, 'claude'); }
+
+        // T021: судья НЕ отработал (timeout/spawn-error) — паркуем worktree на judge_pending,
+        // НЕ трогаем реализацию. Слайс остаётся claimed (наш живой pid) → следующий loop его
+        // не re-claim'ит (parkedIds), резюмируется на старте следующего run() без воркера.
+        if (g.stage === 'judge-unavailable') {
+          emit(cwd, { event: 'judge-unavailable-park', tid: slice.id });
+          appendRunLog(cwd, {
+            tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
+            failoverFrom: null, limitHit: false, verdict: 'judge-unavailable'
+          });
+          return { tid: slice.id, gateOk: false, parked: true };
+        }
+
         emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
+        if (g.ok) claims.setState(slice.id, { state: 'merge_pending' }, { cwd });
 
         appendRunLog(cwd, {
           tid: slice.id, provider, model, durationSec: Math.round((Date.now() - started) / 1000),
@@ -232,6 +302,7 @@ async function run(opts = {}) {
     let stopHit = false;
     let stopReason = null;
     for (const r of gated) {
+      if (r.parked) { summary.parked.push(r.tid); continue; } // claim/worktree нетронуты — резюмируется на следующем run()
       if (!r.gateOk) {
         cleanupSlice(cwd, r.tid);
         if (r.capped) {
