@@ -87,6 +87,29 @@ function cleanupSlice(cwd, tid, { deleteBranch = true } = {}) {
   claims.release(tid, { cwd });
 }
 
+// T024: честный merge-исход. Вызывать ТОЛЬКО когда !m.conflict (конфликт разбирает
+// сам вызывающий — там своя логика requeue). non-conflict m.ok=false (checkout/commit
+// стадия упала) ИЛИ реальный merge с красным интеграционным оракулом ⇒ terminal-failed,
+// НЕ "merged" (дефект 5). Интеграционный оракул больше не skip-абельный (дефект 4).
+function applyMergeResult(m, tid, cwd, summary, mergedEvent) {
+  if (!m.ok) {
+    emit(cwd, { event: 'merge-failed', tid, stage: m.stage, err: m.err });
+    cleanupSlice(cwd, tid);
+    summary.failed.push(tid);
+    return false;
+  }
+  if (m.merged && m.oracleOk === false) {
+    emit(cwd, { event: 'merge-oracle-red', tid });
+    cleanupSlice(cwd, tid);
+    summary.failed.push(tid);
+    return false;
+  }
+  emit(cwd, { event: mergedEvent, tid, oracleOk: m.oracleOk });
+  cleanupSlice(cwd, tid);
+  summary.merged.push(tid);
+  return true;
+}
+
 // T021: дожать слайсы, застрявшие на judge_pending/merge_pending (мёртвый pid, живой worktree).
 // НЕ зовёт worker — реализация уже лежит в worktree (judge_pending) или уже закоммичена
 // (merge_pending), передел исключён. Судья снова недоступен → ре-парковка, суммарный
@@ -113,15 +136,13 @@ async function resumeParked(resumable, { cwd, integration, tasksPath, judgeModel
       claims.setState(c.tid, { state: 'merge_pending' }, { cwd });
     }
 
-    const m = merge.mergeSlice(c.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
+    const m = merge.mergeSlice(c.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
     if (m.conflict) {
       emit(cwd, { event: 'resume-merge-conflict', tid: c.tid });
       summary.conflicts.push(c.tid); // claim/worktree/branch остаются — следующий resume дожмёт
       continue;
     }
-    emit(cwd, { event: 'resume-merged', tid: c.tid, oracleOk: m.oracleOk });
-    cleanupSlice(cwd, c.tid);
-    summary.merged.push(c.tid);
+    applyMergeResult(m, c.tid, cwd, summary, 'resume-merged');
   }
 }
 
@@ -328,7 +349,7 @@ async function run(opts = {}) {
         }
         continue;
       }
-      const m = merge.mergeSlice(r.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
+      const m = merge.mergeSlice(r.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
       if (m.conflict) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
         cleanupSlice(cwd, r.tid); // сбросить ветку/worktree
@@ -342,9 +363,7 @@ async function run(opts = {}) {
           else recordFail(r.tid);
         }
       } else {
-        emit(cwd, { event: 'merged', tid: r.tid, oracleOk: m.oracleOk });
-        cleanupSlice(cwd, r.tid);
-        summary.merged.push(r.tid);
+        applyMergeResult(m, r.tid, cwd, summary, 'merged');
       }
     }
     if (stopHit) {
@@ -408,10 +427,14 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
       failoverFrom: null, limitHit: false, verdict: g.ok ? 'pass' : 'gate-reject'
     });
     if (!g.ok) { emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: g.stage }); cleanupSlice(cwd, slice.id); return { ok: false }; }
-    const m = merge.mergeSlice(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: false });
+    const m = merge.mergeSlice(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
     cleanupSlice(cwd, slice.id);
     if (m.conflict) { emit(cwd, { event: 'redo-conflict', tid: slice.id }); return { ok: false }; }
-    emit(cwd, { event: 'redo-merged', tid: slice.id });
+    if (!m.ok || (m.merged && m.oracleOk === false)) {
+      emit(cwd, { event: 'redo-merge-failed', tid: slice.id, stage: m.stage });
+      return { ok: false };
+    }
+    emit(cwd, { event: 'redo-merged', tid: slice.id, oracleOk: m.oracleOk });
     return { ok: true };
   } catch (e) {
     emit(cwd, { event: 'redo-error', tid: slice.id, err: e.message });
@@ -488,7 +511,12 @@ function renderStatus(st) {
     planLine + stopLine;
 }
 
-module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore };
+// T024: любой failed/abandoned слайс — нечестный success, если промолчать (как и stoppedReason, T020).
+function exitCodeFor(summary) {
+  return (summary.stoppedReason || summary.failed.length || summary.abandoned.length) ? 1 : 0;
+}
+
+module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor };
 
 // --- CLI (для обёртки tools/elt-fleet.ps1) ---
 if (require.main === module) {
@@ -506,8 +534,7 @@ if (require.main === module) {
     run({ cwd, tasksPath, integration: arg('--integration', undefined), workers: Number(arg('--workers', 2)) })
       .then((s) => {
         console.log('fleet summary: ' + JSON.stringify(s));
-        // T020: cap-exceeded/all-providers-cooling — честный nonzero, не тихий success.
-        if (s.stoppedReason) process.exit(1);
+        if (exitCodeFor(s)) process.exit(1);
       })
       .catch((e) => { console.error(e.message); process.exit(1); });
   } else {

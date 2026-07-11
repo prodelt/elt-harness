@@ -349,3 +349,58 @@ test('T021: crash-resume дожимает judge_pending БЕЗ повторно�
   assert.match(tasks, /- \[X\] \*\*T1\*\*/, 'T1 закрыт через resume');
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+test('T024: exitCodeFor — failed/abandoned тоже даёт nonzero, не только stoppedReason', () => {
+  const base = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], parked: [], stopped: false, stoppedReason: null };
+  assert.equal(fleet.exitCodeFor(base), 0, 'всё чисто → 0');
+  assert.equal(fleet.exitCodeFor({ ...base, stoppedReason: 'cap-exceeded' }), 1, 'T020: stoppedReason → 1');
+  assert.equal(fleet.exitCodeFor({ ...base, failed: ['T3'] }), 1, 'T024: failed без stoppedReason → 1 (раньше было 0)');
+  assert.equal(fleet.exitCodeFor({ ...base, abandoned: ['T9'] }), 1, 'T024: abandoned без stoppedReason → 1 (раньше было 0)');
+});
+
+test('T024: 1 abandoned слайс среди прочих → честный failed/exitCodeFor, интеграционный оракул реально вызван после merge', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-honesty-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'),
+    '- [ ] **T1** здоровый [P] [files:a*]\n- [ ] **T9** застрял [P] [files:z*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  // оракул красный, если существует broken.flag — T9 сам его создаёт КАЖДЫЙ раз (не
+  // унаследовать «случайно зелёный» оракул от merge'а T1 в интеграционную, в отличие
+  // от позитивного маркера, которого мог бы не досоздать T9 на уже обновлённой main).
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
+    oracle: process.platform === 'win32' ? "if (Test-Path 'broken.flag') { exit 1 }" : "test ! -f broken.flag",
+    shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false,
+  }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  const judgeStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+
+  const mockWorker = async (slice, wt) => {
+    if (slice.id === 'T1') {
+      fs.writeFileSync(path.join(wt, 'a.txt'), 'A\n');
+    } else {
+      fs.writeFileSync(path.join(wt, 'z.txt'), 'z\n');
+      fs.writeFileSync(path.join(wt, 'broken.flag'), 'x\n'); // оракул слайса всегда красный
+    }
+    return { ok: true, stdout: 'done' };
+  };
+
+  const s = await fleet.run({
+    cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
+    integration: 'main', workers: 2, worker: mockWorker, maxAttempts: 2,
+  });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.deepEqual(s.merged, ['T1'], 'T1 честно влит');
+  assert.ok(s.abandoned.includes('T9'), 'T9 abandoned — heal исчерпан, до judge/merge не дошёл');
+  assert.equal(fleet.exitCodeFor(s), 1, 'CLI вернул бы nonzero из-за abandoned-слайса');
+
+  // интеграционный оракул реально прогнан ПОСЛЕ merge T1 (дефект 4 — больше не skip-абелен).
+  const events = fs.readFileSync(path.join(repo, '.harness', 'fleet', 'events.jsonl'), 'utf8');
+  assert.match(events, /"event":"merged","tid":"T1","oracleOk":true/, 'merge-событие несёт РЕАЛЬНЫЙ oracleOk:true, не null (oracle:false)');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
