@@ -31,13 +31,34 @@ function Ts { (Get-Date).ToString("yyyyMMdd-HHmmss") }
 function Append-RunLog($obj) {
   ($obj | ConvertTo-Json -Compress -Depth 6) | Add-Content -Path $runLog -Encoding utf8
 }
-# Вызов headless claude. stderr → $null (безвредный stdin-warning не оборачивается в
-# терминирующий NativeCommandError). Возвращает stdout строкой, пишет её в лог.
-function Invoke-Claude([string[]]$ClaudeArgs, [string]$LogPath, [switch]$Append) {
-  $out = (& claude @ClaudeArgs 2>$null | Out-String)
-  if ($Append) { $out | Out-File -FilePath $LogPath -Append -Encoding utf8 }
-  else         { $out | Out-File -FilePath $LogPath -Encoding utf8 }
-  return $out
+# Баг #10 (T016) чинили резолвом .cmd-шима в claude.exe — но остался баг глубже: Windows
+# PowerShell 5.1 (`& $exe @ArgsArray`) сам не умеет корректно маршалить argv-элементы с
+# embedded `"` в НАТИВНЫЙ .exe (не только через cmd.exe-шим) — известный дефект легаси
+# native-parameter-binding PS5.1. --json-schema и промпты с diff'ами реального кода (где
+# кавычки почти неизбежны) молча ломались, ошибка claude.exe уходила в stderr → глушилась
+# `2>$null` → пустой лог → REJECT-default блокировал ЛЮБОЙ слайс (обнаружено 2026-07-11,
+# A/B fleet-vs-solo, solo T002 — 2 независимых воспроизведения). Обходим маршалинг
+# ПОЛНОСТЬЮ: делегируем реальный spawn в tools/claude-invoke.js → tools/fleet/providers.js
+# (Node сам корректно экранирует Windows argv, проверено live тем же прогоном на fleet).
+# Промпт/схема идут в JSON-дескрипторе через временный файл (без argv вообще) — до node
+# долетает только путь к файлу, простая строка без единой кавычки внутри.
+$claudeInvoke = Join-Path $PSScriptRoot "claude-invoke.js"
+function Invoke-Claude {
+  param(
+    [string]$Prompt,
+    [string]$LogPath,
+    [string]$Model = $null,
+    [string]$JsonSchema = $null,
+    [int]$TimeoutMs = 1200000
+  )
+  $desc = @{ prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath }
+  $descFile = [System.IO.Path]::GetTempFileName()
+  try {
+    ($desc | ConvertTo-Json -Depth 6 -Compress) | Out-File -FilePath $descFile -Encoding utf8
+    return (& node $claudeInvoke $descFile 2>$null | Out-String)
+  } finally {
+    Remove-Item -Path $descFile -ErrorAction SilentlyContinue
+  }
 }
 
 Push-Location $Project
@@ -80,7 +101,7 @@ try {
 
     # 4. имплементатор (свежий контекст)
     Write-Host "elt-loop: имплементатор…"
-    Invoke-Claude @('-p', $implPrompt, '--dangerously-skip-permissions') $implLog | Out-Null
+    Invoke-Claude -Prompt $implPrompt -LogPath $implLog | Out-Null
 
     # 5. оракул + 1 retry
     & node $eltCli oracle
@@ -92,7 +113,7 @@ try {
 $tail
 Почини МИНИМАЛЬНО только то, на что указывает ошибка. Тесты не ослаблять и не удалять. НЕ коммить.
 "@
-      Invoke-Claude @('-p', $healPrompt, '--dangerously-skip-permissions') $implLog -Append | Out-Null
+      Invoke-Claude -Prompt $healPrompt -LogPath $implLog | Out-Null
       & node $eltCli oracle
       if ($LASTEXITCODE -ne 0) {
         Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; oracle = @{ exit = $LASTEXITCODE }; result = "red-stop" }
@@ -142,11 +163,10 @@ $diff
     # --json-schema/--output-format json (T016 live-fire): prose-парсер регулярно мимо —
     # модель пишет "принято"/"зачёт" вместо литерального pass/block, REJECT-default тогда
     # блокирует легитимные слайсы. Structured output — надёжный путь, regex ниже — фолбэк.
-    # backslash-escaped кавычки (не литеральные "): PowerShell splatting в нативный .exe
-    # ломает JSON с литеральными " (T016 live-fire — "--json-schema is not valid JSON"),
-    # нативная argv-конвенция ждёт \" внутри аргумента.
-    $verdictSchema = '{\"type\":\"object\",\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"pass\",\"block\"]},\"reasons\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"verdict\",\"reasons\"]}'
-    $judgeOut = Invoke-Claude @('-p', $judgePrompt, '--model', $JudgeModel, '--json-schema', $verdictSchema, '--output-format', 'json', '--dangerously-skip-permissions') $judgeLog
+    # Литеральные кавычки, доставляются через claude-invoke.js (см. Invoke-Claude выше) —
+    # PowerShell 5.1 сам их не маршалит, поэтому JSON идёт через дескриптор-файл, не argv.
+    $verdictSchema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","block"]},"reasons":{"type":"array","items":{"type":"string"}}},"required":["verdict","reasons"]}'
+    $judgeOut = Invoke-Claude -Prompt $judgePrompt -LogPath $judgeLog -Model $JudgeModel -JsonSchema $verdictSchema -TimeoutMs 300000
 
     # Парс вердикта: (0) structured_output из JSON-массива --output-format json (надёжный путь);
     # (1) JSON-ключ "verdict":"pass|block"; (2) проза «Вердикт/Verdict: pass|block» (фолбэк).
