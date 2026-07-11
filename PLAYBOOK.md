@@ -16,6 +16,7 @@
    Параллельно (≥3 [P]-слайсов, disjoint `[files:]`) → **fleet** `tools/elt-fleet.ps1`
    (N воркеров claude/codex/agy в git worktree; гейт неизменен: оракул→судья→`elt commit`;
    merge-очередь, роутер+failover; `specs/002-elt-fleet`, T003 live-fire ждёт agy-логина).
+   ⚠ **Fleet experimental — не для реальной работы, пока `specs/003-elt-fleet-hardening` не закрыт.**
 2. **Не-код нетривиальное →** `/pipeline` (классификация) или `/elt-work` (офис).
 3. **Тривиальное** (опечатка, одна правка, вопрос) → просто делай, без церемоний.
 4. **Закрытие любой задачи** — только с доказательством (вывод build/test/lint), не «готово».

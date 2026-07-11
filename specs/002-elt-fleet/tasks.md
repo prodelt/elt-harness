@@ -1,5 +1,11 @@
 # tasks — ELT Fleet (specs/002-elt-fleet/spec.md, дизайн: .planning/ELT-FLEET-DESIGN.md)
 
+> ⚠ **Experimental — не для реальной работы.** Аудит 2026-07-10 нашёл дефекты MVP
+> (≥94 Claude-вызовов без явной модели, exit 0 при failed/abandoned слайсах, STOP не
+> убивал процессы, merge мог захватить чужие правки). T008, T009, T012, T016, T017 ниже
+> помечены `[X]`, но переоткрыты как ложно/частично закрытые — доказывает их
+> `specs/003-elt-fleet-hardening/tasks.md`. Fleet живёт только если 003 закрывается зелёным.
+
 > Оракул репо: `node tools/doctor.test.js && node --test tools/fleet/*.test.js` (bash-shell).
 > (glob, не голая директория: Node v24 грузит `tools/fleet/` как модуль — все fleet-тесты плоские в папке.)
 > `[live]` = слайс с реальными CLI/квотами — гнать при юзере, оракул = скрипт-проверка.
