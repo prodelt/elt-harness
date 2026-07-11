@@ -65,14 +65,23 @@ round-trip, `rate_limit_info:{status:"allowed"}`, полный structured output
   (фикс, судья pass). 1 uncommitted: `.harness/run-log.jsonl` (M, ожидаемо — драйвер сам
   дописывает при каждом прогоне, не относится к фиксу).
 - **Fleet track**: `D:\Ametrin projects\Ametryn_protocol_bot-fleet`, branch
-  `fleet/001-rust-local-ai-rewrite`, last commit `74a994a` (merge T003). T004 abandoned
-  (3 попытки, все legit judge-block). **Fleet-прогон запущен повторно** (task
-  `bcl3ewizp`, ещё выполняется на момент чекпоинта) — подхватит следующий открытый
-  слайс после T004 (T005/T009 и т.д. по [P]-волне).
+  `fleet/001-rust-local-ai-rewrite`, last commit `74a994a` (merge T003), fleet 3/14.
+  T004 (тот же whisper-rs слайс, что и у solo) прошёл ДРУГОЙ путь провала: 2×legit
+  judge-block, затем `limit-hit` (rate-limit) → `all-providers-cooling` → драйвер
+  остановился сам (`stoppedReason:"all-providers-cooling"`), T004 requeued (не abandoned
+  в этом заходе). **Не запущен повторно в конце сессии** — ждёт следующего релонча.
 - **Solo track**: `D:\Ametrin projects\Ametryn_protocol_bot-solo`, branch
-  `solo/001-rust-local-ai-rewrite`. **Update:** T002 закоммичен `6e00282` (фикс сработал,
-  scope creep не повторился), T003 закоммичен `49d1645` — solo теперь 3/14 (T001-T003).
-  Драйвер (task `bcl3ewizp`) продолжает молотить оставшиеся слайсы автономно.
+  `solo/001-rust-local-ai-rewrite`. **Финал сессии:** T002 `6e00282`, T003 `49d1645` —
+  solo 3/14 закрыто. T004 (`crates/transcribe`, whisper-rs) — **red-stop, НЕ баг харнесса**:
+  `cargo build` реально красный (`error[E0277]` `?`-оператор не на `Try`-типе,
+  `error[E0599]` метод `full_get_segment_text` не существует на `WhisperState` в
+  установленной версии `whisper-rs` — implementer использовал устаревший/неверный API).
+  Self-heal (2 попытки) не справился, драйвер корректно остановился НЕ коммитя красное.
+  Uncommitted: `crates/transcribe/{Cargo.toml,src/lib.rs}`, `Cargo.lock`,
+  `.harness/run-log.jsonl` — оставлено как есть для следующей сессии (не коммитить,
+  не откатывать — рабочее состояние implementer'а, нужно либо чинить API руками/новым
+  implementer-прогоном, либо позволить драйверу самому продолжить retry на T004 при
+  следующем релонче).
 
 ### Completed Tasks
 - Диагностирован и починен PowerShell 5.1 native-argv-marshalling баг в
@@ -112,13 +121,21 @@ round-trip, `rate_limit_info:{status:"allowed"}`, полный structured output
 3. Копить прогоны до значимого числа слайсов на обоих треках, затем писать итоговый
    A/B-вердикт.
 
+### Сессия завершена (юзер попросил закрыть)
+Оба трека остановлены НЕ вручную — оба сами упёрлись в легитимные блокеры (solo:
+красная компиляция whisper-rs API на T004; fleet: rate-limit cooling). Ничего фонового
+не осталось запущенным, монитор `bjwi953yc` остановлен, дерево Pipeline Setupper чистое
+после коммита этого чекпоинта.
+
 ### Resume Pointer
 - Focus: продолжать fleet vs solo A/B на Ametryn Protocol Bot Rust-rewrite —
-  инфраструктура (судья) теперь честно работает на обоих треках, дальше это чистое
-  сравнение методов, не борьба с багами драйвера.
-- Resume: проверить `elt status`/`git log` в обоих worktree
-  (`D:\Ametrin projects\Ametryn_protocol_bot-fleet` и `-solo`), при необходимости
-  релончить оба драйвера с PATH-префиксом:
+  инфраструктура (судья) теперь честно работает на обоих треках (главный результат этой
+  сессии), T004 (whisper-rs) — общий для обоих треков затык на реальном API компиляции,
+  не на харнессе.
+- Resume: (1) починить/уточнить `whisper-rs` API для `full_get_segment_text` (проверить
+  актуальную версию crate — возможно нужен другой метод или `?` требует `From`-конверсию
+  ошибки) — либо руками в обоих worktree, либо дать implementer-прогону ещё попытку.
+  (2) Релончить оба драйвера с PATH-префиксом:
   `$env:PATH = "C:\Program Files\CMake\bin;$env:USERPROFILE\.cargo\bin;" + $env:PATH`
   затем `tools/elt-loop.ps1 -Project "...-solo" -Slices N -MaxMinutes 600 -JudgeModel sonnet`
   и `tools/elt-fleet.ps1 -Action run -Project "...-fleet" -Tasks specs/001-rust-local-ai-rewrite/tasks.md -Workers 3`.
