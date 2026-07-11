@@ -92,8 +92,10 @@ function workerPrompt(slice) {
 }
 
 // Дефолтный воркер: headless-провайдер делает слайс в worktree. Тест инжектит свой.
+// T027: ctx.stopFile — путь к .harness/STOP КОРНЕВОГО проекта (не wtPath) — providers.run
+// поллит его и убивает child ≤секунд, не ждёт batch-границы/timeoutMs.
 async function defaultWorker(slice, wtPath, ctx) {
-  return providers.run({ provider: ctx.provider, prompt: workerPrompt(slice), cwd: wtPath, model: ctx.model });
+  return providers.run({ provider: ctx.provider, prompt: workerPrompt(slice), cwd: wtPath, model: ctx.model, stopFile: ctx.stopFile });
 }
 
 function cleanupSlice(cwd, tid, { deleteBranch = true } = {}) {
@@ -221,6 +223,17 @@ async function run(opts = {}) {
     emit(cwd, { event: 'resume-parked-found', tids: resumable.map((c) => c.tid) });
     await resumeParked(resumable, { cwd, integration, tasksPath, judgeModel, summary });
   }
+  // T027 (crash-resume не оставляет orphan .fleet-wt): claims.sweep() снимает только
+  // claim-файл — worktree упавшего процесса (implementing/oracle/heal, до judge_pending)
+  // остаётся на диске без владельца. Следующий worktree.create() на ту же ветку упал бы
+  // "already exists". Чистим ИХ worktree здесь же, ДО sweep — resumable уже обработаны выше
+  // и трогать их нельзя (там живая незакоммиченная реализация).
+  const resumableIds = new Set(resumable.map((c) => c.tid));
+  const orphaned = staleAtStart.filter((c) => !resumableIds.has(c.tid) && c.wtPath && fs.existsSync(c.wtPath));
+  for (const c of orphaned) {
+    emit(cwd, { event: 'resume-orphan-worktree-cleaned', tid: c.tid, state: c.state });
+    try { worktree.remove(c.tid, { cwd, force: true, deleteBranch: true }); } catch { /* уже нет / гонка с другим процессом */ }
+  }
   const swept = claims.sweep({ cwd });
   if (swept.length) emit(cwd, { event: 'resume-sweep', freed: swept });
 
@@ -279,7 +292,7 @@ async function run(opts = {}) {
         const workerCap = router.tryBeginCall(callTracker, policy, provider);
         if (!workerCap.ok) return capBlock(workerCap.reason);
         let res;
-        try { res = await worker(slice, wtPath, { provider, model }); }
+        try { res = await worker(slice, wtPath, { provider, model, stopFile }); }
         finally { router.endCall(callTracker, provider); }
         // Инжектируемые воркеры (тесты, часть live-стабов) могут вернуть undefined —
         // отсутствие исключения трактуем как успех (старое поведение router.failover
@@ -304,6 +317,13 @@ async function run(opts = {}) {
         if (limit.limitHit) {
           emit(cwd, { event: 'limit-hit', tid: slice.id, provider, next: limit.next });
           return { tid: slice.id, gateOk: false, limitHit: true, nextProvider: limit.next };
+        }
+        // T027: STOP убил implement-spawn — НЕ продолжаем в heal/judge (это был бы новый
+        // spawn ПОСЛЕ запроса на остановку). Слайс переделается со следующего run() —
+        // cleanupSlice тут же освобождает worktree/claim, чтобы .fleet-wt не осиротел.
+        if (res.reason === 'stopped') {
+          emit(cwd, { event: 'stopped-mid-slice', tid: slice.id });
+          return { tid: slice.id, gateOk: false, stoppedMidSlice: true };
         }
 
         claims.setState(slice.id, { state: 'oracle' }, { cwd });
@@ -381,6 +401,14 @@ async function run(opts = {}) {
     let stopReason = null;
     for (const r of gated) {
       if (r.parked) { summary.parked.push(r.tid); continue; } // claim/worktree нетронуты — резюмируется на следующем run()
+      if (r.stoppedMidSlice) {
+        // T027: STOP убил implement mid-flight — освобождаем worktree/claim СРАЗУ (не
+        // оставляем .fleet-wt осиротевшим) и сигналим остановку всего прогона; без
+        // recordFail — это не реальный провал, слайс просто переделается со следующего run().
+        cleanupSlice(cwd, r.tid);
+        stopHit = true; stopReason = stopReason || 'STOP-файл';
+        continue;
+      }
       if (!r.gateOk) {
         cleanupSlice(cwd, r.tid);
         if (r.capped) {
@@ -399,8 +427,9 @@ async function run(opts = {}) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
         cleanupSlice(cwd, r.tid); // сбросить ветку/worktree
         summary.conflicts.push(r.tid);
-        const rr = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker });
+        const rr = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker, stopFile });
         if (rr.ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
+        else if (rr.stoppedMidSlice) { stopHit = true; stopReason = stopReason || 'STOP-файл'; }
         else {
           summary.failed.push(r.tid);
           if (rr.capped) { stopHit = true; stopReason = 'cap-exceeded'; }
@@ -426,7 +455,7 @@ async function run(opts = {}) {
 // requeue-serial: пересобрать worktree с ОБНОВЛЁННОЙ интеграционной (там уже победивший
 // слайс) и переделать — теперь правки ложатся сверху, merge чистый. Возвращает
 // {ok, capped?, allCooling?} — T020: caller решает, стопать ли весь прогон.
-async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker }) {
+async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker, stopFile }) {
   const provider = provFor(slice);
   if (provider === null) {
     emit(cwd, { event: 'all-providers-cooling', tids: [slice.id] });
@@ -451,7 +480,7 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     const workerCap = router.tryBeginCall(callTracker, policy, provider);
     if (!workerCap.ok) return capBlock(workerCap.reason);
     let res;
-    try { res = await worker(slice, wt.path, { provider, model }); }
+    try { res = await worker(slice, wt.path, { provider, model, stopFile }); }
     finally { router.endCall(callTracker, provider); }
     res = res || {}; // инжектируемый воркер без return — не исключение, трактуем как успех
     const implDurationSec = Math.round((Date.now() - phaseStart) / 1000);
@@ -467,6 +496,12 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     if (limit.limitHit) {
       cleanupSlice(cwd, slice.id);
       return { ok: false };
+    }
+    // T027: STOP убил implement mid-flight — не спавним judge ПОСЛЕ запроса на остановку.
+    if (res.reason === 'stopped') {
+      emit(cwd, { event: 'stopped-mid-slice', tid: slice.id });
+      cleanupSlice(cwd, slice.id);
+      return { ok: false, stoppedMidSlice: true };
     }
     phase = 'judge'; phaseStart = Date.now();
     const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');

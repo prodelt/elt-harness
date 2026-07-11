@@ -23,7 +23,7 @@
 - [X] **T026** Полный per-phase call-ledger: одна строка run-log на КАЖДЫЙ spawn `{sliceId, phase: implement|heal|judge, provider, model, tokens, costUsd, durationSec, exit}` — heal и judge посчитаны, длительности фаз раздельны (дефект 7). Тест: прогон-стаб на N слайсов → ledger содержит по строке на каждый spawn с непустыми phase/model. [files:tools/fleet/router.js,tools/fleet/fleet.js]
 
 ## Phase K — владение процессами
-- [ ] **T027** Настоящее владение child-процессами: трекинг PID каждого воркера; STOP → tree-kill (`taskkill /T /F` на win / kill process-group), STOP→мертво ≤10с (не 5-мин timeout, дефект 3); crash-resume не оставляет orphan `.fleet-wt`. Тест: спавн стаб-child со `sleep`, запись STOP → процесс мёртв ≤10с, worktree не осиротел. [files:tools/fleet/fleet.js,tools/fleet/worktree.js,tools/fleet/providers.js]
+- [X] **T027** Настоящее владение child-процессами: трекинг PID каждого воркера; STOP → tree-kill (`taskkill /T /F` на win / kill process-group), STOP→мертво ≤10с (не 5-мин timeout, дефект 3); crash-resume не оставляет orphan `.fleet-wt`. Тест: спавн стаб-child со `sleep`, запись STOP → процесс мёртв ≤10с, worktree не осиротел. [files:tools/fleet/fleet.js,tools/fleet/worktree.js,tools/fleet/providers.js]
 
 ## Phase L — повторная валидация [live]
 - [ ] **T028** [live] Идентичный бенч (переоткрытие T016): один и тот же честный [P]-план, `workers=1` baseline РЕАЛЬНО запущен vs `workers=2`; метрики wall-clock + Claude-токены из T026-ledger; ровно 2 воркера, все слайсы закрыты. Оракул = скрипт-сверка метрик. Итог → CHECKPOINT. [files:.planning]
