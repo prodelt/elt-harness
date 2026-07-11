@@ -552,6 +552,11 @@ function testStuckDetectorUnit() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// Both `elt commit` (red oracle blocks the commit) AND standalone `elt oracle`
+// must log red-stop. Found live: the transcript-fallback this test's OWN
+// deliberate-failure fixture used to feed produced a false stuck-detector nudge
+// with zero real red-stops in run-log — fixed by dropping the transcript path
+// entirely and making `elt oracle` log too, so run-log alone is complete.
 function testEltCommitLogsRedStopOnOracleFail() {
   const { execFileSync } = require('node:child_process');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-redstop-'));
@@ -569,10 +574,21 @@ function testEltCommitLogsRedStopOnOracleFail() {
     assert.notEqual(err.status, 0, 'elt commit падает на красном оракуле');
   }
 
-  const runLog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
-  const entry = JSON.parse(runLog[runLog.length - 1]);
+  let runLog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  let entry = JSON.parse(runLog[runLog.length - 1]);
   assert.equal(entry.status, 'red-stop', 'красный оракул оставил red-stop в run-log, а не тишину');
   assert.equal(entry.oracle.exit, 1);
+
+  try {
+    execFileSync(process.execPath, [eltPath, 'oracle'], { cwd: root, encoding: 'utf8' });
+    assert.fail('standalone elt oracle тоже должен провалиться');
+  } catch (err) {
+    assert.notEqual(err.status, 0);
+  }
+  runLog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  entry = JSON.parse(runLog[runLog.length - 1]);
+  assert.equal(entry.status, 'red-stop', 'standalone `elt oracle` тоже оставил red-stop (не только commit)');
+
   fs.rmSync(root, { recursive: true, force: true });
 }
 
