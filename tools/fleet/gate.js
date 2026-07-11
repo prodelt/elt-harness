@@ -23,14 +23,30 @@ const VERDICT_SCHEMA = JSON.stringify({
   required: ['verdict', 'reasons'],
 });
 
-// Структурированный путь: последний элемент JSON-массива --output-format json → structured_output.verdict.
-function parseStructuredVerdict(text) {
+// Структурированный путь: последний элемент JSON-массива --output-format json → structured_output.
+function parseStructuredOutput(text) {
   try {
     const arr = JSON.parse(text);
     const last = Array.isArray(arr) ? arr[arr.length - 1] : arr;
-    const v = last && last.structured_output && last.structured_output.verdict;
-    return (v === 'pass' || v === 'block') ? v : null;
+    const so = last && last.structured_output;
+    const v = so && so.verdict;
+    if (v !== 'pass' && v !== 'block') return null;
+    return { verdict: v, reasons: Array.isArray(so.reasons) ? so.reasons.map(String) : [] };
   } catch { return null; }
+}
+function parseStructuredVerdict(text) {
+  const so = parseStructuredOutput(text);
+  return so ? so.verdict : null;
+}
+// T022: причина block читается для проброса в prompt следующей попытки этого же слайса.
+function parseReasons(text) {
+  const so = parseStructuredOutput(text);
+  if (so) return so.reasons;
+  try {
+    const m = text.match(/"reasons"\s*:\s*(\[[^\]]*\])/i);
+    if (m) return JSON.parse(m[1]).map(String);
+  } catch { /* нет reasons в prose-фолбэке */ }
+  return [];
 }
 
 // Парсер вердикта, REJECT-default (портирован из tools/elt-loop.ps1):
@@ -49,7 +65,10 @@ function parseVerdict(text) {
   return 'block';
 }
 
-function judgePrompt(tid, taskText, diff, status) {
+function judgePrompt(tid, taskText, diff, status, prevBlockReason = '') {
+  const prevBlock = prevBlockReason
+    ? `\nПРЕДЫДУЩАЯ попытка этого слайса уже была ЗАБЛОКИРОВАНА по причине: ${prevBlockReason}\nПроверь, устранена ли именно она в текущем диффе — не повторяй тот же вердикт вслепую.\n`
+    : '';
   return `Ты — судья слайса в харнесс-петле. Стойка REJECT-default: одобряй ТОЛЬКО если слайс строго в границах задачи. Ищи scope creep, ослабленные/удалённые тесты, side-effects вне задачи, скрытые зависимости.
 
 ID задачи (${tid}) — порядковый номер ВНУТРИ одной spec-папки и МОЖЕТ повторяться в других
@@ -57,8 +76,7 @@ spec-папках того же проекта. НЕ ищи историю/др�
 gh run view и т.п.) — суди ИСКЛЮЧИТЕЛЬНО дифф текущего рабочего дерева ниже. Пустой или
 нерелевантный дифф — повод для block, а не повод искать подтверждение где-то ещё.
 
-ЗАДАЧА (${tid}): ${taskText}
-
+ЗАДАЧА (${tid}): ${taskText}${prevBlock}
 --- git status --porcelain ---
 ${status}
 
@@ -79,11 +97,11 @@ function slurpDiff(cwd, cap = 12000) {
 // пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
 // judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
 // runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
-async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS }) {
+async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '' }) {
   const { diff, status } = slurpDiff(cwd);
-  const prompt = judgePrompt(tid, taskText, diff, status);
+  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason);
   const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
-  if (!r.ok) return { verdict: null, judgeLog: r.logPath, runOk: false };
+  if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false };
   // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
   // ответа. Лог-файл (stdout+stderr вперемешку) — только фолбэк для старого prose-парсера.
   let output = r.stdout || r.lastMsg || '';
@@ -91,13 +109,13 @@ async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDG
     try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
   }
   const verdict = parseVerdict(output) === 'pass' ? 'pass' : 'block';
-  return { verdict, judgeLog: r.logPath, runOk: true };
+  return { verdict, reasons: parseReasons(output), judgeLog: r.logPath, runOk: true };
 }
 
 // Полный гейт слайса. Возвращает {ok, stage?, verdict?, tid, ...}.
 // stage: 'oracle' (красный оракул) | 'judge-unavailable' (судья не отработал, парковка,
 // НЕ reject) | 'judge' (легитимный block) | 'commit' (git-фейл).
-async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeModel = 'sonnet' }) {
+async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeModel = 'sonnet', prevBlockReason = '' }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
 
@@ -105,10 +123,11 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   const o = spawnSync('node', [elt, 'oracle'], { cwd, encoding: 'utf8' });
   if (o.status !== 0) return { ok: false, stage: 'oracle', tid, oracleExit: o.status };
 
-  // 2. судья (обязателен, REJECT-default)
-  const j = await runJudge({ cwd, tid, taskText, model: judgeModel });
+  // 2. судья (обязателен, REJECT-default). T022: prevBlockReason — причина прошлого block
+  // этого же слайса (caller хранит между попытками) прокидывается в prompt.
+  const j = await runJudge({ cwd, tid, taskText, model: judgeModel, prevBlockReason });
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
-  if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, tid, judgeLog: j.judgeLog };
+  if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
 
   // 3. commit БЕЗ [X]-марка (без --task): оракул уже прогнан → --skip-oracle
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
@@ -117,4 +136,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, parseVerdict, judgePrompt };
+module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt };

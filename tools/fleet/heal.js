@@ -7,8 +7,10 @@ const { spawnSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const providers = require('./providers');
+const router = require('./router');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
+const MAX_HEAL_TOTAL = 2; // T022: потолок ВСЕГО на слайс, не за один вызов healSlice
 
 function oracleResult(cwd, elt) {
   const r = spawnSync('node', [elt, 'oracle'], { cwd, encoding: 'utf8' });
@@ -28,23 +30,39 @@ async function defaultHealWorker(slice, wtPath, ctx) {
 
 // Довести слайс до зелёного оракула или признать failed.
 // runOracle инжектируется в тестах; по умолчанию — реальный elt oracle в worktree.
+// T022: healUsedSoFar — сколько heal УЖЕ потрачено на этот слайс раньше (caller копит
+// это между повторными batch-попытками fleet.js — иначе каждая попытка implement заново
+// открывала полный бюджет 2 heal, ×3 попытки = до 6 heal на застрявший слайс, дефект 1).
+// callTracker/policy (router.js) — опциональны: если переданы, каждый heal-спавн тоже
+// проходит T020 hard-cap (maxClaudeCalls и т.п.), не только implement/judge.
 async function healSlice({
   slice, wtPath, cwd = wtPath, provider, model = null, elt = ELT_CLI,
   worker = defaultHealWorker, healProviders = ['claude'], runOracle = null,
+  healUsedSoFar = 0, callTracker = null, policy = null,
 }) {
   const check = runOracle || (() => oracleResult(cwd, elt));
   let res = check();
   if (res.green) return { ok: true, attempts: 0 };
 
-  const chain = [provider, ...healProviders]; // 1 heal тем же → 1 heal claude
+  const budget = Math.max(0, MAX_HEAL_TOTAL - healUsedSoFar);
+  const chain = [provider, ...healProviders].slice(0, budget); // 1 heal тем же → 1 heal claude, суммарно ≤2 на слайс
+
   let attempts = 0;
   for (const p of chain) {
+    if (callTracker && policy) {
+      const cap = router.tryBeginCall(callTracker, policy, p);
+      if (!cap.ok) break; // T020-cap исчерпан — не спавнить дальше, слайс остаётся failed
+    }
     attempts++;
-    await worker(slice, wtPath, { provider: p, model, heal: true, oracleError: res.out || '' });
+    try {
+      await worker(slice, wtPath, { provider: p, model, heal: true, oracleError: res.out || '' });
+    } finally {
+      if (callTracker && policy) router.endCall(callTracker, p);
+    }
     res = check();
     if (res.green) return { ok: true, attempts, healedBy: p };
   }
   return { ok: false, failed: true, attempts };
 }
 
-module.exports = { healSlice, defaultHealWorker, healPrompt };
+module.exports = { healSlice, defaultHealWorker, healPrompt, MAX_HEAL_TOTAL };

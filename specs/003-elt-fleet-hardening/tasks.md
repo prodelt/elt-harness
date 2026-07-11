@@ -12,7 +12,7 @@
 
 ## Phase H — state machine + ограниченный heal
 - [X] **T021** Персистентная per-slice машина состояний `implementing → oracle → judge_pending → merge_pending → merged` в claims/state; judge недоступен → парковка на `judge_pending` с сохранением worktree (НЕ переделывать реализацию); crash-resume читает состояние и продолжает с этапа, не с нуля. Тест: убить процесс на judge_pending → resume не перезапускает implementer. [files:tools/fleet/claims.js,tools/fleet/fleet.js,tools/fleet/gate.js]
-- [ ] **T022** Ограничить heal планом: красный оракул → ≤2 heal ВСЕГО на слайс (убрать ×3-размножение worker+2heal по батчам, дефект 1), суммарный потолок ≤4 LLM-вызова/слайс сверяется с cap из T020; `block`-причина судьи прокидывается в следующий prompt (не повтор того же). Тест: стаб-красный слайс → ровно ≤2 heal, счётчик Claude-вызовов ≤ maxClaudeCalls. [files:tools/fleet/heal.js,tools/fleet/gate.js]
+- [X] **T022** Ограничить heal планом: красный оракул → ≤2 heal ВСЕГО на слайс (убрать ×3-размножение worker+2heal по батчам, дефект 1), суммарный потолок ≤4 LLM-вызова/слайс сверяется с cap из T020; `block`-причина судьи прокидывается в следующий prompt (не повтор того же). Тест: стаб-красный слайс → ровно ≤2 heal, счётчик Claude-вызовов ≤ maxClaudeCalls. [files:tools/fleet/heal.js,tools/fleet/gate.js]
 
 ## Phase I — честность merge и exit
 - [ ] **T023** [P] Безопасный staging в merge.js: scoped `git add <файлы слайса из [files:]>` вместо `git add -A` (не захватывать чужие правки); убрать `git reset --hard` из error-path → безопасный abort (merge.js:47). Тест на темп-репо: посторонний dirty-файл вне [files:] остаётся нетронутым после merge и после ошибки. [files:tools/fleet/merge.js]
