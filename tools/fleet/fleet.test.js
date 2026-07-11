@@ -276,3 +276,76 @@ test('T020: все провайдеры цепочки в cooldown → стоп 
   assert.match(events, /"event":"all-providers-cooling"/);
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+// --- T021: персистентная state machine + crash-resume ---
+function seedT021Repo(prefix) {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** слайс [P] [files:a*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
+    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+  return repo;
+}
+
+test('T021: судья недоступен (краш/timeout) → слайс паркуется judge_pending, worktree/claim не тронуты', async () => {
+  const repo = seedT021Repo('fleet-park-');
+  const tasksPath = path.join(repo, 'specs', 'tasks.md');
+
+  // судья "недоступен": процесс падает без валидного вывода — nonzero-exit, НЕ легитимный block.
+  const crashStub = path.join(repo, 'judge-crash.js');
+  fs.writeFileSync(crashStub, 'process.exit(1);');
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', crashStub]);
+
+  let workerCalls = 0;
+  const worker = async (_slice, wt) => { workerCalls++; fs.writeFileSync(path.join(wt, 'a.txt'), 'impl\n'); return { ok: true, stdout: 'done' }; };
+
+  const s = await fleet.run({ cwd: repo, tasksPath, integration: 'main', workers: 1, worker, maxLoops: 3 });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.equal(workerCalls, 1, 'воркер вызван ровно раз — реализация не переделывается из-за недоступного судьи');
+  assert.deepEqual(s.merged, []);
+  assert.deepEqual(s.failed, []);
+  assert.ok(s.parked.includes('T1'), 'T1 припаркован, не failed');
+  assert.deepEqual(worktree.list({ cwd: repo }).map((w) => w.tid), ['T1'], 'worktree сохранён (реализация не потеряна)');
+  const claim = claims.list({ cwd: repo }).find((c) => c.tid === 'T1');
+  assert.ok(claim, 'claim T1 не снят');
+  assert.equal(claim.state, 'judge_pending');
+  const tasks = fs.readFileSync(tasksPath, 'utf8');
+  assert.match(tasks, /- \[ \] \*\*T1\*\*/, 'T1 не отмечен — merge не произошёл');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('T021: crash-resume дожимает judge_pending БЕЗ повторного вызова воркера (implementer не перезапущен)', async () => {
+  const repo = seedT021Repo('fleet-resume-');
+  const tasksPath = path.join(repo, 'specs', 'tasks.md');
+
+  // симулируем «упавший на judge_pending прошлый процесс»: worktree с уже готовой (uncommitted)
+  // реализацией + claim с мёртвым pid и state=judge_pending — БЕЗ прогона воркера в этом тесте.
+  const wt = worktree.create('T1', { cwd: repo, base: 'main' });
+  fs.writeFileSync(path.join(wt.path, 'a.txt'), 'impl-from-crashed-run\n');
+  const DEAD_PID = 2147480000;
+  claims.claim('T1', {
+    cwd: repo, pid: DEAD_PID, worker: 'ghost',
+    meta: { state: 'judge_pending', wtPath: wt.path, taskText: 'слайс', provider: 'claude' },
+  });
+
+  const passStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(passStub, "console.log('{\"verdict\":\"pass\"}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', passStub]);
+
+  let workerCalls = 0;
+  const worker = async () => { workerCalls++; throw new Error('воркер НЕ должен вызываться на resume'); };
+
+  const s = await fleet.run({ cwd: repo, tasksPath, integration: 'main', workers: 1, worker, maxLoops: 3 });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.equal(workerCalls, 0, 'implementer не перезапущен на resume');
+  assert.deepEqual(s.merged, ['T1']);
+  const tasks = fs.readFileSync(tasksPath, 'utf8');
+  assert.match(tasks, /- \[X\] \*\*T1\*\*/, 'T1 закрыт через resume');
+  fs.rmSync(repo, { recursive: true, force: true });
+});

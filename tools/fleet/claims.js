@@ -50,6 +50,17 @@ function release(tid, { cwd = process.cwd() } = {}) {
   fs.rmSync(claimPath(cwd, tid), { force: true });
 }
 
+// T021: обновить/добавить поля существующего claim (state-machine слайса:
+// implementing → oracle → judge_pending → merge_pending → merged). Не трогает pid/worker,
+// если patch их не задаёт — вызывающий фиксирует прогресс, не переоткрывает владение.
+function setState(tid, patch, { cwd = process.cwd() } = {}) {
+  const p = claimPath(cwd, tid);
+  const cur = readClaim(p) || { tid };
+  const next = { ...cur, ...patch, ts: new Date().toISOString() };
+  fs.writeFileSync(p, JSON.stringify(next));
+  return next;
+}
+
 // Все claim'ы с пометкой stale (держащий pid мёртв).
 function list({ cwd = process.cwd() } = {}) {
   const dir = claimsDir(cwd);
@@ -71,4 +82,4 @@ function sweep({ cwd = process.cwd() } = {}) {
   return dead.map((c) => c.tid);
 }
 
-module.exports = { claim, release, list, stale, sweep, isAlive, claimPath };
+module.exports = { claim, release, list, stale, sweep, setState, isAlive, claimPath };
