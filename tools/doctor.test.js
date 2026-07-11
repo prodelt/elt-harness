@@ -510,7 +510,25 @@ function withHome(home, fn) {
   }
 }
 
+// T001 (004-elt-selfdrive): single-source elt.js. Каждый реальный вызыватель (elt-loop.ps1,
+// tools/fleet/*.js) зовёт ~/.claude/bin/elt.js — глобальный деплой; tools/elt.js — версионируемая
+// копия в репо. Они ДОЛЖНЫ быть идентичны по контенту, иначе дрейф (bin имел fallback в findTasks,
+// tools — нет → на нескольких spec-папках вернул бы не тот план). Сравнение нормализует CRLF
+// (autocrlf в этом репо). bin отсутствует (свежий клон/CI без глобального деплоя) → скип, не false-fail.
+function testEltSingleSource() {
+  const binElt = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
+  const repoElt = path.join(__dirname, 'elt.js');
+  if (!fs.existsSync(binElt)) return; // нет глобального деплоя — нечего сверять
+  const norm = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n').replace(/﻿/g, '');
+  assert.equal(
+    norm(repoElt),
+    norm(binElt),
+    'DRIFT: tools/elt.js != ~/.claude/bin/elt.js — синхронизируй (bin = деплой, tools = репо-копия), иначе драйвер/fleet и тесты расходятся',
+  );
+}
+
 function main() {
+  testEltSingleSource();
   testParseArgs();
   testProjectKeyStable();
   testSkillFrontmatter();

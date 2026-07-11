@@ -42,6 +42,7 @@ function findTasks() {
     }
   }
   const re = /^(\s*(?:[-*]\s*)?)\[( |X|x)\]\s*(?:\*\*)?(T\d+)?(?:\*\*)?[:.]?\s*(.*)$/;
+  let fallback = null;
   for (const f of files) {
     const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
     const open = [], done = [];
@@ -50,9 +51,13 @@ function findTasks() {
       if (!m) return;
       (m[2] === ' ' ? open : done).push({ file: f, lineNo: i, id: m[3] || `L${i + 1}`, text: m[4].trim() });
     });
-    if (open.length || done.length) return { file: f, open, done, lines };
+    // Приоритет — файл, где ещё остались открытые боксы (комментарий выше это и обещает).
+    // Если открытых нигде нет, `status`/`commit` всё равно должны на что-то опереться —
+    // fallback запоминает последний файл с любыми боксами (open или done).
+    if (open.length) return { file: f, open, done, lines };
+    if (open.length || done.length) fallback = { file: f, open, done, lines };
   }
-  return null;
+  return fallback;
 }
 
 function markDone(taskId) {
