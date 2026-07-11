@@ -87,10 +87,16 @@ function walkTasksFiles(dir, out) {
     else if (e.name === 'tasks.md') out.push(p);
   }
 }
-// Папка спеки для tid: ищем tasks.md под <cwd>/specs, где строка задачи `**tid**` реально
-// встречается (несколько spec-папок в одном проекте — ID не глобально уникален, gate.js уже
-// это учитывает в судейском промпте). Ровно один tasks.md в проекте → берём его без матча по ID.
-function findSpecDir(cwd, tid) {
+// Папка спеки для tid: если вызывающий уже ЗНАЕТ точный tasks.md слайса (specFile — из
+// `elt slice next --json`/fleet -Tasks), берём его папку напрямую — никакой неоднозначности.
+// Иначе ищем tasks.md под <cwd>/specs, где строка задачи `**tid**` реально встречается.
+// T008-коллизия (004-elt-selfdrive vs 002-elt-fleet, оба содержат **T008**): без specFile
+// первый найденный файл побеждал вслепую → судье подсовывалась ЧУЖАЯ рубрика (live 2026-07-12).
+function findSpecDir(cwd, tid, specFile = null) {
+  if (specFile) {
+    const abs = path.isAbsolute(specFile) ? specFile : path.join(cwd, specFile);
+    if (fs.existsSync(abs)) return path.dirname(abs);
+  }
   const specsRoot = path.join(cwd, 'specs');
   if (!fs.existsSync(specsRoot)) return null;
   const files = [];
@@ -102,8 +108,8 @@ function findSpecDir(cwd, tid) {
   }
   return files.length === 1 ? path.dirname(files[0]) : null;
 }
-function loadRubric(cwd, tid) {
-  const dir = findSpecDir(cwd, tid);
+function loadRubric(cwd, tid, specFile = null) {
+  const dir = findSpecDir(cwd, tid, specFile);
   return { spec: readRubricFile(dir, 'spec.md'), constitution: readRubricFile(dir, 'constitution.md') };
 }
 
@@ -144,9 +150,9 @@ function slurpDiff(cwd, cap = 12000) {
 // пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
 // judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
 // runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
-async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '' }) {
+async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
   const { diff, status } = slurpDiff(cwd);
-  const rubric = loadRubric(cwd, tid);
+  const rubric = loadRubric(cwd, tid, specFile);
   const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric);
   const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
   if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false };

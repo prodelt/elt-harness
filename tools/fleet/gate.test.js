@@ -58,6 +58,29 @@ test('findSpecDir/loadRubric: находит spec-папку по tasks.md, со
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// Live-баг 2026-07-12: **T008** существовал одновременно в specs/002-elt-fleet и
+// specs/004-elt-selfdrive — без явного specFile судья получал РУБРИКУ первой найденной
+// папки (не той, что реально закрывалась) и блокировал корректный слайс.
+test('findSpecDir/loadRubric: ID-коллизия между spec-папками → specFile снимает неоднозначность', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-collision-'));
+  try {
+    const dirA = path.join(dir, 'specs', '002-a');
+    const dirB = path.join(dir, 'specs', '004-b');
+    fs.mkdirSync(dirA, { recursive: true });
+    fs.mkdirSync(dirB, { recursive: true });
+    fs.writeFileSync(path.join(dirA, 'tasks.md'), '- [X] **T008** задача A\n');
+    fs.writeFileSync(path.join(dirA, 'spec.md'), 'приёмка A');
+    fs.writeFileSync(path.join(dirB, 'tasks.md'), '- [ ] **T008** задача B\n');
+    fs.writeFileSync(path.join(dirB, 'spec.md'), 'приёмка B');
+
+    // Без specFile — неоднозначность (найдёт A или B, тест не про это, а про то что specFile её снимает).
+    const withHint = gate.findSpecDir(dir, 'T008', path.join(dirB, 'tasks.md'));
+    assert.equal(withHint, dirB);
+    const rubric = gate.loadRubric(dir, 'T008', path.join(dirB, 'tasks.md'));
+    assert.match(rubric.spec.text, /приёмка B/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // --- gate() end-to-end на темп-репо с фейк-судьёй ---
 const REPO = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-gate-'));
 const git = (args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8' });

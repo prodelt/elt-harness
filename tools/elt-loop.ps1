@@ -142,7 +142,7 @@ $tail
     Write-Host "elt-loop: судья ($JudgeModel)…"
     # Дескриптор через файл (без argv-кавычек, PS5.1). judge-invoke сам грузит рубрику spec.md
     # рядом с tasks.md слайса и строит промпт (gate.runJudge/loadRubric — уже под тестом).
-    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; model = $JudgeModel }
+    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; model = $JudgeModel; specFile = $slice.file }
     $jDescFile = [System.IO.Path]::GetTempFileName()
     $judgeRaw = ""
     try {
