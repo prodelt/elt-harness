@@ -18,7 +18,21 @@ const STUBS = {
   fail: stub('fail.js', "console.log('boom');process.exit(2);"),
   hang: stub('hang.js', "setTimeout(()=>{},60000);"),
   stdin: stub('stdin.js', "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{process.stdout.write('GOT:'+d.trim());process.exit(0);});"),
+  argv: stub('argv.js', "console.log(JSON.stringify(process.argv.slice(2)));process.exit(0);"),
 };
+
+// Прогнать run() со стаб-бинарником для произвольного провайдера, вернуть переданный argv.
+async function spawnArgs(provider, opts = {}) {
+  const envKey = 'FLEET_BIN_' + provider.toUpperCase();
+  const prev = process.env[envKey];
+  process.env[envKey] = JSON.stringify(['node', STUBS.argv]);
+  try {
+    const r = await run({ provider, prompt: opts.prompt || 'p', cwd: TMP, timeoutMs: 30000, ...opts });
+    return { r, argv: JSON.parse(r.lastMsg) };
+  } finally {
+    if (prev === undefined) delete process.env[envKey]; else process.env[envKey] = prev;
+  }
+}
 
 // Прогнать run() с провайдером, чей бинарник подменён на node-стаб.
 async function withStub(stubPath, opts = {}) {
@@ -88,6 +102,44 @@ test('баг #10: claude резолвится в .exe → спавн БЕЗ shel
   } finally {
     if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev;
   }
+});
+
+// --- T019: явная модель + lean-профиль на каждом spawn ---
+test('T019: model не передан → argv несёт --model <router-дефолт> (не molчаливый ambient)', async () => {
+  const { argv } = await spawnArgs('claude');
+  assert.match(argv.join(' '), /--model sonnet\b/);
+});
+
+test('T019: явный model из caller побеждает router-дефолт', async () => {
+  const { argv } = await spawnArgs('claude', { model: 'opus' });
+  assert.match(argv.join(' '), /--model opus\b/);
+});
+
+test('T019: codex тоже получает явный --model (router-дефолт)', async () => {
+  const { argv } = await spawnArgs('codex');
+  assert.match(argv.join(' '), /--model gpt-5\.6-sol\b/);
+});
+
+test('T019: lean-профиль включён по умолчанию — claude получает --safe-mode, codex --ignore-user-config', async () => {
+  const claude = await spawnArgs('claude');
+  assert.ok(claude.argv.includes('--safe-mode'));
+  const codex = await spawnArgs('codex');
+  assert.ok(codex.argv.includes('--ignore-user-config'));
+});
+
+test('T019: FLEET_LEAN=0 — явный откат lean-профиля', async () => {
+  process.env.FLEET_LEAN = '0';
+  try {
+    const { argv } = await spawnArgs('claude');
+    assert.ok(!argv.includes('--safe-mode'));
+  } finally {
+    delete process.env.FLEET_LEAN;
+  }
+});
+
+test('T019: явный lean:false в опциях побеждает даже без env', async () => {
+  const { argv } = await spawnArgs('claude', { lean: false });
+  assert.ok(!argv.includes('--safe-mode'));
 });
 
 test('неизвестный провайдер → reason unknown-provider, без спавна', async () => {

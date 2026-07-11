@@ -20,16 +20,31 @@
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const router = require('./router');
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const KILL_GRACE_MS = 3000;
 const IS_WIN = process.platform === 'win32';
 
 // Дефолтные headless-флаги. claude/codex: БЕЗ промпта (он в stdin). agy: промпт
-// и cwd — прямые аргументы (T003 live, см. комментарий вверху файла). model опционален.
+// и cwd — прямые аргументы (T003 live, см. комментарий вверху файла). model резолвится
+// в run() (явно передан ИЛИ router.modelFor) — сюда всегда приходит непустой (T019).
+//
+// lean (T019): флаг отключает загрузку глобальной массы skills/MCP/hooks/CLAUDE.md
+// для fleet-воркеров (аудит: ~25k токенов профиль-догруза на КАЖДЫЙ spawn).
+//  - claude: --safe-mode (auth/model/tools работают, customizations выключены — не --bare,
+//    тот требует ANTHROPIC_API_KEY и ломает OAuth-подписку).
+//  - codex: --ignore-user-config (не грузит ~/.codex/config.toml; auth через CODEX_HOME цел).
+//  - agy: у CLI нет эквивалентного флага (проверено `agy --help`, T019 ресерч) — нечего выключать.
 const PROVIDERS = {
-  claude: (model) => ['-p', '--dangerously-skip-permissions', ...(model ? ['--model', model] : [])],
-  codex: (model) => ['exec', '--sandbox', 'workspace-write', ...(model ? ['--model', model] : [])],
+  claude: (model, prompt, cwd, lean) => [
+    '-p', '--dangerously-skip-permissions', ...(model ? ['--model', model] : []),
+    ...(lean ? ['--safe-mode'] : []),
+  ],
+  codex: (model, prompt, cwd, lean) => [
+    'exec', '--sandbox', 'workspace-write', ...(model ? ['--model', model] : []),
+    ...(lean ? ['--ignore-user-config'] : []),
+  ],
   agy: (model, prompt, cwd) => ['-p', prompt, '--add-dir', cwd, '--dangerously-skip-permissions', '--print-timeout', '5m', ...(model ? ['--model', model] : [])],
 };
 
@@ -90,11 +105,15 @@ function hardKill(child) {
   }
 }
 
-function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null }) {
+function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean } = {}) {
   return new Promise((resolve) => {
     if (!PROVIDERS[provider]) {
       return resolve({ exit: null, ok: false, reason: 'unknown-provider', logPath: null, lastMsg: '' });
     }
+    // T019: caller не передал model → берём явный дефолт из router (не ambient CLI/аккаунт).
+    const resolvedModel = model || router.modelFor(provider, router.loadPolicy(cwd));
+    // lean по умолчанию ВКЛЮЧЁН для fleet-воркеров; FLEET_LEAN=0 — явный откат (отладка).
+    const leanFlag = lean === undefined ? process.env.FLEET_LEAN !== '0' : !!lean;
     const bin = resolveBin(provider);
     const cmd = bin[0];
     // jsonSchema: только для вызовов, которым нужен структурированный ответ (судья) — НЕ
@@ -102,7 +121,7 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
     // поддерживает --json-schema/--output-format (claude поддерживает, T016 live-fire).
     const argv = [
       ...bin.slice(1),
-      ...PROVIDERS[provider](model, prompt, cwd),
+      ...PROVIDERS[provider](resolvedModel, prompt, cwd, leanFlag),
       ...(jsonSchema ? ['--json-schema', jsonSchema, '--output-format', 'json'] : []),
     ];
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
