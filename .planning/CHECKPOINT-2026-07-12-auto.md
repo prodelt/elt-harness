@@ -1,10 +1,10 @@
 # Checkpoint (auto) — 2026-07-12
 
-Автозаписан `checkpoint-writer.js` на пороге ~208k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~248k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/elt-loop-driver`
-- dirty files: 0
+- dirty files: 3
 
 ## Last Run
 - commit: `a27c1e4`

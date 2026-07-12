@@ -847,12 +847,179 @@ function testEltDriveDryRun() {
   fs.rmSync(dir2, { recursive: true, force: true });
 }
 
+// T011 OPTIONAL (004-elt-selfdrive): elt-selfheal.ps1 — watchdog (T010) → driver
+// (elt-loop.ps1) gated self-repair. -DryRun не спавнит живой claude, но реально зовёт
+// оба скрипта (не просто печатает намерение) — доказывает провод watchdog→driver.
+// Merge в main — дефолт человеком: без --AutoMerge гейт молчит; под -DryRun merge
+// пропущен ВСЕГДА, даже если --AutoMerge передан (dry-run не трогает репо).
+function testEltSelfhealDryRun() {
+  const { execFileSync } = require('node:child_process');
+  const script = path.join(__dirname, 'elt-selfheal.ps1');
+
+  // красный оракул — watchdog заводит self-heal слайс, driver вызывается
+  const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-red-'));
+  write(path.join(dir1, '.harness', 'harness.json'), JSON.stringify({ oracle: 'exit 1', shell: 'powershell' }));
+  const out1 = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Project', dir1, '-Slices', '1', '-DryRun',
+  ], { encoding: 'utf8' });
+  assert.match(out1, /оракул харнесса красный/, 'watchdog замечает красный оракул');
+  assert.match(out1, /\[DryRun\] impl-промпт/, 'elt-loop.ps1 реально вызван (не просто упомянут)');
+  assert.match(out1, /merge в main пропущен.*DryRun/i, 'DryRun блокирует merge даже без явного флага');
+  assert.ok(fs.existsSync(path.join(dir1, 'specs', '001-selfheal', 'tasks.md')), 'self-heal слайс заведён на диске');
+  assert.doesNotMatch(out1, /смержена в main/, 'реального merge не произошло');
+  fs.rmSync(dir1, { recursive: true, force: true });
+
+  // -AutoMerge + -DryRun вместе — dry-run всё равно выигрывает, merge не идёт
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-automerge-dryrun-'));
+  write(path.join(dir2, '.harness', 'harness.json'), JSON.stringify({ oracle: 'exit 1', shell: 'powershell' }));
+  const out2 = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Project', dir2, '-Slices', '1', '-DryRun', '-AutoMerge',
+  ], { encoding: 'utf8' });
+  assert.match(out2, /merge в main пропущен.*DryRun/i, '--AutoMerge не обходит DryRun');
+  assert.doesNotMatch(out2, /смержена в main/, 'реального merge не произошло даже с --AutoMerge');
+  fs.rmSync(dir2, { recursive: true, force: true });
+
+  // зелёный оракул — driver вообще не зовётся (нечего чинить)
+  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-green-'));
+  write(path.join(dir3, '.harness', 'harness.json'), JSON.stringify({ oracle: 'exit 0', shell: 'powershell' }));
+  const out3 = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Project', dir3, '-Slices', '1', '-DryRun',
+  ], { encoding: 'utf8' });
+  assert.match(out3, /оракул харнесса зелёный/, 'watchdog подтверждает зелёный оракул');
+  assert.doesNotMatch(out3, /\[DryRun\] impl-промпт/, 'driver не вызывается, когда чинить нечего');
+  fs.rmSync(dir3, { recursive: true, force: true });
+}
+
+// T011 OPTIONAL (004-elt-selfdrive): merge-механика elt-selfheal-lib.ps1 — РЕАЛЬНЫЙ git
+// (init+branch+merge), изолированно от watchdog/driver (те живого claude просят вне
+// DryRun). Судья T011 указал: DryRun-тесты выше доказывают только "гейт по умолчанию
+// молчит", но не "merge реально проходит под явным флагом" — эта функция закрывает дыру.
+function testEltSelfhealMergeLib() {
+  const { execFileSync } = require('node:child_process');
+  const lib = path.join(__dirname, 'elt-selfheal-lib.ps1');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-merge-'));
+  const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']);
+  g(['config', 'user.email', 'test@test.local']);
+  g(['config', 'user.name', 'test']);
+  write(path.join(dir, 'a.txt'), 'main\n');
+  g(['add', '-A']);
+  g(['commit', '-q', '-m', 'init']);
+  g(['checkout', '-q', '-b', 'fix/selfheal']);
+  write(path.join(dir, 'b.txt'), 'heal\n');
+  g(['add', '-A']);
+  g(['commit', '-q', '-m', 'self-heal fix']);
+
+  // Get-AutoMergeConfig: дефолт (нет harness.json) = false, явный selfHeal.autoMerge:true = true
+  const psNoConfig = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+    `. '${lib}'; (Get-AutoMergeConfig -Project '${dir}') | ConvertTo-Json`,
+  ], { encoding: 'utf8' }).trim();
+  assert.equal(psNoConfig, 'false', 'без harness.json — гейт выключен по умолчанию');
+
+  write(path.join(dir, '.harness', 'harness.json'), JSON.stringify({ selfHeal: { autoMerge: true } }));
+  const psConfig = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+    `. '${lib}'; (Get-AutoMergeConfig -Project '${dir}') | ConvertTo-Json`,
+  ], { encoding: 'utf8' }).trim();
+  assert.equal(psConfig, 'true', 'явный selfHeal.autoMerge:true в конфиге читается');
+
+  // Invoke-SelfHealMerge: реальный merge fix/selfheal → main
+  const mergeOut = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+    `. '${lib}'; (Invoke-SelfHealMerge -Project '${dir}' -HealBranch 'fix/selfheal') | ConvertTo-Json -Compress`,
+  ], { encoding: 'utf8' }).trim();
+  const mergeResult = JSON.parse(mergeOut);
+  assert.equal(mergeResult.merged, true, 'merge под явным флагом реально проходит');
+  assert.equal(g(['branch', '--show-current']).trim(), 'main', 'после merge мы на main');
+  assert.ok(fs.existsSync(path.join(dir, 'b.txt')), 'файл из self-heal ветки реально попал в main');
+  const log = g(['log', '--oneline', '-1']);
+  assert.match(log, /self-heal: merge fix\/selfheal/, 'merge-коммит с ожидаемым сообщением');
+
+  // Invoke-SelfHealMerge: пустая/main ветка — no-op, не падает
+  const noBranchOut = execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+    `. '${lib}'; (Invoke-SelfHealMerge -Project '${dir}' -HealBranch 'main') | ConvertTo-Json -Compress`,
+  ], { encoding: 'utf8' }).trim();
+  assert.equal(JSON.parse(noBranchOut).reason, 'no-branch', 'merge в саму main распознаётся как no-op, не мержится сам в себя');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// T011 OPTIONAL (004-elt-selfdrive): полный ПОЗИТИВНЫЙ путь через реальный CLI
+// elt-selfheal.ps1 -AutoMerge (БЕЗ -DryRun) — watchdog → elt-loop.ps1 (impl → оракул →
+// судья → elt commit, авто-ветка) → merge в main. Живого claude не спавним: FLEET_BIN_CLAUDE
+// (существующий стаб-механизм tools/fleet/providers.js, уже используемый в gate.test.js/
+// fleet.test.js) подменяет бинарник на node-стаб. Судья T011 (2-й проход) указал: тест на
+// саму функцию Invoke-SelfHealMerge доказывает механику, но НЕ доказывает, что гейт
+// elt-selfheal.ps1 реально дошёл до merge через полный CLI-путь под явным флагом — это
+// закрывает именно ту дыру (позитивный случай к негативным в testEltSelfhealDryRun).
+function testEltSelfhealAutoMergeGate() {
+  const { execFileSync } = require('node:child_process');
+  const script = path.join(__dirname, 'elt-selfheal.ps1');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-automerge-'));
+  const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']);
+  g(['config', 'user.email', 'test@test.local']);
+  g(['config', 'user.name', 'test']);
+  write(path.join(dir, 'README.md'), 'seed\n');
+  write(path.join(dir, '.harness', 'harness.json'), JSON.stringify({
+    oracle: 'if (Test-Path .selfheal-fixed) { exit 0 } else { exit 1 }',
+    shell: 'powershell', branchPolicy: 'feature', push: false,
+  }));
+  g(['add', '-A']);
+  g(['commit', '-q', '-m', 'init']);
+
+  // Стаб: без --json-schema — это impl-вызов, реально "чинит" оракул (пишет маркер-файл
+  // в cwd, который providers.run() спавнит РОВНО в $Project); с --json-schema — судья, pass.
+  const stub = path.join(dir, 'claude-stub.js');
+  write(stub, [
+    "const fs = require('fs');",
+    'process.stdin.resume();',
+    "if (process.argv.includes('--json-schema')) {",
+    "  process.stdout.write(JSON.stringify({ verdict: 'pass', reasons: [] }));",
+    '} else {',
+    "  fs.writeFileSync('.selfheal-fixed', 'fixed\\n');",
+    "  process.stdout.write('self-heal stub: fixed\\n');",
+    '}',
+  ].join('\n'));
+
+  const prevBin = process.env.FLEET_BIN_CLAUDE;
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stub]);
+  let out;
+  try {
+    out = execFileSync('powershell', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+      '-Project', dir, '-Slices', '1', '-AutoMerge',
+    ], { encoding: 'utf8', timeout: 120000 });
+  } finally {
+    if (prevBin === undefined) delete process.env.FLEET_BIN_CLAUDE; else process.env.FLEET_BIN_CLAUDE = prevBin;
+  }
+
+  assert.match(out, /оракул харнесса красный/, 'watchdog стартует с красного оракула');
+  assert.match(out, /--AutoMerge — мержу/, 'гейт реально дошёл до merge-шага (не пропустил)');
+  assert.match(out, /смержена в main/, 'merge реально произошёл под явным флагом, без DryRun');
+  assert.equal(g(['branch', '--show-current']).trim(), 'main', 'после прогона мы на main');
+  assert.ok(fs.existsSync(path.join(dir, '.selfheal-fixed')), 'фикс из self-heal ветки физически в main');
+  const log = g(['log', '--oneline', '-1']);
+  assert.match(log, /self-heal: merge feature\//, 'merge-коммит смержил именно auto-branch от elt commit (branchPolicy:feature)');
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 function main() {
   testEltSingleSource();
   testStuckDetectorUnit();
   testEltCommitLogsRedStopOnOracleFail();
   testCheckpointWriter();
   testEltDriveDryRun();
+  testEltSelfhealDryRun();
+  testEltSelfhealMergeLib();
+  testEltSelfhealAutoMergeGate();
   testProbePrimitivesParsing();
   testParseArgs();
   testProjectKeyStable();
