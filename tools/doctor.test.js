@@ -220,6 +220,40 @@ function testCodeGraphAdoptionCheck() {
   assert.match(adopted[0].detail, /1 codegraph_\* calls \/ 3 tool calls/);
 }
 
+// T009 (004-elt-selfdrive): opt-in pre-slice codegraph guard. Reuses
+// checkCodeGraph (T008) — no config / codegraphGuard:false = no-op even with
+// a missing db (most projects don't opt in); codegraphGuard:true must fail
+// loud on a dead/stale index instead of letting the driver silently degrade
+// to Read.
+function testCodegraphGuard() {
+  const { guard } = require('./codegraph-guard');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-cg-guard-'));
+
+  const noConfig = guard(root);
+  assert.equal(noConfig.ok, true, 'нет harness.json — гард молчит');
+
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({ codegraphGuard: false }));
+  const disabled = guard(root);
+  assert.equal(disabled.ok, true, 'codegraphGuard:false — no-op даже без db');
+
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({ codegraphGuard: true }));
+  const missingDb = guard(root);
+  assert.equal(missingDb.ok, false, 'codegraphGuard:true + нет db — громкий fail');
+
+  fs.mkdirSync(path.join(root, '.codegraph'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.codegraph', 'codegraph.db'), '');
+
+  const stale = 'Files: 10\nNodes: 100\nBackend: node:sqlite\nPending Changes:\n  Modified: 2 files\n';
+  const staleResult = guard(root, () => ({ status: 0, output: stale, error: '' }));
+  assert.equal(staleResult.ok, false, 'codegraphGuard:true + stale — громкий fail');
+
+  const green = 'Files: 10\nNodes: 100\nBackend: node:sqlite\n[OK] Index is up to date\n';
+  const healthy = guard(root, () => ({ status: 0, output: green, error: '' }));
+  assert.equal(healthy.ok, true, 'codegraphGuard:true + свежий индекс — no-op');
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function testGitHubCliAuthWarningSkipsCodeSearch() {
   const calls = [];
   const fakeRun = (command, args) => {
@@ -747,6 +781,7 @@ function main() {
   testCodeGraphStatusMockedGreenAndStale();
   testCodeGraphMcpCheck();
   testCodeGraphAdoptionCheck();
+  testCodegraphGuard();
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();

@@ -83,6 +83,16 @@ try {
     $id = $slice.id; $text = $slice.text
     Write-Host "`n=== слайс $i/$Slices : $id — $text ==="
 
+    # 2.5 pre-slice codegraph guard (T009, opt-in via .harness/harness.json
+    # codegraphGuard:true) — громкий стоп на мёртвом/устаревшем индексе вместо
+    # тихой деградации имплементатора на Read.
+    & node (Join-Path $PSScriptRoot "codegraph-guard.js")
+    if ($LASTEXITCODE -ne 0) {
+      Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "codegraph-guard-stop" }
+      Write-Host "elt-loop: codegraph-гард не прошёл — СТОП перед $id (см. вывод выше)."
+      break
+    }
+
     # 3. промпт имплементатора
     $implPrompt = @"
 Ты выполняешь ОДИН слайс spec-driven плана. Задача ${id}: ${text}.
