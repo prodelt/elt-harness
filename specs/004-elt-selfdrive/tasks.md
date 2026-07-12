@@ -51,7 +51,7 @@
 
 ## Фаза D — codegraph: адопция + liveness (F3) · скан: 24 вызова на 278 сессий — почти мёртв
 
-- [ ] **T008** codegraph-liveness + телеметрия адопции в `doctor`: MCP доступен + индекс свежий (парс `codegraph status`) + watcher жив; плюс счётчик реальных вызовов (мандат «codegraph первым» игнорится — 10 `codegraph_context` на 278 сессий).
+- [X] **T008** codegraph-liveness + телеметрия адопции в `doctor`: MCP доступен + индекс свежий (парс `codegraph status`) + watcher жив; плюс счётчик реальных вызовов (мандат «codegraph первым» игнорится — 10 `codegraph_context` на 278 сессий).
   Не только надёжность — **адопция ≈0**. Решить честно: чинить надёжность ИЛИ снять мандат, если он мёртв (ponytail).
   Тест: замоканный зелёный статус → PASS; missing `.codegraph/codegraph.db`/stale → WARN с repair-строкой.
 
