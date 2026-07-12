@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тест · Harness Engineering</title>
+<style>
+  :root{
+    --bg:#0a0b0f;--panel:#14161f;--panel-2:#181b26;--line:#262a38;--line-2:#333949;
+    --ink:#eef1f7;--ink-dim:#a7aec2;--ink-mute:#6f7794;
+    --gold:#f5b942;--gold-2:#ffcf7a;--teal:#37d9a6;--red:#ff6b6b;--violet:#9d8cff;
+    --mono:"SFMono-Regular",ui-monospace,"Cascadia Code",Consolas,monospace;
+    --sans:system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{
+    background:
+      radial-gradient(1100px 640px at 85% -12%, rgba(245,185,66,.10), transparent 60%),
+      radial-gradient(820px 560px at -8% 108%, rgba(55,217,166,.09), transparent 55%),
+      var(--bg);
+    color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .rails{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.45;
+    background-image:linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:64px 100%;
+    mask-image:linear-gradient(180deg,transparent,#000 12%,#000 88%,transparent);}
+  .wrap{position:relative;z-index:1;width:100%;max-width:720px}
+
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);
+    border-radius:20px;padding:clamp(24px,4vw,44px);box-shadow:0 30px 80px rgba(0,0,0,.4)}
+
+  .kicker{display:inline-flex;align-items:center;gap:10px;font:600 12px/1 var(--mono);
+    letter-spacing:.18em;text-transform:uppercase;color:var(--gold);
+    padding:8px 14px;border:1px solid var(--line-2);border-radius:999px;background:rgba(245,185,66,.06);margin-bottom:22px}
+  .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 12px var(--gold)}
+
+  h1{font-size:clamp(28px,5vw,44px);line-height:1.06;letter-spacing:-.02em;margin:0 0 16px;font-weight:800}
+  .grad{background:linear-gradient(100deg,var(--gold),var(--gold-2) 60%,var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+  p{font-size:clamp(15px,1.6vw,18px);line-height:1.6;color:var(--ink-dim);margin:0 0 16px}
+  .mute{color:var(--ink-mute)}
+
+  .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+  .qnum{font:600 13px/1 var(--mono);letter-spacing:.1em;color:var(--ink-mute)}
+  .qnum b{color:var(--gold)}
+  .bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin-bottom:26px}
+  .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--violet));transition:width .4s ease;box-shadow:0 0 12px rgba(245,185,66,.5)}
+
+  .q{font-size:clamp(19px,2.6vw,27px);line-height:1.25;font-weight:800;letter-spacing:-.01em;margin:0 0 22px}
+
+  .opts{display:flex;flex-direction:column;gap:12px}
+  .opt{display:flex;align-items:flex-start;gap:14px;text-align:left;width:100%;cursor:pointer;
+    background:var(--panel-2);border:1px solid var(--line-2);border-radius:13px;padding:16px 18px;
+    color:var(--ink);font-size:clamp(15px,1.7vw,17.5px);line-height:1.4;font-family:var(--sans);transition:.14s}
+  .opt:hover:not(:disabled){border-color:var(--gold);transform:translateY(-1px)}
+  .opt:disabled{cursor:default}
+  .opt .mk{flex:0 0 26px;height:26px;border-radius:8px;border:1px solid var(--line-2);display:grid;place-items:center;
+    font:700 14px/1 var(--mono);color:var(--ink-mute);transition:.14s}
+  .opt.correct{border-color:var(--teal);background:rgba(55,217,166,.10)}
+  .opt.correct .mk{background:var(--teal);border-color:var(--teal);color:#04120c}
+  .opt.wrong{border-color:var(--red);background:rgba(255,107,107,.09)}
+  .opt.wrong .mk{background:var(--red);border-color:var(--red);color:#160404}
+  .opt.dim{opacity:.5}
+
+  .explain{margin-top:20px;border-left:3px solid var(--gold);background:rgba(245,185,66,.06);
+    border-radius:0 12px 12px 0;padding:14px 18px;font-size:15px;line-height:1.55;color:var(--ink-dim);display:none}
+  .explain.show{display:block;animation:pop .3s ease}
+  .explain b{color:var(--ink)}
+  @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .row{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:26px;flex-wrap:wrap}
+  .btn{appearance:none;border:none;cursor:pointer;font-family:var(--sans);font-weight:800;font-size:16.5px;
+    padding:14px 28px;border-radius:12px;transition:.15s;color:#0a0b0f;
+    background:linear-gradient(100deg,var(--gold),var(--gold-2));box-shadow:0 10px 28px rgba(245,185,66,.22)}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(245,185,66,.32)}
+  .btn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+  .btn.ghost{background:transparent;color:var(--ink-dim);border:1px solid var(--line-2);box-shadow:none}
+  .btn.ghost:hover{border-color:var(--gold);color:var(--gold)}
+  a.btn{text-decoration:none;display:inline-block}
+
+  /* results */
+  .score{font-size:clamp(56px,12vw,96px);font-weight:800;letter-spacing:-.03em;line-height:1;margin:6px 0}
+  .score small{font-size:.35em;color:var(--ink-mute);font-weight:700}
+  .verdict{font-size:clamp(18px,2.4vw,24px);font-weight:800;margin:4px 0 20px}
+  .review{display:flex;flex-direction:column;gap:10px;margin:22px 0;text-align:left}
+  .rev{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;line-height:1.4;padding:12px 14px;border-radius:11px;background:var(--panel-2);border:1px solid var(--line)}
+  .rev .ic{flex:0 0 22px;height:22px;border-radius:6px;display:grid;place-items:center;font:800 13px/1 var(--mono)}
+  .rev.ok .ic{background:rgba(55,217,166,.15);color:var(--teal)}
+  .rev.no .ic{background:rgba(255,107,107,.15);color:var(--red)}
+  .rev .qt{color:var(--ink-dim)}
+
+  .hide{display:none}
+  .center{text-align:center}
+</style>
+</head>
+<body>
+<div class="rails"></div>
+<div class="wrap">
+
+  <!-- START -->
+  <div class="card center" id="start">
+    <div class="kicker" style="margin-inline:auto"><span class="dot"></span>Перевір себе</div>
+    <h1>Тест: <span class="grad">Harness & Loop Engineering</span></h1>
+    <p style="max-width:54ch;margin-inline:auto">14 коротких питань: спершу <b class="mute">теорія каркаса</b> (agent scaffold), потім — як наш <b class="mute">elt-code</b>/<b class="mute">elt-loop</b> її втілює. Рівно за структурою презентації. Без жаргону.</p>
+    <p class="mute" style="font-size:14px;max-width:46ch;margin-inline:auto">Обирайте відповідь — одразу побачите, правильно чи ні, і коротке пояснення з посиланням на джерело. Наприкінці — ваш результат.</p>
+    <div class="row" style="justify-content:center;margin-top:28px">
+      <button class="btn" id="startBtn">Почати тест →</button>
+      <a class="btn ghost" href="index.html">← До презентації</a>
+    </div>
+  </div>
+
+  <!-- QUIZ -->
+  <div class="card hide" id="quiz">
+    <div class="meta">
+      <span class="qnum">Питання <b id="qn">1</b> / <span id="total">10</span></span>
+      <span class="qnum" id="running">0 правильних</span>
+    </div>
+    <div class="bar"><i id="fill"></i></div>
+    <h2 class="q" id="qtext">—</h2>
+    <div class="opts" id="opts"></div>
+    <div class="explain" id="explain"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" id="nextBtn" disabled>Далі →</button>
+    </div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="card center hide" id="result">
+    <div class="kicker" style="margin-inline:auto"><span class="dot"></span>Результат</div>
+    <div class="score"><span id="finalScore">0</span><small>/<span id="totScore">10</span></small></div>
+    <div class="verdict" id="verdict">—</div>
+    <div class="review" id="review"></div>
+    <div class="row" style="justify-content:center;margin-top:8px">
+      <button class="btn" id="again">Пройти ще раз</button>
+      <a class="btn ghost" href="index.html">← До презентації</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const QUESTIONS=[
+  // ── Частина 1: теорія каркаса ──
+  {q:"Дослідження показало: та сама модель піднялась на 20+ позицій у рейтингу. Що саме змінили?",
+   a:[["Тільки оболонку навколо моделі — каркас (пам'ять, інструменти, цикл), а не саму модель",true],
+      ["Перенавчили модель на нових даних",false],
+      ["Просто збільшили розмір моделі",false]],
+   e:"LangChain: ті самі ваги, змінили лише <b>каркас</b> — і стрибок на 20+ позицій. Звідси теза: «якщо ви не модель — ви каркас»."},
+
+  {q:"В аналогії з комп'ютером, чим є контекстне вікно моделі?",
+   a:[["Оперативною пам'яттю (RAM) — швидка, але обмежена",true],
+      ["Жорстким диском — велике, повільне сховище",false],
+      ["Процесором, що виконує обчислення",false]],
+   e:"Сира LLM = процесор, контекстне вікно = RAM, зовнішні файли/БД = диск, <b>каркас = операційна система</b>."},
+
+  {q:"За словами творця Claude Code, що дає моделі можливість перевірити власну роботу (тести, суддя)?",
+   a:[["Покращує якість результату у 2–3 рази",true],
+      ["Уповільнює роботу вдвічі без реальної користі",false],
+      ["Нічого не змінює — це формальність",false]],
+   e:"Борис Черні: саме <b>цикли перевірки</b> відрізняють демо-іграшку від виробничого агента. Це компонент №10 з дванадцяти."},
+
+  {q:"Головна теза дослідження: коли AI-агент зазнає невдачі — куди дивитись насамперед?",
+   a:[["На каркас навколо моделі, а не на саму модель",true],
+      ["Тільки на саму модель — її треба замінити на потужнішу",false],
+      ["На швидкість інтернету й залізо",false]],
+   e:"«Каркас і є продукт»: два продукти на однакових моделях дають різний результат лише через дизайн каркаса. «Не звинувачуйте модель — подивіться на каркас»."},
+
+  // ── Частина 2: наша система ──
+  {q:"У нашому прикладі AI написав код видалення модуля. Хто вирішує, що це «готово»?",
+   a:[["Комп'ютер, який реально запускає тест і повертає результат — не думка AI",true],
+      ["Сам AI, який каже «має спрацювати»",false],
+      ["Ніхто — просто комітиться одразу",false]],
+   e:"На схемі це бокс «тест / оракул»: комп'ютер реально запускає код і бачить <span class=\"teal mono\">... ok</span>. Це факт, а не думка AI. Саме це і є механічна перевірка (оракул)."},
+
+  {q:"Що реально сталося, коли AI спробував закомітити код без форматування?",
+   a:[["Комп'ютер (husky-гейт) фізично відхилив коміт — код навіть не потрапив в історію git",true],
+      ["Нічого, коміт пройшов би все одно",false],
+      ["AI отримав попередження, але коміт пройшов",false]],
+   e:"Реальна подія з презентації: <span class=\"mono\">cargo fmt --check</span> провалився → коміт ВІДХИЛЕНО. Тільки після виправлення форматування коміт пройшов. Це доказ, що перевірка не декоративна."},
+
+  {q:"Чому окрема «друга думка» (суддя) читає код ПІСЛЯ того, як тест уже пройшов зелено?",
+   a:[["Щоб виконавець не оцінював сам себе — свіжий погляд шукає те, що тест міг не помітити",true],
+      ["Бо один AI фізично не встигає — потрібно два для швидкості",false],
+      ["Це просто формальність без реальної причини",false]],
+   e:"Той самий агент, що писав код, схильний вірити у власну роботу. Окремий агент дивиться незалежно, з позицією «шукай причину відхилити», хоча й не може скасувати вже зелений тест."},
+
+  {q:"У прикладі AI виправляє помилку сам до 3 разів. Що станеться на 4-й невдалій спробі?",
+   a:[["Петля зупиняється і передає рішення людині — не намагається нескінченно",true],
+      ["Продовжує пробувати без обмежень, поки не вийде",false],
+      ["Автоматично видаляє тест, який заважає",false]],
+   e:"Ліміт спроб — свідоме обмеження проти «нескінченного фіксу», який спалює час і бюджет. Зупинка й передача людині — це не збій, а спрацювання запобіжника."},
+
+  {q:"Що таке «kill switch» у роботі петлі, простими словами?",
+   a:[["Можливість людини будь-якої миті миттєво зупинити автономну роботу",true],
+      ["Кнопка, яка прискорює роботу AI вдвічі",false],
+      ["Автоматичне видалення старого коду",false]],
+   e:"Автономність без гальм — ризик. Один рядок у файлі стану проєкту — і петля зупиняється негайно, без винятків."},
+
+  {q:"Навіщо петлі потрібен файл на кшталт STATE.md?",
+   a:[["Це пам'ять поза чатом: що вже зроблено, що далі — можна продовжити навіть у новій розмові",true],
+      ["Це просто резервна копія коду",false],
+      ["Він потрібен лише для звітності перед начальством",false]],
+   e:"Без такого файлу кожна нова розмова з AI починалася б «з нуля». STATE.md дозволяє петлі продовжити рівно з того місця, де зупинились — навіть іншого дня."},
+
+  {q:"У презентації визнана «прогалина» (немає ізоляції паралельних прогонів). Від чого вона НЕ захищає?",
+   a:[["Вона не про це — механічна перевірка й гейт уже захищають від некоректного коду; прогалина про конфлікти кількох ПАРАЛЕЛЬНИХ задач",true],
+      ["Через прогалину AI взагалі може закомітити зламаний код без перевірки",false],
+      ["Прогалина означає, що системи гейту не існує",false]],
+   e:"Чесно визнана прогалина — про одночасні паралельні задачі, що можуть заважати одна одній. Захист від «поганого коду» (тест + гейт) працює незалежно від цієї прогалини."},
+
+  {q:"Що робить «elt-code» на самому початку прикладу?",
+   a:[["Читає звичайну фразу людини і сам направляє роботу в потрібний інструмент — як адміністратор у приймальні",true],
+      ["Сам пише весь код без участі жодного іншого інструменту",false],
+      ["Перевіряє граматику повідомлення людини",false]],
+   e:"Це «ресепшн»: одна фраза → один рядок з оголошеним маршрутом → передача роботи готовому інструменту. Нічого складнішого на цьому кроці не відбувається."},
+
+  {q:"Чому один прогін по схемі називають «harness», а серію прогонів поспіль — «loop»?",
+   a:[["Harness тримає якісним ОДИН прогін; loop — це коли прогін повторюється сам, слайс за слайсом, з пам'яттю між ними",true],
+      ["Це два випадкові слова без різниці в значенні",false],
+      ["Harness — для маленьких завдань, loop — тільки для великих проєктів",false]],
+   e:"Один прохід по схемі (написав → тест → гейт → суддя → коміт) — це harness. Серія таких проходів поспіль, кожен зі своїм комітом (реальні eb42eac/cf0837a/f26c007/09a2378), — це loop."},
+
+  {q:"Яке з цих запитань НЕ входить у чекліст «як розпізнати реальний автономний AI»?",
+   a:[["Чи гарний дизайн інтерфейсу в AI-агента",true],
+      ["Чи є в системи кнопка миттєвої зупинки",false],
+      ["Чи перевіряє результат окремий агент, а не сам виконавець",false]],
+   e:"Дизайн інтерфейсу не має жодного стосунку до надійності автономної роботи. Реальні запитання: хто закриває задачу, хто перевіряє, чи є стоп-кнопка, чи є ліміт спроб, чи є пам'ять поза чатом."}
+];
+
+const el=id=>document.getElementById(id);
+let idx=0, score=0, answered=false;
+const results=[]; // {ok:bool}
+const TOTAL=QUESTIONS.length;
+el('total').textContent=TOTAL;
+el('totScore').textContent=TOTAL;
+
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[arr[i],arr[j]]=[arr[j],arr[i]]}return arr}
+
+function render(){
+  answered=false;
+  const item=QUESTIONS[idx];
+  el('qn').textContent=idx+1;
+  el('running').textContent=score+(score===1?' правильна':' правильних');
+  el('fill').style.width=((idx)/QUESTIONS.length*100)+'%';
+  el('qtext').textContent=item.q;
+  el('nextBtn').disabled=true;
+  el('nextBtn').textContent = idx===QUESTIONS.length-1 ? 'Побачити результат →' : 'Далі →';
+  const ex=el('explain'); ex.className='explain'; ex.innerHTML='';
+  const box=el('opts'); box.innerHTML='';
+  const letters=['А','Б','В','Г'];
+  const opts=shuffle(item.a.map((o,k)=>({text:o[0],correct:o[1]})));
+  opts.forEach((o,k)=>{
+    const b=document.createElement('button');
+    b.className='opt';
+    b.innerHTML=`<span class="mk">${letters[k]}</span><span>${o.text}</span>`;
+    b.onclick=()=>choose(b,o.correct,box,ex,item);
+    box.appendChild(b);
+  });
+}
+
+function choose(btn,correct,box,ex,item){
+  if(answered)return;
+  answered=true;
+  [...box.children].forEach(c=>{c.disabled=true;c.classList.add('dim')});
+  const buttons=[...box.children];
+  // mark the correct one
+  buttons.forEach(c=>{
+    const isCorrect=c.querySelector('span:last-child').textContent===item.a.find(x=>x[1])[0];
+    if(isCorrect){c.classList.remove('dim');c.classList.add('correct')}
+  });
+  if(correct){score++}
+  else{btn.classList.remove('dim');btn.classList.add('wrong')}
+  results.push(correct);
+  el('running').textContent=score+(score===1?' правильна':' правильних');
+  ex.innerHTML=(correct?'<b>Правильно. </b>':'<b>Не зовсім. </b>')+item.e;
+  ex.classList.add('show');
+  el('fill').style.width=((idx+1)/QUESTIONS.length*100)+'%';
+  el('nextBtn').disabled=false;
+}
+
+el('startBtn').onclick=()=>{el('start').classList.add('hide');el('quiz').classList.remove('hide');idx=0;score=0;results.length=0;render()};
+el('nextBtn').onclick=()=>{
+  if(idx<QUESTIONS.length-1){idx++;render()}
+  else finish();
+};
+
+function finish(){
+  el('quiz').classList.add('hide');
+  el('result').classList.remove('hide');
+  el('finalScore').textContent=score;
+  const v=el('verdict');
+  let msg,color;
+  if(score>=13){msg='Відмінно — ви зрозуміли і теорію, і нашу систему.';color='var(--teal)'}
+  else if(score>=10){msg='Дуже добре. Головна ідея у вас є.';color='var(--gold)'}
+  else if(score>=7){msg='Непогано. Варто ще раз глянути презентацію.';color='var(--gold)'}
+  else{msg='Є над чим попрацювати — почніть із презентації.';color='var(--red)'}
+  v.textContent=msg; v.style.color=color;
+  const rev=el('review'); rev.innerHTML='';
+  results.forEach((ok,k)=>{
+    const d=document.createElement('div');
+    d.className='rev '+(ok?'ok':'no');
+    d.innerHTML=`<span class="ic">${ok?'✓':'✕'}</span><span class="qt"><b>Питання ${k+1}.</b> ${QUESTIONS[k].q}</span>`;
+    rev.appendChild(d);
+  });
+}
+el('again').onclick=()=>{el('result').classList.add('hide');el('start').classList.remove('hide')};
+</script>
+</body>
+</html>

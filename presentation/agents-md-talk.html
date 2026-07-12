@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AGENTS.md — пам'ять проєкту для AI · Codex CLI</title>
+<style>
+  :root{
+    --bg:#0a0b0f; --bg-2:#0f1118; --panel:#14161f; --panel-2:#181b26;
+    --line:#262a38; --line-2:#333949;
+    --ink:#eef1f7; --ink-dim:#a7aec2; --ink-mute:#6f7794;
+    --gold:#f5b942; --gold-2:#ffcf7a; --teal:#37d9a6; --red:#ff6b6b; --violet:#9d8cff;
+    --mono:"SFMono-Regular", ui-monospace, "Cascadia Code", Consolas, "Liberation Mono", monospace;
+    --sans:system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 82% -10%, rgba(245,185,66,.10), transparent 60%),
+      radial-gradient(900px 600px at 0% 110%, rgba(55,217,166,.08), transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  .rails{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+    background-image:linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size:64px 100%;
+    mask-image:linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);}
+  .deck{position:relative;z-index:1;height:100%}
+  .slide{position:absolute;inset:0;display:none;padding:clamp(22px,4vw,66px);padding-bottom:92px;
+    flex-direction:column;justify-content:safe center;animation:fade .45s ease;overflow:auto}
+  .slide.on{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  .kicker{display:inline-flex;align-items:center;gap:10px;font:600 12px/1 var(--mono);
+    letter-spacing:.16em;text-transform:uppercase;color:var(--gold);
+    padding:7px 13px;border:1px solid var(--line-2);border-radius:999px;
+    background:rgba(245,185,66,.06);width:max-content;margin-bottom:16px}
+  .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 12px var(--gold)}
+
+  h1{font-size:clamp(30px,5vw,58px);line-height:1.05;margin:0 0 16px;letter-spacing:-.02em;font-weight:800}
+  h2{font-size:clamp(22px,3.2vw,37px);line-height:1.12;margin:0 0 14px;letter-spacing:-.02em;font-weight:800}
+  h3{font-size:clamp(15px,1.35vw,19px);margin:0 0 9px;font-weight:700}
+  p{font-size:clamp(14px,1.25vw,17.5px);line-height:1.5;color:var(--ink-dim);margin:0 0 12px;max-width:70ch}
+  .lead{font-size:clamp(15.5px,1.55vw,20px);color:var(--ink)}
+  .grad{background:linear-gradient(100deg,var(--gold),var(--gold-2) 60%,var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .teal{color:var(--teal)} .red{color:var(--red)} .gold{color:var(--gold)} .mute{color:var(--ink-mute)} .violet{color:var(--violet)}
+  strong{color:var(--ink);font-weight:700}
+  .mono{font-family:var(--mono)}
+  ul{margin:0;padding:0;list-style:none}
+  li{position:relative;padding-left:23px;margin:0 0 10px;font-size:clamp(13.5px,1.2vw,16.5px);line-height:1.45;color:var(--ink-dim)}
+  li::before{content:"";position:absolute;left:2px;top:.58em;width:8px;height:8px;border-radius:2px;background:var(--gold);transform:rotate(45deg)}
+  li.ok::before{background:var(--teal)} li.no::before{background:var(--red)} li.gap::before{background:var(--violet)}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,2.4vw,42px);align-items:center}
+  .cols.top{align-items:start}
+  @media(max-width:860px){.cols{grid-template-columns:1fr;gap:16px}}
+
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .card h3{color:var(--ink)}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+  @media(max-width:900px){.grid3,.grid4{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.grid3,.grid4{grid-template-columns:1fr}}
+
+  .quote{border-left:3px solid var(--gold);background:rgba(245,185,66,.05);border-radius:0 12px 12px 0;padding:13px 19px;margin:6px 0}
+  .quote p{font-size:clamp(15px,1.5vw,19px);color:var(--ink);font-style:italic;margin:0 0 7px;max-width:none}
+  .quote .who{font:700 12.5px/1 var(--sans);font-style:normal;color:var(--gold)}
+  .quote .who span{color:var(--ink-mute);font-weight:500}
+
+  .term{font-family:var(--mono);font-size:clamp(11px,.98vw,13.5px);line-height:1.65;background:#080a10;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .term .bar{display:flex;gap:7px;padding:9px 14px;border-bottom:1px solid var(--line);background:#0c0e15;align-items:center}
+  .term .bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .term .bar .t{margin-left:9px;color:var(--ink-mute);font-size:11px;letter-spacing:.05em}
+  .term .body{padding:13px 16px;white-space:pre-wrap;color:#cfd6e6}
+  .term .body .c{color:var(--ink-mute)} .term .body .g{color:var(--teal)} .term .body .r{color:var(--red)} .term .body .y{color:var(--gold)} .term .body .b{color:var(--violet)}
+
+  .tablewrap{overflow-x:auto;flex:0 0 auto;border:1px solid var(--line);border-radius:12px}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:clamp(12px,1.02vw,14.5px)}
+  th,td{padding:7px 13px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{position:sticky;top:0;background:var(--panel-2);font-size:12px;letter-spacing:.02em;color:var(--ink-dim);font-weight:700}
+  tbody td:first-child{color:var(--gold);font-weight:600;white-space:nowrap}
+  tbody td.us{color:var(--ink)}
+
+  .src{display:inline-flex;align-items:center;gap:6px;font:600 11.5px/1.5 var(--mono);color:var(--ink-mute);letter-spacing:.02em}
+  .foot-note{font-size:12.5px;color:var(--ink-mute);margin-top:11px;max-width:none}
+
+  .thesis{border:1px solid rgba(55,217,166,.35);background:linear-gradient(100deg,rgba(245,185,66,.06),rgba(55,217,166,.06));
+    border-radius:16px;padding:clamp(15px,2.1vw,25px) clamp(17px,2.5vw,29px);margin:2px 0 14px}
+  .thesis .big{font-size:clamp(19px,2.5vw,31px);font-weight:800;letter-spacing:-.01em;line-height:1.18;color:var(--ink)}
+  .thesis .sub{font-size:clamp(13px,1.25vw,15.5px);color:var(--ink-dim);margin-top:9px;line-height:1.5}
+
+  .roadmap{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
+  .roadmap span{font:700 12px/1 var(--mono);letter-spacing:.04em;padding:8px 13px;border-radius:999px;
+    border:1px solid var(--line-2);color:var(--ink-dim);background:var(--panel)}
+  .roadmap span.a{color:var(--gold);border-color:rgba(245,185,66,.45);background:rgba(245,185,66,.07)}
+  .roadmap span.b{color:var(--teal);border-color:rgba(55,217,166,.45);background:rgba(55,217,166,.07)}
+  .roadmap span.c{color:var(--violet);border-color:rgba(157,140,255,.45);background:rgba(157,140,255,.07)}
+
+  /* flow diagram */
+  .diagram{width:100%;max-width:640px;margin:0 auto}
+  .dnode{position:relative;display:flex;align-items:center;gap:12px;
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid var(--line);border-left:3px solid var(--line-2);border-radius:10px;padding:8px 14px}
+  .dnode .ic{flex:0 0 30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:16px;background:#0c0e15;border:1px solid var(--line-2)}
+  .dnode .tt{font-weight:800;font-size:14px;line-height:1.12}
+  .dnode .ss{font-size:11px;color:var(--ink-mute);line-height:1.26;margin-top:2px}
+  .dnode.model{border-left-color:var(--gold)} .dnode.model .ic{border-color:rgba(245,185,66,.4)}
+  .dnode.check{border-left-color:var(--teal);background:rgba(55,217,166,.045)} .dnode.check .ic{border-color:rgba(55,217,166,.4)}
+  .dnode.mem{border-left-color:var(--violet)} .dnode.mem .ic{border-color:rgba(157,140,255,.4)}
+  .dnode.entry{border-left-color:var(--gold-2)}
+  .dconn{display:flex;align-items:center;justify-content:center;height:14px;position:relative}
+  .dconn::before{content:"";width:2px;height:100%;background:var(--line-2)}
+  .dconn .lbl{position:absolute;left:calc(50% + 12px);font:700 10px/1 var(--mono);color:var(--teal);white-space:nowrap}
+
+  /* one-to-many fan */
+  .fan{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+  @media(max-width:680px){.fan{grid-template-columns:1fr 1fr}}
+  .chip{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:12px;padding:13px 9px}
+  .chip .e{font-size:22px}
+  .chip .n{font:700 12.5px/1.2 var(--sans);color:var(--ink)}
+  .chip .f{font:600 10px/1.2 var(--mono);color:var(--ink-mute);margin-top:1px}
+
+  /* file preview */
+  .file{font-family:var(--mono);font-size:clamp(11px,.95vw,13px);line-height:1.6;background:#080a10;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .file .bar{display:flex;gap:8px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line);background:#0c0e15;color:var(--ink-dim);font-weight:700;font-size:12px}
+  .file .bar .fi{color:var(--gold)}
+  .file .body{padding:13px 16px;white-space:pre-wrap;color:#cfd6e6}
+  .file .body .h{color:var(--gold);font-weight:700}
+  .file .body .c{color:var(--ink-mute)}
+  .file .body .k{color:var(--teal)}
+
+  .steps{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:6px}
+  @media(max-width:760px){.steps{grid-template-columns:1fr}}
+  .step{display:flex;gap:12px;align-items:flex-start;background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+  .step .n{flex:0 0 30px;height:30px;border-radius:8px;display:grid;place-items:center;font:800 15px/1 var(--mono);color:#0a0b0f;background:linear-gradient(100deg,var(--gold),var(--gold-2))}
+  .step .n.t{background:linear-gradient(100deg,var(--teal),#7ff0cf)}
+  .step h3{margin:0 0 3px} .step p{margin:0;font-size:13px;max-width:none}
+
+  .chrome{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;align-items:center;justify-content:space-between;
+    padding:13px clamp(18px,4vw,40px);gap:16px;background:linear-gradient(0deg,rgba(10,11,15,.92),transparent)}
+  .progress{position:fixed;left:0;top:0;height:3px;background:linear-gradient(90deg,var(--gold),var(--violet));z-index:6;transition:width .35s ease;box-shadow:0 0 14px rgba(245,185,66,.5)}
+  .nav{display:flex;gap:8px}
+  .btn{appearance:none;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);width:40px;height:40px;border-radius:10px;font-size:17px;cursor:pointer;transition:.15s;display:grid;place-items:center}
+  .btn:hover{border-color:var(--gold);color:var(--gold);transform:translateY(-1px)}
+  .counter{font:600 12.5px/1 var(--mono);color:var(--ink-mute);letter-spacing:.1em}
+  .counter b{color:var(--ink)}
+  .brand{font:700 12.5px/1 var(--mono);letter-spacing:.05em;color:var(--ink-dim)}
+  .brand .d{color:var(--gold)}
+  .hint{font:500 11.5px/1 var(--mono);color:var(--ink-mute);letter-spacing:.04em;white-space:nowrap}
+  @media(max-width:720px){.hint{display:none}}
+</style>
+</head>
+<body>
+<div class="rails"></div>
+<div class="progress" id="prog"></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · Титул -->
+  <section class="slide on">
+    <div class="kicker"><span class="dot"></span>Codex CLI · урок · для всіх, не лише для розробників</div>
+    <h1>Файл <span class="grad">AGENTS.md</span><br>пам'ять проєкту для AI</h1>
+    <div class="thesis">
+      <div class="big">«Поясни AI свій проєкт <span class="grad">один раз</span> — і кожен агент читатиме це сам.»</div>
+      <div class="sub">AGENTS.md — це коротка шпаргалка про ваш проєкт, написана звичайною мовою. AI-агент читає її й працює <strong>за вашими правилами</strong>, а не за здогадками. Спершу — коротка теорія, чому AI взагалі потребує такий файл. Далі: навіщо він вам, що всередині, як створити однією командою — і реальний приклад.</div>
+    </div>
+    <div class="roadmap">
+      <span class="c">⓪ Теорія: пам'ять AI</span>
+      <span class="a">① Навіщо він</span>
+      <span class="a">② Що всередині</span>
+      <span class="b">③ Створюємо: /init</span>
+      <span class="c">④ Приклад + правила</span>
+    </div>
+  </section>
+
+  <!-- 1b · Теорія: чому потрібна пам'ять у файлі -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>⓪ Спершу теорія · чому це взагалі потрібно</div>
+    <h2>AI <span class="grad">не має пам'яті</span> між розмовами</h2>
+    <p class="lead">Модель — як процесор без диска. Усе, що вона «пам'ятає», — це поточна розмова. Нова сесія — і сторінка чиста: про ваш проєкт вона знову не знає нічого.</p>
+    <div class="cols top" style="margin-top:12px">
+      <div class="card" style="border-color:rgba(255,107,107,.3)">
+        <h3 class="red">🧠 Контекстне вікно = RAM</h3>
+        <p style="margin:0;font-size:14px">Швидка пам'ять поточної розмови. Але <strong>стирається щоразу</strong>: закрили чат — і все, що пояснювали, зникло.</p>
+      </div>
+      <div class="card" style="border-color:rgba(55,217,166,.35)">
+        <h3 class="teal">💾 Файл у проєкті = диск</h3>
+        <p style="margin:0;font-size:14px">Лишається назавжди. Агент <strong>прочитав його на старті</strong> — і знову «в курсі» проєкту, хоч через місяць.</p>
+      </div>
+    </div>
+    <p class="foot-note">Тому знання про проєкт має жити у <strong>файлі</strong>, який агент читає на початку кожного завдання. Цей файл — <span class="mono gold">AGENTS.md</span>.</p>
+  </section>
+
+  <!-- 1c · Теорія: це названий компонент, не мода -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>⓪ Спершу теорія · це не випадкова мода</div>
+    <h2>«Пам'ять проєкту» — <span class="grad">один із 12 компонентів</span> будь-якого AI-агента</h2>
+    <div class="cols top">
+      <div>
+        <p>Дослідники розклали виробничого AI-агента на 12 частин: цикл, інструменти, обробка помилок, перевірки… Одна з них — <strong>довгострокова пам'ять</strong>: файли проєкту, які модель читає щоразу заново.</p>
+        <p>Це є в кожного серйозного інструмента. Різні назви — та сама роль: дати агенту контекст, що <strong>переживає перезапуск</strong>.</p>
+        <div class="quote"><p>«Довгострокова пам'ять зберігається між сеансами: Anthropic використовує файли проєкту CLAUDE.md та автоматично створені MEMORY.md.»</p><div class="who">Дослідження про agent scaffolds <span>· каркас агента</span></div></div>
+      </div>
+      <div>
+        <div class="fan" style="grid-template-columns:1fr 1fr">
+          <div class="chip"><div class="e">🧠</div><div class="n">CLAUDE.md</div><div class="f">Claude Code</div></div>
+          <div class="chip"><div class="e">📄</div><div class="n">AGENTS.md</div><div class="f">Codex</div></div>
+          <div class="chip"><div class="e">💾</div><div class="n">MEMORY.md</div><div class="f">авто-пам'ять</div></div>
+          <div class="chip"><div class="e">✨</div><div class="n">.cursorrules</div><div class="f">Cursor</div></div>
+        </div>
+        <p class="foot-note" style="text-align:center;margin-top:12px">AGENTS.md — така пам'ять у <strong>зручному, людському форматі</strong>. Далі — навіщо він конкретно вам.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · Проблема -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>① Навіщо це взагалі</div>
+    <h2>AI не знає ваш проєкт. <span class="grad">Щоразу пояснюєте заново.</span></h2>
+    <p class="lead">Ви просите AI-агента щось зробити — а він не в курсі, як тут усе влаштовано. Якими командами запускати, як тестувати, якого стилю дотримуватись. Тож або він <strong>перепитує</strong>, або <strong>вгадує й помиляється</strong>.</p>
+    <div class="cols top" style="margin-top:10px">
+      <div class="card" style="border-color:rgba(255,107,107,.3)">
+        <h3 class="red">Без файлу</h3>
+        <ul style="margin:0">
+          <li class="no">Пояснюєте одне й те саме в кожній новій розмові</li>
+          <li class="no">Агент вгадує команди й стиль — і часто мимо</li>
+          <li class="no">Код виходить «не такий, як у нас у проєкті»</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(55,217,166,.35)">
+        <h3 class="teal">З файлом AGENTS.md</h3>
+        <ul style="margin:0">
+          <li class="ok">Написали правила <strong>один раз</strong> — лежать у проєкті</li>
+          <li class="ok">Агент читає їх сам на початку кожного завдання</li>
+          <li class="ok">Працює так, як ви очікуєте — з першого разу</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot-note">Проблема не в тому, що AI «дурний». Просто йому <strong>ніхто не дав контексту</strong>. AGENTS.md — і є цей контекст.</p>
+  </section>
+
+  <!-- 3 · Що таке AGENTS.md · аналогія -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Що це · проста аналогія</div>
+    <h2>Це як <span class="grad">інструкція для нового співробітника</span></h2>
+    <div class="cols top">
+      <div>
+        <p>Уявіть, що до вас у перший день виходить новачок. Ви не пояснюєте йому кожну дрібницю вголос щоразу — ви даєте <strong>онбординг-документ</strong>: ось як у нас усе влаштовано, ось інструменти, ось правила.</p>
+        <p><strong>AGENTS.md — це той самий онбординг, але для AI-агента.</strong> Схоже на README, тільки README пишуть для людей, а цей файл — для <span class="teal">програм-агентів</span>, що працюють із вашим кодом.</p>
+        <div class="quote"><p>«README — для людей. AGENTS.md — для агентів. Мета одна: дати короткий контекст про проєкт.»</p><div class="who">Стандарт AGENTS.md <span>· agents.md</span></div></div>
+      </div>
+      <div>
+        <div class="card">
+          <h3 class="gold">Що він пояснює агенту</h3>
+          <ul style="margin:0">
+            <li>як влаштована ваша кодова база</li>
+            <li>якими командами збирати й тестувати</li>
+            <li>якого стилю коду ви дотримуєтесь</li>
+            <li>як структурований проєкт</li>
+            <li>які правила важливо враховувати</li>
+          </ul>
+          <p class="foot-note" style="margin-top:12px">Живе зазвичай у <span class="mono gold">корені проєкту</span> — щоб агент одразу його знайшов.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · Як Codex це використовує -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Як Codex це використовує</div>
+    <h2>Codex <span class="grad">сам знаходить і читає</span> цей файл</h2>
+    <p class="lead">Коли ви просите Codex щось зробити — локально в терміналі або в хмарі Codex Cloud — він робить це автоматично, вам нічого не треба вмикати:</p>
+    <div class="diagram" style="margin-top:14px">
+      <div class="dnode entry">
+        <div class="ic">🧑</div>
+        <div><div class="tt">Ви даєте завдання</div><div class="ss">«додай перевірку нового пункту договору»</div></div>
+      </div>
+      <div class="dconn"><span class="lbl">Codex шукає файл</span></div>
+      <div class="dnode mem">
+        <div class="ic">📄</div>
+        <div><div class="tt">Знаходить <span class="mono">AGENTS.md</span> у корені</div><div class="ss">бере його вміст як контекст до вашого завдання</div></div>
+      </div>
+      <div class="dconn"><span class="lbl">розуміє правила</span></div>
+      <div class="dnode model">
+        <div class="ic">🤖</div>
+        <div><div class="tt">Виконує — за вашими правилами</div><div class="ss">правильні команди, ваш стиль, ваша структура</div></div>
+      </div>
+    </div>
+    <p class="foot-note" style="margin-top:14px">Усе, що записано в AGENTS.md, <strong>впливає на те, як Codex розуміє проєкт</strong> і як виконує ваші інструкції. Файл є → його читають. Файлу нема → агент вгадує.</p>
+  </section>
+
+  <!-- 5 · Стандарт для всіх -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Головна фішка · один файл для всіх</div>
+    <h2>Раніше — зоопарк файлів. <span class="grad">Тепер — один стандарт.</span></h2>
+    <p class="lead">У кожного AI-інструмента був <strong>свій</strong> файл інструкцій. Claude Code читав <span class="mono">CLAUDE.md</span>, Copilot — свій markdown, Cursor — свій. Той самий зміст доводилось тримати в кількох місцях.</p>
+    <div class="cols top" style="margin-top:6px">
+      <div class="card" style="border-color:rgba(255,107,107,.3)">
+        <h3 class="red">Було: окремий файл під кожен інструмент</h3>
+        <p style="margin:0;font-size:13.5px"><span class="mono">CLAUDE.md</span> · <span class="mono">.github/copilot-instructions.md</span> · <span class="mono">.cursorrules</span> · … — і всі про одне й те саме, підтримуй кожен окремо.</p>
+      </div>
+      <div class="card" style="border-color:rgba(55,217,166,.35)">
+        <h3 class="teal">Стало: один AGENTS.md — читають усі</h3>
+        <p style="margin:0;font-size:13.5px">AGENTS.md просувають як <strong>спільний стандарт</strong>. Один файл — і його підхоплюють різні AI-інструменти. Дедалі більше інструментів уже його підтримують.</p>
+      </div>
+    </div>
+    <div class="fan">
+      <div class="chip"><div class="e">📄</div><div class="n">AGENTS.md</div><div class="f">один файл</div></div>
+      <div class="chip"><div class="e">🤖</div><div class="n">Codex</div><div class="f">читає</div></div>
+      <div class="chip"><div class="e">🧠</div><div class="n">Claude Code</div><div class="f">читає</div></div>
+      <div class="chip"><div class="e">✨</div><div class="n">Copilot / Cursor</div><div class="f">читає</div></div>
+    </div>
+  </section>
+
+  <!-- 6 · Створюємо через /init -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>③ Створюємо · одна команда</div>
+    <h2>Не пишемо вручну — <span class="grad">кажемо Codex</span> <span class="mono grad">/init</span></h2>
+    <div class="cols top">
+      <div>
+        <p>У сесії Codex запускаєте вбудовану команду <span class="mono gold">/init</span>. Codex <strong>сам сканує</strong> вашу кодову базу й генерує чернетку <span class="mono">AGENTS.md</span> у корені проєкту — за кілька секунд.</p>
+        <ul>
+          <li>сам визначає стиль коду</li>
+          <li>сам знаходить команди збірки й тестів</li>
+          <li>сам описує структуру проєкту</li>
+        </ul>
+        <p class="foot-note">Іноді Codex додає власні припущення. Побачили щось не так — <strong class="gold">трохи підкоригуйте</strong>. Це чернетка, а не догма.</p>
+      </div>
+      <div>
+        <div class="term">
+          <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="t">codex — сесія в терміналі</span></div>
+          <div class="body"><span class="y">›</span> /init
+<span class="c">  сканую структуру проєкту…</span>
+<span class="c">  читаю package.json, тести, конфіги…</span>
+<span class="c">  визначаю стиль і команди…</span>
+
+<span class="g">  ✓ створено AGENTS.md у корені проєкту</span>
+
+<span class="y">›</span> <span class="c"># готово — відкрий і перевір розділи</span></div>
+        </div>
+        <p class="foot-note" style="text-align:center">Кілька секунд — і файл із базовими правилами на місці.</p>
+        <p class="foot-note" style="margin-top:8px">🔧 <strong class="gold">У нас</strong> це робить один ритуал <span class="mono">/project-bootstrap</span>: генерує <span class="mono">AGENTS.md</span> одразу за <strong>еталоном</strong> (стислі розділи, без «журналу»), і дзеркалить його в <span class="mono">CLAUDE.md</span> та <span class="mono">.gemini/GEMINI.md</span> — один файл, три агенти.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · Що всередині — 6 розділів -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Що всередині · анатомія файлу</div>
+    <h2>Кілька розділів — <span class="grad">кожен відповідає на одне питання</span></h2>
+    <div class="grid3" style="margin-top:6px">
+      <div class="card"><h3 class="gold">🗂️ Структура</h3><p style="margin:0;font-size:13px">Де що лежить: папки, головні файли, як організовано модулі.</p></div>
+      <div class="card" style="border-color:rgba(55,217,166,.3)"><h3 class="teal">⚙️ Команди</h3><p style="margin:0;font-size:13px">Як зібрати, як запустити, як протестувати проєкт.</p></div>
+      <div class="card"><h3 class="gold">✍️ Стиль коду</h3><p style="margin:0;font-size:13px">Правила іменування й оформлення — щоб код був однорідним.</p></div>
+      <div class="card" style="border-color:rgba(55,217,166,.3)"><h3 class="teal">🧪 Тести</h3><p style="margin:0;font-size:13px">Де лежать тести й куди додавати нові.</p></div>
+      <div class="card" style="border-color:rgba(157,140,255,.35)"><h3 class="violet">💾 Commit & PR</h3><p style="margin:0;font-size:13px">Як оформляти коміти й pull request — стиль роботи з Git.</p></div>
+      <div class="card"><h3 class="gold">⚠️ Пастки</h3><p style="margin:0;font-size:13px">Те, що зламається, якщо не знати. Особливості проєкту.</p></div>
+    </div>
+    <p class="foot-note" style="margin-top:14px">Файл не мусить бути великим — <strong>стислий і actionable</strong> (правило Бориса Черні). Головне — охопити ці питання. <strong class="gold">Не перетворюйте його на щоденник:</strong> «що зробив сьогодні» живе в окремому файлі стану (<span class="mono">STATE.md</span>), а тут — лише стабільні правила.</p>
+  </section>
+
+  <!-- 8 · Мій приклад — цілком -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>④ Мій реальний приклад · проєкт «IZI Tracker»</div>
+    <h2>Ось як <span class="grad">AGENTS.md виглядає в мене</span></h2>
+    <p class="lead" style="margin-bottom:10px">IZI Tracker — наш застосунок для логістичних менеджерів: облік робочого дня, зустрічі, дашборд. Ось верхівка його файлу — і кожен розділ ми зараз розберемо простою мовою.</p>
+    <div class="file">
+      <div class="bar"><span class="fi">📄 AGENTS.md</span><span style="color:var(--ink-mute);font-weight:500">· корінь проєкту «IZI Tracker»</span></div>
+      <div class="body"><span class="h"># AGENTS.md — IZI Tracker</span>
+
+<span class="h">## Overview</span>  <span class="c">← про що проєкт, у 2 реченнях</span>
+PWA для логістичних менеджерів: облік робочого дня
+(одометр, зустрічі), CRM і дашборд для admin.
+
+<span class="h">## Stack</span>  <span class="c">← технології</span>
+Next.js 16 · React 19 · TypeScript · Supabase · Vitest
+
+<span class="h">## Structure</span>  <span class="c">← де що лежить</span>
+<span class="k">src/app/</span>       маршрути (auth, app, admin, api)
+<span class="k">src/lib/</span>       Server Actions + zod-валідація
+<span class="k">src/__tests__/</span> тести
+
+<span class="h">## Commands</span>  <span class="c">← як запускати й тестувати</span>
+Запуск:  npm run dev   (порт 3001)
+Тести:   npm test      (Vitest)
+
+<span class="c">…далі: стиль коду, тести, коміти, пастки →</span></div>
+    </div>
+  </section>
+
+  <!-- 9 · Розбір: структура + команди -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Розбір · частина 1</div>
+    <h2>Структура й команди — <span class="grad">карта проєкту</span></h2>
+    <div class="cols top">
+      <div class="card">
+        <h3 class="gold">🗂️ Structure — «де що лежить»</h3>
+        <div class="file" style="margin:8px 0">
+          <div class="body"><span class="k">src/app/</span>       — маршрути (auth/app/admin)
+<span class="k">src/components/</span> — UI: форми, shared, admin
+<span class="k">src/lib/</span>       — Server Actions + zod
+<span class="k">supabase/</span>      — міграції + Edge Functions</div>
+        </div>
+        <p style="margin:0;font-size:13px">Агент одразу бачить, куди дивитись, і <strong>не блукає</strong> проєктом наосліп.</p>
+      </div>
+      <div class="card" style="border-color:rgba(55,217,166,.3)">
+        <h3 class="teal">⚙️ Commands — «які кнопки натискати»</h3>
+        <div class="file" style="margin:8px 0">
+          <div class="body">Dev:   npm run dev  (порт 3001)
+Тести: npm test    (Vitest)
+Лінт:  npm run lint ; npx tsc --noEmit</div>
+        </div>
+        <p style="margin:0;font-size:13px">Найважливіше. Агент <strong>сам перевіряє свою роботу</strong> цими командами — без вгадування.</p>
+      </div>
+    </div>
+    <p class="foot-note" style="margin-top:12px">Дві прості речі — а агент уже орієнтується в проєкті як свій.</p>
+  </section>
+
+  <!-- 10 · Розбір: стиль + тести -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Розбір · частина 2</div>
+    <h2>Стиль і тести — <span class="grad">«пиши, як у нас»</span></h2>
+    <div class="cols top">
+      <div class="card">
+        <h3 class="gold">✍️ Code style — правила оформлення</h3>
+        <div class="file" style="margin:8px 0">
+          <div class="body">Іменування: camelCase функції,
+            PascalCase компоненти
+Валідація входів через zod
+Жодних секретів у коді — тільки env</div>
+        </div>
+        <p style="margin:0;font-size:13px">Codex дивиться, як проєкт уже організований, і виводить із цього правила. Код виходить <strong>однорідним</strong>, наче писала одна людина.</p>
+      </div>
+      <div class="card" style="border-color:rgba(55,217,166,.3)">
+        <h3 class="teal">🧪 Testing — де тести й як їх писати</h3>
+        <div class="file" style="margin:8px 0">
+          <div class="body">Нові тести → src/__tests__/
+Файли: *.test.ts(x)
+Спершу падаючий тест, потім код
+Не скіпати «червоні» тести</div>
+        </div>
+        <p style="margin:0;font-size:13px">Агент <strong>кладе нові тести туди, куди треба</strong>, і дотримується вашого підходу до перевірки.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 · Розбір: commit + gotchas -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Розбір · частина 3</div>
+    <h2>Коміти й пастки — <span class="grad">дисципліна та безпека</span></h2>
+    <div class="cols top">
+      <div class="card" style="border-color:rgba(157,140,255,.35)">
+        <h3 class="violet">💾 Commit &amp; PR — стиль роботи з Git</h3>
+        <div class="file" style="margin:8px 0">
+          <div class="body">Коміт: &lt;type&gt;: &lt;опис&gt; (feat, fix, docs)
+PR: заголовок &lt; 70 символів
+Не комітити: .env, node_modules, .next</div>
+        </div>
+        <p style="margin:0;font-size:13px">Агент не лише пише код, а й <strong>охайно оформлює</strong> зміни — як прийнято у вашій команді.</p>
+      </div>
+      <div class="card">
+        <h3 class="gold">⚠️ Gotchas — «граблі», на які не варто наступати</h3>
+        <div class="file" style="margin:8px 0">
+          <div class="body">Робочий корінь — вкладена izi-tracker/
+Auth лише через getUser(), не getSession()
+Деплой лише через vercel --prod</div>
+        </div>
+        <p style="margin:0;font-size:13px">Найцінніше зі здобутого досвіду. Те, що <strong>ламається, якщо не знати</strong> — тепер агент знає наперед.</p>
+      </div>
+    </div>
+    <p class="foot-note" style="margin-top:12px">Оце і є «еталонна структура»: 8 коротких розділів — і будь-який агент розуміє проєкт із першого погляду.</p>
+  </section>
+
+  <!-- 12 · Оновлюй -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Правило 1 · живий документ</div>
+    <h2>Не «створив і забув» — <span class="grad">оновлюй разом із проєктом</span></h2>
+    <p class="lead">Проєкт росте й змінюється. Якщо файл застаріє — агент почне діяти за <strong>старими правилами</strong> й відхилятись від того, як ви працюєте зараз.</p>
+    <div class="cols top" style="margin-top:8px">
+      <div class="card" style="border-color:rgba(245,185,66,.35)">
+        <h3 class="gold">Онови, коли:</h3>
+        <ul style="margin:0">
+          <li>додали нову бібліотеку чи фреймворк</li>
+          <li>змінилася структура проєкту</li>
+          <li>змінилися команди тестування</li>
+          <li>змінилися правила розробки</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(255,107,107,.3)">
+        <h3 class="red">Якщо не оновлювати:</h3>
+        <p style="margin:0;font-size:14px">Codex діятиме за першою версією файлу — старими командами й правилами. Замість помічника отримаєте агента, що <strong>тягне проєкт у минуле</strong>.</p>
+      </div>
+    </div>
+    <p class="foot-note" style="margin-top:12px">Правило просте: <strong class="gold">змінили щось важливе в проєкті — дописали рядок у AGENTS.md.</strong></p>
+  </section>
+
+  <!-- 13 · Закоміть у git -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Правило 2 · закоміть у репозиторій</div>
+    <h2>Додайте файл у Git — <span class="grad">щоб і хмара його бачила</span></h2>
+    <div class="cols top">
+      <div>
+        <p>AGENTS.md варто <strong>закомітити й відправити в GitHub</strong>. Тоді його побачить не лише Codex у вас на комп'ютері, а й <span class="teal">Codex Cloud</span> під час віддалених завдань.</p>
+        <p>Коли ви даєте Codex завдання в хмарі, він <strong>автоматично шукає цей файл</strong> у репозиторії й бере як контекст. Файл у git = правила їдуть разом із проєктом, для всіх і всюди.</p>
+        <div class="quote"><p>«Закомітьте AGENTS.md — і всі, хто працює з проєктом (люди й агенти, локально й у хмарі), гратимуть за одними правилами.»</p><div class="who">Практика роботи з Codex</div></div>
+      </div>
+      <div>
+        <div class="diagram">
+          <div class="dnode mem">
+            <div class="ic">📄</div>
+            <div><div class="tt"><span class="mono">AGENTS.md</span> у Git-репозиторії</div><div class="ss">один спільний джерело правил</div></div>
+          </div>
+          <div class="dconn"><span class="lbl">читають обидва</span></div>
+          <div class="dnode model">
+            <div class="ic">💻</div>
+            <div><div class="tt">Codex локально</div><div class="ss">у вас у терміналі</div></div>
+          </div>
+          <div class="dconn"></div>
+          <div class="dnode check">
+            <div class="ic">☁️</div>
+            <div><div class="tt">Codex Cloud</div><div class="ss">віддалені завдання в хмарі</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 · Підсумок -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Підсумок · що забрати з собою</div>
+    <div class="thesis" style="margin-bottom:16px">
+      <div class="big">AGENTS.md — <span class="grad">пам'ять проєкту для AI</span>. Пишете людською мовою, один раз — читають усі агенти, скрізь.</div>
+    </div>
+    <div class="cols top">
+      <div>
+        <h3 class="gold" style="margin-bottom:9px">5 речей, які треба запам'ятати</h3>
+        <ul>
+          <li><strong>Що це:</strong> шпаргалка про проєкт для AI-агента, у корені</li>
+          <li><strong>Навіщо:</strong> агент працює за вашими правилами, а не вгадує</li>
+          <li><strong>Як створити:</strong> команда <span class="mono gold">/init</span> — і перевірити чернетку</li>
+          <li class="ok"><strong>Оновлюйте</strong> разом зі змінами проєкту</li>
+          <li class="ok"><strong>Комітьте в Git</strong> — щоб бачила й хмара</li>
+        </ul>
+      </div>
+      <div>
+        <div class="card" style="border-color:rgba(55,217,166,.4)">
+          <h3 class="teal">Один стандарт — усі інструменти</h3>
+          <p style="margin:0;font-size:13.5px">Раніше — окремий файл під кожен AI. Тепер <strong>один AGENTS.md</strong> підхоплюють Codex, Claude Code, Copilot, Cursor. Пишете раз — працює всюди.</p>
+        </div>
+        <div class="quote" style="margin-top:12px">
+          <p>«Поясни AI свій проєкт один раз — і кожен агент читатиме це сам.»</p>
+          <div class="who">Головна думка сьогодні</div>
+        </div>
+      </div>
+    </div>
+    <p class="foot-note" style="margin-top:12px">Наступного разу, коли AI-агент зробить «не те» — спитайте себе: <strong class="gold">а я взагалі дав йому AGENTS.md?</strong></p>
+  </section>
+
+</div>
+
+<div class="chrome">
+  <div class="brand">AGENTS<span class="d">.</span>MD</div>
+  <div style="display:flex;align-items:center;gap:18px">
+    <div class="hint">← →&nbsp;&nbsp;гортати&nbsp;·&nbsp;F&nbsp;—&nbsp;екран</div>
+    <div class="counter"><b id="cur">1</b> / <span id="tot">14</span></div>
+    <div class="nav">
+      <button class="btn" id="prev" aria-label="Назад">‹</button>
+      <button class="btn" id="next" aria-label="Далі">›</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const prog=document.getElementById('prog'), cur=document.getElementById('cur');
+  document.getElementById('tot').textContent=slides.length;
+  let i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('on',k===i));
+    prog.style.width=((i+1)/slides.length*100)+'%';
+    cur.textContent=i+1;
+    location.hash=i+1;
+  }
+  document.getElementById('next').onclick=()=>show(i+1);
+  document.getElementById('prev').onclick=()=>show(i-1);
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();show(i+1)}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();show(i-1)}
+    else if(e.key==='Home')show(0);
+    else if(e.key==='End')show(slides.length-1);
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+  });
+  addEventListener('hashchange',()=>{const n=parseInt(location.hash.slice(1))-1;if(!isNaN(n))show(n)});
+  let x0=null;
+  addEventListener('touchstart',e=>x0=e.touches[0].clientX,{passive:true});
+  addEventListener('touchend',e=>{if(x0===null)return;const dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>50)show(i+(dx<0?1:-1));x0=null},{passive:true});
+  show(parseInt(location.hash.slice(1))-1||0);
+</script>
+</body>
+</html>
