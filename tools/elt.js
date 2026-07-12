@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const cwd = process.cwd();
@@ -70,11 +71,46 @@ function markDone(taskId) {
   return item;
 }
 
+// Hash of the working tree at the moment the oracle ran, so a later
+// `commit --skip-oracle` can tell "still the tree the oracle validated" apart
+// from "something changed since — the claim is untrusted" (F-P1-2 trust-hole).
+function treeHash() {
+  // No `git add -N`: intent-to-add MUTATES the index permanently (until reset/commit) —
+  // tried that first, it left leftover staged garbage in the integration checkout after
+  // merge.js's post-merge oracle run, which then broke the NEXT slice's merge. Read
+  // untracked file content straight off disk instead — zero side effects on the index.
+  const status = git(['status', '--porcelain', '-uall']).out;
+  const h = crypto.createHash('sha256');
+  h.update(status + '\n' + git(['diff', 'HEAD']).out);
+  const untracked = status.split('\n')
+    .filter((l) => l.startsWith('?? '))
+    .map((l) => l.slice(3).trim())
+    .sort();
+  for (const f of untracked) {
+    try { h.update(fs.readFileSync(path.join(cwd, f))); } catch { /* gone/unreadable — status already captured it */ }
+  }
+  return h.digest('hex');
+}
+// Proof lives in .git (per-worktree via --git-dir), never in the working tree —
+// a file under .harness/ would itself show up as a change and pollute every git
+// status/diff (broke fleet's "clean after merge" tests when tried that way).
+function oracleProofPath() {
+  const gd = git(['rev-parse', '--git-dir']).out || '.git';
+  return path.join(path.isAbsolute(gd) ? gd : path.join(cwd, gd), 'elt-oracle-proof.json');
+}
+function writeOracleProof(exit) {
+  fs.writeFileSync(oracleProofPath(), JSON.stringify({ exit, hash: treeHash(), ts: new Date().toISOString() }));
+}
+function readOracleProof() {
+  try { return JSON.parse(fs.readFileSync(oracleProofPath(), 'utf8')); } catch { return null; }
+}
+
 function runOracle(cfg) {
   console.error(`elt oracle: ${cfg.oracle}`);
   const started = Date.now();
   const code = sh(cfg.oracle, cfg.shell);
   console.error(`elt oracle: exit ${code} (${Math.round((Date.now() - started) / 1000)}s)`);
+  writeOracleProof(code);
   return code;
 }
 
@@ -148,9 +184,18 @@ if (cmd === 'commit') {
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
   if (!git(['status', '--porcelain']).out) die('нечего коммитить: дерево чистое', 3);
 
-  // 1. oracle is the gate (driver that just ran it passes --skip-oracle)
+  // 1. oracle is the gate (driver that just ran it passes --skip-oracle —
+  // but the claim is verified, not trusted blindly: F-P1-2 trust-hole).
   let oracleExit = 0;
-  if (!flag('--skip-oracle')) {
+  let skipTrusted = false;
+  if (flag('--skip-oracle')) {
+    const proof = readOracleProof();
+    skipTrusted = !!proof && proof.exit === 0 && proof.hash === treeHash();
+    if (!skipTrusted) {
+      console.error('elt commit: --skip-oracle без валидного пруфа (дерево изменилось с последнего зелёного оракула) — перепрогоняю оракул.');
+    }
+  }
+  if (!flag('--skip-oracle') || !skipTrusted) {
     oracleExit = runOracle(cfg);
     if (oracleExit !== 0) {
       appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit } });
@@ -178,7 +223,7 @@ if (cmd === 'commit') {
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
 
-  appendRunLog({ task: taskId || null, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle') }, commit: sha, branch, verdict, msg });
+  appendRunLog({ task: taskId || null, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict, msg });
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {
