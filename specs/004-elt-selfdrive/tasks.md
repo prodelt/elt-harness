@@ -60,7 +60,7 @@
 
 ## Фаза E — самодиагностика и gated self-heal (F4)
 
-- [ ] **T010** Watchdog собственного оракула харнесса `tools/harness-selfcheck.js`: гоняет `doctor.test.js` + fleet-тесты; при падении механически пишет слайс в `specs/NNN-selfheal/tasks.md` + маркер в run-log.
+- [X] **T010** Watchdog собственного оракула харнесса `tools/harness-selfcheck.js`: гоняет `doctor.test.js` + fleet-тесты; при падении механически пишет слайс в `specs/NNN-selfheal/tasks.md` + маркер в run-log.
   Прецедент реален (`3e73423` — харнесс чинил свой баг). Тест: инжектированный падающий харнесс-тест → watchdog заводит запись-слайс + exit nonzero; зелёный → no-op.
 
 - [ ] **T011** OPTIONAL Gated self-repair: опционально прогнать драйвер по self-heal спеке с судьёй; merge в main по умолчанию человеком (флаг конфига), не авто.
