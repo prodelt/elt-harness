@@ -28,7 +28,6 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
 const STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const STATE_CLOCK_SKEW_MS = 60 * 1000;
-const AGENT_SURFACE_AUDIT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SETTINGS_SECRET_PATTERNS = [
   { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
   { name: 'Context7 API key', pattern: /ctx7sk-[0-9A-Za-z-]{20,}/ },
@@ -560,11 +559,8 @@ function checkAgentSurfaceAudit(root, now = new Date()) {
   if (invalidDate) {
     return [result('warn', 'agent-surface:audit', 'Agent surface audit timestamp invalid', String(parsed.value.generatedAt), 'Rerun node tools\\agent-surface-audit.js --json.')];
   }
-  const stale = now.getTime() - generatedAt.getTime() > AGENT_SURFACE_AUDIT_TTL_MS;
+  // ponytail: возраст отчёта не WARN-им — генераторы не гоняются авто, TTL давал вечный шум (P2-1). Сигнал = summary.status; missing/invalid остаются WARN.
   const summaryStatus = parsed.value.summary && parsed.value.summary.status ? parsed.value.summary.status : 'unknown';
-  if (stale) {
-    return [result('warn', 'agent-surface:audit', 'Agent surface audit stale', parsed.value.generatedAt, 'Rerun node tools\\agent-surface-audit.js --json.', { file })];
-  }
   const status = summaryStatus === 'pass' ? 'pass' : 'warn';
   const title = status === 'pass' ? 'Agent surface audit current' : 'Agent surface audit has gaps';
   const gaps = parsed.value.summary && Array.isArray(parsed.value.summary.unexplainedGaps)
@@ -707,9 +703,7 @@ function checkDocsGate(root, now = new Date()) {
   if (!result_.ok) {
     return [result('warn', 'docs:gate', 'Docs gate report missing', result_.error, 'Run node tools\\docs-gate.js --root . --write.')];
   }
-  if (result_.stale) {
-    return [result('warn', 'docs:gate', 'Docs gate report stale', result_.value.generatedAt, 'Rerun node tools\\docs-gate.js --root . --write.', { file: result_.file })];
-  }
+  // ponytail: stale-возраст не WARN-им (P2-1) — сигнал берём из summary.status ниже.
   const gate = result_.value;
   const status = gate.summary && gate.summary.status ? gate.summary.status : 'unknown';
   const complexity = gate.complexity || 'unknown';
@@ -726,9 +720,7 @@ function checkHarnessChecklist(root, now = new Date()) {
   if (!result_.ok) {
     return [result('warn', 'harness:checklist', 'Harness checklist report missing', result_.error, 'Run node tools\\harness-checklist.js --root . --write.')];
   }
-  if (result_.stale) {
-    return [result('warn', 'harness:checklist', 'Harness checklist report stale', result_.value.generatedAt, 'Rerun node tools\\harness-checklist.js --root . --write.', { file: result_.file })];
-  }
+  // ponytail: stale-возраст не WARN-им (P2-1) — сигнал берём из summary.status ниже.
   const report = result_.value;
   const status = report.summary && report.summary.status ? report.summary.status : 'unknown';
   const c = (report.summary && report.summary.counts) || {};
@@ -799,9 +791,7 @@ function checkGitWorkflowAudit(root, now = new Date()) {
   if (!result_.ok) {
     return [result('warn', 'git-workflow:audit', 'Git workflow audit missing', result_.error, 'Run node tools\\git-workflow-audit.js --root .')];
   }
-  if (result_.stale) {
-    return [result('warn', 'git-workflow:audit', 'Git workflow audit stale', result_.value.generatedAt, 'Rerun node tools\\git-workflow-audit.js --root .', { file: result_.file })];
-  }
+  // ponytail: stale-возраст не WARN-им (P2-1) — сигнал берём из summary.status ниже.
   const audit = result_.value;
   const overallStatus = audit.summary && audit.summary.status ? audit.summary.status : 'unknown';
   const gitRootIsDisk = Array.isArray(audit.checks) && audit.checks.some((c) => c.id === 'git:root-is-disk');

@@ -361,6 +361,14 @@ function testAgentSurfaceAuditCheck() {
   const warned = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
   assert.equal(warned[0].status, 'warn');
   assert.match(warned[0].detail, /codex:Notification/);
+
+  // старый-но-валидный pass → pass по содержанию, не warn-по-возрасту (P2-1)
+  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
+    generatedAt: '2026-05-01T11:00:00Z',
+    summary: { status: 'pass', unexplainedGaps: [] },
+  }));
+  const old = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
+  assert.equal(old[0].status, 'pass');
 }
 
 function writeSupplyChainFixture(root) {
@@ -513,13 +521,15 @@ function testHarnessChecklistCheck() {
   assert.equal(failed[0].status, 'warn');
   assert.match(failed[0].repair, /harness-checklist\.js/);
 
-  // stale artifact (older than TTL) → warn
+  // старый-но-валидный отчёт → статус по содержанию, НЕ warn-по-возрасту (P2-1: генераторы
+  // не гоняются авто, TTL давал вечный шум)
   write(path.join(root, '.planning', 'harness-checklist-latest.json'), JSON.stringify({
     generatedAt: '2026-05-01T11:00:00Z',
     summary: { status: 'pass', counts: { pass: 25, warn: 0, fail: 0, needsJustification: 0 } },
   }));
   const stale = checkHarnessChecklist(root, now);
-  assert.equal(stale[0].status, 'warn');
+  assert.equal(stale[0].status, 'pass');
+  assert.match(stale[0].detail, /25 pass/);
 }
 
 function testHarnessRunCheck() {
