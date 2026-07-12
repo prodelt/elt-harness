@@ -254,6 +254,26 @@ function testCodegraphGuard() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+function testFleetExperimentalLabelHonest() {
+  // T012: specs/003-elt-fleet-hardening ЗАКРЫТА (verdict 2.66x/3.31x) — CLAUDE.md
+  // не должен молча утверждать обратное. Если experimental-метка ещё стоит
+  // (реальный live-fire не завершён), рядом обязано быть явное «003 закрыта, но...»,
+  // не голое устаревшее «пока 003 не закрыт».
+  const claudeMd = fs.readFileSync(path.join(__dirname, '..', 'CLAUDE.md'), 'utf8');
+  assert.doesNotMatch(
+    claudeMd,
+    /пока `specs\/003-elt-fleet-hardening` не закрыт/,
+    'устаревшее «003 не закрыта» — 003 закрыта (verdict 2.66x/3.31x), текст врёт'
+  );
+  if (/fleet/i.test(claudeMd) && /experimental/i.test(claudeMd)) {
+    assert.match(
+      claudeMd,
+      /003-elt-fleet-hardening`? закрыт/i,
+      'experimental-метка стоит без явного обоснования «003 закрыта, но...»'
+    );
+  }
+}
+
 function testHarnessSelfcheck() {
   const { selfcheck } = require('./harness-selfcheck');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-selfcheck-'));
@@ -813,6 +833,7 @@ function main() {
   testCodeGraphMcpCheck();
   testCodeGraphAdoptionCheck();
   testCodegraphGuard();
+  testFleetExperimentalLabelHonest();
   testHarnessSelfcheck();
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
