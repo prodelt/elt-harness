@@ -254,6 +254,37 @@ function testCodegraphGuard() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+function testHarnessSelfcheck() {
+  const { selfcheck } = require('./harness-selfcheck');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-selfcheck-'));
+
+  const noConfig = selfcheck(root, () => { throw new Error('runner не должен звать без harness.json'); });
+  assert.equal(noConfig.ok, true, 'нет harness.json — молчит, оракул не зовётся');
+
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({ oracle: 'echo ok', shell: 'bash' }));
+
+  const green = selfcheck(root, () => 0);
+  assert.equal(green.ok, true, 'зелёный оракул — no-op');
+  assert.equal(fs.existsSync(path.join(root, 'specs')), false, 'зелёный оракул не заводит specs/');
+
+  const red = selfcheck(root, () => 1);
+  assert.equal(red.ok, false, 'красный оракул — watchdog сообщает fail');
+  assert.equal(red.slice.id, 'T001', 'первый слайс — T001');
+  const tasksBody = fs.readFileSync(red.slice.tasksFile, 'utf8');
+  assert.match(tasksBody, /\[ \] \*\*T001\*\*/, 'слайс-запись открыта [ ]');
+  assert.match(tasksBody, /echo ok/, 'команда оракула упомянута в слайсе');
+
+  const runlog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  const marker = JSON.parse(runlog[runlog.length - 1]);
+  assert.equal(marker.status, 'harness-selfcheck-red', 'маркер в run-log');
+  assert.equal(marker.selfheal, 'T001', 'маркер ссылается на заведённый слайс');
+
+  const redAgain = selfcheck(root, () => 1);
+  assert.equal(redAgain.slice.id, 'T002', 'повторный красный — следующий ID, не перезапись');
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function testGitHubCliAuthWarningSkipsCodeSearch() {
   const calls = [];
   const fakeRun = (command, args) => {
@@ -782,6 +813,7 @@ function main() {
   testCodeGraphMcpCheck();
   testCodeGraphAdoptionCheck();
   testCodegraphGuard();
+  testHarnessSelfcheck();
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
