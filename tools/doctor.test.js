@@ -25,6 +25,7 @@ const {
   checkHarnessGlobal,
   checkFleet,
   checkFleetWorkers,
+  checkSelfDriveInvariants,
   runDoctor,
 } = require('./doctor-core');
 
@@ -647,11 +648,43 @@ function testFleetWorkersCheck() {
 
   const checks = checkFleetWorkers(root, fakeRunner);
   const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
-  assert.equal(byId['fleet:claims'].status, 'warn');
+  // T013: doctor сам метёт залежавшийся claim (sweep), не только предупреждает — pass, не warn.
+  assert.equal(byId['fleet:claims'].status, 'pass');
   assert.match(byId['fleet:claims'].detail, /T1/);
+  assert.equal(fs.existsSync(path.join(claimsDir, 'T1.json')), false, 'claim-файл реально снят');
   assert.equal(byId['fleet:cli:claude'].status, 'pass', 'claude --version ок → pass');
   assert.equal(byId['fleet:cli:codex'].status, 'warn', 'codex недоступен → warn');
+
+  // идемпотентность: повторный прогон подряд не находит уже подметённых claims
+  const again = checkFleetWorkers(root, fakeRunner);
+  const againById = Object.fromEntries(again.map((c) => [c.id, c]));
+  assert.equal(againById['fleet:claims'].status, 'pass');
+  assert.match(againById['fleet:claims'].detail, /нет залежавшихся/);
+
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+function testSelfDriveInvariantsCheck() {
+  const checks = checkSelfDriveInvariants();
+  const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
+  // T013: effort-политика (T004) и judge-liveness-инвариант (T002) реально на месте
+  // в этом репо (fleet/effort-policy.js, fleet/gate.js) — доктор их видит, не только тесты.
+  assert.equal(byId['selfdrive:effort'].status, 'pass', 'effort-policy.js на месте, effortFor — функция');
+  assert.equal(byId['selfdrive:judge-liveness'].status, 'pass', 'gate.js несёт runOk-инвариант (dead-judge ≠ block)');
+
+  // проверяем, что self-drive-чеки попадают в ОБЩИЙ отчёт doctor (runDoctor), не только
+  // при прямом вызове checkSelfDriveInvariants() — это и есть "единый обзор" из T013.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-selfdrive-report-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  write(path.join(root, 'AGENTS.md'), coreDoc());
+  write(path.join(root, 'CLAUDE.md'), coreDoc());
+  write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc());
+  const report = withHome(home, () => runDoctor({ root, graphify: false }));
+  const ids = report.checks.map((c) => c.id);
+  assert.ok(ids.includes('selfdrive:effort'), 'общий отчёт doctor несёт selfdrive:effort');
+  assert.ok(ids.includes('selfdrive:judge-liveness'), 'общий отчёт doctor несёт selfdrive:judge-liveness');
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function withHome(home, fn) {
@@ -846,6 +879,7 @@ function main() {
   testHarnessGlobalCheck();
   testFleetCheck();
   testFleetWorkersCheck();
+  testSelfDriveInvariantsCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 
