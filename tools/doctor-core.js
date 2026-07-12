@@ -310,25 +310,86 @@ function checkGraphify(root, enabled) {
   return [cliCheck, ...codemap];
 }
 
-function checkCodeGraph(root) {
+// T008 (004-elt-selfdrive): mandate is "codegraph первым" — this must be a
+// real check, not silently skipped, so a project that's supposed to use
+// codegraph but has a dead index actually shows up in doctor.
+function checkCodeGraphMcp(home) {
+  const parsed = readJson(path.join(home, '.claude.json'));
+  const configured = parsed.ok && parsed.value && parsed.value.mcpServers && parsed.value.mcpServers.codegraph;
+  return configured
+    ? result('pass', 'codegraph:mcp', 'CodeGraph MCP configured', 'mcpServers.codegraph present in ~/.claude.json.', '')
+    : result('warn', 'codegraph:mcp', 'CodeGraph MCP not configured', '~/.claude.json has no mcpServers.codegraph entry.', 'Run: cmd /c codegraph install (select Claude Code).');
+}
+
+function checkCodeGraph(root, runner = run) {
   const dbPath = path.join(root, '.codegraph', 'codegraph.db');
-  if (!fs.existsSync(dbPath)) return [];
-  const status = run('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
+  if (!fs.existsSync(dbPath)) {
+    return [result('warn', 'codegraph:status', 'CodeGraph index missing', dbPath, 'Run: cmd /c codegraph init . && codegraph index .')];
+  }
+  const status = runner('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
   if (status.status !== 0) {
     return [result('warn', 'codegraph:status', 'CodeGraph index status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
   }
-  const lines = status.output || '';
-  const filesMatch = lines.match(/Files:\s+(\d+)/);
-  const nodesMatch = lines.match(/Nodes:\s+([\d\s]+)/);
-  const backendMatch = lines.match(/Backend:\s+(.+)/);
+  const output = status.output || '';
+  const filesMatch = output.match(/Files:\s+(\d+)/);
+  const nodesMatch = output.match(/Nodes:\s+([\d\s]+)/);
+  const backendMatch = output.match(/Backend:\s+(.+)/);
   const detail = [
     filesMatch ? `files=${filesMatch[1].trim()}` : '',
     nodesMatch ? `nodes=${nodesMatch[1].trim()}` : '',
     backendMatch ? `backend=${backendMatch[1].trim()}` : '',
   ].filter(Boolean).join(', ');
-  const indexCheck = result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
+  // ponytail: "watcher жив" has no separate liveness API — `codegraph status`
+  // is the one signal the CLI exposes. Pending changes with no user-run sync
+  // between edits and this doctor call is what a dead watcher looks like.
+  const stale = /Pending Changes:/.test(output) || !/up to date/i.test(output);
+  const indexCheck = stale
+    ? result('warn', 'codegraph:status', 'CodeGraph index stale (watcher may be dead)', detail || output.slice(0, 200), 'Run: cmd /c codegraph sync . (repeats after edits settle → watcher not syncing, restart the client).')
+    : result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
   const providerChecks = runCodemapDoctor({ root, provider: 'codegraph' }).checks;
   return [indexCheck, ...providerChecks];
+}
+
+const CODEGRAPH_TOOL_USE_RE = /"name"\s*:\s*"mcp__codegraph__/;
+const ANY_TOOL_USE_RE = /"type"\s*:\s*"tool_use"/;
+
+// Claude Code's own project→session-dir naming: every non-alnum char of the
+// absolute path becomes '-' (observed convention, not a documented API).
+function claudeSessionDirName(root) {
+  return normalizePath(root).replace(/[^A-Za-z0-9]/g, '-');
+}
+
+// T008: telemetry for the "codegraph первым" mandate (audit found 10
+// codegraph_context calls across 278 sessions — adoption ≈0). Samples the
+// most recent session logs only — a full-history scan is the one-off
+// scratch audit in spec.md, not a per-`doctor`-run cost.
+function checkCodeGraphAdoption(root, home, options = {}) {
+  const sessionsDir = path.join(home, '.claude', 'projects', claudeSessionDirName(root));
+  if (!fs.existsSync(sessionsDir)) {
+    return [result('warn', 'codegraph:adoption', 'CodeGraph adoption telemetry unavailable', sessionsDir, 'No session logs found yet for this project.')];
+  }
+  const sampleSize = options.sampleSize || 20;
+  const files = fs.readdirSync(sessionsDir)
+    .filter((name) => name.endsWith('.jsonl'))
+    .map((name) => ({ name, mtime: fs.statSync(path.join(sessionsDir, name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, sampleSize);
+  let toolUseTotal = 0;
+  let codegraphTotal = 0;
+  for (const file of files) {
+    const text = readText(path.join(sessionsDir, file.name));
+    if (!text.ok) continue;
+    for (const line of text.value.split('\n')) {
+      if (ANY_TOOL_USE_RE.test(line)) toolUseTotal += 1;
+      if (CODEGRAPH_TOOL_USE_RE.test(line)) codegraphTotal += 1;
+    }
+  }
+  const detail = `${codegraphTotal} codegraph_* calls / ${toolUseTotal} tool calls across last ${files.length} session(s).`;
+  if (toolUseTotal === 0) {
+    return [result('warn', 'codegraph:adoption', 'CodeGraph adoption unmeasured', detail, 'No tool_use events found in sampled sessions.')];
+  }
+  const status = codegraphTotal > 0 ? 'pass' : 'warn';
+  return [result(status, 'codegraph:adoption', `CodeGraph adoption: ${codegraphTotal} call(s) in sample`, detail, status === 'warn' ? 'Mandate "codegraph первым" (CLAUDE.md) is being ignored in recent sessions.' : '')];
 }
 
 function checkRag(root) {
@@ -929,6 +990,8 @@ function runDoctor(options) {
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
     ...checkCodeGraph(root),
+    checkCodeGraphMcp(home),
+    ...checkCodeGraphAdoption(root, home),
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkSurfaceSync(root),
@@ -982,6 +1045,9 @@ module.exports = {
   checkGitHubCli,
   checkPipelineState,
   checkSurfaceSync,
+  checkCodeGraph,
+  checkCodeGraphMcp,
+  checkCodeGraphAdoption,
   checkAgentSkillSupplyChain,
   checkAgentSkillsWrapper,
   checkAgentSurfaceAudit,

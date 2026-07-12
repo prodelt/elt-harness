@@ -14,6 +14,9 @@ const {
   checkCodexDefaults,
   checkGitHubCli,
   checkPipelineState,
+  checkCodeGraph,
+  checkCodeGraphMcp,
+  checkCodeGraphAdoption,
   checkAgentSurfaceAudit,
   checkAgentSkillSupplyChain,
   checkAgentSkillsWrapper,
@@ -149,6 +152,72 @@ function testSettingsSecretsScanner() {
   }));
   const passed = checkSettingsSecrets(root, home);
   assert.equal(passed[0].status, 'pass');
+}
+
+// T008 (004-elt-selfdrive): codegraph-liveness must actually check, not
+// silently skip — missing db / stale status must surface as WARN with repair.
+function testCodeGraphStatusMissingDb() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-cg-missing-'));
+  const checks = checkCodeGraph(root);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].status, 'warn');
+  assert.match(checks[0].repair, /codegraph init/);
+}
+
+function testCodeGraphStatusMockedGreenAndStale() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-cg-'));
+  fs.mkdirSync(path.join(root, '.codegraph'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.codegraph', 'codegraph.db'), '');
+
+  const green = 'Files: 10\nNodes: 100\nBackend: node:sqlite\n[OK] Index is up to date\n';
+  const greenChecks = checkCodeGraph(root, () => ({ status: 0, output: green, error: '' }));
+  assert.equal(greenChecks[0].id, 'codegraph:status');
+  assert.equal(greenChecks[0].status, 'pass');
+  assert.match(greenChecks[0].detail, /files=10/);
+
+  const stale = 'Files: 10\nNodes: 100\nBackend: node:sqlite\nPending Changes:\n  Modified: 2 files\n';
+  const staleChecks = checkCodeGraph(root, () => ({ status: 0, output: stale, error: '' }));
+  assert.equal(staleChecks[0].status, 'warn');
+  assert.match(staleChecks[0].repair, /codegraph sync/);
+
+  const failed = checkCodeGraph(root, () => ({ status: 1, output: '', error: 'spawn ENOENT' }));
+  assert.equal(failed[0].status, 'warn');
+  assert.match(failed[0].repair, /codegraph sync/);
+}
+
+function testCodeGraphMcpCheck() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-cg-home-'));
+  assert.equal(checkCodeGraphMcp(home).status, 'warn');
+
+  write(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { codegraph: { command: 'codegraph' } } }));
+  assert.equal(checkCodeGraphMcp(home).status, 'pass');
+}
+
+function testCodeGraphAdoptionCheck() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-cg-adopt-home-'));
+  const root = 'C:\\fake\\project-adopt';
+  const dirName = path.resolve(root).replace(/\\/g, '/').replace(/[^A-Za-z0-9]/g, '-');
+  const sessionsDir = path.join(home, '.claude', 'projects', dirName);
+
+  assert.equal(checkCodeGraphAdoption(root, home)[0].status, 'warn');
+
+  write(path.join(sessionsDir, 's1.jsonl'), JSON.stringify({ type: 'user' }));
+  const noToolUse = checkCodeGraphAdoption(root, home);
+  assert.equal(noToolUse[0].status, 'warn');
+  assert.match(noToolUse[0].detail, /0 codegraph_\* calls \/ 0 tool calls/);
+
+  write(path.join(sessionsDir, 's2.jsonl'), [
+    JSON.stringify({ type: 'tool_use', name: 'Read' }),
+    JSON.stringify({ type: 'tool_use', name: 'Grep' }),
+  ].join('\n'));
+  const ignoredMandate = checkCodeGraphAdoption(root, home);
+  assert.equal(ignoredMandate[0].status, 'warn');
+  assert.match(ignoredMandate[0].detail, /0 codegraph_\* calls \/ 2 tool calls/);
+
+  write(path.join(sessionsDir, 's3.jsonl'), JSON.stringify({ type: 'tool_use', name: 'mcp__codegraph__codegraph_context' }));
+  const adopted = checkCodeGraphAdoption(root, home);
+  assert.equal(adopted[0].status, 'pass');
+  assert.match(adopted[0].detail, /1 codegraph_\* calls \/ 3 tool calls/);
 }
 
 function testGitHubCliAuthWarningSkipsCodeSearch() {
@@ -674,6 +743,10 @@ function main() {
   testPipelineStateRejectsFutureLegacy();
   testPipelineStateAcceptsClosedCyrillic();
   testDoctorSkipsCodemapWithNoGraphify();
+  testCodeGraphStatusMissingDb();
+  testCodeGraphStatusMockedGreenAndStale();
+  testCodeGraphMcpCheck();
+  testCodeGraphAdoptionCheck();
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
