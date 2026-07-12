@@ -71,5 +71,5 @@
 - [X] **T012** [P] Свести Fleet-experimental метку с реальностью: 003 закрыта (verdict 2.66×/3.31×) — снять метку в CLAUDE.md/SKILL.md ИЛИ задокументировать остаточный разрыв явно.
   Тест: grep-проверка, что «experimental — не для реальной работы» не соседствует с закрытой 003 без обоснования (маленький assert-скрипт ИЛИ ручная сверка в diff — судья проверит).
 
-- [ ] **T013** Единый self-drive-обзор в `doctor`: effort-политика активна, judge-liveness-инвариант на месте, codegraph-live, stale fleet-claim подметён, git-workflow-audit свежий — всё в одном `node tools/doctor.js`.
+- [X] **T013** Единый self-drive-обзор в `doctor`: effort-политика активна, judge-liveness-инвариант на месте, codegraph-live, stale fleet-claim подметён, git-workflow-audit свежий — всё в одном `node tools/doctor.js`.
   Тест: `doctor.test.js` расширен проверкой, что новые self-drive-чеки присутствуют в выводе; stale-claim sweep идемпотентен.

@@ -816,6 +816,34 @@ function checkGitWorkflowAudit(root, now = new Date()) {
   return [result(status, 'git-workflow:audit', title, detail, repair, { file: result_.file, gitRoot: audit.gitRoot })];
 }
 
+// T013 (004-elt-selfdrive): единый self-drive-обзор — effort-эскалация (T004) и
+// judge-liveness-инвариант (T002) раньше были проверяемы только юнит-тестами fleet-модулей,
+// не видны в обычном `node tools/doctor.js`. Статическая проверка "на месте" (файл несёт
+// ожидаемый контракт), не рантайм-вызов — те же fleet/effort-policy.js и fleet/gate.js,
+// которыми реально пользуются driver'ы, требовать require заново было бы дублированием.
+function checkSelfDriveInvariants() {
+  const checks = [];
+
+  let effortOk = false;
+  try { effortOk = typeof require('./fleet/effort-policy').effortFor === 'function'; } catch { effortOk = false; }
+  checks.push(effortOk
+    ? result('pass', 'selfdrive:effort', 'Self-drive: effort-политика активна',
+      'fleet/effort-policy.js: effortFor(phase) — impl=high, heal=max')
+    : result('warn', 'selfdrive:effort', 'Self-drive: effort-policy сломан/отсутствует',
+      'tools/fleet/effort-policy.js', 'T004 (specs/004-elt-selfdrive) — эскалация self-heal на max'));
+
+  const gateRead = readText(path.join(__dirname, 'fleet', 'gate.js'));
+  const gateSrc = gateRead.ok ? gateRead.value : '';
+  const judgeLivenessOk = /runOk\s*:\s*false/.test(gateSrc) && /judge_pending|judge-unavailable/.test(gateSrc);
+  checks.push(judgeLivenessOk
+    ? result('pass', 'selfdrive:judge-liveness', 'Self-drive: judge-liveness-инвариант на месте',
+      'fleet/gate.js: runOk различает dead-judge (park) от реального block')
+    : result('warn', 'selfdrive:judge-liveness', 'Self-drive: judge-liveness-инвариант не найден',
+      'tools/fleet/gate.js', 'T002 (specs/004-elt-selfdrive) — пустой/timeout судья не должен маскироваться под block'));
+
+  return checks;
+}
+
 function checkRedTeam(root, home) {
   const roots = [path.join(root, 'tools', 'red-team'), path.join(home, '.claude', 'skills', 'red-team')];
   const quarantined = roots.filter((r) => fs.existsSync(path.join(r, '.quarantined')));
@@ -938,13 +966,14 @@ function checkFleetWorkers(root, runner = run) {
   if (!usesFleet) return [];
 
   const checks = [];
-  // 1. залежавшиеся claims (pid воркера мёртв)
-  let stale = [];
-  try { stale = fleetClaims.stale({ cwd: root }); } catch { stale = []; }
-  checks.push(stale.length
-    ? result('warn', 'fleet:claims', `Fleet: ${stale.length} залежавшихся claim(ов)`,
-      `мёртвые воркеры: ${stale.map((c) => c.tid).join(', ')}`,
-      'снимутся при следующем fleet run (resume-sweep) или удалить .harness/fleet/claims/<Tid>.json')
+  // 1. залежавшиеся claims (pid воркера мёртв) — T013: doctor сам метёт (sweep — то же
+  // release, что делает resume-sweep перед fleet run), не только предупреждает; идемпотентно
+  // (второй прогон подряд не находит уже снятых claims).
+  let swept = [];
+  try { swept = fleetClaims.sweep({ cwd: root }); } catch { swept = []; }
+  checks.push(swept.length
+    ? result('pass', 'fleet:claims', `Fleet: ${swept.length} залежавшихся claim(ов) подметено`,
+      `мёртвые воркеры (claim снят): ${swept.join(', ')}`)
     : result('pass', 'fleet:claims', 'Fleet: claims чисты', 'нет залежавшихся claims'));
 
   // 2. брошенные worktrees (.fleet-wt без активного воркера)
@@ -1005,6 +1034,7 @@ function runDoctor(options) {
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkFleetWorkers(root),
+    ...checkSelfDriveInvariants(),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
@@ -1058,6 +1088,7 @@ module.exports = {
   checkGitWorkflowAudit,
   checkFleet,
   checkFleetWorkers,
+  checkSelfDriveInvariants,
   runFleet,
   runDoctor,
   formatText,
