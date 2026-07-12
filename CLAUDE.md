@@ -14,11 +14,11 @@
 ## Memory
 - **Указатель, не журнал.** Живая память/состояние — `.planning/STATE.md` (хребет) + `CHECKPOINT-*.md`; история — `.planning/PROJECT-HISTORY.md`. НЕ в корень ПК, НЕ инлайн сюда.
 - Dogfood: строим систему самой системой — `constitution → spec → tasks → loop (механический оракул) → checkpoint`.
-- Дисциплина (codegraph перед Read, тесты-как-proof, checkpoint) — на пользователе; авто-гейтов нет.
+- Дисциплина (codegraph перед Read, тесты-как-proof, checkpoint) — в интерактиве на пользователе/агенте; авто-гейтов нет. В автономном драйвере (`elt-loop.ps1`) — гейт есть (см. ниже).
 
 ## Активный слой (проверять живьём, не по этому файлу)
 - Хуки — `~/.claude/settings.json` (базово PreCompact + git-guardrails/codegraph-гейты). Плагины — `claude plugin list`. Скилы — `/skills`.
-- **codegraph MCP** — структурный поиск: `codegraph_context` первым, НЕ Read целых файлов. Индекс обновляется САМ (watcher); свежесть — `codegraph status .` (mtime `.db` ≠ свежесть из-за WAL; `.md` не индексируется).
+- **codegraph MCP** — структурный поиск: `codegraph_context` первым, НЕ Read целых файлов — это дисциплина интерактивной сессии, не мехгейт (замер 2026-07-12: adoption 4/993 вызовов). Индекс обновляется САМ (watcher); свежесть — `codegraph status .` (mtime `.db` ≠ свежесть из-за WAL; `.md` не индексируется). Для автономного драйвера (`elt-loop.ps1`) есть жёсткий pre-slice гейт на здоровье индекса — `.harness/harness.json` → `"codegraphGuard": true` (T009, `tools/codegraph-guard.js`); он ловит только мёртвый/устаревший индекс, не проверяет что агент реально вызвал codegraph.
 
 ## Commands
 ```bash

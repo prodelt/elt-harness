@@ -6,5 +6,6 @@
   "judge": {
     "enabled": true,
     "model": "sonnet"
-  }
+  },
+  "codegraphGuard": true
 }
