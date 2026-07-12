@@ -12,6 +12,9 @@ const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
 const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
 const { CORE_SECTIONS } = require('./project-docs-core');
+const fleetClaims = require('./fleet/claims');
+const fleetWorktree = require('./fleet/worktree');
+const fleetRouter = require('./fleet/router');
 const {
   legacyStatePath,
   normalizePath,
@@ -67,12 +70,13 @@ function findProjectRoot(start) {
 }
 
 function parseArgs(argv) {
-  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
+  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, fleet: false, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
   const parseNext = (index, state) => {
     if (index >= argv.length) return { ok: true, value: state };
     const arg = argv[index];
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
     if (arg === '--register') return parseNext(index + 1, { ...state, register: true });
+    if (arg === '--fleet') return parseNext(index + 1, { ...state, fleet: true });
     if (arg === '--no-graphify') return parseNext(index + 1, { ...state, graphify: false });
     if (arg === '--memory-provider') return parseNext(index + 2, { ...state, memoryProvider: argv[index + 1] || state.memoryProvider });
     if (arg === '--root') {
@@ -306,25 +310,86 @@ function checkGraphify(root, enabled) {
   return [cliCheck, ...codemap];
 }
 
-function checkCodeGraph(root) {
+// T008 (004-elt-selfdrive): mandate is "codegraph первым" — this must be a
+// real check, not silently skipped, so a project that's supposed to use
+// codegraph but has a dead index actually shows up in doctor.
+function checkCodeGraphMcp(home) {
+  const parsed = readJson(path.join(home, '.claude.json'));
+  const configured = parsed.ok && parsed.value && parsed.value.mcpServers && parsed.value.mcpServers.codegraph;
+  return configured
+    ? result('pass', 'codegraph:mcp', 'CodeGraph MCP configured', 'mcpServers.codegraph present in ~/.claude.json.', '')
+    : result('warn', 'codegraph:mcp', 'CodeGraph MCP not configured', '~/.claude.json has no mcpServers.codegraph entry.', 'Run: cmd /c codegraph install (select Claude Code).');
+}
+
+function checkCodeGraph(root, runner = run) {
   const dbPath = path.join(root, '.codegraph', 'codegraph.db');
-  if (!fs.existsSync(dbPath)) return [];
-  const status = run('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
+  if (!fs.existsSync(dbPath)) {
+    return [result('warn', 'codegraph:status', 'CodeGraph index missing', dbPath, 'Run: cmd /c codegraph init . && codegraph index .')];
+  }
+  const status = runner('cmd.exe', ['/c', 'codegraph', 'status', root], root, 10000);
   if (status.status !== 0) {
     return [result('warn', 'codegraph:status', 'CodeGraph index status failed', status.error || status.output, 'Run: cmd /c codegraph sync .')];
   }
-  const lines = status.output || '';
-  const filesMatch = lines.match(/Files:\s+(\d+)/);
-  const nodesMatch = lines.match(/Nodes:\s+([\d\s]+)/);
-  const backendMatch = lines.match(/Backend:\s+(.+)/);
+  const output = status.output || '';
+  const filesMatch = output.match(/Files:\s+(\d+)/);
+  const nodesMatch = output.match(/Nodes:\s+([\d\s]+)/);
+  const backendMatch = output.match(/Backend:\s+(.+)/);
   const detail = [
     filesMatch ? `files=${filesMatch[1].trim()}` : '',
     nodesMatch ? `nodes=${nodesMatch[1].trim()}` : '',
     backendMatch ? `backend=${backendMatch[1].trim()}` : '',
   ].filter(Boolean).join(', ');
-  const indexCheck = result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
+  // ponytail: "watcher жив" has no separate liveness API — `codegraph status`
+  // is the one signal the CLI exposes. Pending changes with no user-run sync
+  // between edits and this doctor call is what a dead watcher looks like.
+  const stale = /Pending Changes:/.test(output) || !/up to date/i.test(output);
+  const indexCheck = stale
+    ? result('warn', 'codegraph:status', 'CodeGraph index stale (watcher may be dead)', detail || output.slice(0, 200), 'Run: cmd /c codegraph sync . (repeats after edits settle → watcher not syncing, restart the client).')
+    : result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
   const providerChecks = runCodemapDoctor({ root, provider: 'codegraph' }).checks;
   return [indexCheck, ...providerChecks];
+}
+
+const CODEGRAPH_TOOL_USE_RE = /"name"\s*:\s*"mcp__codegraph__/;
+const ANY_TOOL_USE_RE = /"type"\s*:\s*"tool_use"/;
+
+// Claude Code's own project→session-dir naming: every non-alnum char of the
+// absolute path becomes '-' (observed convention, not a documented API).
+function claudeSessionDirName(root) {
+  return normalizePath(root).replace(/[^A-Za-z0-9]/g, '-');
+}
+
+// T008: telemetry for the "codegraph первым" mandate (audit found 10
+// codegraph_context calls across 278 sessions — adoption ≈0). Samples the
+// most recent session logs only — a full-history scan is the one-off
+// scratch audit in spec.md, not a per-`doctor`-run cost.
+function checkCodeGraphAdoption(root, home, options = {}) {
+  const sessionsDir = path.join(home, '.claude', 'projects', claudeSessionDirName(root));
+  if (!fs.existsSync(sessionsDir)) {
+    return [result('warn', 'codegraph:adoption', 'CodeGraph adoption telemetry unavailable', sessionsDir, 'No session logs found yet for this project.')];
+  }
+  const sampleSize = options.sampleSize || 20;
+  const files = fs.readdirSync(sessionsDir)
+    .filter((name) => name.endsWith('.jsonl'))
+    .map((name) => ({ name, mtime: fs.statSync(path.join(sessionsDir, name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, sampleSize);
+  let toolUseTotal = 0;
+  let codegraphTotal = 0;
+  for (const file of files) {
+    const text = readText(path.join(sessionsDir, file.name));
+    if (!text.ok) continue;
+    for (const line of text.value.split('\n')) {
+      if (ANY_TOOL_USE_RE.test(line)) toolUseTotal += 1;
+      if (CODEGRAPH_TOOL_USE_RE.test(line)) codegraphTotal += 1;
+    }
+  }
+  const detail = `${codegraphTotal} codegraph_* calls / ${toolUseTotal} tool calls across last ${files.length} session(s).`;
+  if (toolUseTotal === 0) {
+    return [result('warn', 'codegraph:adoption', 'CodeGraph adoption unmeasured', detail, 'No tool_use events found in sampled sessions.')];
+  }
+  const status = codegraphTotal > 0 ? 'pass' : 'warn';
+  return [result(status, 'codegraph:adoption', `CodeGraph adoption: ${codegraphTotal} call(s) in sample`, detail, status === 'warn' ? 'Mandate "codegraph первым" (CLAUDE.md) is being ignored in recent sessions.' : '')];
 }
 
 function checkRag(root) {
@@ -751,6 +816,34 @@ function checkGitWorkflowAudit(root, now = new Date()) {
   return [result(status, 'git-workflow:audit', title, detail, repair, { file: result_.file, gitRoot: audit.gitRoot })];
 }
 
+// T013 (004-elt-selfdrive): единый self-drive-обзор — effort-эскалация (T004) и
+// judge-liveness-инвариант (T002) раньше были проверяемы только юнит-тестами fleet-модулей,
+// не видны в обычном `node tools/doctor.js`. Статическая проверка "на месте" (файл несёт
+// ожидаемый контракт), не рантайм-вызов — те же fleet/effort-policy.js и fleet/gate.js,
+// которыми реально пользуются driver'ы, требовать require заново было бы дублированием.
+function checkSelfDriveInvariants() {
+  const checks = [];
+
+  let effortOk = false;
+  try { effortOk = typeof require('./fleet/effort-policy').effortFor === 'function'; } catch { effortOk = false; }
+  checks.push(effortOk
+    ? result('pass', 'selfdrive:effort', 'Self-drive: effort-политика активна',
+      'fleet/effort-policy.js: effortFor(phase) — impl=high, heal=max')
+    : result('warn', 'selfdrive:effort', 'Self-drive: effort-policy сломан/отсутствует',
+      'tools/fleet/effort-policy.js', 'T004 (specs/004-elt-selfdrive) — эскалация self-heal на max'));
+
+  const gateRead = readText(path.join(__dirname, 'fleet', 'gate.js'));
+  const gateSrc = gateRead.ok ? gateRead.value : '';
+  const judgeLivenessOk = /runOk\s*:\s*false/.test(gateSrc) && /judge_pending|judge-unavailable/.test(gateSrc);
+  checks.push(judgeLivenessOk
+    ? result('pass', 'selfdrive:judge-liveness', 'Self-drive: judge-liveness-инвариант на месте',
+      'fleet/gate.js: runOk различает dead-judge (park) от реального block')
+    : result('warn', 'selfdrive:judge-liveness', 'Self-drive: judge-liveness-инвариант не найден',
+      'tools/fleet/gate.js', 'T002 (specs/004-elt-selfdrive) — пустой/timeout судья не должен маскироваться под block'));
+
+  return checks;
+}
+
 function checkRedTeam(root, home) {
   const roots = [path.join(root, 'tools', 'red-team'), path.join(home, '.claude', 'skills', 'red-team')];
   const quarantined = roots.filter((r) => fs.existsSync(path.join(r, '.quarantined')));
@@ -787,6 +880,65 @@ const LOOP_READY_ITEMS = [
   ['Судья не гейт слайса (не может простить красный оракул)', /не гейт|не закрывает/],
 ];
 
+// Fleet mode (Задача C, ELT v2 2026-07-08): iterate ~/.claude/projects-registry.json
+// (written by `doctor --register`) and report per-project git/harness/stale-gate health.
+// Reuses the existing registry instead of a new harness-projects.json.
+function checkFleetProject(entry, runner = run) {
+  const root = entry.path;
+  if (!fs.existsSync(root)) {
+    return result('warn', `fleet:${entry.key}`, `${entry.name}: path missing`, root, 'Project moved or deleted — update or drop the registry entry.');
+  }
+  const notes = [];
+  let warn = false;
+
+  const isRepo = fs.existsSync(path.join(root, '.git'));
+  if (!isRepo) {
+    notes.push('not a git repo');
+    warn = true;
+  } else {
+    const status = runner('git', ['status', '--porcelain'], root, 8000);
+    notes.push(status.status === 0 && status.output.trim() ? `dirty (${status.output.trim().split(/\r?\n/).length} files)` : 'clean');
+  }
+
+  const hasHarness = fs.existsSync(path.join(root, '.harness', 'harness.json'));
+  if (!hasHarness) {
+    notes.push('no oracle (.harness/harness.json missing)');
+    warn = true;
+  } else {
+    notes.push('oracle configured');
+  }
+
+  // Half-cycle (ELT v2 bridge, 2026-07-09): oracle armed (back half wired) but no
+  // specs/ at all means the front half — the plan the loop grinds — was never used.
+  // This is the exact gap the specify↔loop bridge closes; the doctor must name it.
+  if (hasHarness && !fs.existsSync(path.join(root, 'specs'))) {
+    notes.push('half-cycle: oracle armed, no specs/ (front half unused — run /elt план-шаг)');
+    warn = true;
+  }
+
+  const settingsFile = path.join(root, '.claude', 'settings.json');
+  const settingsText = readText(settingsFile);
+  if (settingsText.ok && /judge-closeout-gate/.test(settingsText.value)) {
+    notes.push('stale judge-closeout-gate wiring');
+    warn = true;
+  }
+
+  return result(warn ? 'warn' : 'pass', `fleet:${entry.key}`, `${entry.name}`, notes.join(' | '), warn ? 'See project-bootstrap SKILL.md for retrofit steps.' : '', { path: root });
+}
+
+function checkFleet(home, options = {}) {
+  const registry = readJson(registryPath(home));
+  if (!registry.ok) {
+    return [result('warn', 'fleet:registry', 'Project registry missing', registry.error, 'Run doctor --register in each project first.')];
+  }
+  const projects = registry.value.projects || {};
+  const entries = Object.values(projects);
+  if (entries.length === 0) {
+    return [result('warn', 'fleet:registry', 'Project registry empty', registryPath(home), 'Run doctor --register in each project first.')];
+  }
+  return entries.map((entry) => checkFleetProject(entry, options.runner));
+}
+
 function checkLoopReady(home) {
   const skillFile = path.join(home, '.claude', 'skills', 'elt-loop', 'SKILL.md');
   let text;
@@ -798,6 +950,60 @@ function checkLoopReady(home) {
   const detail = hits.map((h) => `${h.ok ? '✓' : '✗'} ${h.label}`).join(' | ');
   const status = score === LOOP_READY_ITEMS.length ? 'pass' : 'warn';
   return [result(status, 'loop:ready', `Loop Ready score: ${score}/${LOOP_READY_ITEMS.length}`, detail, score < LOOP_READY_ITEMS.length ? 'Missing items are informational — see elt-loop SKILL.md.' : '')];
+}
+
+// Здоровье fleet-воркеров текущего проекта: залежавшиеся claims, брошенные worktrees,
+// доступность CLI провайдеров из политики. НЕ путать с runFleet/--fleet (тот = здоровье
+// парка ЗАРЕГИСТРИРОВАННЫХ проектов, 549f15a). Тихо, если проект не использует fleet.
+function checkFleetWorkers(root, runner = run) {
+  const fleetDir = path.join(root, '.harness', 'fleet');
+  const hasPolicy = fs.existsSync(path.join(fleetDir, 'fleet.json'));
+  const claimsDir = path.join(fleetDir, 'claims');
+  // по claim-ФАЙЛАМ, не по пустой папке: сам read-чек (claims.stale) делает mkdir,
+  // так что пустая .fleet/claims/ не должна считаться признаком использования fleet.
+  const hasClaims = fs.existsSync(claimsDir) && fs.readdirSync(claimsDir).some((f) => f.endsWith('.json'));
+  const usesFleet = hasPolicy || hasClaims || fs.existsSync(path.join(fleetDir, 'events.jsonl'));
+  if (!usesFleet) return [];
+
+  const checks = [];
+  // 1. залежавшиеся claims (pid воркера мёртв) — T013: doctor сам метёт (sweep — то же
+  // release, что делает resume-sweep перед fleet run), не только предупреждает; идемпотентно
+  // (второй прогон подряд не находит уже снятых claims).
+  let swept = [];
+  try { swept = fleetClaims.sweep({ cwd: root }); } catch { swept = []; }
+  checks.push(swept.length
+    ? result('pass', 'fleet:claims', `Fleet: ${swept.length} залежавшихся claim(ов) подметено`,
+      `мёртвые воркеры (claim снят): ${swept.join(', ')}`)
+    : result('pass', 'fleet:claims', 'Fleet: claims чисты', 'нет залежавшихся claims'));
+
+  // 2. брошенные worktrees (.fleet-wt без активного воркера)
+  let wts = [];
+  try { wts = fleetWorktree.list({ cwd: root }); } catch { wts = []; }
+  let active = new Set();
+  try { active = new Set(fleetClaims.list({ cwd: root }).filter((c) => !c.stale).map((c) => c.tid)); } catch { /* пусто */ }
+  const orphan = wts.filter((w) => !active.has(w.tid));
+  if (orphan.length) {
+    checks.push(result('warn', 'fleet:worktrees', `Fleet: ${orphan.length} брошенных worktree`,
+      orphan.map((w) => w.tid).join(', '), 'git worktree remove .fleet-wt/<Tid> --force (или fleet run приберёт)'));
+  } else if (wts.length) {
+    checks.push(result('pass', 'fleet:worktrees', 'Fleet: worktrees', 'брошенных нет'));
+  }
+
+  // 3. CLI pre-flight — только при явной политике (fleet.json), чтобы не шуметь зря
+  if (hasPolicy) {
+    let policy;
+    try { policy = fleetRouter.loadPolicy(root); } catch { policy = fleetRouter.DEFAULT_POLICY; }
+    const provs = [...new Set([...(policy.default || []), ...Object.values(policy.policy || {}).flat()])];
+    for (const p of provs) {
+      const r = runner(p, ['--version'], root, 4000);
+      checks.push(r && r.status === 0 && !r.error
+        ? result('pass', `fleet:cli:${p}`, `Fleet CLI ${p} доступен`, (r.output || '').split('\n')[0] || '')
+        : result('warn', `fleet:cli:${p}`, `Fleet CLI ${p} недоступен`,
+          `провайдер в политике, но '${p} --version' не отвечает`,
+          `установить/залогинить ${p} или убрать из .harness/fleet/fleet.json`));
+    }
+  }
+  return checks;
 }
 
 function runDoctor(options) {
@@ -813,6 +1019,8 @@ function runDoctor(options) {
     ...checkHooks(home),
     ...checkGraphify(root, options.graphify),
     ...checkCodeGraph(root),
+    checkCodeGraphMcp(home),
+    ...checkCodeGraphAdoption(root, home),
     ...checkRag(root),
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkSurfaceSync(root),
@@ -825,6 +1033,8 @@ function runDoctor(options) {
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
+    ...checkFleetWorkers(root),
+    ...checkSelfDriveInvariants(),
     ...checkGitHubCli(root),
     ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
@@ -832,6 +1042,13 @@ function runDoctor(options) {
   ];
   const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
   return { root: normalizePath(root), projectKey: projectKey(root), summary, checks };
+}
+
+function runFleet(options = {}) {
+  const home = options.home || os.homedir();
+  const checks = checkFleet(home, options);
+  const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
+  return { root: 'fleet', projectKey: 'all', summary, checks };
 }
 
 function formatText(report) {
@@ -858,6 +1075,9 @@ module.exports = {
   checkGitHubCli,
   checkPipelineState,
   checkSurfaceSync,
+  checkCodeGraph,
+  checkCodeGraphMcp,
+  checkCodeGraphAdoption,
   checkAgentSkillSupplyChain,
   checkAgentSkillsWrapper,
   checkAgentSurfaceAudit,
@@ -866,6 +1086,10 @@ module.exports = {
   checkHarnessRun,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
+  checkFleet,
+  checkFleetWorkers,
+  checkSelfDriveInvariants,
+  runFleet,
   runDoctor,
   formatText,
 };

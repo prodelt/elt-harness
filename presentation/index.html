@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Каркас агента: чому одна модель працює по-різному — і як це зроблено в нас</title>
+<style>
+  :root{
+    --bg:#0a0b0f;
+    --bg-2:#0f1118;
+    --panel:#14161f;
+    --panel-2:#181b26;
+    --line:#262a38;
+    --line-2:#333949;
+    --ink:#eef1f7;
+    --ink-dim:#a7aec2;
+    --ink-mute:#6f7794;
+    --gold:#f5b942;
+    --gold-2:#ffcf7a;
+    --teal:#37d9a6;
+    --red:#ff6b6b;
+    --violet:#9d8cff;
+    --mono: "SFMono-Regular", ui-monospace, "Cascadia Code", Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 82% -10%, rgba(245,185,66,.10), transparent 60%),
+      radial-gradient(900px 600px at 0% 110%, rgba(55,217,166,.08), transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+
+  .rails{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+    background-image:linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size:64px 100%;
+    mask-image:linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);}
+
+  .deck{position:relative;z-index:1;height:100%;}
+  .slide{
+    position:absolute;inset:0;
+    display:none;
+    padding:clamp(24px,4.4vw,74px);
+    padding-bottom:100px;
+    flex-direction:column;
+    justify-content:safe center;
+    animation:fade .45s ease;
+    overflow:auto;
+  }
+  .slide.on{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  .kicker{
+    display:inline-flex;align-items:center;gap:10px;
+    font:600 12px/1 var(--mono);
+    letter-spacing:.16em;text-transform:uppercase;
+    color:var(--gold);
+    padding:7px 13px;border:1px solid var(--line-2);border-radius:999px;
+    background:rgba(245,185,66,.06);
+    width:max-content;margin-bottom:16px;
+  }
+  .kicker.a2{color:var(--teal);background:rgba(55,217,166,.06)}
+  .kicker.a2 .dot{background:var(--teal);box-shadow:0 0 12px var(--teal)}
+  .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 12px var(--gold)}
+
+  h1{font-size:clamp(28px,4.6vw,56px);line-height:1.06;margin:0 0 16px;letter-spacing:-.02em;font-weight:800}
+  h2{font-size:clamp(22px,3.2vw,37px);line-height:1.12;margin:0 0 14px;letter-spacing:-.02em;font-weight:800}
+  h3{font-size:clamp(15px,1.35vw,19px);margin:0 0 9px;font-weight:700}
+  p{font-size:clamp(14.5px,1.3vw,18px);line-height:1.52;color:var(--ink-dim);margin:0 0 13px;max-width:66ch}
+  .lead{font-size:clamp(16px,1.55vw,20px);color:var(--ink)}
+  .grad{background:linear-gradient(100deg,var(--gold),var(--gold-2) 60%,var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .teal{color:var(--teal)} .red{color:var(--red)} .gold{color:var(--gold)} .mute{color:var(--ink-mute)} .violet{color:var(--violet)}
+  strong{color:var(--ink);font-weight:700}
+  .mono{font-family:var(--mono)}
+  ul{margin:0;padding:0;list-style:none}
+  li{position:relative;padding-left:24px;margin:0 0 11px;font-size:clamp(14px,1.25vw,17px);line-height:1.46;color:var(--ink-dim)}
+  li::before{content:"";position:absolute;left:2px;top:.6em;width:8px;height:8px;border-radius:2px;background:var(--gold);transform:rotate(45deg)}
+  li.ok::before{background:var(--teal)} li.no::before{background:var(--red)} li.gap::before{background:var(--violet)}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:clamp(18px,2.6vw,46px);align-items:center}
+  .cols.top{align-items:start}
+  @media(max-width:820px){.cols{grid-template-columns:1fr;gap:18px}}
+
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card h3{color:var(--ink)}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+  @media(max-width:900px){.grid3,.grid4{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.grid3,.grid4{grid-template-columns:1fr}}
+
+  /* compact component chips (12 components grid) */
+  .comp{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);
+    border-left:3px solid var(--line-2);border-radius:10px;padding:9px 11px}
+  .comp .n{font:700 10px/1 var(--mono);color:var(--gold-2);letter-spacing:.05em}
+  .comp .t{font-weight:700;font-size:13px;line-height:1.15;margin-top:5px;color:var(--ink)}
+  .comp .d{font-size:10.5px;color:var(--ink-mute);line-height:1.25;margin-top:2px}
+  .comp.hot{border-left-color:var(--teal);background:rgba(55,217,166,.05)}
+  .comp.hot .t{color:var(--teal)}
+
+  .quote{border-left:3px solid var(--gold);background:rgba(245,185,66,.05);border-radius:0 12px 12px 0;padding:14px 20px;margin:6px 0}
+  .quote p{font-size:clamp(15px,1.5vw,19px);color:var(--ink);font-style:italic;margin:0 0 8px;max-width:none}
+  .quote .who{font:700 12.5px/1 var(--sans);font-style:normal;color:var(--gold)}
+  .quote .who span{color:var(--ink-mute);font-weight:500}
+
+  .term{font-family:var(--mono);font-size:clamp(11.5px,1vw,14px);line-height:1.7;background:#080a10;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .term .bar{display:flex;gap:7px;padding:10px 14px;border-bottom:1px solid var(--line);background:#0c0e15;align-items:center}
+  .term .bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .term .bar .t{margin-left:9px;color:var(--ink-mute);font-size:11.5px;letter-spacing:.05em}
+  .term .body{padding:14px 16px;white-space:pre-wrap;color:#cfd6e6}
+  .term .body .c{color:var(--ink-mute)} .term .body .g{color:var(--teal)} .term .body .r{color:var(--red)} .term .body .y{color:var(--gold)} .term .body .b{color:var(--violet)}
+
+  .tablewrap{overflow-x:auto;flex:0 0 auto;border:1px solid var(--line);border-radius:12px}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:clamp(12px,1.05vw,14.5px)}
+  th,td{padding:8px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{position:sticky;top:0;background:var(--panel-2);font-size:12px;letter-spacing:.02em;color:var(--ink-dim);font-weight:700}
+  tbody td:first-child{color:var(--violet);font-weight:600}
+  tbody td.us{color:var(--teal);font-weight:600}
+
+  .src{display:inline-flex;align-items:center;gap:6px;font:600 11.5px/1.5 var(--mono);color:var(--ink-mute);letter-spacing:.02em}
+  .src a{color:var(--ink-mute);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+  .src a:hover{color:var(--gold);border-color:var(--gold)}
+  .foot-note{font-size:12.5px;color:var(--ink-mute);margin-top:12px;max-width:none}
+
+  /* act divider banner */
+  .actbadge{display:inline-block;font:700 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    padding:6px 12px;border-radius:999px;margin-bottom:14px}
+  .actbadge.one{color:var(--gold);border:1px solid rgba(245,185,66,.5);background:rgba(245,185,66,.07)}
+  .actbadge.two{color:var(--teal);border:1px solid rgba(55,217,166,.5);background:rgba(55,217,166,.07)}
+
+  .thesis{border:1px solid rgba(55,217,166,.35);background:linear-gradient(100deg,rgba(245,185,66,.06),rgba(55,217,166,.06));
+    border-radius:16px;padding:clamp(16px,2.2vw,26px) clamp(18px,2.6vw,30px);margin:2px 0 14px}
+  .thesis .big{font-size:clamp(19px,2.5vw,30px);font-weight:800;letter-spacing:-.01em;line-height:1.2;color:var(--ink)}
+  .thesis .sub{font-size:clamp(13.5px,1.3vw,16px);color:var(--ink-dim);margin-top:9px;line-height:1.5}
+
+  /* mapping rows (von Neumann / analogy) */
+  .maprow{display:grid;grid-template-columns:1fr 26px 1fr;align-items:center;gap:10px;margin-bottom:9px}
+  @media(max-width:560px){.maprow{grid-template-columns:1fr}}
+  .mapc{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:10px;padding:9px 13px;font-size:13.5px}
+  .mapc b{color:var(--ink)} .mapc.l{color:var(--ink-dim)} .mapc.r{color:var(--teal);border-color:rgba(55,217,166,.3)}
+  .maparr{text-align:center;color:var(--ink-mute);font-weight:800}
+
+  /* ─────────── ARCHITECTURE DIAGRAM ─────────── */
+  .diagram{width:100%;max-width:640px;margin:0 auto}
+  .dnode{position:relative;display:flex;align-items:center;gap:12px;
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid var(--line);border-left:3px solid var(--line-2);
+    border-radius:10px;padding:6px 14px}
+  .dnode .ic{flex:0 0 29px;height:29px;border-radius:8px;display:grid;place-items:center;
+    font-size:15px;background:#0c0e15;border:1px solid var(--line-2)}
+  .dnode .tt{font-weight:800;font-size:14px;line-height:1.1}
+  .dnode .ss{font-size:11px;color:var(--ink-mute);line-height:1.24;margin-top:1px}
+  .dnode.model{border-left-color:var(--gold)}
+  .dnode.model .ic{border-color:rgba(245,185,66,.4)}
+  .dnode.check{border-left-color:var(--teal);background:rgba(55,217,166,.045)}
+  .dnode.check .ic{border-color:rgba(55,217,166,.4)}
+  .dnode.mem{border-left-color:var(--violet)}
+  .dnode.mem .ic{border-color:rgba(157,140,255,.4)}
+  .dnode.entry{border-left-color:var(--gold-2)}
+
+  .dconn{display:flex;align-items:center;justify-content:center;gap:8px;height:9px;position:relative}
+  .dconn::before{content:"";width:2px;height:100%;background:var(--line-2)}
+  .dconn .lbl{position:absolute;left:calc(50% + 10px);font:700 9.5px/1 var(--mono);color:var(--teal);white-space:nowrap}
+
+  .dbranch{display:flex;align-items:center;gap:7px;margin:3px 0 0 44px;
+    font:600 10.5px/1.25 var(--mono);color:var(--red)}
+  .dbranch::before{content:"✗";font-weight:800}
+
+  .loopframe{border:1px solid var(--line-2);border-radius:15px;padding:15px 12px 9px;margin:3px 0;position:relative;background:rgba(157,140,255,.03)}
+  .harness{border:1px dashed rgba(55,217,166,.5);border-radius:13px;padding:14px 11px 9px;margin:7px 0;position:relative;background:rgba(55,217,166,.035)}
+  .tag{position:absolute;top:-10px;left:14px;font:700 9.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;
+    padding:4px 10px;border-radius:999px;background:var(--bg-2);white-space:nowrap}
+  .tag.loop{color:var(--violet);border:1px solid rgba(157,140,255,.5)}
+  .tag.harn{color:var(--teal);border:1px solid rgba(55,217,166,.5)}
+  .loopback{display:flex;align-items:center;gap:8px;margin:8px 4px 1px;
+    font:600 11px/1.25 var(--mono);color:var(--violet)}
+  .loopback::before{content:"↻";font-size:15px;font-weight:800}
+
+  .legend{display:flex;flex-wrap:wrap;gap:15px;justify-content:center;margin:11px auto 0;max-width:640px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;font:600 11.5px/1 var(--sans);color:var(--ink-dim)}
+  .legend i{width:10px;height:10px;border-radius:3px;display:block}
+
+  .proofstrip{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-top:12px}
+  @media(max-width:640px){.proofstrip{grid-template-columns:1fr}}
+  .pf{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;line-height:1.35;color:var(--ink-dim);
+    background:rgba(55,217,166,.05);border:1px solid rgba(55,217,166,.25);border-radius:10px;padding:9px 12px}
+  .pf .ck{flex:0 0 auto;color:var(--teal);font-weight:800}
+  .pf .mono{color:var(--ink)}
+
+  .chrome{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;align-items:center;justify-content:space-between;
+    padding:14px clamp(20px,4vw,44px);gap:16px;background:linear-gradient(0deg,rgba(10,11,15,.92),transparent)}
+  .progress{position:fixed;left:0;top:0;height:3px;background:linear-gradient(90deg,var(--gold),var(--violet));z-index:6;transition:width .35s ease;box-shadow:0 0 14px rgba(245,185,66,.5)}
+  .nav{display:flex;gap:8px}
+  .btn{appearance:none;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);width:42px;height:42px;border-radius:10px;font-size:17px;cursor:pointer;transition:.15s;display:grid;place-items:center}
+  .btn:hover{border-color:var(--gold);color:var(--gold);transform:translateY(-1px)}
+  .btn:active{transform:none}
+  .counter{font:600 12.5px/1 var(--mono);color:var(--ink-mute);letter-spacing:.1em}
+  .counter b{color:var(--ink)}
+  .brand{font:700 12.5px/1 var(--mono);letter-spacing:.05em;color:var(--ink-dim)}
+  .brand .d{color:var(--gold)}
+  .hint{font:500 11.5px/1 var(--mono);color:var(--ink-mute);letter-spacing:.04em;white-space:nowrap}
+  @media(max-width:720px){.hint{display:none}}
+
+  a.cta{display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:#0a0b0f;background:linear-gradient(100deg,var(--gold),var(--gold-2));
+    font-weight:800;padding:14px 24px;border-radius:11px;font-size:16px;transition:.15s;box-shadow:0 10px 30px rgba(245,185,66,.25)}
+  a.cta:hover{transform:translateY(-2px);box-shadow:0 14px 38px rgba(245,185,66,.35)}
+</style>
+</head>
+<body>
+<div class="rails"></div>
+<div class="progress" id="prog"></div>
+
+<div class="deck" id="deck">
+
+  <!-- ============ АКТ I · ТЕОРІЯ КАРКАСА ============ -->
+
+  <!-- 1 · Титул -->
+  <section class="slide on">
+    <div class="kicker"><span class="dot"></span>Спершу теорія · потім наша система</div>
+    <h1>Каркас агента: <span class="grad">чому та сама модель<br>працює по-різному</span></h1>
+    <div class="thesis">
+      <div class="big">Коли AI-агент ламається — <span class="grad">винна не модель, а те, що навколо неї.</span></div>
+      <div class="sub">Спочатку розберемо загальну теорію: що таке «каркас» агента і з чого він складається. А потім — як ці самі компоненти зроблені в нашій системі, на реальному коді.</div>
+    </div>
+    <p class="foot-note mono">Частина 1 — теорія (з дослідження про agent scaffolds) · Частина 2 — розбір нашої системи</p>
+  </section>
+
+  <!-- 2 · Проблема + LangChain -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · з чого починається проблема</div>
+    <h2>У демо працює. У продакшені — <span class="grad">розвалюється.</span></h2>
+    <p class="lead">Модель забуває, що робила три кроки тому. Виклики інструментів тихо падають. Контекст забивається непотребом. І головне відкриття:</p>
+    <div class="quote" style="margin:14px 0">
+      <p>«Проблема не у вашій моделі. Проблема — в усьому, що її оточує.»</p>
+      <div class="who">LangChain <span>· змінили лише інфраструктуру навколо тієї самої моделі → з-поза топ-30 на 5-те місце в TerminalBench</span></div>
+    </div>
+    <p>Та сама модель, ті самі ваги. Змінили <strong>тільки оболонку</strong> — і результат стрибнув на 20+ позицій. Цю оболонку назвали <strong class="gold">каркас агента</strong> (agent scaffold).</p>
+  </section>
+
+  <!-- 3 · Що таке каркас · фон Нейман -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · що таке каркас</div>
+    <h2>«Якщо ви не модель — <span class="grad">ви каркас»</span></h2>
+    <p class="lead">Модель — це просто «процесор», що передбачає наступне слово. Сам по собі він нічого не пам'ятає й нічого не робить. Усе решта — каркас. Класична аналогія з комп'ютером:</p>
+    <div style="max-width:600px;margin:14px auto 0">
+      <div class="maprow"><div class="mapc l">Сира <b>LLM</b></div><div class="maparr">→</div><div class="mapc r">Процесор (CPU)</div></div>
+      <div class="maprow"><div class="mapc l">Контекстне вікно</div><div class="maparr">→</div><div class="mapc r">Оперативна пам'ять (RAM)</div></div>
+      <div class="maprow"><div class="mapc l">Зовнішні файли / БД</div><div class="maparr">→</div><div class="mapc r">Диск</div></div>
+      <div class="maprow"><div class="mapc l">Інструменти</div><div class="maparr">→</div><div class="mapc r">Драйвери пристроїв</div></div>
+      <div class="maprow"><div class="mapc l"><b class="gold">Каркас</b></div><div class="maparr">→</div><div class="mapc r"><b>Операційна система</b></div></div>
+    </div>
+    <p class="foot-note">«Агент» — це поведінка. «Каркас» — механізм, що її породжує. Кажуть «я створив агента» — значить, створили каркас і під'єднали модель.</p>
+  </section>
+
+  <!-- 4 · Три рівні інженерії -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · три рівні</div>
+    <h2>Каркас — це <span class="grad">не «гарний промпт»</span></h2>
+    <p class="lead">Навколо моделі — три концентричні рівні інженерії. Каркас — найширший, він охоплює обидва інші:</p>
+    <div class="grid3" style="margin-top:14px">
+      <div class="card"><h3 class="gold">① Промпт-інженерія</h3><p style="margin:0;font-size:13.5px">Формує інструкції, які отримує модель. «Що написати».</p></div>
+      <div class="card"><h3 class="gold">② Контекст-інженерія</h3><p style="margin:0;font-size:13.5px">Керує тим, <strong>що і коли</strong> модель бачить. «Що показати».</p></div>
+      <div class="card" style="border-color:rgba(55,217,166,.4)"><h3 class="teal">③ Каркас-інженерія</h3><p style="margin:0;font-size:13.5px">Охоплює перші два + оркестрацію, стан, помилки, перевірки, безпеку. «Уся система».</p></div>
+    </div>
+    <p class="foot-note">Каркас — повна система, яка робить можливою <strong>автономну</strong> поведінку. Далі — з чого він складається.</p>
+  </section>
+
+  <!-- 5 · 12 компонентів -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · анатомія</div>
+    <h2>12 компонентів <span class="grad">виробничого каркаса</span></h2>
+    <p class="lead" style="margin-bottom:12px">Узагальнення підходів Anthropic, OpenAI, LangChain. Зелений — те, що відрізняє продукт від іграшки.</p>
+    <div class="grid4">
+      <div class="comp"><div class="n">01</div><div class="t">Цикл оркестрації</div><div class="d">серцебиття: думка→дія→спостереження</div></div>
+      <div class="comp"><div class="n">02</div><div class="t">Інструменти</div><div class="d">руки агента: файли, пошук, запуск</div></div>
+      <div class="comp"><div class="n">03</div><div class="t">Пам'ять</div><div class="d">коротко- і довгострокова, у файлах</div></div>
+      <div class="comp"><div class="n">04</div><div class="t">Керування контекстом</div><div class="d">не забити вікно непотребом</div></div>
+      <div class="comp"><div class="n">05</div><div class="t">Побудова промпту</div><div class="d">що модель бачить на кожному кроці</div></div>
+      <div class="comp"><div class="n">06</div><div class="t">Розбір результату</div><div class="d">текст це чи виклик інструмента</div></div>
+      <div class="comp"><div class="n">07</div><div class="t">Керування станом</div><div class="d">контрольні точки, відновлення</div></div>
+      <div class="comp"><div class="n">08</div><div class="t">Опрацювання помилок</div><div class="d">повтори, самовиправлення</div></div>
+      <div class="comp"><div class="n">09</div><div class="t">Захисні обмеження</div><div class="d">що дозволено, «аварійний дріт»</div></div>
+      <div class="comp hot"><div class="n">10</div><div class="t">Цикли перевірки</div><div class="d">тести, лінтери, суддя — ключове</div></div>
+      <div class="comp"><div class="n">11</div><div class="t">Субагенти</div><div class="d">делегування підзадач</div></div>
+      <div class="comp"><div class="n">12</div><div class="t">Життєвий цикл</div><div class="d">керування від старту до фінішу</div></div>
+    </div>
+  </section>
+
+  <!-- 6 · Цикл у русі -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · цикл у русі</div>
+    <h2>Механічно це <span class="grad">просто цикл</span> — увесь інтелект у моделі</h2>
+    <div class="cols top">
+      <div>
+        <p>Anthropic називає своє середовище «тупим циклом»: каркас лише керує ходами, думає — модель. Один прохід:</p>
+        <ul style="margin-top:6px">
+          <li><strong>1.</strong> Зібрати промпт (правила + пам'ять + історія)</li>
+          <li><strong>2.</strong> Спитати модель</li>
+          <li><strong>3.</strong> Це відповідь чи виклик інструмента?</li>
+          <li><strong>4.</strong> Виконати інструмент</li>
+          <li><strong>5.</strong> Повернути результат моделі</li>
+          <li><strong>6.</strong> Оновити контекст</li>
+          <li class="gap"><strong>7.</strong> Повторити — до завершення</li>
+        </ul>
+      </div>
+      <div class="card" style="align-self:start">
+        <h3 class="gold">Коли цикл спиняється</h3>
+        <ul style="margin:0">
+          <li>модель дала відповідь без інструментів</li>
+          <li>вичерпано ліміт ходів або токенів</li>
+          <li>спрацювало захисне обмеження</li>
+          <li>людина перервала</li>
+        </ul>
+        <p class="foot-note" style="margin-top:10px">Просте питання — 1–2 ходи. Складний рефакторинг — десятки викликів у багатьох ходах.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · Ralph Loop / пам'ять між сесіями -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · довгі завдання</div>
+    <h2>Що робити, коли <span class="grad">завдання довше за одну пам'ять</span></h2>
+    <p class="lead">Контекстне вікно скінченне. Для завдань на багато сесій Anthropic описали шаблон «Ralph Loop» — і ключ у ньому простий: <strong>файли на диску = міст між сесіями.</strong></p>
+    <div class="cols top" style="margin-top:10px">
+      <div class="card" style="border-color:rgba(245,185,66,.35)">
+        <h3 class="gold">Агент-ініціалізатор</h3>
+        <p style="margin:0;font-size:14px">Готує середовище: сценарій, <strong>файл прогресу</strong>, перелік функцій, перший коміт git.</p>
+      </div>
+      <div class="card" style="border-color:rgba(157,140,255,.35)">
+        <h3 class="violet">Агент-кодувальник (щосесії)</h3>
+        <p style="margin:0;font-size:14px">Читає журнали git і файл прогресу → обирає найважливіше незроблене → робить → комітить → дописує підсумок.</p>
+      </div>
+    </div>
+    <p class="foot-note">Пам'ять живе не «в голові» AI, а у <strong>звичайних файлах</strong>. Нова сесія починає з читання цих файлів. Запам'ятайте це — далі побачите точно те саме в нас.</p>
+  </section>
+
+  <!-- 8 · Цикли перевірки = продукт -->
+  <section class="slide">
+    <div class="kicker"><span class="dot"></span>Частина 1 · головне</div>
+    <h2>Що відрізняє іграшку від продукту: <span class="grad">цикли перевірки</span></h2>
+    <div class="quote" style="margin:6px 0 16px">
+      <p>«Дати моделі спосіб перевірити власну роботу покращує якість у 2–3 рази.»</p>
+      <div class="who">Boris Cherny <span>· творець Claude Code, Anthropic</span></div>
+    </div>
+    <div class="cols top">
+      <div class="card" style="border-color:rgba(55,217,166,.4)">
+        <h3 class="teal">Обчислювальна перевірка</h3>
+        <p style="margin:0;font-size:13.5px">Тести, лінтери, перевірки типів — дають <strong>детерміновану істину</strong>. Пройшло чи ні — вирішує машина.</p>
+      </div>
+      <div class="card">
+        <h3 class="gold">LLM-суддя</h3>
+        <p style="margin:0;font-size:13.5px">Окремий агент оцінює результат «зі сторони» — ловить сенсові проблеми, але додає затримку.</p>
+      </div>
+    </div>
+    <p class="foot-note"><strong class="gold">Каркас і є продукт.</strong> Два продукти на однакових моделях дають радикально різний результат лише через дизайн каркаса. «Наступного разу, коли агент зазнає невдачі, не звинувачуйте модель — подивіться на каркас.»</p>
+  </section>
+
+  <!-- ============ АКТ II · НАША СИСТЕМА ============ -->
+
+  <!-- 9 · Перехід + маппінг -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Частина 2 · розбір нашої системи</div>
+    <span class="actbadge two">від теорії — до нашого коду</span>
+    <h2>Ті самі компоненти — <span class="grad">ось як вони зроблені в нас</span></h2>
+    <p class="lead" style="margin-bottom:12px">Наші два інструменти — <span class="mono gold">elt-code</span> (приймає завдання) і <span class="mono gold">elt-loop</span> (виконує сам). Кожен компонент теорії має конкретне втілення:</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Компонент теорії</th><th></th><th class="us">Наша реалізація</th></tr></thead>
+        <tbody>
+          <tr><td>Цикл оркестрації</td><td>→</td><td class="us"><span class="mono">elt-loop</span> (на базі Agent SDK)</td></tr>
+          <tr><td>Пам'ять / стан</td><td>→</td><td class="us"><span class="mono">STATE.md</span> + git-коміти + <span class="mono">tasks.md</span></td></tr>
+          <tr><td>Керування контекстом</td><td>→</td><td class="us">codegraph (замість читання цілих файлів)</td></tr>
+          <tr><td>Опрацювання помилок</td><td>→</td><td class="us">self-heal — до 3 спроб</td></tr>
+          <tr><td>Захисні обмеження</td><td>→</td><td class="us">git-guardrails (блок небезпечних команд)</td></tr>
+          <tr><td>Цикли перевірки</td><td>→</td><td class="us">тести-оракул + суддя-субагент</td></tr>
+          <tr><td>Товщина каркаса</td><td>→</td><td class="us">тонка: роутер на 71 рядок, не 350</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 10 · Головна схема -->
+  <section class="slide">
+    <div class="kicker a2" style="margin-bottom:10px"><span class="dot"></span>Частина 2 · наша схема цілком</div>
+    <div class="diagram">
+
+      <div class="dnode entry">
+        <div class="ic">🧑</div>
+        <div><div class="tt">Людина каже, що треба</div><div class="ss">звичайною мовою: «прибери застарілий модуль із каталогу»</div></div>
+      </div>
+      <div class="dconn"></div>
+      <div class="dnode entry">
+        <div class="ic">🚪</div>
+        <div><div class="tt"><span class="mono">elt-code</span> · ресепшн</div><div class="ss">розпізнає намір і направляє роботу в потрібний інструмент</div></div>
+      </div>
+      <div class="dconn"></div>
+
+      <div class="loopframe">
+        <span class="tag loop">↻ elt-loop — петля (цикл оркестрації)</span>
+
+        <div class="dnode mem">
+          <div class="ic">📋</div>
+          <div><div class="tt"><span class="mono">tasks.md</span> — список справ</div><div class="ss">бере наступний невиконаний пункт (напр. «T038 — видалити модуль»)</div></div>
+        </div>
+        <div class="dconn"></div>
+        <div class="dnode model">
+          <div class="ic">✍️</div>
+          <div><div class="tt">AI пише код</div><div class="ss">спершу читає правила проєкту (constitution), і лише потім пише</div></div>
+        </div>
+
+        <div class="harness">
+          <span class="tag harn">Harness — тут вирішує машина (цикл перевірки)</span>
+
+          <div class="dconn"></div>
+          <div class="dnode check">
+            <div class="ic">🧪</div>
+            <div><div class="tt">Тест / оракул</div><div class="ss">комп'ютер РЕАЛЬНО запускає код і дивиться на результат</div></div>
+          </div>
+          <div class="dbranch">червоно → AI виправляє сам, до 3 разів → назад до тесту</div>
+
+          <div class="dconn"><span class="lbl">✓ зелено</span></div>
+          <div class="dnode check">
+            <div class="ic">🚦</div>
+            <div><div class="tt">Гейт (git)</div><div class="ss">формат · перевірки · увесь тест-набір — перед кожним комітом</div></div>
+          </div>
+          <div class="dbranch">не пройшло → коміт фізично відхилено, код не потрапляє в історію</div>
+
+          <div class="dconn"><span class="lbl">✓</span></div>
+          <div class="dnode check">
+            <div class="ic">⚖️</div>
+            <div><div class="tt">Суддя — окремий агент</div><div class="ss">друга думка «зі сторони»: коментує, але не може скасувати зелений тест</div></div>
+          </div>
+        </div>
+
+        <div class="dconn"></div>
+        <div class="dnode model">
+          <div class="ic">💾</div>
+          <div><div class="tt">Коміт — тільки тепер зміна зберігається</div><div class="ss">одночасно пише рядок у <span class="mono">STATE.md</span> (пам'ять) і ставить <span class="mono">[X]</span> у <span class="mono">tasks.md</span></div></div>
+        </div>
+        <div class="loopback">наступний слайс — сам, без нового прохання, поки <span class="mono">tasks.md</span> не закритий</div>
+      </div>
+
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--gold)"></i>AI пише</span>
+      <span><i style="background:var(--teal)"></i>машина перевіряє</span>
+      <span><i style="background:var(--violet)"></i>пам'ять / файли</span>
+      <span><i style="background:var(--red)"></i>блок / повтор</span>
+    </div>
+  </section>
+
+  <!-- 11 · Під капотом: файли -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Частина 2 · під капотом</div>
+    <h2>Пам'ятаєте «файли = міст»? <span class="grad">У нас це так само</span></h2>
+    <p class="lead">Уся автономність — це кілька звичайних текстових файлів. Кожен можна відкрити й прочитати. Ніякої магії.</p>
+    <div class="cols top" style="margin-top:12px">
+      <div class="card">
+        <h3 class="gold">🚪 elt-code — приймає завдання</h3>
+        <p style="margin:0 0 10px;font-size:13.5px">Один файл-інструкція. Читає прохання, визначає тип роботи і направляє в потрібний інструмент. Сам код не пише.</p>
+        <div class="dnode mem"><div class="ic">📄</div><div><div class="tt"><span class="mono">elt-code</span></div><div class="ss">розпізнати намір → направити</div></div></div>
+      </div>
+      <div class="card" style="border-color:rgba(157,140,255,.35)">
+        <h3 class="violet">↻ elt-loop — виконує сам</h3>
+        <p style="margin:0 0 10px;font-size:13.5px">Петля зібрана з готових файлів, кожен — проста роль:</p>
+        <ul style="margin:0">
+          <li><span class="mono gold">tasks.md</span> — список задач (як «файл прогресу» в Ralph Loop)</li>
+          <li><span class="mono gold">constitution.md</span> — правила проєкту</li>
+          <li class="ok"><span class="mono">тести / justfile</span> — оракул: обчислювальна перевірка</li>
+          <li class="ok"><span class="mono">husky</span> — гейт: не пускає поганий коміт</li>
+          <li class="gap"><span class="mono">STATE.md</span> — пам'ять між сесіями</li>
+          <li class="gap">суддя — окремий субагент (LLM-перевірка)</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot-note">Одним реченням: <strong class="gold">автономність = список задач + правила + механічна перевірка + пам'ять у файлі.</strong> Рівно те, що на схемах теорії.</p>
+  </section>
+
+  <!-- 12 · Реальний приклад -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Частина 2 · один реальний випадок</div>
+    <h2>Завдання «прибрати модуль» <span class="grad">пройшло всю схему</span></h2>
+    <p class="lead">Реальний проєкт, не макет. Ось що буквально сталося на кожному кроці:</p>
+    <div class="grid3" style="margin-top:14px">
+      <div class="card"><h3 class="violet">📋 → ✍️ взяв і написав</h3><p style="margin:0;font-size:13.5px">Взяв пункт <span class="mono">T038</span>. Написав тест і код: модуль «видаляється» з каталогу, але рядок фізично лишається.</p></div>
+      <div class="card" style="border-color:rgba(55,217,166,.35)"><h3 class="teal">🧪 машина перевірила</h3><p style="margin:0;font-size:13.5px">Комп'ютер запустив тести — обидва <span class="teal mono">... ok</span>. Не AI сказав «працює»: код реально виконався.</p></div>
+      <div class="card"><h3 class="gold">🚦 → 💾 гейт і коміт</h3><p style="margin:0;font-size:13.5px">Гейт пройдено → коміт <span class="mono">cf0837a</span> зберігся. У <span class="mono">tasks.md</span> з'явилось <span class="mono">[X]</span>.</p></div>
+    </div>
+    <p class="foot-note">Жодного кроку не пропущено — і жоден не тримався на «слові» AI.</p>
+  </section>
+
+  <!-- 13 · Термінал-доказ -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Частина 2 · доказ, що перевірка справжня</div>
+    <h2>Одного разу перевірка <span class="grad">реально не пустила коміт</span></h2>
+    <p class="lead">Це не гіпотеза «а що якби» — це сталося на цьому ж проєкті. Читати код не треба: дивіться на <span class="red">червоне</span> і <span class="teal">зелене</span>.</p>
+    <div class="term" style="margin:14px 0">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="t">реальна подія, без прикрас</span></div>
+      <div class="body"><span class="y">$</span> git commit ...        <span class="c"># AI намагається зберегти зміну</span>
+<span class="r">✗ формат коду не за стандартом ....... ВІДХИЛЕНО</span>
+<span class="r">   коміт зупинено — код навіть не потрапив в історію</span>
+<span class="c">
+# машина сказала «ні». AI виправляє, на що вказали, і пробує знову:</span>
+<span class="y">$</span> git commit ...
+<span class="g">✓ формат → перевірки → увесь тест-набір ...... усі пройдені</span>
+<span class="g">✓ коміт прийнято</span></div>
+    </div>
+    <p class="foot-note">Ось момент, коли harness спрацював і не пустив недороблений код. Сказав «ні» комп'ютер, не людина.</p>
+  </section>
+
+  <!-- 14 · Петля 6 разів -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Частина 2 · один прогін → петля</div>
+    <h2>Той самий цикл <span class="grad">повторився сам, слайс за слайсом</span></h2>
+    <p class="lead">Схема — це ОДИН прогін. «Петля» — коли він повторюється сам, поки план не закритий. Кожен рядок — окремий реальний коміт:</p>
+    <div class="term" style="margin:12px 0">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="t">реальна історія git, без пропусків</span></div>
+      <div class="body"><span class="y">eb42eac</span>  реєстрація модуля (T036/T037/T040/T041)
+<span class="y">cf0837a</span>  видалення модуля (T038/T042)   <span class="c">← приклад зі слайдів 12–13</span>
+<span class="y">f26c007</span>  інтеграційний тест (T039)
+<span class="y">09a2378</span>  форма + наскрізний e2e-тест (T044/T045)
+<span class="g">✓ кожен через гейт, 0 пропущених перевірок</span></div>
+    </div>
+    <p class="foot-note"><span class="src">Терміни не наші: рамка навколо перевірок = <a href="https://martinfowler.com/articles/harness-engineering.html" target="_blank" rel="noopener">«harness»</a> (Thoughtworks); повторення циклу з пам'яттю = «loop». Ми дійшли до цього самі й лише потім звірились із дослідженням із Частини 1.</span></p>
+  </section>
+
+  <!-- 15 · Прогалина -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Частина 2 · чесне запитання</div>
+    <h2>Так, є одна <span class="grad">реальна прогалина</span></h2>
+    <p class="lead">Це рішення №7 із теорії — «товщина каркаса». Кожен прогін петлі працює в тій самій робочій копії, а не в окремій ізольованій на кожен крок.</p>
+    <div class="cols top" style="margin-top:8px">
+      <div class="card">
+        <h3 class="violet">Коли це заважає</h3>
+        <p style="margin:0;font-size:14px">Якщо запустити <strong>кілька петель одночасно</strong> — дві задачі можуть правити один файл і плутати одна одну.</p>
+      </div>
+      <div class="card">
+        <h3 class="teal">Чому поки не критично</h3>
+        <p style="margin:0;font-size:14px">Ми женемо <strong>одну петлю послідовно</strong>. А від «поганого коду» захищає тест + гейт — це вже стоїть.</p>
+      </div>
+    </div>
+    <p style="margin-top:14px">Прогалина реальна, але вона про <strong>інший ризик</strong> — паралельні конфлікти, а не «AI закомітить непрацююче».</p>
+  </section>
+
+  <!-- 16 · 5 запитань + підсумок -->
+  <section class="slide">
+    <div class="kicker a2"><span class="dot"></span>Що забрати з собою</div>
+    <h2>5 запитань <span class="grad">будь-якому «автономному AI»</span></h2>
+    <p class="lead" style="margin-bottom:12px">Теорія дала словник, наша система — робочий приклад. Ці 5 запитань відрізняють реальний каркас від маркетингу. У нас на кожне — «так».</p>
+    <div class="grid3">
+      <div class="card"><h3 class="gold">1 · Хто закриває задачу?</h3><p style="margin:0;font-size:13px">Механічна перевірка — чи AI на слово?</p></div>
+      <div class="card"><h3 class="gold">2 · Хто перевіряє код?</h3><p style="margin:0;font-size:13px">Окремий агент — чи сам собі суддя?</p></div>
+      <div class="card"><h3 class="gold">3 · Є кнопка «стоп»?</h3><p style="margin:0;font-size:13px">Можна миттєво зупинити?</p></div>
+      <div class="card"><h3 class="gold">4 · Є ліміт спроб?</h3><p style="margin:0;font-size:13px">Чи «зациклиться» без кінця?</p></div>
+      <div class="card"><h3 class="gold">5 · Є пам'ять поза чатом?</h3><p style="margin:0;font-size:13px">Стан у файлі — чи зникає?</p></div>
+      <div class="card" style="border-color:rgba(55,217,166,.4)"><h3 class="teal">Головна думка</h3><p style="margin:0;font-size:13px"><strong>Каркас і є продукт.</strong> Не звинувачуйте модель — дивіться на каркас.</p></div>
+    </div>
+    <a class="cta" href="tests.html" style="margin-top:18px">Перевірити розуміння — пройти тест&nbsp;→</a>
+  </section>
+
+</div>
+
+<div class="chrome">
+  <div class="brand">SCAFFOLD<span class="d">·</span>&amp;<span class="d">·</span>LOOP</div>
+  <div style="display:flex;align-items:center;gap:18px">
+    <div class="hint">← →&nbsp;&nbsp;гортати&nbsp;·&nbsp;F&nbsp;—&nbsp;екран</div>
+    <div class="counter"><b id="cur">1</b> / <span id="tot">16</span></div>
+    <div class="nav">
+      <button class="btn" id="prev" aria-label="Назад">‹</button>
+      <button class="btn" id="next" aria-label="Далі">›</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const prog=document.getElementById('prog'), cur=document.getElementById('cur');
+  document.getElementById('tot').textContent=slides.length;
+  let i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('on',k===i));
+    prog.style.width=((i+1)/slides.length*100)+'%';
+    cur.textContent=i+1;
+    location.hash=i+1;
+  }
+  document.getElementById('next').onclick=()=>show(i+1);
+  document.getElementById('prev').onclick=()=>show(i-1);
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();show(i+1)}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();show(i-1)}
+    else if(e.key==='Home')show(0);
+    else if(e.key==='End')show(slides.length-1);
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+  });
+  addEventListener('hashchange',()=>{const n=parseInt(location.hash.slice(1))-1;if(!isNaN(n))show(n)});
+  let x0=null;
+  addEventListener('touchstart',e=>x0=e.touches[0].clientX,{passive:true});
+  addEventListener('touchend',e=>{if(x0===null)return;const dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>50)show(i+(dx<0?1:-1));x0=null},{passive:true});
+  show(parseInt(location.hash.slice(1))-1||0);
+</script>
+</body>
+</html>

@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 'use strict';
 
-const { parseArgs, runDoctor, formatText } = require('./doctor-core');
+const { parseArgs, runDoctor, runFleet, formatText } = require('./doctor-core');
 
 function main() {
   const parsed = parseArgs(process.argv);
   if (!parsed.ok) {
     process.stderr.write(`doctor: ${parsed.error}\n`);
-    process.stderr.write('Usage: node tools/doctor.js [--root PATH] [--register] [--json] [--no-graphify]\n');
+    process.stderr.write('Usage: node tools/doctor.js [--root PATH] [--register] [--json] [--no-graphify] [--fleet]\n');
     process.exit(2);
   }
 
   try {
-    const report = runDoctor(parsed.value);
+    const report = parsed.value.fleet ? runFleet(parsed.value) : runDoctor(parsed.value);
     if (parsed.value.json) {
       process.stdout.write(JSON.stringify(report, null, 2) + '\n');
     } else {
