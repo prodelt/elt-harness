@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 const { initOrSyncProjectDocs, verifyProjectDocs } = require('./project-docs-core');
 const { ensureGraphifyIgnoreConfig } = require('./codemap-core');
 const { run: runAgentSkillSupplyChain } = require('./agent-skill-supply-chain');
+const { readHarnessConfig } = require('./elt-config');
 
 const DEFAULT_MANIFEST = path.resolve(__dirname, '..', 'config', 'agent-skill-sources.json');
 
@@ -161,6 +162,7 @@ function scanProject(root, options = {}) {
   const hasGraphifyIgnore = exists(resolved, '.graphifyignore');
   const controlPlane = controlPlaneStatus(resolved);
   const supplyChain = supplyChainStatus(resolved, options);
+  const harness = readHarnessConfig(resolved);
   const stack = detectStack(resolved);
   const strategy = files.ok && files.count <= 80 ? 'bounded-grep-first' : 'project-docs-codemap-first';
   const actions = [
@@ -179,6 +181,7 @@ function scanProject(root, options = {}) {
     file_count: files,
     checks: {
       ai_docs: { ok: docs.ok && docs.coreIdentical, missing: docs.missing || [] },
+      harness: { ok: harness.ok, errors: harness.errors || [], config: harness.config },
       graphifyignore: { ok: hasGraphifyIgnore },
       rag_manifest: { ok: hasRag },
       agent_control_plane: controlPlane,
@@ -225,6 +228,8 @@ function main() {
   const options = parseArgs(process.argv);
   const report = run(options);
   process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : `${report.kind || 'project-bootstrap'}: ${report.after ? report.after.strategy : report.strategy}\n`);
+  const checks = report.after ? report.after.checks : report.checks;
+  if (!checks.harness.ok) process.exitCode = 1;
 }
 
 if (require.main === module) main();

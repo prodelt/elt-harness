@@ -183,6 +183,7 @@ if (require.main === module && process.argv[2] === '--selftest') {
   execFileSync('git', ['init', '-q'], { cwd: dir });
   fs.mkdirSync(path.join(dir, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
     oracle: 'exit 0', shell: 'powershell', branchPolicy: 'feature', push: false, judge: { enabled: false },
   }));
   fs.appendFileSync(path.join(dir, '.harness', 'run-log.jsonl'), JSON.stringify({

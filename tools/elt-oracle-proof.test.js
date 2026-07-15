@@ -32,10 +32,12 @@ before(() => {
     "fs.writeFileSync(p,String(c+1));process.exit(0);\n");
   fs.mkdirSync(path.join(REPO, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
     oracle: `node oracle-check.js ${COUNTER}`,
     shell: SHELL,
     branchPolicy: 'feature',
     push: false,
+    judge: { enabled: true, model: 'sonnet' },
   }));
   fs.writeFileSync(path.join(REPO, 'seed.txt'), 'seed\n');
   git(['add', '-A']); git(['commit', '-q', '-m', 'seed']);

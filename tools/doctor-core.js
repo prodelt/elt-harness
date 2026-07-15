@@ -11,6 +11,7 @@ const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
 const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
+const { readHarnessConfig } = require('./elt-config');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const fleetClaims = require('./fleet/claims');
 const fleetWorktree = require('./fleet/worktree');
@@ -749,6 +750,14 @@ function checkHarnessRun(root, now = new Date()) {
   return [result(status === 'fail' ? 'warn' : status === 'running' ? 'pass' : status, 'harness:run', title, detail, '', { file: result_.file })];
 }
 
+function checkHarnessConfig(root) {
+  const harness = readHarnessConfig(root);
+  if (!harness.ok) {
+    return result('fail', 'harness:config', 'Harness config invalid', harness.errors.join('; '), 'Run elt init for code projects or provide a valid kind, verifier, and judge config.', { file: harness.file });
+  }
+  return result('pass', 'harness:config', 'Harness config valid', `kind=${harness.config.kind}`, '', { file: harness.file });
+}
+
 function pipelineDirFromRegistry(home, fallbackRoot) {
   const parsed = readJson(path.join(home, '.claude', 'projects-registry.json'));
   if (parsed.ok && parsed.value && typeof parsed.value.pipelineDir === 'string' && parsed.value.pipelineDir.trim()) {
@@ -895,7 +904,9 @@ function checkFleetProject(entry, runner = run) {
     notes.push('no oracle (.harness/harness.json missing)');
     warn = true;
   } else {
-    notes.push('oracle configured');
+    const harness = readHarnessConfig(root);
+    notes.push(harness.ok ? `harness valid (${harness.config.kind})` : `invalid harness (${harness.errors.join('; ')})`);
+    warn ||= !harness.ok;
   }
 
   // Half-cycle (ELT v2 bridge, 2026-07-09): oracle armed (back half wired) but no
@@ -1020,6 +1031,7 @@ function runDoctor(options) {
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
     ...checkHarnessRun(root),
+    checkHarnessConfig(root),
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
@@ -1074,6 +1086,7 @@ module.exports = {
   checkDocsGate,
   checkHarnessChecklist,
   checkHarnessRun,
+  checkHarnessConfig,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
   checkFleet,
