@@ -43,7 +43,7 @@
 
 ## P0-B — canonical project bootstrap
 
-- [ ] **T008** Перебудувати `project-bootstrap inspect` і `plan` як read-only модель target state для `code|docs|unknown`, з JSON output і явними decisions для oracle, CodeGraph та git gate.  
+- [X] **T008** Перебудувати `project-bootstrap inspect` і `plan` як read-only модель target state для `code|docs|unknown`, з JSON output і явними decisions для oracle, CodeGraph та git gate.  
   **Docs/API:** `spec.md` §5.4; зберегти корисні fixtures/detectStack із `tools/project-bootstrap.js`.  
   **Proof:** before/after hash target directory однаковий; plan deterministic; unknown не отримує вигаданий oracle.  
   **Guard:** не сканувати весь ПК; лише вказаний root і registry metadata. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js]`
