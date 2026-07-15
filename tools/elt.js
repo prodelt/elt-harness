@@ -198,6 +198,15 @@ function appendRunLog(entry) {
   fs.mkdirSync(HARNESS_DIR, { recursive: true });
   fs.appendFileSync(RUNLOG, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
 }
+function changedFiles() {
+  return [...new Set([
+    ...git(['diff', '--name-only', 'HEAD']).out.split('\n'),
+    ...git(['ls-files', '--others', '--exclude-standard']).out.split('\n'),
+  ].filter(Boolean))].sort();
+}
+function isCheckpointFile(file) {
+  return file.startsWith('.planning/') || file.startsWith('specs/');
+}
 
 // ── commands ──────────────────────────────────────────────────────────────────
 const [cmd, sub] = process.argv.slice(2);
@@ -282,6 +291,19 @@ if (cmd === 'judge-proof') {
     process.exit(check.ok ? 0 : 4);
   }
   die('elt judge-proof read | write --task Txxx --verdict pass|block|dead --model <model> | validate --task Txxx');
+}
+
+if (cmd === 'checkpoint') {
+  if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
+  const files = changedFiles();
+  if (!files.length) die('нечего коммитить: дерево чистое', 3);
+  const blocked = files.filter((file) => !isCheckpointFile(file));
+  if (blocked.length) die(`checkpoint разрешён только для .planning/** и specs/**: ${blocked.join(', ')}`, 4);
+  if (git(['add', '--', ...files]).code !== 0) die('git add failed');
+  const c = spawnSync('git', ['commit', '-m', opt('-m', 'docs: checkpoint')], { cwd, encoding: 'utf8' });
+  if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
+  console.log(`elt checkpoint: ${git(['rev-parse', '--short', 'HEAD']).out}`);
+  process.exit(0);
 }
 
 if (cmd === 'commit') {
