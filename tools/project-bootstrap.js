@@ -159,6 +159,109 @@ function applyPlan(root, options = {}) {
   };
 }
 
+function checkDocsContract(inspected) {
+  if (inspected.classification.kind === 'unknown') {
+    return { ok: true, skipped: true, reason: 'kind is unknown — docs contract not evaluated' };
+  }
+  const ok = inspected.docs.ok && inspected.docs.coreIdentical;
+  return { ok, coreIdentical: inspected.docs.coreIdentical, missing: inspected.docs.missing, reason: ok ? 'project docs match managed template' : 'project docs missing or drifted from managed template' };
+}
+
+function checkHarnessContract(inspected) {
+  if (inspected.classification.kind === 'unknown') {
+    return { ok: true, skipped: true, reason: 'kind is unknown — harness contract not evaluated' };
+  }
+  if (!inspected.harness.exists) return { ok: false, reason: '.harness/harness.json is missing' };
+  if (!inspected.harness.ok) return { ok: false, reason: 'harness.json is invalid', errors: inspected.harness.errors };
+  return { ok: true, reason: 'harness.json is schema-valid' };
+}
+
+function checkOracleVerifierContract(inspected) {
+  if (inspected.classification.kind === 'unknown') {
+    return { ok: true, skipped: true, reason: 'kind is unknown — oracle/verifier contract not evaluated' };
+  }
+  if (!inspected.harness.ok || !inspected.harness.config) {
+    return { ok: false, reason: 'no valid harness config to read an oracle/verifier from' };
+  }
+  const cfgKind = inspected.harness.config.kind;
+  const label = cfgKind === 'code' ? 'oracle' : 'artifactVerifier';
+  const value = cfgKind === 'code' ? inspected.harness.config.oracle : inspected.harness.config.artifactVerifier;
+  if (typeof value !== 'string' || value.trim() === '') {
+    return { ok: false, reason: `harness.json kind=${cfgKind} requires a non-empty ${label}` };
+  }
+  return { ok: true, kind: cfgKind, command: value };
+}
+
+function checkGateContract(inspected) {
+  if (inspected.classification.kind !== 'code') {
+    return { ok: true, skipped: true, reason: `kind is ${inspected.classification.kind} — git gate not required` };
+  }
+  if (!inspected.gitGate.managedHookInstalled) {
+    return { ok: false, reason: '.githooks/pre-commit is missing — run project-bootstrap apply' };
+  }
+  return { ok: true, reason: 'managed pre-commit gate is installed' };
+}
+
+function findSpecTasks(root) {
+  const specsDir = path.join(root, 'specs');
+  if (!fs.existsSync(specsDir)) return { files: [], open: 0, done: 0 };
+  const re = /^\s*(?:[-*]\s*)?\[( |X|x)\]/;
+  const files = [];
+  let open = 0;
+  let done = 0;
+  for (const entry of fs.readdirSync(specsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = path.join(specsDir, entry.name, 'tasks.md');
+    if (!fs.existsSync(file)) continue;
+    files.push(file);
+    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const m = line.match(re);
+      if (!m) continue;
+      if (m[1] === ' ') open += 1; else done += 1;
+    }
+  }
+  return { files, open, done };
+}
+
+function checkSpecReadiness(root) {
+  const specs = findSpecTasks(root);
+  if (specs.files.length === 0) return { ok: true, status: 'idle', reason: 'no specs/*/tasks.md yet — explicit idle, not a failure', files: [] };
+  if (specs.open === 0) return { ok: true, status: 'complete', reason: 'all discovered slices are closed', open: 0, done: specs.done, files: specs.files };
+  return { ok: true, status: 'active', open: specs.open, done: specs.done, files: specs.files };
+}
+
+function checkCleanTree(root) {
+  if (!fs.existsSync(path.join(root, '.git'))) return { ok: true, skipped: true, reason: 'not a git repository' };
+  const completed = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
+  if (completed.status !== 0) return { ok: false, reason: 'git status failed', error: completed.stderr || completed.error?.message || '' };
+  const dirty = completed.stdout.trim().length > 0;
+  return { ok: !dirty, dirty, reason: dirty ? 'working tree has uncommitted changes' : 'working tree is clean' };
+}
+
+function verifyProject(root, options = {}) {
+  const inspected = inspectProject(root, options);
+  const resolved = inspected.root;
+  const contracts = {
+    docs: checkDocsContract(inspected),
+    harnessConfig: checkHarnessContract(inspected),
+    oracleVerifier: checkOracleVerifierContract(inspected),
+    gate: checkGateContract(inspected),
+    skillAvailability: supplyChainStatus(resolved, options),
+  };
+  const signals = {
+    specReadiness: checkSpecReadiness(resolved),
+    cleanTree: checkCleanTree(resolved),
+  };
+  return {
+    kind: 'project-bootstrap-verify',
+    root: resolved,
+    classification: inspected.classification,
+    ok: Object.values(contracts).every((c) => c.ok),
+    contracts,
+    signals,
+  };
+}
+
 function detectStack(root) {
   const packageJson = path.join(root, 'package.json');
   if (!fs.existsSync(packageJson)) return { name: 'unknown', confidence: 'low' };
@@ -331,7 +434,7 @@ function applySafeActions(root, options = {}) {
 }
 
 function parseArgs(argv) {
-  const command = ['inspect', 'plan', 'apply'].includes(argv[2]) ? argv[2] : null;
+  const command = ['inspect', 'plan', 'apply', 'verify'].includes(argv[2]) ? argv[2] : null;
   const defaults = { command, root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true, codegraph: false };
   const parseNext = (index, state) => {
     if (index >= argv.length) return state;
@@ -351,6 +454,7 @@ function run(options) {
   if (options.command === 'inspect') return inspectProject(options.root, options);
   if (options.command === 'plan') return planTargetState(options.root, options);
   if (options.command === 'apply') return applyPlan(options.root, options);
+  if (options.command === 'verify') return verifyProject(options.root, options);
   return options.apply ? applySafeActions(options.root, options) : scanProject(options.root, options);
 }
 
@@ -358,6 +462,7 @@ const TEXT_SUMMARY = {
   inspect: (report) => `project-bootstrap-inspect: ${report.classification.kind}`,
   plan: (report) => `project-bootstrap-plan: ${report.classification.kind}`,
   apply: (report) => `project-bootstrap-apply: ${report.changes.length} changes, ${report.blocked.length} blocked`,
+  verify: (report) => `project-bootstrap-verify: ${report.ok ? 'PASS' : 'FAIL'} (${report.classification.kind})`,
 };
 
 function main() {
@@ -370,6 +475,7 @@ function main() {
   if (options.command === 'inspect') { if (!report.harness.ok) process.exitCode = 1; return; }
   if (options.command === 'plan') return;
   if (options.command === 'apply') { if (report.blocked.length > 0) process.exitCode = 1; return; }
+  if (options.command === 'verify') { if (!report.ok) process.exitCode = 1; return; }
   const checks = report.after ? report.after.checks : report.checks;
   if (!checks.harness.ok) process.exitCode = 1;
 }
@@ -389,4 +495,5 @@ module.exports = {
   scanProject,
   summarizeSupplyChain,
   supplyChainStatus,
+  verifyProject,
 };
