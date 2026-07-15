@@ -21,12 +21,12 @@
   **Proof:** temp repo: planning-only commit pass; `tools/x.js`, `.harness/harness.json`, mixed diff → nonzero і без commit.  
   **Guard:** не робити загальний `--no-judge`/`--force`; allowlist вузький і тестований. `[files:tools/elt.js,tools/elt-checkpoint.test.js]`
 
-- [ ] **T004** Зробити `elt commit` fail-closed: прибрати authority вільного `--verdict`, вимагати актуальний judge proof після зеленого oracle, валідувати task/spec/tree перед `git commit`.  
+- [X] **T004** Зробити `elt commit` fail-closed: прибрати authority вільного `--verdict`, вимагати актуальний judge proof після зеленого oracle, валідувати task/spec/tree перед `git commit`.  
   **Docs/API:** `spec.md` AC03–AC04; `tools/elt.js` commit flow; результат T002.  
   **Proof:** integration temp repo: missing/stale/block/dead → commit count незмінний; valid pass → один commit.  
   **Guard:** oracle залишається механічним і не може бути «прощений» суддею. `[files:tools/elt.js,tools/elt-commit-proof.test.js]`
 
-- [ ] **T005** Підключити proof producer до `elt-loop.ps1` і Fleet gate: суддя пише schema-valid proof для поточного worktree; прибрати mutating `git add -N` із solo snapshot; пустий output/timeout/spawn fail не маскується під content block; retry не переносить proof на новий tree.  
+- [X] **T005** Підключити proof producer до `elt-loop.ps1` і Fleet gate: суддя пише schema-valid proof для поточного worktree; прибрати mutating `git add -N` із solo snapshot; пустий output/timeout/spawn fail не маскується під content block; retry не переносить proof на new tree.
   **Docs/API:** `spec.md` §5.2; `tools/fleet/gate.js:runJudge/gate`; liveness контракт spec 004.  
   **Proof:** stub judge pass/block/empty/timeout; один end-to-end slice без live LLM; після кожного exit path `git diff --cached --name-only` і `git status --porcelain` не містять створеного драйвером intent-to-add сміття.  
   **Guard:** один формат proof для solo і Fleet; не створювати окремий Fleet judge protocol. `[files:tools/elt-loop.ps1,tools/fleet/gate.js,tools/fleet/gate.test.js,tools/fleet/judge-invoke.js]`

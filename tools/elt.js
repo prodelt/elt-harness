@@ -38,14 +38,20 @@ function git(args) {
 function findTasks() {
   const specsDir = path.join(cwd, 'specs');
   const files = [];
+  const rootTasks = path.join(cwd, 'tasks.md');
+  if (fs.existsSync(rootTasks)) files.push(rootTasks);
   if (fs.existsSync(specsDir)) {
+    const specRootTasks = path.join(specsDir, 'tasks.md');
+    if (fs.existsSync(specRootTasks)) files.push(specRootTasks);
     for (const d of fs.readdirSync(specsDir).sort()) {
       const f = path.join(specsDir, d, 'tasks.md');
       if (fs.existsSync(f)) files.push(f);
     }
   }
   const re = /^(\s*(?:[-*]\s*)?)\[( |X|x)\]\s*(?:\*\*)?(T\d+)?(?:\*\*)?[:.]?\s*(.*)$/;
+  const plans = [];
   let fallback = null;
+  let firstOpen = null;
   for (const f of files) {
     const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
     const open = [], done = [];
@@ -57,17 +63,28 @@ function findTasks() {
     // Приоритет — файл, где ещё остались открытые боксы (комментарий выше это и обещает).
     // Если открытых нигде нет, `status`/`commit` всё равно должны на что-то опереться —
     // fallback запоминает последний файл с любыми боксами (open или done).
-    if (open.length) return { file: f, open, done, lines };
+    const plan = { file: f, open, done, lines };
+    plans.push(plan);
+    if (open.length && !firstOpen) firstOpen = plan;
     if (open.length || done.length) fallback = { file: f, open, done, lines };
   }
-  return fallback;
+  const selected = firstOpen || fallback;
+  return selected ? { ...selected, all: plans } : null;
 }
 
+function findTaskItem(taskId, openOnly = false) {
+  const selected = findTasks();
+  if (!selected) return null;
+  for (const plan of selected.all || [selected]) {
+    const item = (openOnly ? plan.open : plan.open.concat(plan.done)).find((x) => x.id === taskId);
+    if (item) return { plan, item };
+  }
+  return null;
+}
 function markDone(taskId) {
-  const t = findTasks();
-  if (!t) die('нет specs/*/tasks.md');
-  const item = t.open.find((x) => x.id === taskId);
-  if (!item) die(`задача ${taskId} не найдена среди открытых [ ]`);
+  const found = findTaskItem(taskId, true);
+  if (!found) die(`задача ${taskId} не найдена среди открытых [ ]`);
+  const { plan: t, item } = found;
   t.lines[item.lineNo] = t.lines[item.lineNo].replace('[ ]', '[X]');
   fs.writeFileSync(t.file, t.lines.join('\n'));
   return item;
@@ -81,7 +98,12 @@ function treeHash() {
   // tried that first, it left leftover staged garbage in the integration checkout after
   // merge.js's post-merge oracle run, which then broke the NEXT slice's merge. Read
   // untracked file content straight off disk instead — zero side effects on the index.
-  const status = git(['status', '--porcelain', '-uall']).out;
+  const runtimeLog = (file) => {
+    const normalized = file.replace(/\\/g, '/');
+    return normalized.startsWith('.harness/loop-logs/') || normalized.startsWith('.harness/fleet/logs/');
+  };
+  const status = git(['status', '--porcelain', '-uall']).out.split('\n')
+    .filter((line) => !runtimeLog(line.slice(3).trim())).join('\n');
   const h = crypto.createHash('sha256');
   h.update(status + '\n' + git(['diff', 'HEAD']).out);
   const untracked = status.split('\n')
@@ -140,9 +162,9 @@ function readJudgeProof() {
   try { return { raw, proof: JSON.parse(raw) }; } catch { return { error: 'malformed' }; }
 }
 function findTaskBinding(taskId) {
-  const active = findTasks();
-  if (!active || !active.open.concat(active.done).some((item) => item.id === taskId)) return null;
-  return { taskId, specPath: path.relative(cwd, active.file).split(path.sep).join('/') };
+  const found = findTaskItem(taskId, true);
+  if (!found) return null;
+  return { taskId, specPath: path.relative(cwd, found.plan.file).split(path.sep).join('/') };
 }
 function invalidJudgeProof(reason, detail = '') {
   return { ok: false, reason, detail };
@@ -309,7 +331,7 @@ if (cmd === 'checkpoint') {
 if (cmd === 'commit') {
   const cfg = loadConfig();
   const taskId = opt('--task');
-  const verdict = opt('--verdict', null);
+  if (flag('--verdict')) die('elt commit: --verdict is not authority; write a judge proof instead', 4);
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
   if (!git(['status', '--porcelain']).out) die('нечего коммитить: дерево чистое', 3);
 
@@ -332,6 +354,10 @@ if (cmd === 'commit') {
     }
   }
 
+  if (!taskId) die('elt commit: --task Txxx is required for a code commit', 4);
+  const judge = validateJudgeProof({ taskId });
+  if (!judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
+
   // 2. auto-branch: never commit slices straight to main (policy: feature)
   let branch = git(['branch', '--show-current']).out;
   if (cfg.branchPolicy === 'feature' && ['main', 'master'].includes(branch)) {
@@ -342,9 +368,14 @@ if (cmd === 'commit') {
     console.error('elt commit: авто-ветка ' + branch);
   }
 
-  // 3. mark [X] BEFORE add so the mark lands in the same commit
-  let taskText = '';
-  if (taskId) taskText = markDone(taskId).text;
+  // 3. Fleet validates the same task/proof but leaves [X] to its merge queue.
+  const taskText = flag('--keep-task-open')
+    ? (() => {
+        const found = findTaskItem(taskId, true);
+        if (!found) die(`задача ${taskId} не найдена среди открытых [ ]`);
+        return found.item.text;
+      })()
+    : markDone(taskId).text;
 
   const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice');
   if (git(['add', '-A']).code !== 0) die('git add failed');
@@ -352,7 +383,7 @@ if (cmd === 'commit') {
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
 
-  appendRunLog({ task: taskId || null, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict, msg });
+  appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict: judge.proof.verdict, msg });
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {
@@ -368,6 +399,6 @@ console.log(`elt — ядро ELT v2 харнесса
   elt status                                                git + план + последний прогон
   elt slice next [--json]                                   следующая [ ] задача (exit 3 = план закрыт)
   elt oracle                                                прогнать оракул, exit-код = истина
-  elt commit [--task Txxx] [-m msg] [--skip-oracle] [--verdict pass] [--push]
-      оракул → авто-ветка с main → [X] в tasks.md → add+commit → run-log.jsonl → push по флагу`);
+  elt commit --task Txxx [--keep-task-open] [-m msg] [--skip-oracle] [--push]
+      зелёный oracle + актуальный judge proof → авто-ветка с main → [X] → add+commit → run-log.jsonl → push`);
 process.exit(cmd ? 1 : 0);

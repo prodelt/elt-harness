@@ -141,11 +141,8 @@ $tail
     # judge-block, неотличимо от реального reject (баг 3e73423 — судья молча блокировал ВСЁ).
     # Теперь runOk:false = judge-dead (ERROR-STOP), а не тихий block. Один протестированный
     # источник истины (gate.runJudge, инвариант runOk), а не хрупкий PS-дубль парсинга/рубрики.
-    # intent-to-add: `git diff HEAD` слеп на untracked — пометим, чтобы пустой-дифф-стоп сработал.
-    & git add -N -- . 2>$null | Out-Null
-    $diff = (& git diff HEAD) -join "`n"
     $porcelain = (& git status --porcelain) -join "`n"
-    if ([string]::IsNullOrWhiteSpace($diff) -and [string]::IsNullOrWhiteSpace($porcelain)) {
+    if ([string]::IsNullOrWhiteSpace($porcelain)) {
       Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить, стоп."
       break
     }
@@ -176,8 +173,10 @@ $tail
       break
     }
 
-    # 7. commit (оракул уже прогнан → --skip-oracle)
-    & node $eltCli commit --task $id --skip-oracle --verdict pass
+    # 7. Persist the judge result against this exact green-oracle tree, then commit.
+    & node $eltCli judge-proof write --task $id --verdict pass --model $JudgeModel --reasons-json "[]"
+    if ($LASTEXITCODE -ne 0) { Write-Error "judge proof вернул $LASTEXITCODE"; break }
+    & node $eltCli commit --task $id --skip-oracle
     if ($LASTEXITCODE -ne 0) { Write-Error "elt commit вернул $LASTEXITCODE"; break }
     $done++; $committed++
   }
