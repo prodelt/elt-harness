@@ -1,15 +1,46 @@
 {
-  "version": 1,
+  "version": 2,
   "generatedAt": "2026-07-15T00:00:00.000Z",
-  "note": "Critical control-plane skill lock (T012, specs/005-elt-control-plane-convergence). Records the repo-local canonical SKILL.md and its expected sha256 across the three client mirrors. Separate from config/agent-skill-sources.json (the broader review-workflow manifest) — this file is the flat, drift-detectable ledger T013 wires into doctor.",
+  "note": "Critical control-plane skill lock (T012/T013, specs/005-elt-control-plane-convergence). Flat, drift-detectable ledger for the mandatory-parity skill set: elt + its aliases (elt-code, elt-loop) and project-bootstrap. sourceKind tells the checker where the canonical file lives: 'repo' = tracked in this repo (source path is repo-relative), 'home' = canonical lives in ~/.claude/skills/* (source path is home-relative; the claude target is the source itself). The checker (tools/doctor-core.js:checkAgentSkillsLock) always recomputes sha256 live from the source at check time — the sha256 field here is a record of the last known-good value, not the comparison ground truth, so editing a SKILL.md doesn't require a lock.json edit to stay green. Separate from config/agent-skill-sources.json (the broader review-workflow manifest for a different, non-critical skill set).",
   "skills": {
     "project-bootstrap": {
+      "sourceKind": "repo",
       "source": "skills/project-bootstrap/SKILL.md",
       "sha256": "de8ca4135ec7da8e4207462ee92902728c9a04ffa89339e6470c861911917bc5",
       "targets": {
         "claude": ".claude/skills/project-bootstrap/SKILL.md",
         "codex": ".codex/skills/project-bootstrap/SKILL.md",
         "gemini": ".gemini/skills/project-bootstrap/SKILL.md"
+      }
+    },
+    "elt": {
+      "sourceKind": "home",
+      "source": ".claude/skills/elt/SKILL.md",
+      "sha256": "d983dbaaed7415281b5f306fa86a93a2d63face7218918c344657a49c406fc1d",
+      "targets": {
+        "claude": ".claude/skills/elt/SKILL.md",
+        "codex": ".codex/skills/elt/SKILL.md",
+        "gemini": ".gemini/skills/elt/SKILL.md"
+      }
+    },
+    "elt-code": {
+      "sourceKind": "home",
+      "source": ".claude/skills/elt-code/SKILL.md",
+      "sha256": "b0d76ae6338560f5d65a7eab6581c35d0d628f7d292e351c2ecccfe22b22545c",
+      "targets": {
+        "claude": ".claude/skills/elt-code/SKILL.md",
+        "codex": ".codex/skills/elt-code/SKILL.md",
+        "gemini": ".gemini/skills/elt-code/SKILL.md"
+      }
+    },
+    "elt-loop": {
+      "sourceKind": "home",
+      "source": ".claude/skills/elt-loop/SKILL.md",
+      "sha256": "b37ab580daa1df97dafaa22f688de2a3ec7387361364d788ea833c7ba8ed0f9e",
+      "targets": {
+        "claude": ".claude/skills/elt-loop/SKILL.md",
+        "codex": ".codex/skills/elt-loop/SKILL.md",
+        "gemini": ".gemini/skills/elt-loop/SKILL.md"
       }
     }
   }

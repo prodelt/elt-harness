@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { runCodemapDoctor } = require('./codemap-core');
 const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
@@ -512,6 +513,66 @@ function checkAgentSkillSupplyChain(root, home, auditRunner) {
     return [result('warn', 'agent-skills:supply-chain', 'Agent skill supply chain has drift', detail, 'Run node tools\\agent-skill-supply-chain.js install-skills --target all --json, then rollout-projects as needed.')];
   }
   return [result('pass', 'agent-skills:supply-chain', 'Agent skill supply chain OK', `${drift.approved.length} approved skills current across ${targetClients.length} client(s); ${(audit.projects || []).length} project(s) audited.`, '')];
+}
+
+function sha256File(file) {
+  try {
+    return { ok: true, value: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+// T013: mandatory-parity gate for the critical control-plane skill set (elt +
+// aliases + project-bootstrap), driven by agent-skills.lock.json — separate
+// from checkAgentSkillSupplyChain (config/agent-skill-sources.json, broader
+// non-critical set, warns on drift). Every entry here is critical: invalid
+// YAML, a missing mirror, or content drift is a fail, not a warn.
+function checkAgentSkillsLock(root, home) {
+  const lockFile = path.join(root, 'agent-skills.lock.json');
+  const lock = readJson(lockFile);
+  if (!lock.ok) return [result('fail', 'agent-skills:lock', 'agent-skills.lock.json missing/invalid', lock.error, 'Restore agent-skills.lock.json (T013, specs/005-elt-control-plane-convergence).')];
+  const skills = (lock.value && lock.value.skills) || {};
+  const names = Object.keys(skills);
+  if (names.length === 0) return [result('fail', 'agent-skills:lock', 'agent-skills.lock.json has no critical skills', lockFile, 'Add elt/elt-code/elt-loop/project-bootstrap entries.')];
+
+  const problems = [];
+  for (const name of names) {
+    const entry = skills[name];
+    const sourceBase = entry.sourceKind === 'home' ? home : root;
+    const sourcePath = path.join(sourceBase, entry.source || '');
+    if (!fs.existsSync(sourcePath)) {
+      problems.push(`${name}: source missing (${entry.source})`);
+      continue;
+    }
+    const frontmatter = parseSkillFrontmatter(sourcePath);
+    if (!frontmatter.ok) {
+      problems.push(`${name}: invalid YAML frontmatter — ${frontmatter.error}`);
+      continue;
+    }
+    const sourceHash = sha256File(sourcePath);
+    if (!sourceHash.ok) {
+      problems.push(`${name}: cannot hash source — ${sourceHash.error}`);
+      continue;
+    }
+    const targets = entry.targets || {};
+    for (const [client, relTarget] of Object.entries(targets)) {
+      const targetPath = path.join(home, relTarget);
+      if (!fs.existsSync(targetPath)) {
+        problems.push(`${name}/${client}: mirror missing (${relTarget})`);
+        continue;
+      }
+      const targetHash = sha256File(targetPath);
+      if (!targetHash.ok || targetHash.value !== sourceHash.value) {
+        problems.push(`${name}/${client}: content drift`);
+      }
+    }
+  }
+
+  if (problems.length > 0) {
+    return [result('fail', 'agent-skills:lock', 'Critical skill lock has drift/missing/invalid entries', problems.slice(0, 10).join('; '), 'Fix the source and re-run node tools/sync-agent-surface.js --apply --target all.')];
+  }
+  return [result('pass', 'agent-skills:lock', 'Critical skill lock OK', `${names.length} critical skill(s) verified across mirrors.`, '')];
 }
 
 function checkAgentSkillsWrapper(root, home, commandRunner = run) {
@@ -1026,6 +1087,7 @@ function runDoctor(options) {
     ...checkMemoryProvider(root, options.memoryProvider),
     ...checkSurfaceSync(root),
     ...checkAgentSkillSupplyChain(root, home),
+    ...checkAgentSkillsLock(root, home),
     ...checkAgentSkillsWrapper(root, home),
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
@@ -1081,6 +1143,7 @@ module.exports = {
   checkCodeGraphMcp,
   checkCodeGraphAdoption,
   checkAgentSkillSupplyChain,
+  checkAgentSkillsLock,
   checkAgentSkillsWrapper,
   checkAgentSurfaceAudit,
   checkDocsGate,
