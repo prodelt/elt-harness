@@ -19,17 +19,26 @@ $ErrorActionPreference = "Continue"
 $eltCli = Join-Path $env:USERPROFILE ".claude\bin\elt.js"
 $Project = (Resolve-Path $Project).Path
 $logDir  = Join-Path $Project ".harness\loop-logs"
-$runLog  = Join-Path $Project ".harness\run-log.jsonl"
+$gitDir = (& git -C $Project rev-parse --git-dir 2>$null | Select-Object -First 1)
+if (-not [string]::IsNullOrWhiteSpace($gitDir) -and -not [System.IO.Path]::IsPathRooted($gitDir)) { $gitDir = Join-Path $Project $gitDir }
+$runLog  = if ([string]::IsNullOrWhiteSpace($gitDir)) { $null } else { Join-Path $gitDir "elt\run-log.jsonl" }
 $stopFile = Join-Path $Project ".harness\STOP"
 
 if (-not (Test-Path $eltCli))              { Write-Error "нет elt CLI: $eltCli"; exit 1 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue))   { Write-Error "нет node в PATH"; exit 1 }
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { Write-Error "нет claude в PATH"; exit 1 }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+if ($runLog) {
+  New-Item -ItemType Directory -Force -Path (Split-Path $runLog -Parent) | Out-Null
+  Push-Location $Project
+  try { & node $eltCli status | Out-Null; $migrationExit = $LASTEXITCODE }
+  finally { Pop-Location }
+  if ($migrationExit -ne 0) { Write-Error "elt-loop: не удалась проверенная миграция run-log"; exit $migrationExit }
+}
 
 function Ts { (Get-Date).ToString("yyyyMMdd-HHmmss") }
 function Append-RunLog($obj) {
-  ($obj | ConvertTo-Json -Compress -Depth 6) | Add-Content -Path $runLog -Encoding utf8
+  if ($runLog) { ($obj | ConvertTo-Json -Compress -Depth 6) | Add-Content -Path $runLog -Encoding utf8 }
 }
 # Баг #10 (T016) чинили резолвом .cmd-шима в claude.exe — но остался баг глубже: Windows
 # PowerShell 5.1 (`& $exe @ArgsArray`) сам не умеет корректно маршалить argv-элементы с

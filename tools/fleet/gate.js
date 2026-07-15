@@ -176,7 +176,7 @@ async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDG
 // --- T028: нормализация worktree ПЕРЕД гейтом ------------------------------------
 // Воркер (agy доказанно живьём, но и claude/codex — агентные LLM статистически «доводят
 // до конца» коммитом, T016/T028 live-fire) может САМ `git add`+`git commit` работу и/или
-// тронуть файлы вне [files:] (tasks.md/harness.json/.harness/run-log.jsonl). Тогда
+// тронуть файлы вне [files:] (tasks.md/harness.json/.harness/**). Тогда
 // `git diff HEAD` пуст (работа уже в HEAD) или шумен → судья REJECT-default законно
 // блокирует чистую работу. Запрет в workerPrompt — ненадёжная первая линия (перебивает
 // сильный агентный прайор лишь иногда); здесь СТРУКТУРНАЯ гарантия под ним: приводим дерево
@@ -202,7 +202,7 @@ function inScope(rel, files) {
   return files.some((g) => { const pre = plan.globPrefix(g); return p === g || (pre && p.startsWith(pre)); });
 }
 // Харнесс/оркестратор-владения: ни один слайс не трогает их легитимно. tasks.md — [X]-марку
-// ставит оркестратор ПОСЛЕ merge (gate.js:4); .harness/** — harness.json/run-log.jsonl/CLI-состояние.
+// ставит оркестратор ПОСЛЕ merge (gate.js:4); .harness/** — config/loop logs/CLI-состояние.
 // Именно ЭТО agy контаминировал (shell bash→powershell, [ ]→[X], лишний elt commit). Откатываем
 // ТОЛЬКО их, а НЕ «всё вне [files:]»: настоящий scope-creep в РАБОТЕ (лишний out/beta.txt) обязан
 // увидеть и заблокировать судья, а не оркестратор молча спрятать.

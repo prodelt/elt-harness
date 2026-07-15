@@ -23,16 +23,7 @@ function Invoke-SelfHealMerge {
   }
   Push-Location $Project
   try {
-    # elt.js commit() дописывает .harness/run-log.jsonl ПОСЛЕ git commit (лог фиксирует
-    # SHA только что созданного коммита) — ветка после `elt commit` всегда содержит
-    # незакоммиченный хвост в run-log.jsonl. checkout на другую ветку с таким незакоммиченным
-    # изменением падает ("would be overwritten"). Подбираем этот хвост маленьким коммитом
-    # на self-heal ветке ПЕРЕД переключением — он легитимная часть починки, мержится вместе.
-    $dirty = (& git status --porcelain) -join "`n"
-    if (-not [string]::IsNullOrWhiteSpace($dirty)) {
-      & git add -A 2>&1 | Out-Null
-      & git commit -q -m "self-heal: housekeeping перед merge" 2>&1 | Out-Null
-    }
+    # Runtime run-log lives in git-dir, so a successful elt commit leaves no tracked tail.
     & git checkout main 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { return @{ merged = $false; reason = "checkout-failed" } }
     & git merge --no-ff $HealBranch -m "self-heal: merge $HealBranch (elt-selfheal --AutoMerge)" 2>&1 | Out-Null

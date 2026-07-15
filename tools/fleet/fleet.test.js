@@ -192,7 +192,7 @@ test('провайдер возвращает 429 → failover на следую
   assert.deepEqual(s.merged, ['T80']);
 
   // Проверим ledger
-  const runlog = fs.readFileSync(path.join(repo, '.harness', 'run-log.jsonl'), 'utf8');
+  const runlog = fs.readFileSync(path.join(repo, '.git', 'elt', 'run-log.jsonl'), 'utf8');
   assert.match(runlog, /"provider":"agy".*"limitHit":true.*"verdict":"limit"/);
   assert.match(runlog, /"provider":"claude".*"limitHit":false.*"verdict":"pass"/);
 
@@ -432,7 +432,7 @@ test('T026: ledger несёт отдельные implement/judge строки н
   delete process.env.FLEET_BIN_CLAUDE;
 
   assert.deepEqual(s.merged.sort(), ['T1', 'T2']);
-  const lines = fs.readFileSync(path.join(repo, '.harness', 'run-log.jsonl'), 'utf8')
+  const lines = fs.readFileSync(path.join(repo, '.git', 'elt', 'run-log.jsonl'), 'utf8')
     .split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
   for (const tid of ['T1', 'T2']) {
     const implLine = lines.find((l) => l.tid === tid && l.phase === 'implement');
