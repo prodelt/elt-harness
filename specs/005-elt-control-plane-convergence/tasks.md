@@ -63,7 +63,7 @@
   **Proof:** одна команда/тест перевіряє всі переходи й negative judge path без платного API/LLM.  
   **Guard:** target project не використовується як scratch; temp repo гарантовано прибирається після тесту. `[files:tools/project-bootstrap.js,tools/project-bootstrap.e2e.test.js]`
 
-- [ ] **T012** Виправити strict YAML frontmatter і скоротити `project-bootstrap` skill до thin orchestrator одного CLI; синхронізувати Claude/Codex/Gemini mirrors через штатний supply-chain workflow.  
+- [X] **T012** Виправити strict YAML frontmatter і скоротити `project-bootstrap` skill до thin orchestrator одного CLI; синхронізувати Claude/Codex/Gemini mirrors через штатний supply-chain workflow.  
   **Docs/API:** `spec.md` AC08; офіційний принцип focused skill/progressive disclosure.  
   **Proof:** strict parser pass для трьох mirrors; skill smoke викликає `inspect→plan`, не дублює policy; diff mirrors нульовий.  
   **Guard:** не редагувати три копії вручну; source → sync → audit. `[files:skills/project-bootstrap/SKILL.md,agent-skills.lock.json]`
