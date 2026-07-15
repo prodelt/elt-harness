@@ -16,7 +16,7 @@
   **Proof:** unit fixtures для valid, malformed, stale tree, wrong task, block, judge-dead.  
   **Guard:** proof — процесний інваріант, не криптографічна security boundary; не додавати PKI/signing. `[files:tools/elt.js,tools/elt-judge-proof.test.js]`
 
-- [ ] **T003** Додати `elt checkpoint` як єдиний no-judge шлях, жорстко обмежений `.planning/**` і `specs/**`; code/config зміни блокувати до staging/commit.  
+- [X] **T003** Додати `elt checkpoint` як єдиний no-judge шлях, жорстко обмежений `.planning/**` і `specs/**`; code/config зміни блокувати до staging/commit.  
   **Docs/API:** `spec.md` AC05; існуючі `findTasks()`, git helpers у `tools/elt.js`.  
   **Proof:** temp repo: planning-only commit pass; `tools/x.js`, `.harness/harness.json`, mixed diff → nonzero і без commit.  
   **Guard:** не робити загальний `--no-judge`/`--force`; allowlist вузький і тестований. `[files:tools/elt.js,tools/elt-checkpoint.test.js]`
