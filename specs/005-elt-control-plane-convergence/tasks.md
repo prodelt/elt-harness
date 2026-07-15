@@ -48,7 +48,7 @@
   **Proof:** before/after hash target directory однаковий; plan deterministic; unknown не отримує вигаданий oracle.  
   **Guard:** не сканувати весь ПК; лише вказаний root і registry metadata. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js]`
 
-- [ ] **T009** Реалізувати ідемпотентний `project-bootstrap apply`: project docs, `.planning/STATE.md`, harness config, git hygiene, managed gate, optional CodeGraph і registry — тільки з plan; прибрати створення `.rag`, `.graphifyignore`, pipeline-state та obsolete hooks.  
+- [X] **T009** Реалізувати ідемпотентний `project-bootstrap apply`: project docs, `.planning/STATE.md`, harness config, git hygiene, managed gate, optional CodeGraph і registry — тільки з plan; прибрати створення `.rag`, `.graphifyignore`, pipeline-state та obsolete hooks.  
   **Docs/API:** `spec.md` §5.4; `tools/project-docs-core.js`, `elt init`, результат T007–T008.  
   **Proof:** перший apply створює точний manifest; другий `changed=[]`; protected blocks і user files байт-ідентичні.  
   **Guard:** destructive cleanup legacy артефактів не робити тут — лише report; видалення в T020. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js]`

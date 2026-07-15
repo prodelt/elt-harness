@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  applyPlan,
   applySafeActions,
   classifyKind,
   detectStack,
@@ -221,6 +222,74 @@ function testCliInspectAndPlanCommandsRun() {
   assert.equal(plan.kind, 'project-bootstrap-plan');
 }
 
+function testApplyPlanIsIdempotentAndCreatesExactManifest() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const first = applyPlan(root, { home });
+  assert.equal(first.kind, 'project-bootstrap-apply');
+  assert.ok(first.changes.some((c) => c.id === 'project-docs'));
+  assert.ok(first.changes.some((c) => c.id === 'planning-state'));
+  assert.ok(first.changes.some((c) => c.id === 'git-gate'));
+  assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(root, '.planning', 'STATE.md')), true);
+  assert.equal(fs.existsSync(path.join(root, '.githooks', 'pre-commit')), true);
+  assert.equal(fs.existsSync(path.join(root, '.rag', 'manifest.json')), false);
+  assert.equal(fs.existsSync(path.join(root, '.graphifyignore')), false);
+
+  const beforeSecond = hashTree(root);
+  const second = applyPlan(root, { home });
+  assert.deepEqual(second.changes, []);
+  assert.equal(hashTree(root), beforeSecond);
+}
+
+function testApplyPlanKeepsProtectedBlocksAndUserFilesByteIdentical() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  const userFile = path.join(root, 'src', 'index.js');
+  const userContentBefore = fs.readFileSync(userFile);
+  const agentsBefore = fs.readFileSync(path.join(root, 'AGENTS.md'));
+
+  applyPlan(root, { home });
+
+  assert.deepEqual(fs.readFileSync(userFile), userContentBefore);
+  assert.deepEqual(fs.readFileSync(path.join(root, 'AGENTS.md')), agentsBefore);
+}
+
+function testApplyPlanBlocksHarnessWithoutInventingOracle() {
+  const root = tempProject();
+  const report = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.ok(report.blocked.some((b) => b.id === 'harness'));
+  assert.equal(fs.existsSync(path.join(root, '.harness', 'harness.json')), false);
+}
+
+function testApplyPlanDoesNotBlockWhenHarnessAlreadyValid() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
+    oracle: 'npm test',
+    judge: { enabled: true, model: 'sonnet' },
+  }, null, 2), 'utf8');
+  const report = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.equal(report.blocked.length, 0);
+}
+
+function testApplyPlanSkipsGitGateForNonCodeKind() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-docs-'));
+  fs.writeFileSync(path.join(root, 'README.md'), '# demo\n', 'utf8');
+  const report = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.equal(report.plan.classification.kind, 'docs');
+  assert.equal(fs.existsSync(path.join(root, '.githooks', 'pre-commit')), false);
+  assert.equal(report.changes.some((c) => c.id === 'git-gate'), false);
+}
+
+function testCliApplyCommandRuns() {
+  const root = tempProject();
+  const report = runBootstrap({ command: 'apply', root, home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')), supplyChain: false });
+  assert.equal(report.kind, 'project-bootstrap-apply');
+}
+
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
   testApplyCreatesOnlySafeInfrastructure();
@@ -236,6 +305,12 @@ function main() {
   testPlanUsesExistingOracleForCodeKind();
   testPlanCodegraphRequiresExplicitFlag();
   testCliInspectAndPlanCommandsRun();
+  testApplyPlanIsIdempotentAndCreatesExactManifest();
+  testApplyPlanKeepsProtectedBlocksAndUserFilesByteIdentical();
+  testApplyPlanBlocksHarnessWithoutInventingOracle();
+  testApplyPlanDoesNotBlockWhenHarnessAlreadyValid();
+  testApplyPlanSkipsGitGateForNonCodeKind();
+  testCliApplyCommandRuns();
   process.stdout.write('project-bootstrap tests: PASS\n');
 }
 

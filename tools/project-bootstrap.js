@@ -108,6 +108,57 @@ function planTargetState(root, options = {}) {
   };
 }
 
+const STATE_STUB = '# STATE\n\n> Живий хребет проєкту (`.planning/STATE.md`), створено `project-bootstrap apply`.\n> Заповнити після першого спек-слайсу.\n';
+
+const GIT_GATE_TEMPLATE = [
+  '#!/bin/sh',
+  '# elt gate — managed pre-commit hook (installed by project-bootstrap apply).',
+  '# Enable once per clone:  git config core.hooksPath .githooks',
+  'node "$HOME/.claude/bin/elt.js" gate',
+  '',
+].join('\n');
+
+function applyPlan(root, options = {}) {
+  const plan = planTargetState(root, options);
+  const resolved = plan.root;
+  const changes = [];
+
+  if (!(plan.existing.docs.ok && plan.existing.docs.coreIdentical)) {
+    const ragExistedBefore = exists(resolved, path.join('.rag', 'manifest.json'));
+    const result = initOrSyncProjectDocs({ root: resolved, mode: 'init', home: options.home });
+    if (!ragExistedBefore) fs.rmSync(path.join(resolved, '.rag'), { recursive: true, force: true });
+    if (result.success) changes.push({ id: 'project-docs', mode: result.mode });
+  }
+
+  const statePath = path.join(resolved, '.planning', 'STATE.md');
+  if (!fs.existsSync(statePath)) {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, STATE_STUB, 'utf8');
+    changes.push({ id: 'planning-state', created: true });
+  }
+
+  const hookPath = path.join(resolved, '.githooks', 'pre-commit');
+  if (plan.classification.kind === 'code' && !plan.decisions.gitGate.managed) {
+    fs.mkdirSync(path.dirname(hookPath), { recursive: true });
+    fs.writeFileSync(hookPath, GIT_GATE_TEMPLATE, { mode: 0o755 });
+    changes.push({ id: 'git-gate', created: true });
+  }
+
+  const blocked = [];
+  if (plan.classification.kind === 'code' && plan.decisions.oracle.source !== 'existing') {
+    blocked.push({ id: 'harness', reason: plan.decisions.oracle.reason });
+  }
+
+  return {
+    kind: 'project-bootstrap-apply',
+    root: resolved,
+    plan,
+    changes,
+    blocked,
+    after: planTargetState(resolved, options),
+  };
+}
+
 function detectStack(root) {
   const packageJson = path.join(root, 'package.json');
   if (!fs.existsSync(packageJson)) return { name: 'unknown', confidence: 'low' };
@@ -280,7 +331,7 @@ function applySafeActions(root, options = {}) {
 }
 
 function parseArgs(argv) {
-  const command = ['inspect', 'plan'].includes(argv[2]) ? argv[2] : null;
+  const command = ['inspect', 'plan', 'apply'].includes(argv[2]) ? argv[2] : null;
   const defaults = { command, root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true, codegraph: false };
   const parseNext = (index, state) => {
     if (index >= argv.length) return state;
@@ -299,15 +350,26 @@ function parseArgs(argv) {
 function run(options) {
   if (options.command === 'inspect') return inspectProject(options.root, options);
   if (options.command === 'plan') return planTargetState(options.root, options);
+  if (options.command === 'apply') return applyPlan(options.root, options);
   return options.apply ? applySafeActions(options.root, options) : scanProject(options.root, options);
 }
+
+const TEXT_SUMMARY = {
+  inspect: (report) => `project-bootstrap-inspect: ${report.classification.kind}`,
+  plan: (report) => `project-bootstrap-plan: ${report.classification.kind}`,
+  apply: (report) => `project-bootstrap-apply: ${report.changes.length} changes, ${report.blocked.length} blocked`,
+};
 
 function main() {
   const options = parseArgs(process.argv);
   const report = run(options);
-  process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : `${report.kind || 'project-bootstrap'}: ${report.after ? report.after.strategy : (report.strategy || report.classification.kind)}\n`);
+  const legacySummary = () => `${report.kind || 'project-bootstrap'}: ${report.after ? report.after.strategy : report.strategy}\n`;
+  process.stdout.write(options.json
+    ? `${JSON.stringify(report, null, 2)}\n`
+    : `${options.command ? TEXT_SUMMARY[options.command](report) : legacySummary().trimEnd()}\n`);
   if (options.command === 'inspect') { if (!report.harness.ok) process.exitCode = 1; return; }
   if (options.command === 'plan') return;
+  if (options.command === 'apply') { if (report.blocked.length > 0) process.exitCode = 1; return; }
   const checks = report.after ? report.after.checks : report.checks;
   if (!checks.harness.ok) process.exitCode = 1;
 }
@@ -315,6 +377,7 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+  applyPlan,
   applySafeActions,
   classifyKind,
   controlPlaneStatus,
