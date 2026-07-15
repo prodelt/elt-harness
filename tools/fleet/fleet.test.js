@@ -29,7 +29,7 @@ function seedRepo() {
     '- [ ] **T1** пишет shared [P] [files:s1*]\n- [ ] **T2** пишет shared [P] [files:s2*]\n- [ ] **T3** пишет a [P] [files:a*]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
   return repo;
 }
@@ -81,7 +81,7 @@ test('баг #8: застрявший слайс (оракул всегда кр
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   // оракул всегда красный → healSlice исчерпает попытки → heal-failed каждый батч
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'exit 1', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'exit 1', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   let calls = 0;
@@ -157,7 +157,7 @@ test('провайдер возвращает 429 → failover на следую
   
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
@@ -211,7 +211,7 @@ test('T020: cap=4 → 5-й spawn заблокирован, слайс terminal-f
   fs.mkdirSync(path.join(repo, '.harness', 'fleet'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'fleet.json'), JSON.stringify({ caps: { maxCalls: 4 } }));
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   const judgeStub = path.join(repo, 'judge-pass.js');
@@ -251,7 +251,7 @@ test('T020: все провайдеры цепочки в cooldown → стоп 
   fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'fleet.json'),
     JSON.stringify({ policy: { S: ['agy', 'codex'] }, cooldownSec: 300 }));
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   // и agy, и codex всегда возвращают 429 — оба провайдера в цепочке уходят в cooldown
@@ -286,7 +286,7 @@ function seedT021Repo(prefix) {
   fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** слайс [P] [files:a*]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
   return repo;
 }
@@ -370,8 +370,9 @@ test('T024: 1 abandoned слайс среди прочих → честный fa
   // унаследовать «случайно зелёный» оракул от merge'а T1 в интеграционную, в отличие
   // от позитивного маркера, которого мог бы не досоздать T9 на уже обновлённой main).
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
     oracle: process.platform === 'win32' ? "if (Test-Path 'broken.flag') { exit 1 }" : "test ! -f broken.flag",
-    shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false,
+    shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' },
   }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
@@ -415,7 +416,7 @@ test('T026: ledger несёт отдельные implement/judge строки н
     '- [ ] **T1** пишет 1 [P] [files:o1*]\n- [ ] **T2** пишет 2 [P] [files:o2*]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   const judgeStub = path.join(repo, 'judge-pass.js');
@@ -458,7 +459,7 @@ test('T027: crash-resume чистит worktree упавшего implementing-cla
   fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** слайс [P] [files:a*]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   // симулируем «упавший на implementing прошлый процесс» (ДО judge_pending) — worktree
@@ -506,7 +507,7 @@ test('T028: воркер self-commit + правка tasks.md вне [files:] →
   fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** пишет alpha [P] [files:out/a.txt]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   // diff-aware судья: block, если дифф (в промпте) не содержит out/a.txt — как реальный REJECT-default.

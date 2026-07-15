@@ -23,7 +23,7 @@
 `C:\Ametrin projects\Ametrin web ecosystem 3` (AWE3) — Rust+Node, spec-kit стоит, `justfile` оракул, husky-зубы (live-fire 2026-06-19), `specs/001-service-aggregator-platform/tasks.md` = источник слайсов.
 
 ## Текущий фокус
-**ELT Fleet (specs/002-elt-fleet): 17/17 слайсов закрыты**, T017 (драки: STOP/resume + 429-failover + ledger) полностью реализован и покрыт тестами. Все 60 тестов зелёные. Вердикт v1 достигнут. Осталось закоммитить T017 через elt commit и слить feature/elt-loop-driver в main. Resume: `.planning/CHECKPOINT-2026-07-10-elt-fleet-T017-closed-verdict-v1.md`.
+**ELT Control Plane Convergence (`specs/005-elt-control-plane-convergence`) — roadmap затверджено, 0/23 слайсів реалізовано.** Наступний слайс: **T001** (fail-closed harness config validator). Реалізацію почати в новому чаті; resume: `.planning/CHECKPOINT-2026-07-15-elt-control-plane-roadmap-approved.md`. Fleet не запускати до T021; legacy не видаляти до zero-caller proof.
 
 ### (архив фокуса) AWE3-демо
 US1 (MVP, T020-T035) и **US2 (Phase 4, T036-T045) ОБЕ ЗАКРЫТЫ** — чекпоинт tasks.md

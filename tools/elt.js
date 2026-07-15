@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
+const { readHarnessConfig } = require('./elt-config');
 
 const cwd = process.cwd();
 const HARNESS_DIR = path.join(cwd, '.harness');
@@ -18,8 +19,9 @@ const RUNLOG = path.join(HARNESS_DIR, 'run-log.jsonl');
 
 function die(msg, code = 1) { console.error('elt: ' + msg); process.exit(code); }
 function loadConfig() {
-  try { return JSON.parse(fs.readFileSync(CONFIG, 'utf8')); }
-  catch { die(`нет ${path.relative(cwd, CONFIG)} — запусти: elt init --oracle "<test cmd>"`); }
+  const loaded = readHarnessConfig(cwd);
+  if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
+  return loaded.config;
 }
 function sh(cmd, shell) {
   const r = shell === 'powershell'
@@ -131,6 +133,7 @@ if (cmd === 'init') {
   if (fs.existsSync(CONFIG) && !flag('--force')) die('harness.json уже есть (перезапись: --force)');
   fs.mkdirSync(HARNESS_DIR, { recursive: true });
   const cfg = {
+    kind: 'code',
     oracle,
     shell: opt('--shell', 'bash'),
     branchPolicy: opt('--branch-policy', 'feature'),

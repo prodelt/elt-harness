@@ -26,7 +26,7 @@ before(() => {
   git(['checkout', '-q', '-b', 'fleet/T1']); // как worktree — не main, без авто-ветки
   fs.mkdirSync(path.join(REPO, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   PASS_STUB = stub('judge-pass.js', `console.log('{"verdict":"pass","reasons":["ok"]}');`);
   EMPTY_STUB = stub('judge-empty.js', 'process.exit(0);'); // пустой stdout → providers ok:false
   fs.writeFileSync(path.join(REPO, 'slice.txt'), 'work\n'); // есть что судить (непустой дифф)

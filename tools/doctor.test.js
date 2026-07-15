@@ -614,13 +614,13 @@ function testFleetCheck() {
   // Full cycle: oracle armed AND a plan exists (specs/) → pass.
   fs.mkdirSync(path.join(withHarness, '.git'), { recursive: true });
   fs.mkdirSync(path.join(withHarness, '.harness'), { recursive: true });
-  write(path.join(withHarness, '.harness', 'harness.json'), '{}');
+  write(path.join(withHarness, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } }));
   write(path.join(withHarness, 'specs', '001-x', 'tasks.md'), '- [ ] **T001** x\n');
   fs.mkdirSync(bare, { recursive: true });
   // Half cycle: oracle armed but no specs/ → front half unused → warn.
   fs.mkdirSync(path.join(halfCycle, '.git'), { recursive: true });
   fs.mkdirSync(path.join(halfCycle, '.harness'), { recursive: true });
-  write(path.join(halfCycle, '.harness', 'harness.json'), '{}');
+  write(path.join(halfCycle, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } }));
   write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({
     version: 1,
     projects: {
@@ -759,6 +759,7 @@ function testEltCommitLogsRedStopOnOracleFail() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-redstop-'));
   execFileSync('git', ['init', '-q'], { cwd: root });
   write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
     oracle: 'exit 1', shell: 'powershell', branchPolicy: 'feature', push: false, judge: { enabled: false },
   }));
   write(path.join(root, 'dirty.txt'), 'change\n');
@@ -979,8 +980,10 @@ function testEltSelfhealAutoMergeGate() {
   g(['config', 'user.name', 'test']);
   write(path.join(dir, 'README.md'), 'seed\n');
   write(path.join(dir, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
     oracle: 'if (Test-Path .selfheal-fixed) { exit 0 } else { exit 1 }',
     shell: 'powershell', branchPolicy: 'feature', push: false,
+    judge: { enabled: true, model: 'sonnet' },
   }));
   g(['add', '-A']);
   g(['commit', '-q', '-m', 'init']);

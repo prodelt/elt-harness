@@ -22,7 +22,7 @@ before(() => {
   fs.writeFileSync(tasksPath(), '- [ ] **T1** правит shared\n- [ ] **T2** правит shared иначе\n- [ ] **T3** правит новый файл\n');
   fs.mkdirSync(path.join(REPO, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'),
-    JSON.stringify({ oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   git(['add', '-A']); git(['commit', '-q', '-m', 'base']);
 
   // три fleet-ветки от base
@@ -100,9 +100,10 @@ describe('mergeSlice: scoped staging (T023) — [files:] вместо git add -A
     fs.writeFileSync(tasksPath2, '- [ ] **T1** правит a [files:a.txt]\n');
     fs.mkdirSync(path.join(REPO2, '.harness'), { recursive: true });
     fs.writeFileSync(path.join(REPO2, '.harness', 'harness.json'), JSON.stringify({
+      kind: 'code',
       oracle: 'node --version',
       shell: process.platform === 'win32' ? 'powershell' : 'bash',
-      branchPolicy: 'feature', push: false,
+      branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' },
     }));
     git2(['add', '-A']); git2(['commit', '-q', '-m', 'base']);
     git2(['checkout', '-q', '-b', 'fleet/T1', 'main']);
