@@ -31,7 +31,7 @@
   **Proof:** stub judge pass/block/empty/timeout; один end-to-end slice без live LLM; після кожного exit path `git diff --cached --name-only` і `git status --porcelain` не містять створеного драйвером intent-to-add сміття.  
   **Guard:** один формат proof для solo і Fleet; не створювати окремий Fleet judge protocol. `[files:tools/elt-loop.ps1,tools/fleet/gate.js,tools/fleet/gate.test.js,tools/fleet/judge-invoke.js]`
 
-- [ ] **T006** Прибрати self-dirty: перенести runtime run-log у `.git/elt/run-log.jsonl`, мігрувати tracked `.harness/run-log.jsonl` без втрати, оновити всіх producers/readers і завершувати успішний commit чистим деревом.  
+- [X] **T006** Прибрати self-dirty: перенести runtime run-log у `.git/elt/run-log.jsonl`, мігрувати tracked `.harness/run-log.jsonl` без втрати, оновити всіх producers/readers і завершувати успішний commit чистим деревом.  
   **Docs/API:** `spec.md` §5.3, AC06; `appendRunLog()` у `tools/elt.js` і `tools/fleet/fleet.js`.  
   **Proof:** temp repo з legacy log → migration count збережений; два commits → `git status --porcelain` порожній; telemetry читається.  
   **Guard:** не видаляти поточний user log до backup/count verification; не змішувати runtime state з config у `.harness`. `[files:tools/elt.js,tools/fleet/fleet.js,tools/fleet/router.js,tools/doctor-core.js,.gitignore]`

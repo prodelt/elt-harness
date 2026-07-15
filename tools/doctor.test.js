@@ -277,7 +277,9 @@ function testFleetExperimentalLabelHonest() {
 
 function testHarnessSelfcheck() {
   const { selfcheck } = require('./harness-selfcheck');
+  const { execFileSync } = require('node:child_process');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-selfcheck-'));
+  execFileSync('git', ['init', '-q'], { cwd: root });
 
   const noConfig = selfcheck(root, () => { throw new Error('runner не должен звать без harness.json'); });
   assert.equal(noConfig.ok, true, 'нет harness.json — молчит, оракул не зовётся');
@@ -295,7 +297,7 @@ function testHarnessSelfcheck() {
   assert.match(tasksBody, /\[ \] \*\*T001\*\*/, 'слайс-запись открыта [ ]');
   assert.match(tasksBody, /echo ok/, 'команда оракула упомянута в слайсе');
 
-  const runlog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  const runlog = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n');
   const marker = JSON.parse(runlog[runlog.length - 1]);
   assert.equal(marker.status, 'harness-selfcheck-red', 'маркер в run-log');
   assert.equal(marker.selfheal, 'T001', 'маркер ссылается на заведённый слайс');
@@ -772,7 +774,7 @@ function testEltCommitLogsRedStopOnOracleFail() {
     assert.notEqual(err.status, 0, 'elt commit падает на красном оракуле');
   }
 
-  let runLog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  let runLog = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n');
   let entry = JSON.parse(runLog[runLog.length - 1]);
   assert.equal(entry.status, 'red-stop', 'красный оракул оставил red-stop в run-log, а не тишину');
   assert.equal(entry.oracle.exit, 1);
@@ -783,10 +785,63 @@ function testEltCommitLogsRedStopOnOracleFail() {
   } catch (err) {
     assert.notEqual(err.status, 0);
   }
-  runLog = fs.readFileSync(path.join(root, '.harness', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  runLog = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n');
   entry = JSON.parse(runLog[runLog.length - 1]);
   assert.equal(entry.status, 'red-stop', 'standalone `elt oracle` тоже оставил red-stop (не только commit)');
 
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+function testRunLogMigrationLeavesTwoCommitsClean() {
+  const { execFileSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-run-log-migration-'));
+  const g = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  const eltPath = path.join(__dirname, 'elt.js');
+  g(['init', '-q', '-b', 'main']);
+  g(['config', 'user.email', 'test@test.local']);
+  g(['config', 'user.name', 'test']);
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'exit 0', shell: 'powershell', branchPolicy: 'feature', push: false,
+    judge: { enabled: true, model: 'test' },
+  }));
+  write(path.join(root, 'specs', '001-test', 'tasks.md'), '- [ ] **T001** first\n- [ ] **T002** second\n');
+  const legacyLines = [JSON.stringify({ task: 'legacy-1' }), JSON.stringify({ task: 'legacy-2' })];
+  write(path.join(root, '.harness', 'run-log.jsonl'), legacyLines.join('\n') + '\n');
+  write(path.join(root, 'work.txt'), 'base\n');
+  g(['add', '-A']);
+  g(['commit', '-q', '-m', 'base']);
+
+  for (const [task, body] of [['T001', 'first\n'], ['T002', 'second\n']]) {
+    write(path.join(root, 'work.txt'), body);
+    execFileSync(process.execPath, [eltPath, 'oracle'], { cwd: root, encoding: 'utf8' });
+    execFileSync(process.execPath, [eltPath, 'judge-proof', 'write', '--task', task, '--verdict', 'pass', '--model', 'test', '--reasons-json', '[]'], { cwd: root, encoding: 'utf8' });
+    execFileSync(process.execPath, [eltPath, 'commit', '--task', task, '--skip-oracle'], { cwd: root, encoding: 'utf8' });
+    assert.equal(g(['status', '--porcelain']), '', `${task}: successful elt commit leaves the tree clean`);
+  }
+
+  const runtimeLines = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  assert.deepEqual(runtimeLines.slice(0, legacyLines.length), legacyLines, 'legacy run-log entries migrate without loss');
+  assert.equal(fs.existsSync(path.join(root, '.harness', 'run-log.jsonl')), false, 'tracked legacy run-log is removed after verified migration');
+  assert.equal(runtimeLines.filter((line) => JSON.parse(line).commit).length, 2, 'telemetry contains both successful commits');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+function testEltLoopMigratesLegacyRunLogBeforeDryRun() {
+  const { execFileSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-loop-run-log-'));
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'exit 0', shell: 'powershell', branchPolicy: 'feature', push: false,
+    judge: { enabled: true, model: 'test' },
+  }));
+  write(path.join(root, 'specs', '001-test', 'tasks.md'), '- [ ] **T001** dry run\n');
+  write(path.join(root, '.harness', 'run-log.jsonl'), JSON.stringify({ task: 'legacy' }) + '\n');
+  execFileSync('powershell', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'elt-loop.ps1'),
+    '-Project', root, '-Slices', '1', '-DryRun',
+  ], { encoding: 'utf8' });
+  assert.equal(fs.existsSync(path.join(root, '.harness', 'run-log.jsonl')), false, 'elt-loop migrates legacy log before any driver path');
+  assert.match(fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8'), /"task":"legacy"/);
   fs.rmSync(root, { recursive: true, force: true });
 }
 
@@ -1028,6 +1083,8 @@ function main() {
   testEltSingleSource();
   testStuckDetectorUnit();
   testEltCommitLogsRedStopOnOracleFail();
+  testRunLogMigrationLeavesTwoCommitsClean();
+  testEltLoopMigratesLegacyRunLogBeforeDryRun();
   testCheckpointWriter();
   testEltDriveDryRun();
   testEltSelfhealDryRun();

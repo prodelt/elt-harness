@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const runLog = require('./run-log');
 
 function loadHarnessConfig(root) {
   try { return JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')); }
@@ -68,9 +69,7 @@ function writeSelfhealSlice(root, oracleCmd) {
 }
 
 function appendRunLog(root, entry) {
-  const runlog = path.join(root, '.harness', 'run-log.jsonl');
-  fs.mkdirSync(path.dirname(runlog), { recursive: true });
-  fs.appendFileSync(runlog, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
+  runLog.appendRunLog(root, entry);
 }
 
 function selfcheck(root, runner) {

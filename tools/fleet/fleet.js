@@ -9,6 +9,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const runLog = require('../run-log');
 const plan = require('./plan');
 const claims = require('./claims');
 const worktree = require('./worktree');
@@ -33,11 +34,7 @@ function getChainForSlice(slice, policy) {
 }
 
 function appendRunLog(cwd, entry) {
-  const runlog = path.join(cwd, '.harness', 'run-log.jsonl');
-  try {
-    fs.mkdirSync(path.dirname(runlog), { recursive: true });
-    fs.appendFileSync(runlog, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
-  } catch { /* noop */ }
+  try { runLog.appendRunLog(cwd, entry); } catch { /* noop */ }
 }
 
 // T026: одна ledger-строка на КАЖДЫЙ реальный spawn (implement/heal/judge), не одна

@@ -2,7 +2,7 @@
 'use strict';
 // elt — machine-readable core of the ELT v2 harness. No deps, Node 18+.
 // Commands: init | status | slice next | oracle | commit
-// Config:   .harness/harness.json   State log: .harness/run-log.jsonl
+// Config:   .harness/harness.json   State log: .git/elt/run-log.jsonl
 // Design: .planning/ELT-V2-AUDIT-AND-DESIGN-2026-07-08.md (Pipeline setupper repo).
 // Invariants live HERE (exit codes), not in skill prose — that is the whole point.
 
@@ -11,11 +11,11 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { readHarnessConfig } = require('./elt-config');
+const runLog = require('./run-log');
 
 const cwd = process.cwd();
 const HARNESS_DIR = path.join(cwd, '.harness');
 const CONFIG = path.join(HARNESS_DIR, 'harness.json');
-const RUNLOG = path.join(HARNESS_DIR, 'run-log.jsonl');
 
 function die(msg, code = 1) { console.error('elt: ' + msg); process.exit(code); }
 function loadConfig() {
@@ -217,8 +217,7 @@ function writeJudgeProof({ taskId, verdict, reasons, model }) {
 }
 
 function appendRunLog(entry) {
-  fs.mkdirSync(HARNESS_DIR, { recursive: true });
-  fs.appendFileSync(RUNLOG, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
+  runLog.appendRunLog(cwd, entry);
 }
 function changedFiles() {
   return [...new Set([
@@ -261,8 +260,7 @@ if (cmd === 'status') {
   const dirtyN = dirty.out ? dirty.out.split('\n').length : 0;
   const t = findTasks();
   const cfgExists = fs.existsSync(CONFIG);
-  let lastRun = null;
-  try { const l = fs.readFileSync(RUNLOG, 'utf8').trim().split('\n'); lastRun = JSON.parse(l[l.length - 1]); } catch {}
+  const lastRun = runLog.lastRun(cwd);
   const out = {
     git: branch.code === 0 ? { branch: branch.out || '(detached)', dirty: dirtyN } : 'NOT A REPO',
     harness: cfgExists ? loadConfig() : 'NO harness.json — elt init',
@@ -284,6 +282,7 @@ if (cmd === 'slice' && sub === 'next') {
 
 if (cmd === 'oracle') {
   const cfg = loadConfig();
+  runLog.runtimeRunLog(cwd);
   const exit = runOracle(cfg);
   if (exit !== 0) appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit } });
   process.exit(exit);
@@ -329,6 +328,7 @@ if (cmd === 'checkpoint') {
 }
 
 if (cmd === 'commit') {
+  runLog.runtimeRunLog(cwd);
   const cfg = loadConfig();
   const taskId = opt('--task');
   if (flag('--verdict')) die('elt commit: --verdict is not authority; write a judge proof instead', 4);

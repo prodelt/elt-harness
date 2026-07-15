@@ -186,7 +186,8 @@ if (require.main === module && process.argv[2] === '--selftest') {
     kind: 'code',
     oracle: 'exit 0', shell: 'powershell', branchPolicy: 'feature', push: false, judge: { enabled: false },
   }));
-  fs.appendFileSync(path.join(dir, '.harness', 'run-log.jsonl'), JSON.stringify({
+  fs.mkdirSync(path.join(dir, '.git', 'elt'), { recursive: true });
+  fs.appendFileSync(path.join(dir, '.git', 'elt', 'run-log.jsonl'), JSON.stringify({
     task: 'T001', commit: 'abc123', branch: 'feature/x', verdict: 'pass', msg: 'feat: T001 thing',
     oracle: { cmd: 'exit 0', exit: 0 },
   }) + '\n');

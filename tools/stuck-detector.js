@@ -4,7 +4,7 @@
 /**
  * UserPromptSubmit hook: nudge when N oracle failures pile up in a row.
  *
- * Signal is the project's own `.harness/run-log.jsonl` — elt.js appends a
+ * Signal is the project's own `.git/elt/run-log.jsonl` — elt.js appends a
  * `red-stop` entry whenever `elt oracle` OR `elt commit` hits a red oracle
  * (before this, red runs left no trace, so a stuck loop was invisible).
  * A trailing run of `red-stop` entries, uninterrupted by a real commit, is
@@ -23,6 +23,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const runLog = require('./run-log');
 
 const THRESHOLD = 3;
 
@@ -62,7 +63,7 @@ function main() {
   if (!sid) return;
   const projectDir = inp.cwd || process.cwd();
 
-  const runLogPath = path.join(projectDir, '.harness', 'run-log.jsonl');
+  const runLogPath = runLog.runtimeRunLog(projectDir);
   const streak = runLogStreak(runLogPath);
   const msg = buildNudge(streak);
   if (!msg) return;
