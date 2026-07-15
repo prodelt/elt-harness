@@ -1,0 +1,5 @@
+#!/bin/sh
+# elt gate — managed pre-commit hook (UX layer; `elt gate --ci` in CI is the real backstop).
+# Enable once per clone:  git config core.hooksPath .githooks
+root="$(git rev-parse --show-toplevel)" || exit 1
+exec node "$root/tools/elt.js" gate

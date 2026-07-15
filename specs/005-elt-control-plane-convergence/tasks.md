@@ -36,7 +36,7 @@
   **Proof:** temp repo з legacy log → migration count збережений; два commits → `git status --porcelain` порожній; telemetry читається.  
   **Guard:** не видаляти поточний user log до backup/count verification; не змішувати runtime state з config у `.harness`. `[files:tools/elt.js,tools/fleet/fleet.js,tools/fleet/router.js,tools/doctor-core.js,.gitignore]`
 
-- [ ] **T007** Додати repo-native `elt gate`, повний control-plane test oracle і managed git pre-commit/CI entrypoint: direct code commit без актуальних proofs блокується; `elt checkpoint` пропускає лише allowlist; client hooks лишаються optional UX. Поточний oracle, який запускає лише doctor + Fleet, замінити discovery/manifest-підходом, що включає всі `tools/**/*.test.js`, зокрема ELT/bootstrap/project-docs.  
+- [X] **T007** Додати repo-native `elt gate`, повний control-plane test oracle і managed git pre-commit/CI entrypoint: direct code commit без актуальних proofs блокується; `elt checkpoint` пропускає лише allowlist; client hooks лишаються optional UX. Поточний oracle, який запускає лише doctor + Fleet, замінити discovery/manifest-підходом, що включає всі `tools/**/*.test.js`, зокрема ELT/bootstrap/project-docs.  
   **Docs/API:** `spec.md` §5.3; існуючий Git workflow; не перевикористовувати obsolete `install-harness-teeth.js`.  
   **Proof:** temp repo direct `git commit` red; `elt commit` green; hook bypass окремо виявляється CI verify; навмисно failing новий `tools/*.test.js` робить загальний oracle red; PowerShell/Windows smoke.  
   **Guard:** gate не викликає LLM і не додає per-turn token tax; один executable contract для hook і CI. `[files:tools/elt.js,tools/elt-gate.test.js,.githooks/pre-commit]`

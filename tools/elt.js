@@ -327,6 +327,51 @@ if (cmd === 'checkpoint') {
   process.exit(0);
 }
 
+// Managed git gate: one contract for the local pre-commit hook AND CI.
+// The hook is UX (bypassable with --no-verify) — CI's `--ci` re-run of the
+// mechanical oracle is the real backstop, so it deliberately never touches the
+// judge proof (no LLM call, no per-turn token tax).
+if (cmd === 'gate') {
+  if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
+
+  if (flag('--ci')) {
+    const cfg = loadConfig();
+    runLog.runtimeRunLog(cwd);
+    const exit = runOracle(cfg);
+    if (exit !== 0) {
+      appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit } });
+      die(`elt gate --ci: оракул красный (exit ${exit})`, exit);
+    }
+    console.log('elt gate --ci: oracle green');
+    process.exit(0);
+  }
+
+  const files = changedFiles();
+  if (!files.length) { console.log('elt gate: нечего проверять'); process.exit(0); }
+  const blocked = files.filter((file) => !isCheckpointFile(file));
+  if (!blocked.length) { console.log('elt gate: только .planning/** и specs/** — judge не нужен'); process.exit(0); }
+
+  const loaded = readJudgeProof();
+  if (loaded.error) die(`elt gate: judge proof ${loaded.error} — коммить через elt commit`, 4);
+
+  // `elt commit` validates the judge proof BEFORE it marks the task [X] — that
+  // edit changes treeHash, so by the time this hook runs (inside its `git
+  // commit` call) a plain re-check against the CURRENT tree would always see
+  // stale-tree, even for a legitimate commit. `elt commit` passes the hash of
+  // the exact proof bytes it already validated so the hook can trust that
+  // specific, unmodified proof instead of re-deriving treeHash post-edit.
+  if (process.env.ELT_GATE_TRUST && process.env.ELT_GATE_TRUST === sha256(loaded.raw)) {
+    console.log('elt gate: trusted elt commit (proof already validated pre-markDone)');
+    process.exit(0);
+  }
+
+  const taskId = loaded.proof && loaded.proof.taskId;
+  const check = validateJudgeProof({ taskId });
+  if (!check.ok) die(`elt gate: judge proof invalid (${check.reason}) — коммить через elt commit`, 4);
+  console.log(`elt gate: judge proof valid (${taskId}, ${check.proof.verdict})`);
+  process.exit(0);
+}
+
 if (cmd === 'commit') {
   runLog.runtimeRunLog(cwd);
   const cfg = loadConfig();
@@ -357,6 +402,11 @@ if (cmd === 'commit') {
   if (!taskId) die('elt commit: --task Txxx is required for a code commit', 4);
   const judge = validateJudgeProof({ taskId });
   if (!judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
+  // Captured now, BEFORE markDone() edits tasks.md and shifts treeHash — the
+  // pre-commit hook (triggered by `git commit` below) re-checks the SAME
+  // already-validated proof bytes via this hash rather than re-deriving
+  // treeHash against the post-markDone tree (see `gate` command comment).
+  const gateTrust = sha256(readJudgeProof().raw);
 
   // 2. auto-branch: never commit slices straight to main (policy: feature)
   let branch = git(['branch', '--show-current']).out;
@@ -379,7 +429,7 @@ if (cmd === 'commit') {
 
   const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice');
   if (git(['add', '-A']).code !== 0) die('git add failed');
-  const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8' });
+  const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8', env: { ...process.env, ELT_GATE_TRUST: gateTrust } });
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
 
@@ -399,6 +449,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt status                                                git + план + последний прогон
   elt slice next [--json]                                   следующая [ ] задача (exit 3 = план закрыт)
   elt oracle                                                прогнать оракул, exit-код = истина
+  elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
   elt commit --task Txxx [--keep-task-open] [-m msg] [--skip-oracle] [--push]
       зелёный oracle + актуальный judge proof → авто-ветка с main → [X] → add+commit → run-log.jsonl → push`);
 process.exit(cmd ? 1 : 0);
