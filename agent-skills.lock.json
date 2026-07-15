@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-15T00:00:00.000Z",
+  "note": "Critical control-plane skill lock (T012, specs/005-elt-control-plane-convergence). Records the repo-local canonical SKILL.md and its expected sha256 across the three client mirrors. Separate from config/agent-skill-sources.json (the broader review-workflow manifest) — this file is the flat, drift-detectable ledger T013 wires into doctor.",
+  "skills": {
+    "project-bootstrap": {
+      "source": "skills/project-bootstrap/SKILL.md",
+      "sha256": "de8ca4135ec7da8e4207462ee92902728c9a04ffa89339e6470c861911917bc5",
+      "targets": {
+        "claude": ".claude/skills/project-bootstrap/SKILL.md",
+        "codex": ".codex/skills/project-bootstrap/SKILL.md",
+        "gemini": ".gemini/skills/project-bootstrap/SKILL.md"
+      }
+    }
+  }
+}
