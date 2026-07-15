@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const {
   applyPlan,
   applySafeActions,
@@ -15,7 +16,21 @@ const {
   planTargetState,
   run: runBootstrap,
   scanProject,
+  verifyProject,
 } = require('./project-bootstrap');
+
+function validHarness(root) {
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
+    oracle: 'npm test',
+    judge: { enabled: true, model: 'sonnet' },
+  }, null, 2), 'utf8');
+}
+
+function runCli(args) {
+  return spawnSync(process.execPath, [path.join(__dirname, 'project-bootstrap.js'), ...args], { encoding: 'utf8' });
+}
 
 function hashTree(root) {
   const hash = crypto.createHash('sha256');
@@ -290,6 +305,142 @@ function testCliApplyCommandRuns() {
   assert.equal(report.kind, 'project-bootstrap-apply');
 }
 
+function testVerifyIsReadOnly() {
+  const root = tempProject();
+  const before = hashTree(root);
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.kind, 'project-bootstrap-verify');
+  assert.equal(hashTree(root), before);
+}
+
+function testVerifyFailsClosedOnMissingDocsHarnessGateForFreshCodeProject() {
+  const root = tempProject();
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.classification.kind, 'code');
+  assert.equal(report.contracts.docs.ok, false);
+  assert.equal(report.contracts.harnessConfig.ok, false);
+  assert.equal(report.contracts.oracleVerifier.ok, false);
+  assert.equal(report.contracts.gate.ok, false);
+  assert.equal(report.ok, false);
+}
+
+function testVerifyPassesAllContractsAfterApplyAndValidHarness() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root);
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.contracts.docs.ok, true);
+  assert.equal(report.contracts.harnessConfig.ok, true);
+  assert.equal(report.contracts.oracleVerifier.ok, true);
+  assert.equal(report.contracts.oracleVerifier.command, 'npm test');
+  assert.equal(report.contracts.gate.ok, true);
+  assert.equal(report.contracts.skillAvailability.ok, true);
+  assert.equal(report.ok, true);
+}
+
+function testVerifySkipsCodeOnlyContractsForUnknownKind() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-empty-'));
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.classification.kind, 'unknown');
+  assert.equal(report.contracts.docs.skipped, true);
+  assert.equal(report.contracts.harnessConfig.skipped, true);
+  assert.equal(report.contracts.oracleVerifier.skipped, true);
+  assert.equal(report.contracts.gate.skipped, true);
+  assert.equal(report.ok, true);
+}
+
+function testVerifyHarnessNegativeFixtureMalformedJson() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), '{not json', 'utf8');
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.contracts.harnessConfig.ok, false);
+  assert.equal(report.contracts.oracleVerifier.ok, false);
+}
+
+function testVerifySkillAvailabilityNegativeFixtureReportsDrift() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root);
+  const report = verifyProject(root, {
+    supplyChainAudit: {
+      kind: 'agent-skill-supply-chain',
+      validation: { ok: true, errors: [] },
+      clients: { claude: { exists: true } },
+      skills: [{ name: 'elt', clients: { claude: { installed: false, matchesSource: false } } }],
+      projects: [],
+    },
+  });
+  assert.equal(report.contracts.skillAvailability.ok, false);
+  assert.equal(report.ok, false);
+}
+
+function testVerifySpecReadinessReportsExplicitIdleNotFailure() {
+  const root = tempProject();
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.signals.specReadiness.status, 'idle');
+  assert.equal(report.signals.specReadiness.ok, true);
+}
+
+function testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, 'specs', '001-demo'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '001-demo', 'tasks.md'), '- [ ] **T001** demo\n- [X] **T002** done\n', 'utf8');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root);
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.signals.specReadiness.status, 'active');
+  assert.equal(report.signals.specReadiness.open, 1);
+  assert.equal(report.signals.specReadiness.done, 1);
+  assert.equal(report.ok, true);
+}
+
+function testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root);
+  assert.equal(spawnSync('git', ['init'], { cwd: root, encoding: 'utf8' }).status, 0);
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+  spawnSync('git', ['add', '-A'], { cwd: root });
+  spawnSync('git', ['commit', '-m', 'init'], { cwd: root });
+  fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const x = 2;\n', 'utf8');
+
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.signals.cleanTree.ok, false);
+  assert.equal(report.signals.cleanTree.dirty, true);
+  assert.equal(report.ok, true);
+}
+
+function testCliVerifyCommandRunsAndReportsFailClosed() {
+  const root = tempProject();
+  const report = runBootstrap({ command: 'verify', root, supplyChain: false });
+  assert.equal(report.kind, 'project-bootstrap-verify');
+  assert.equal(report.ok, false);
+}
+
+function testVerifyCliJsonAndTextExitCodesMatch() {
+  const rootFail = tempProject();
+  const textFail = runCli(['verify', '--root', rootFail, '--no-supply-chain']);
+  const jsonFail = runCli(['verify', '--root', rootFail, '--no-supply-chain', '--json']);
+  assert.equal(textFail.status, 1);
+  assert.equal(jsonFail.status, 1);
+
+  const rootPass = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(rootPass, { home });
+  validHarness(rootPass);
+  const textPass = runCli(['verify', '--root', rootPass, '--no-supply-chain']);
+  const jsonPass = runCli(['verify', '--root', rootPass, '--no-supply-chain', '--json']);
+  assert.equal(textPass.status, 0);
+  assert.equal(jsonPass.status, 0);
+  assert.deepEqual(JSON.parse(jsonPass.stdout).ok, true);
+}
+
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
   testApplyCreatesOnlySafeInfrastructure();
@@ -311,6 +462,17 @@ function main() {
   testApplyPlanDoesNotBlockWhenHarnessAlreadyValid();
   testApplyPlanSkipsGitGateForNonCodeKind();
   testCliApplyCommandRuns();
+  testVerifyIsReadOnly();
+  testVerifyFailsClosedOnMissingDocsHarnessGateForFreshCodeProject();
+  testVerifyPassesAllContractsAfterApplyAndValidHarness();
+  testVerifySkipsCodeOnlyContractsForUnknownKind();
+  testVerifyHarnessNegativeFixtureMalformedJson();
+  testVerifySkillAvailabilityNegativeFixtureReportsDrift();
+  testVerifySpecReadinessReportsExplicitIdleNotFailure();
+  testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate();
+  testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult();
+  testCliVerifyCommandRunsAndReportsFailClosed();
+  testVerifyCliJsonAndTextExitCodesMatch();
   process.stdout.write('project-bootstrap tests: PASS\n');
 }
 

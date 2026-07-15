@@ -53,7 +53,7 @@
   **Proof:** перший apply створює точний manifest; другий `changed=[]`; protected blocks і user files байт-ідентичні.  
   **Guard:** destructive cleanup legacy артефактів не робити тут — лише report; видалення в T020. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js]`
 
-- [ ] **T010** Реалізувати `project-bootstrap verify` як fail-closed semantic check: docs, harness config, oracle/verifier, gate, skill availability, spec readiness і clean-tree signal; verify ніколи не repair.  
+- [X] **T010** Реалізувати `project-bootstrap verify` як fail-closed semantic check: docs, harness config, oracle/verifier, gate, skill availability, spec readiness і clean-tree signal; verify ніколи не repair.  
   **Docs/API:** `spec.md` AC07–AC11; validators T001, project-docs T014.  
   **Proof:** по одному negative fixture на кожний контракт; JSON і text exit semantics збігаються.  
   **Guard:** відсутність active spec у щойно створеному idle-проєкті = explicit idle, не fake PASS і не hard fail. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js]`
