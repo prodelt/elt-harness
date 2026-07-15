@@ -100,8 +100,22 @@ function oracleProofPath() {
   const gd = git(['rev-parse', '--git-dir']).out || '.git';
   return path.join(path.isAbsolute(gd) ? gd : path.join(cwd, gd), 'elt-oracle-proof.json');
 }
-function writeOracleProof(exit) {
-  fs.writeFileSync(oracleProofPath(), JSON.stringify({ exit, hash: treeHash(), ts: new Date().toISOString() }));
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+function headSha() {
+  return git(['rev-parse', 'HEAD']).out;
+}
+function writeOracleProof(exit, cfg) {
+  const currentTree = treeHash();
+  fs.writeFileSync(oracleProofPath(), JSON.stringify({
+    exit,
+    hash: currentTree,
+    treeHash: currentTree,
+    baseHead: headSha(),
+    command: cfg.oracle,
+    ts: new Date().toISOString(),
+  }));
 }
 function readOracleProof() {
   try { return JSON.parse(fs.readFileSync(oracleProofPath(), 'utf8')); } catch { return null; }
@@ -112,8 +126,72 @@ function runOracle(cfg) {
   const started = Date.now();
   const code = sh(cfg.oracle, cfg.shell);
   console.error(`elt oracle: exit ${code} (${Math.round((Date.now() - started) / 1000)}s)`);
-  writeOracleProof(code);
+  writeOracleProof(code, cfg);
   return code;
+}
+
+function judgeProofPath() {
+  const gd = git(['rev-parse', '--git-dir']).out || '.git';
+  return path.join(path.isAbsolute(gd) ? gd : path.join(cwd, gd), 'elt', 'judge-proof.json');
+}
+function readJudgeProof() {
+  let raw;
+  try { raw = fs.readFileSync(judgeProofPath(), 'utf8'); } catch { return { error: 'missing' }; }
+  try { return { raw, proof: JSON.parse(raw) }; } catch { return { error: 'malformed' }; }
+}
+function findTaskBinding(taskId) {
+  const active = findTasks();
+  if (!active || !active.open.concat(active.done).some((item) => item.id === taskId)) return null;
+  return { taskId, specPath: path.relative(cwd, active.file).split(path.sep).join('/') };
+}
+function invalidJudgeProof(reason, detail = '') {
+  return { ok: false, reason, detail };
+}
+function validateJudgeProof({ taskId } = {}) {
+  if (!taskId) return invalidJudgeProof('task-required');
+  const binding = findTaskBinding(taskId);
+  if (!binding) return invalidJudgeProof('task-not-found');
+  const loaded = readJudgeProof();
+  if (loaded.error) return invalidJudgeProof(loaded.error);
+  const p = loaded.proof;
+  const requiredStrings = ['taskId', 'specPath', 'baseHead', 'treeHash', 'oracleProofHash', 'verdict', 'model', 'createdAt'];
+  if (!p || Array.isArray(p) || requiredStrings.some((key) => typeof p[key] !== 'string' || !p[key].trim()) ||
+      !Array.isArray(p.reasons) || !p.reasons.every((reason) => typeof reason === 'string') ||
+      !['pass', 'block', 'dead'].includes(p.verdict) || Number.isNaN(Date.parse(p.createdAt))) {
+    return invalidJudgeProof('malformed');
+  }
+  if (taskId && p.taskId !== taskId) return invalidJudgeProof('task-mismatch');
+  if (p.specPath !== binding.specPath) return invalidJudgeProof('spec-mismatch');
+  if (p.baseHead !== headSha()) return invalidJudgeProof('stale-base');
+  if (p.treeHash !== treeHash()) return invalidJudgeProof('stale-tree');
+  let oracleRaw;
+  try { oracleRaw = fs.readFileSync(oracleProofPath(), 'utf8'); } catch { return invalidJudgeProof('oracle-missing'); }
+  let oracle;
+  try { oracle = JSON.parse(oracleRaw); } catch { return invalidJudgeProof('oracle-malformed'); }
+  if (p.oracleProofHash !== sha256(oracleRaw) || oracle.exit !== 0 || oracle.baseHead !== p.baseHead || oracle.treeHash !== p.treeHash) {
+    return invalidJudgeProof('stale-oracle');
+  }
+  if (p.verdict === 'block') return invalidJudgeProof('judge-block');
+  if (p.verdict === 'dead') return invalidJudgeProof('judge-dead');
+  return { ok: true, proof: p };
+}
+function writeJudgeProof({ taskId, verdict, reasons, model }) {
+  const binding = findTaskBinding(taskId);
+  if (!binding) die(`judge proof: task ${taskId} not found`);
+  if (!['pass', 'block', 'dead'].includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
+    die('judge proof: invalid verdict, reasons, or model');
+  }
+  let oracleRaw;
+  try { oracleRaw = fs.readFileSync(oracleProofPath(), 'utf8'); } catch { die('judge proof: missing oracle proof'); }
+  let oracle;
+  try { oracle = JSON.parse(oracleRaw); } catch { die('judge proof: malformed oracle proof'); }
+  const baseHead = headSha();
+  const currentTree = treeHash();
+  if (oracle.exit !== 0 || oracle.baseHead !== baseHead || oracle.treeHash !== currentTree) die('judge proof: stale oracle proof');
+  const proof = { ...binding, baseHead, treeHash: currentTree, oracleProofHash: sha256(oracleRaw), verdict, reasons, model, createdAt: new Date().toISOString() };
+  fs.mkdirSync(path.dirname(judgeProofPath()), { recursive: true });
+  fs.writeFileSync(judgeProofPath(), JSON.stringify(proof, null, 2) + '\n');
+  return proof;
 }
 
 function appendRunLog(entry) {
@@ -178,6 +256,32 @@ if (cmd === 'oracle') {
   const exit = runOracle(cfg);
   if (exit !== 0) appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit } });
   process.exit(exit);
+}
+
+if (cmd === 'judge-proof') {
+  if (sub === 'read') {
+    const loaded = readJudgeProof();
+    if (loaded.error) die(`judge proof ${loaded.error}`, 4);
+    console.log(JSON.stringify(loaded.proof, null, 2));
+    process.exit(0);
+  }
+  if (sub === 'write') {
+    const taskId = opt('--task');
+    const verdict = opt('--verdict');
+    const model = opt('--model');
+    let reasons;
+    try { reasons = JSON.parse(opt('--reasons-json', '[]')); } catch { die('judge proof: --reasons-json must be JSON array'); }
+    if (!taskId || !verdict || !model) die('elt judge-proof write --task Txxx --verdict pass|block|dead --model <model> [--reasons-json "[]"]');
+    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model }), null, 2));
+    process.exit(0);
+  }
+  if (sub === 'validate') {
+    const taskId = opt('--task');
+    const check = validateJudgeProof({ taskId });
+    console.log(JSON.stringify(check, null, 2));
+    process.exit(check.ok ? 0 : 4);
+  }
+  die('elt judge-proof read | write --task Txxx --verdict pass|block|dead --model <model> | validate --task Txxx');
 }
 
 if (cmd === 'commit') {
