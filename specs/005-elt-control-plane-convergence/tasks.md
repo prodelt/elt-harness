@@ -58,7 +58,7 @@
   **Proof:** по одному negative fixture на кожний контракт; JSON і text exit semantics збігаються.  
   **Guard:** відсутність active spec у щойно створеному idle-проєкті = explicit idle, не fake PASS і не hard fail. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js]`
 
-- [ ] **T011** Додати deterministic `project-bootstrap live-fire` на disposable temp repo: apply×2 → red oracle → green implementation fixture → stub judge proof → guarded commit → clean tree.  
+- [X] **T011** Додати deterministic `project-bootstrap live-fire` на disposable temp repo: apply×2 → red oracle → green implementation fixture → stub judge proof → guarded commit → clean tree.  
   **Docs/API:** `spec.md` AC07; ELT CLI T001–T007.  
   **Proof:** одна команда/тест перевіряє всі переходи й negative judge path без платного API/LLM.  
   **Guard:** target project не використовується як scratch; temp repo гарантовано прибирається після тесту. `[files:tools/project-bootstrap.js,tools/project-bootstrap.e2e.test.js]`
