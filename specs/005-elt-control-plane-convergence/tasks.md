@@ -68,7 +68,7 @@
   **Proof:** strict parser pass для трьох mirrors; skill smoke викликає `inspect→plan`, не дублює policy; diff mirrors нульовий.  
   **Guard:** не редагувати три копії вручну; source → sync → audit. `[files:skills/project-bootstrap/SKILL.md,agent-skills.lock.json]`
 
-- [ ] **T013** Розширити supply-chain manifest/audit так, щоб `elt`, його aliases і `project-bootstrap` були обов'язковими critical targets; invalid YAML, missing mirror або content drift → fail.  
+- [X] **T013** Розширити supply-chain manifest/audit так, щоб `elt`, його aliases і `project-bootstrap` були обов'язковими critical targets; invalid YAML, missing mirror або content drift → fail.  
   **Docs/API:** `spec.md` AC09; `tools/doctor-core.js:checkAgentSkillSupplyChain`.  
   **Proof:** fixture delete/drift/YAML error для кожного critical skill; `agent-skills.cmd audit` nonzero, після sync — pass.  
   **Guard:** не додавати весь каталог skills у mandatory surface; тільки control-plane critical set. `[files:agent-skills.lock.json,tools/doctor-core.js,tools/doctor.test.js]`

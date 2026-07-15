@@ -19,6 +19,7 @@ const {
   checkCodeGraphAdoption,
   checkAgentSurfaceAudit,
   checkAgentSkillSupplyChain,
+  checkAgentSkillsLock,
   checkAgentSkillsWrapper,
   checkHarnessChecklist,
   checkHarnessRun,
@@ -446,6 +447,68 @@ function testAgentSkillSupplyChainCheck() {
   }));
   assert.equal(failed[0].status, 'fail');
   assert.match(failed[0].title, /manifest invalid/);
+}
+
+function writeLockFixture(root, home, { skillMdBody, driftGemini, missingCodex } = {}) {
+  const body = skillMdBody || [
+    '---',
+    'name: demo-critical',
+    'version: 1.0.0',
+    'requires: []',
+    '---',
+    '',
+    '# demo',
+  ].join('\n');
+  write(path.join(root, 'skills', 'demo-critical', 'SKILL.md'), body);
+  write(path.join(home, '.claude', 'skills', 'demo-critical', 'SKILL.md'), body);
+  if (!missingCodex) write(path.join(home, '.codex', 'skills', 'demo-critical', 'SKILL.md'), body);
+  write(path.join(home, '.gemini', 'skills', 'demo-critical', 'SKILL.md'), driftGemini ? `${body}\nEXTRA\n` : body);
+  write(path.join(root, 'agent-skills.lock.json'), JSON.stringify({
+    version: 2,
+    skills: {
+      'demo-critical': {
+        sourceKind: 'repo',
+        source: 'skills/demo-critical/SKILL.md',
+        targets: {
+          claude: '.claude/skills/demo-critical/SKILL.md',
+          codex: '.codex/skills/demo-critical/SKILL.md',
+          gemini: '.gemini/skills/demo-critical/SKILL.md',
+        },
+      },
+    },
+  }));
+}
+
+function testAgentSkillsLockCheck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-skills-lock-'));
+  const root = path.join(dir, 'project');
+  const home = path.join(dir, 'home');
+
+  writeLockFixture(root, home);
+  const passed = checkAgentSkillsLock(root, home);
+  assert.equal(passed[0].status, 'pass');
+  assert.equal(passed[0].id, 'agent-skills:lock');
+
+  writeLockFixture(root, home, { missingCodex: true });
+  fs.rmSync(path.join(home, '.codex', 'skills', 'demo-critical', 'SKILL.md'), { force: true });
+  const missingMirror = checkAgentSkillsLock(root, home);
+  assert.equal(missingMirror[0].status, 'fail');
+  assert.match(missingMirror[0].detail, /mirror missing/);
+
+  writeLockFixture(root, home, { driftGemini: true });
+  const drifted = checkAgentSkillsLock(root, home);
+  assert.equal(drifted[0].status, 'fail');
+  assert.match(drifted[0].detail, /content drift/);
+
+  writeLockFixture(root, home, { skillMdBody: 'not: [valid\nno closing fence' });
+  const invalidYaml = checkAgentSkillsLock(root, home);
+  assert.equal(invalidYaml[0].status, 'fail');
+  assert.match(invalidYaml[0].detail, /invalid YAML/);
+
+  fs.rmSync(path.join(root, 'agent-skills.lock.json'));
+  const missingLock = checkAgentSkillsLock(root, home);
+  assert.equal(missingLock[0].status, 'fail');
+  assert.match(missingLock[0].title, /missing\/invalid/);
 }
 
 function testAgentSkillsWrapperCheck() {
@@ -1110,6 +1173,7 @@ function main() {
   testCodexDefaultsWarnOnExpensiveRoute();
   testAgentSurfaceAuditCheck();
   testAgentSkillSupplyChainCheck();
+  testAgentSkillsLockCheck();
   testAgentSkillsWrapperCheck();
   testHarnessChecklistCheck();
   testHarnessRunCheck();
