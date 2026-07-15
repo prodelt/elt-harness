@@ -2,10 +2,33 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { applySafeActions, detectStack, run: runBootstrap, scanProject } = require('./project-bootstrap');
+const {
+  applySafeActions,
+  classifyKind,
+  detectStack,
+  inspectProject,
+  planTargetState,
+  run: runBootstrap,
+  scanProject,
+} = require('./project-bootstrap');
+
+function hashTree(root) {
+  const hash = crypto.createHash('sha256');
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      hash.update(path.relative(root, full));
+      hash.update(fs.readFileSync(full));
+    }
+  };
+  walk(root);
+  return hash.digest('hex');
+}
 
 function tempProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-'));
@@ -131,6 +154,73 @@ function testRunPassesNoSupplyChainOptionThroughCliPath() {
   assert.equal(report.checks.agent_skill_supply_chain.skipped, true);
 }
 
+function testClassifyKindDetectsCodeDocsUnknown() {
+  const codeRoot = tempProject();
+  assert.equal(classifyKind(codeRoot).kind, 'code');
+
+  const docsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-docs-'));
+  fs.writeFileSync(path.join(docsRoot, 'README.md'), '# demo\n', 'utf8');
+  assert.equal(classifyKind(docsRoot).kind, 'docs');
+
+  const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-empty-'));
+  assert.equal(classifyKind(emptyRoot).kind, 'unknown');
+}
+
+function testInspectIsReadOnly() {
+  const root = tempProject();
+  const before = hashTree(root);
+  const report = inspectProject(root);
+  assert.equal(report.kind, 'project-bootstrap-inspect');
+  assert.equal(report.classification.kind, 'code');
+  assert.equal(hashTree(root), before);
+}
+
+function testPlanIsDeterministicAndReadOnly() {
+  const root = tempProject();
+  const before = hashTree(root);
+  const first = planTargetState(root);
+  const second = planTargetState(root);
+  assert.deepEqual(first, second);
+  assert.equal(hashTree(root), before);
+}
+
+function testPlanNeverInventsOracleForUnknownKind() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-unknown-'));
+  const plan = planTargetState(root);
+  assert.equal(plan.classification.kind, 'unknown');
+  assert.equal(plan.decisions.oracle.proposed, null);
+  assert.equal(plan.decisions.oracle.source, 'none');
+  assert.equal(plan.decisions.judge.enabled, false);
+}
+
+function testPlanUsesExistingOracleForCodeKind() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
+    oracle: 'npm test',
+    judge: { enabled: true, model: 'sonnet' },
+  }, null, 2), 'utf8');
+  const plan = planTargetState(root);
+  assert.equal(plan.decisions.oracle.source, 'existing');
+  assert.equal(plan.decisions.oracle.proposed, 'npm test');
+  assert.equal(plan.decisions.judge.enabled, true);
+}
+
+function testPlanCodegraphRequiresExplicitFlag() {
+  const root = tempProject();
+  assert.equal(planTargetState(root).decisions.codegraph.enabled, false);
+  assert.equal(planTargetState(root, { codegraph: true }).decisions.codegraph.enabled, true);
+}
+
+function testCliInspectAndPlanCommandsRun() {
+  const root = tempProject();
+  const inspect = runBootstrap({ command: 'inspect', root, supplyChain: false });
+  assert.equal(inspect.kind, 'project-bootstrap-inspect');
+  const plan = runBootstrap({ command: 'plan', root, supplyChain: false });
+  assert.equal(plan.kind, 'project-bootstrap-plan');
+}
+
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
   testApplyCreatesOnlySafeInfrastructure();
@@ -139,6 +229,13 @@ function main() {
   testScanKeepsSupplyChainRepairsNonSafe();
   testScanCanSkipSupplyChainForStartupAdvisor();
   testRunPassesNoSupplyChainOptionThroughCliPath();
+  testClassifyKindDetectsCodeDocsUnknown();
+  testInspectIsReadOnly();
+  testPlanIsDeterministicAndReadOnly();
+  testPlanNeverInventsOracleForUnknownKind();
+  testPlanUsesExistingOracleForCodeKind();
+  testPlanCodegraphRequiresExplicitFlag();
+  testCliInspectAndPlanCommandsRun();
   process.stdout.write('project-bootstrap tests: PASS\n');
 }
 

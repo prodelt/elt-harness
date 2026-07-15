@@ -64,8 +64,10 @@ harness-gates run-gate <runId> --root . --json  # global wrapper; writes evidenc
 harness-gates closeout <runId> --root . --json  # global wrapper; required before COMPLEX/ARCH success
 node tools/hook-diet.js --summary --out .planning/HOOK-DIET-INVENTORY-2026-05-20.json # hook diet inventory/evidence
 node tools/token-impact.js measure-command --cmd "node tools/research-router.js design research router --root . --github --architecture --json" --json # command output/token proxy
-node tools/project-bootstrap.js --root <project> --json # dry-run bootstrap: docs/codemap strategy and safe actions
-node tools/project-bootstrap.js --root <project> --apply --json # apply safe docs + graphifyignore only
+node tools/project-bootstrap.js --root <project> --json # legacy dry-run bootstrap: docs/codemap strategy and safe actions
+node tools/project-bootstrap.js --root <project> --apply --json # legacy apply safe docs + graphifyignore only
+node tools/project-bootstrap.js inspect --root <project> --json # read-only: classify code|docs|unknown, docs/harness/codegraph/gate state
+node tools/project-bootstrap.js plan --root <project> --json [--codegraph] # read-only target-state decisions (oracle/judge/codegraph/git gate); unknown never gets an invented oracle
 node audit/S11_pipeline_top1/skills/pipeline-check.js # verify pipeline v2 runtime skill copies
 node audit/S11_pipeline_top1/skills/architect-first-check.js # verify architect-first v2 runtime skill copies
 python tools/rag-ingest.py --project pipeline-setupper --queue-stats

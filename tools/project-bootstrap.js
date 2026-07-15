@@ -34,6 +34,80 @@ function normalizePath(value) {
   return path.resolve(value).replace(/\\/g, '/').toLowerCase();
 }
 
+const CODE_MANIFESTS = ['package.json', 'pyproject.toml', 'requirements.txt', 'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle'];
+const CODE_EXTENSIONS = new Set(['.js', '.ts', '.tsx', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java', '.cs', '.rb', '.php', '.cpp', '.c', '.kt', '.swift']);
+const DOC_EXTENSIONS = new Set(['.md', '.docx', '.pdf', '.pptx', '.xlsx', '.txt']);
+
+function listFiles(root, limit = 500) {
+  const completed = spawnSync('rg', ['--files'], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
+  if (completed.status !== 0) return [];
+  return completed.stdout.split(/\r?\n/).filter(Boolean).slice(0, limit);
+}
+
+function classifyKind(root) {
+  const manifest = CODE_MANIFESTS.find((name) => exists(root, name));
+  if (manifest) return { kind: 'code', confidence: 'high', signals: [manifest] };
+  const files = listFiles(root);
+  const codeFiles = files.filter((file) => CODE_EXTENSIONS.has(path.extname(file)));
+  if (codeFiles.length > 0) return { kind: 'code', confidence: 'medium', signals: codeFiles.slice(0, 5) };
+  const docFiles = files.filter((file) => DOC_EXTENSIONS.has(path.extname(file)));
+  if (docFiles.length > 0) return { kind: 'docs', confidence: 'medium', signals: docFiles.slice(0, 5) };
+  return { kind: 'unknown', confidence: 'low', signals: [] };
+}
+
+function inspectProject(root, options = {}) {
+  const resolved = path.resolve(root || process.cwd());
+  const docs = verifyProjectDocs(resolved);
+  const harness = readHarnessConfig(resolved);
+  const classification = classifyKind(resolved);
+  return {
+    kind: 'project-bootstrap-inspect',
+    root: resolved,
+    classification,
+    docs: { ok: docs.ok, coreIdentical: Boolean(docs.coreIdentical), missing: docs.missing || [] },
+    harness: { exists: fs.existsSync(path.join(resolved, '.harness', 'harness.json')), ok: harness.ok, errors: harness.errors || [], config: harness.config || null },
+    codegraph: { indexed: exists(resolved, path.join('.codegraph', 'codegraph.db')) },
+    gitGate: { managedHookInstalled: exists(resolved, path.join('.githooks', 'pre-commit')) },
+  };
+}
+
+function planOracleDecision(inspected) {
+  if (inspected.classification.kind !== 'code') {
+    return { proposed: null, source: 'none', reason: `kind is ${inspected.classification.kind} — no oracle required or invented` };
+  }
+  if (inspected.harness.ok && inspected.harness.config && inspected.harness.config.oracle) {
+    return { proposed: inspected.harness.config.oracle, source: 'existing', reason: 'valid .harness/harness.json already declares an oracle' };
+  }
+  return { proposed: null, source: 'none', reason: 'no valid oracle declared — code kind requires an explicit oracle before slices, none will be invented' };
+}
+
+function planTargetState(root, options = {}) {
+  const inspected = inspectProject(root, options);
+  const oracle = planOracleDecision(inspected);
+  const codegraphRequested = options.codegraph === true;
+  return {
+    kind: 'project-bootstrap-plan',
+    root: inspected.root,
+    classification: inspected.classification,
+    decisions: {
+      oracle,
+      judge: oracle.source === 'existing'
+        ? { enabled: true, model: 'sonnet', reason: 'oracle exists for code kind' }
+        : { enabled: false, reason: 'no oracle to gate — judge stays disabled' },
+      codegraph: {
+        enabled: codegraphRequested,
+        reason: codegraphRequested ? 'explicit --codegraph flag' : 'not enabled — requires explicit --codegraph flag or interactive confirmation',
+      },
+      gitGate: {
+        managed: inspected.gitGate.managedHookInstalled,
+        hookPath: '.githooks/pre-commit',
+        reason: inspected.gitGate.managedHookInstalled ? 'already installed' : 'not installed — apply will install the managed pre-commit gate',
+      },
+    },
+    existing: { docs: inspected.docs, harness: inspected.harness, codegraph: inspected.codegraph },
+  };
+}
+
 function detectStack(root) {
   const packageJson = path.join(root, 'package.json');
   if (!fs.existsSync(packageJson)) return { name: 'unknown', confidence: 'low' };
@@ -206,28 +280,34 @@ function applySafeActions(root, options = {}) {
 }
 
 function parseArgs(argv) {
-  const defaults = { root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true };
+  const command = ['inspect', 'plan'].includes(argv[2]) ? argv[2] : null;
+  const defaults = { command, root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true, codegraph: false };
   const parseNext = (index, state) => {
     if (index >= argv.length) return state;
     const arg = argv[index];
     if (arg === '--apply') return parseNext(index + 1, { ...state, apply: true });
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
+    if (arg === '--codegraph') return parseNext(index + 1, { ...state, codegraph: true });
     if (arg === '--no-supply-chain') return parseNext(index + 1, { ...state, supplyChain: false });
     if (arg === '--root') return parseNext(index + 2, { ...state, root: argv[index + 1] || state.root });
     if (arg === '--home') return parseNext(index + 2, { ...state, home: argv[index + 1] || state.home });
     return parseNext(index + 1, state);
   };
-  return parseNext(2, defaults);
+  return parseNext(command ? 3 : 2, defaults);
 }
 
 function run(options) {
+  if (options.command === 'inspect') return inspectProject(options.root, options);
+  if (options.command === 'plan') return planTargetState(options.root, options);
   return options.apply ? applySafeActions(options.root, options) : scanProject(options.root, options);
 }
 
 function main() {
   const options = parseArgs(process.argv);
   const report = run(options);
-  process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : `${report.kind || 'project-bootstrap'}: ${report.after ? report.after.strategy : report.strategy}\n`);
+  process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : `${report.kind || 'project-bootstrap'}: ${report.after ? report.after.strategy : (report.strategy || report.classification.kind)}\n`);
+  if (options.command === 'inspect') { if (!report.harness.ok) process.exitCode = 1; return; }
+  if (options.command === 'plan') return;
   const checks = report.after ? report.after.checks : report.checks;
   if (!checks.harness.ok) process.exitCode = 1;
 }
@@ -236,8 +316,11 @@ if (require.main === module) main();
 
 module.exports = {
   applySafeActions,
+  classifyKind,
   controlPlaneStatus,
   detectStack,
+  inspectProject,
+  planTargetState,
   recommendedProbes,
   run,
   scanProject,
