@@ -1,6 +1,6 @@
 {
   "kind": "code",
-  "oracle": "node tools/doctor.test.js; if ($LASTEXITCODE -eq 0) { node --test tools/fleet/*.test.js }",
+  "oracle": "node tools/elt-oracle-runner.js",
   "shell": "powershell",
   "branchPolicy": "feature",
   "push": false,
