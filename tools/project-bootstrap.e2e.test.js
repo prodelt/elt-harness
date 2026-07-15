@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+'use strict';
+// T011 — deterministic project-bootstrap live-fire on a disposable temp repo.
+// One test drives the full lifecycle a real adopted project goes through:
+// apply x2 (idempotent) -> red oracle -> green implementation fixture ->
+// stub judge proof -> guarded commit (via the bootstrap-produced $HOME hook,
+// not a hand-installed one) -> clean tree. No paid API/LLM call anywhere —
+// the judge proof is written directly through the CLI, same as a stub judge.
+
+const assert = require('node:assert/strict');
+const { execFileSync, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { after, test } = require('node:test');
+const { applyPlan, verifyProject } = require('./project-bootstrap');
+
+const SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
+const roots = [];
+const homes = [];
+
+function git(root, home, args) {
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home } }).trim();
+}
+function gitTry(root, home, args) {
+  return spawnSync('git', args, { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home } });
+}
+function commitCount(root, home) { return Number(git(root, home, ['rev-list', '--count', 'HEAD'])); }
+
+// A real bootstrapped project's hook resolves `$HOME/.claude/bin/elt.js` — the
+// globally installed CLI, not a repo-local copy. Point HOME at a disposable
+// fixture carrying a guaranteed-fresh copy of THIS repo's elt.js instead of
+// trusting whatever happens to be installed on the dev machine right now.
+function makeHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bootstrap-e2e-home-'));
+  homes.push(home);
+  const bin = path.join(home, '.claude', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  for (const name of ['elt.js', 'elt-config.js', 'run-log.js']) {
+    fs.copyFileSync(path.join(__dirname, name), path.join(bin, name));
+  }
+  return home;
+}
+
+function eltHome(home) { return path.join(home, '.claude', 'bin', 'elt.js'); }
+function runElt(root, home, args) {
+  return spawnSync(process.execPath, [eltHome(home), ...args], { cwd: root, encoding: 'utf8' });
+}
+
+function fixture(home) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bootstrap-e2e-'));
+  roots.push(root);
+  git(root, home, ['init', '-q']);
+  git(root, home, ['config', 'user.email', 'test@example.com']);
+  git(root, home, ['config', 'user.name', 'Test']);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"demo"}\n');
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code',
+    oracle: 'node oracle-check.js',
+    shell: SHELL,
+    branchPolicy: 'feature',
+    judge: { enabled: true, model: 'sonnet' },
+  }, null, 2));
+  // Deterministic stand-in oracle: red until IMPLEMENTED.txt exists, green after.
+  fs.writeFileSync(path.join(root, 'oracle-check.js'), "process.exit(require('fs').existsSync('IMPLEMENTED.txt') ? 0 : 1);\n");
+  fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** live-fire slice\n');
+  git(root, home, ['add', '-A']);
+  git(root, home, ['commit', '-qm', 'seed']);
+  git(root, home, ['checkout', '-qb', 'work']);
+  return root;
+}
+
+test('project-bootstrap live-fire: apply x2, red->green oracle, stub judge proof, guarded commit, clean tree', () => {
+  const home = makeHome();
+  const root = fixture(home);
+
+  // apply x2: first creates scaffolding, second is a true no-op (idempotent).
+  const first = applyPlan(root, { home });
+  assert.equal(first.blocked.length, 0, JSON.stringify(first.blocked));
+  assert.ok(first.changes.some((c) => c.id === 'project-docs'));
+  assert.ok(first.changes.some((c) => c.id === 'planning-state'));
+  assert.ok(first.changes.some((c) => c.id === 'git-gate'));
+  assert.ok(fs.existsSync(path.join(root, '.githooks', 'pre-commit')));
+
+  const second = applyPlan(root, { home });
+  assert.deepEqual(second.changes, []);
+
+  // Land the bootstrap scaffolding before the gate is even enabled.
+  git(root, home, ['add', '-A']);
+  git(root, home, ['commit', '-qm', 'chore: project-bootstrap apply']);
+
+  // Enable the managed gate exactly as documented ("once per clone").
+  git(root, home, ['config', 'core.hooksPath', '.githooks']);
+
+  // Red oracle: implementation fixture not written yet.
+  const redOracle = runElt(root, home, ['oracle']);
+  assert.notEqual(redOracle.status, 0, redOracle.stderr);
+
+  // Guarded commit, negative path: code change staged, no judge proof yet ->
+  // the bootstrap-produced $HOME hook must block it, not a repo-local stand-in.
+  fs.writeFileSync(path.join(root, 'IMPLEMENTED.txt'), 'ok\n');
+  git(root, home, ['add', '-A']);
+  const before = commitCount(root, home);
+  const blocked = gitTry(root, home, ['commit', '-qm', 'implement T001']);
+  assert.notEqual(blocked.status, 0);
+  assert.equal(commitCount(root, home), before);
+
+  // Green oracle now that the fixture exists.
+  const greenOracle = runElt(root, home, ['oracle']);
+  assert.equal(greenOracle.status, 0, greenOracle.stderr);
+
+  // Stub judge proof — written directly through the CLI, no LLM/paid API call.
+  const proof = runElt(root, home, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'stub-e2e', '--reasons-json', '["deterministic live-fire stub"]']);
+  assert.equal(proof.status, 0, proof.stderr);
+
+  // Guarded commit, positive path: same staged tree, now with a valid proof.
+  const allowed = gitTry(root, home, ['commit', '-qm', 'implement T001']);
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.equal(commitCount(root, home), before + 1);
+
+  // Clean tree, verified both directly and through the T010 verify contract.
+  assert.equal(git(root, home, ['status', '--porcelain']), '');
+  const verify = verifyProject(root, { supplyChain: false });
+  assert.equal(verify.signals.cleanTree.ok, true);
+  assert.equal(verify.contracts.docs.ok, true);
+  assert.equal(verify.contracts.harnessConfig.ok, true);
+  assert.equal(verify.contracts.oracleVerifier.ok, true);
+  assert.equal(verify.contracts.gate.ok, true);
+  assert.equal(verify.ok, true);
+});
+
+after(() => {
+  for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  for (const home of homes) fs.rmSync(home, { recursive: true, force: true });
+});
