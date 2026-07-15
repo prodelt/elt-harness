@@ -11,7 +11,7 @@
   **Proof:** fixture-тести missing/empty/malformed → nonzero; чинний config → pass.  
   **Guard:** не вводити schema dependency; Node stdlib, короткий модуль лише тому, що є 3 consumers. `[files:tools/elt-config.js,tools/elt-config.test.js,tools/elt.js,tools/doctor-core.js,tools/project-bootstrap.js]`
 
-- [ ] **T002** Реалізувати judge-proof schema/read/write/validate у git-dir з binding `taskId + specPath + baseHead + treeHash + oracleProofHash`; missing/stale/block/dead мають різні machine-readable причини.  
+- [X] **T002** Реалізувати judge-proof schema/read/write/validate у git-dir з binding `taskId + specPath + baseHead + treeHash + oracleProofHash`; missing/stale/block/dead мають різні machine-readable причини.  
   **Docs/API:** `spec.md` §5.2; перевикористати `treeHash()`/oracle-proof path; structured verdict із `tools/fleet/gate.js`.  
   **Proof:** unit fixtures для valid, malformed, stale tree, wrong task, block, judge-dead.  
   **Guard:** proof — процесний інваріант, не криптографічна security boundary; не додавати PKI/signing. `[files:tools/elt.js,tools/elt-judge-proof.test.js]`
