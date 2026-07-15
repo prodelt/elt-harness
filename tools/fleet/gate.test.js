@@ -160,7 +160,7 @@ test('gate: судья получает рубрику spec.md + пережив�
   fs.writeFileSync(path.join(REPO, 'specs', 'tasks.md'), '- [ ] **T4** демо4\n');
   fs.writeFileSync(path.join(REPO, 'slice4.txt'), 'work4\n');
 
-  const cap1 = path.join(REPO, 'capture1.json');
+  const cap1 = path.join(os.tmpdir(), `fleet-gate-cap1-${Date.now()}.json`);
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubCapture('judge-cap1.js', 'block', cap1)]);
   const r1 = await gate.gate({ tid: 'T4', taskText: 'демо4', cwd: REPO });
   delete process.env.FLEET_BIN_CLAUDE;
@@ -171,7 +171,7 @@ test('gate: судья получает рубрику spec.md + пережив�
   assert.match(prompt1, /Критерий приёмки: T4 не трогает slice2\.txt/);
   assert.doesNotMatch(prompt1, /ПРЕДЫДУЩАЯ/, 'первая попытка — ещё нет block-причины');
 
-  const cap2 = path.join(REPO, 'capture2.json');
+  const cap2 = path.join(os.tmpdir(), `fleet-gate-cap2-${Date.now()}.json`);
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubCapture('judge-cap2.js', 'pass', cap2)]);
   const r2 = await gate.gate({ tid: 'T4', taskText: 'демо4', cwd: REPO, prevBlockReason: r1.reasons.join('; ') });
   delete process.env.FLEET_BIN_CLAUDE;
@@ -179,6 +179,8 @@ test('gate: судья получает рубрику spec.md + пережив�
   const prompt2 = fs.readFileSync(cap2, 'utf8');
   assert.match(prompt2, /ПРЕДЫДУЩАЯ попытка.*ЗАБЛОКИРОВАНА.*scope creep вне files/s, 'block-причина пережила retry');
   fs.rmSync(path.join(specDir, 'spec.md'), { force: true });
+  fs.rmSync(cap1, { force: true });
+  fs.rmSync(cap2, { force: true });
 });
 
 test('gate: красный оракул → stage oracle, судья не зовётся', async () => {
@@ -216,7 +218,7 @@ test('gate: self-commit воркера + правка вне [files:] → нор
     fs.writeFileSync(path.join(R, '.harness', 'harness.json'),
       JSON.stringify({ kind: 'code', oracle: 'node --version', shell: baseShell, branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
     // capture-стаб судьи кладём в base (не часть слайса, чужой дифф не создаёт)
-    const cap = path.join(R, 'cap.txt');
+    const cap = path.join(os.tmpdir(), `fleet-gate-cap-${Date.now()}.txt`);
     fs.writeFileSync(path.join(R, 'judge.js'),
       `const fs=require('fs');let d='';process.stdin.on('data',c=>d+=c);` +
       `process.stdin.on('end',()=>{fs.writeFileSync(${JSON.stringify(cap)},d);` +
@@ -247,6 +249,7 @@ test('gate: self-commit воркера + правка вне [files:] → нор
     assert.equal(JSON.parse(fs.readFileSync(path.join(R, '.harness', 'harness.json'), 'utf8')).shell, baseShell, 'harness.json shell восстановлен к base');
   } finally {
     delete process.env.FLEET_BIN_CLAUDE;
+    try { fs.rmSync(cap, { force: true }); } catch { /* noop */ }
     try { fs.rmSync(R, { recursive: true, force: true }); } catch { /* noop */ }
   }
 });

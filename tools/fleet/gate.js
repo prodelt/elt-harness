@@ -140,8 +140,15 @@ ${diff}
 }
 
 function slurpDiff(cwd, cap = 12000) {
-  try { execFileSync('git', ['add', '-N', '--', '.'], { cwd }); } catch { /* нет untracked */ }
-  const diff = execFileSync('git', ['diff', 'HEAD'], { cwd, encoding: 'utf8' });
+  let diff = execFileSync('git', ['diff', 'HEAD'], { cwd, encoding: 'utf8' });
+  try {
+    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd, encoding: 'utf8' })
+      .split('\0').filter(Boolean).sort();
+    for (const file of untracked) {
+      const full = path.join(cwd, file);
+      if (fs.statSync(full).isFile()) diff += `\n--- /dev/null\n+++ b/${file}\n${fs.readFileSync(full, 'utf8')}`;
+    }
+  } catch { /* unreadable untracked files remain visible in status */ }
   const status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
   return { diff: diff.length > cap ? diff.slice(0, cap) + '\n…(обрезано)…' : diff, status };
 }
@@ -243,9 +250,11 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
   if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
 
-  // 3. commit БЕЗ [X]-марка (без --task): оракул уже прогнан → --skip-oracle
+  // 3. Persist the same proof schema as solo, then commit without changing tasks.md.
+  const proof = spawnSync('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', 'pass', '--model', judgeModel, '--reasons-json', JSON.stringify(j.reasons)], { cwd, encoding: 'utf8' });
+  if (proof.status !== 0) return { ok: false, stage: 'judge-proof', tid, err: (proof.stderr || proof.stdout || '').trim() };
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
-  const c = spawnSync('node', [elt, 'commit', '--skip-oracle', '--verdict', 'pass', '-m', msg], { cwd, encoding: 'utf8' });
+  const c = spawnSync('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd, encoding: 'utf8' });
   if (c.status !== 0) return { ok: false, stage: 'commit', tid, err: (c.stderr || c.stdout || '').trim() };
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
