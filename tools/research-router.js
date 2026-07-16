@@ -64,29 +64,9 @@ function projectDocsSource(root) {
   return existing.length ? { name: 'project-docs', files: existing, tokenBudget: 1000 } : null;
 }
 
-function codemapSource(root, enabled) {
-  if (!enabled) return null;
-  return {
-    name: 'codemap:graphify',
-    command: `node tools/codemap.js --root ${root} --json --no-relevance`,
-    tokenBudget: 1000,
-  };
-}
-
-function ragSource(root) {
-  if (!fs.existsSync(path.join(root, '.rag', 'queue.json'))) return null;
-  return {
-    name: 'project-rag',
-    command: 'python tools/rag-ingest.py --project pipeline-setupper --query "<question>"',
-    tokenBudget: 1000,
-  };
-}
-
 function compactFindings(sourcesUsed, skippedSources) {
   const findings = [
     sourcesUsed.some((source) => source.name === 'project-docs') ? 'Use AGENTS/CLAUDE/GEMINI as stable project truth before broader search.' : '',
-    sourcesUsed.some((source) => source.name === 'codemap:graphify') ? 'Use codemap for local structure; keep output JSON and relevance queries bounded.' : '',
-    sourcesUsed.some((source) => source.name === 'project-rag') ? 'Use project RAG only on demand; do not inject session-history dumps by default.' : '',
     skippedSources.length ? `Skipped unavailable providers: ${skippedSources.map((source) => source.source).join(', ')}.` : '',
     sourcesUsed.some((source) => source.name === 'GitHub CLI') ? 'GitHub search is allowed only through limited repo/code commands.' : '',
   ].filter(Boolean);
@@ -101,8 +81,6 @@ function buildResearchRouterBlock(options, deps = {}) {
   const github = githubProbe(!!options.github, options.question || '', runner);
   const sourcesUsed = [
     projectDocsSource(root),
-    codemapSource(root, !!options.architecture),
-    ragSource(root),
     context7.source,
     github.source,
   ].filter(Boolean);

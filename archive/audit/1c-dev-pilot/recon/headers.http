@@ -1,0 +1,25 @@
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Age: 227655
+Cache-Control: public, max-age=0, must-revalidate
+Content-Disposition: inline
+Content-Length: 22773
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' fonts.gstatic.com; connect-src 'self' generativelanguage.googleapis.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests
+Content-Type: text/html; charset=utf-8
+Date: Fri, 17 Apr 2026 22:21:03 GMT
+Etag: "994dcb121c559ea28e484625fbd793b9"
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Referrer-Policy: strict-origin-when-cross-origin
+Server: Vercel
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+Vary: rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch
+X-Content-Type-Options: nosniff
+X-Dns-Prefetch-Control: on
+X-Frame-Options: DENY
+X-Matched-Path: /
+X-Nextjs-Prerender: 1
+X-Nextjs-Stale-Time: 300
+X-Vercel-Cache: HIT
+X-Vercel-Id: fra1::lxg4f-1776464463548-d5ea49863ac0
+

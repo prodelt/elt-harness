@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { initOrSyncProjectDocs, verifyProjectDocs } = require('./project-docs-core');
-const { ensureGraphifyIgnoreConfig } = require('./codemap-core');
 const { run: runAgentSkillSupplyChain } = require('./agent-skill-supply-chain');
 const { readHarnessConfig } = require('./elt-config');
 
@@ -124,9 +123,7 @@ function applyPlan(root, options = {}) {
   const changes = [];
 
   if (!(plan.existing.docs.ok && plan.existing.docs.coreIdentical)) {
-    const ragExistedBefore = exists(resolved, path.join('.rag', 'manifest.json'));
     const result = initOrSyncProjectDocs({ root: resolved, mode: 'init', home: options.home });
-    if (!ragExistedBefore) fs.rmSync(path.join(resolved, '.rag'), { recursive: true, force: true });
     if (result.success) changes.push({ id: 'project-docs', mode: result.mode });
   }
 
@@ -432,8 +429,6 @@ function scanProject(root, options = {}) {
   const resolved = path.resolve(root || process.cwd());
   const docs = verifyProjectDocs(resolved);
   const files = fileCount(resolved);
-  const hasRag = exists(resolved, path.join('.rag', 'manifest.json'));
-  const hasGraphifyIgnore = exists(resolved, '.graphifyignore');
   const controlPlane = controlPlaneStatus(resolved);
   const supplyChain = supplyChainStatus(resolved, options);
   const harness = readHarnessConfig(resolved);
@@ -441,8 +436,6 @@ function scanProject(root, options = {}) {
   const strategy = files.ok && files.count <= 80 ? 'bounded-grep-first' : 'project-docs-codemap-first';
   const actions = [
     docs.ok && docs.coreIdentical ? null : { id: 'project-docs', safe: true, command: 'node tools/project-docs.js init --root <project>' },
-    hasGraphifyIgnore ? null : { id: 'graphifyignore', safe: true, command: 'node tools/codemap.js setup --root <project> --no-relevance' },
-    hasRag ? null : { id: 'rag-manifest', safe: false, command: 'python tools/rag-ingest.py --project <key> --queue AGENTS.md' },
     controlPlane.ok ? null : { id: 'agent-control-plane', safe: false, command: 'agent-skills.cmd rollout-projects --apply' },
     supplyChain.ok ? null : { id: 'agent-skill-supply-chain', safe: false, command: 'agent-skills.cmd audit; agent-skills.cmd install-skills --target all --apply' },
   ].filter(Boolean);
@@ -456,8 +449,6 @@ function scanProject(root, options = {}) {
     checks: {
       ai_docs: { ok: docs.ok && docs.coreIdentical, missing: docs.missing || [] },
       harness: { ok: harness.ok, errors: harness.errors || [], config: harness.config },
-      graphifyignore: { ok: hasGraphifyIgnore },
-      rag_manifest: { ok: hasRag },
       agent_control_plane: controlPlane,
       agent_skill_supply_chain: supplyChain,
     },
@@ -468,12 +459,10 @@ function scanProject(root, options = {}) {
 function applySafeActions(root, options = {}) {
   const before = scanProject(root, options);
   const docsResult = before.checks.ai_docs.ok ? null : initOrSyncProjectDocs({ root, mode: 'init', home: options.home });
-  const graphifyignore = before.checks.graphifyignore.ok ? null : ensureGraphifyIgnoreConfig(path.resolve(root));
   return {
     before,
     applied: [
       docsResult ? { id: 'project-docs', success: docsResult.success, mode: docsResult.mode } : null,
-      graphifyignore ? { id: 'graphifyignore', changed: graphifyignore.changed, added: graphifyignore.added } : null,
     ].filter(Boolean),
     after: scanProject(root, options),
   };

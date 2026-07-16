@@ -63,7 +63,6 @@ function testScanChoosesBoundedGrepForSmallProject() {
   assert.ok(report.recommended_probes.length > 0);
   assert.equal(report.checks.ai_docs.ok, false);
   assert.ok(report.actions.some((action) => action.id === 'project-docs' && action.safe));
-  assert.ok(report.actions.some((action) => action.id === 'rag-manifest' && !action.safe));
 }
 
 function testApplyCreatesOnlySafeInfrastructure() {
@@ -71,10 +70,9 @@ function testApplyCreatesOnlySafeInfrastructure() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
   const report = applySafeActions(root, { home });
   assert.ok(report.applied.some((item) => item.id === 'project-docs'));
-  assert.ok(report.applied.some((item) => item.id === 'graphifyignore'));
   assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), true);
-  assert.equal(fs.existsSync(path.join(root, '.graphifyignore')), true);
-  // AC10: project-docs больше не создаёт legacy .rag (даже на старом safe-actions пути).
+  // AC10 + T020: ни legacy .rag, ни .graphifyignore больше не создаются.
+  assert.equal(fs.existsSync(path.join(root, '.graphifyignore')), false);
   assert.equal(fs.existsSync(path.join(root, '.rag', 'manifest.json')), false);
   assert.equal(fs.existsSync(path.join(root, '.planning', 'agent-control-plane.json')), false);
   assert.equal(report.after.checks.ai_docs.ok, true);
