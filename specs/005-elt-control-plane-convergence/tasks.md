@@ -75,7 +75,7 @@
 
 ## P1-A — docs, health і безпечний rollout
 
-- [ ] **T014** Зробити project-docs semantic verifier чесним: 9 секцій (`Overview`, `Stack`, `Structure`, `Commands`, `Code style`, `Testing`, `Commit & PR`, `Gotchas`, `Memory`), `coreIdentical=true` входить в success, unknown sections лише explicit protected/local; припинити створення `.rag`.  
+- [X] **T014** Зробити project-docs semantic verifier чесним: 9 секцій (`Overview`, `Stack`, `Structure`, `Commands`, `Code style`, `Testing`, `Commit & PR`, `Gotchas`, `Memory`), `coreIdentical=true` входить в success, unknown sections лише explicit protected/local; припинити створення `.rag`.  
   **Docs/API:** `spec.md` AC10; parser/protected blocks у `tools/project-docs-core.js`.  
   **Proof:** missing section, drift, garbage non-core, protected local, idempotent sync; `verify` nonzero на перших трьох.  
   **Guard:** невідомий user content не видаляти мовчки — report + explicit migration. `[files:tools/project-docs-core.js,tools/project-docs.js,tools/project-docs.test.js]`

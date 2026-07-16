@@ -79,10 +79,12 @@ function formatReport(report) {
   const docLines = (report.docs || []).map((item) => `- ${item.file}: ${item.action}`);
   const artifactLines = (report.artifacts || []).map((item) => `- ${item.file}: ${item.action}`);
   const missing = report.verification.missing.length ? report.verification.missing.join(', ') : 'none';
+  const unknown = report.verification.unknownSections || [];
   return [
     `project-docs ${report.mode || 'verify'}: ${report.success ? 'PASS' : 'FAIL'}`,
     `core sections identical: ${report.verification.coreIdentical}`,
     `missing: ${missing}`,
+    unknown.length ? `unknown sections (migrate into protected blocks): ${unknown.join(', ')}` : '',
     docLines.length ? 'docs:' : '',
     ...docLines,
     artifactLines.length ? 'artifacts:' : '',
