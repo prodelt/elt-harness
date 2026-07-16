@@ -73,7 +73,8 @@ function testApplyCreatesOnlySafeInfrastructure() {
   assert.ok(report.applied.some((item) => item.id === 'graphifyignore'));
   assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), true);
   assert.equal(fs.existsSync(path.join(root, '.graphifyignore')), true);
-  assert.equal(fs.existsSync(path.join(root, '.rag', 'manifest.json')), true);
+  // AC10: project-docs больше не создаёт legacy .rag (даже на старом safe-actions пути).
+  assert.equal(fs.existsSync(path.join(root, '.rag', 'manifest.json')), false);
   assert.equal(fs.existsSync(path.join(root, '.planning', 'agent-control-plane.json')), false);
   assert.equal(report.after.checks.ai_docs.ok, true);
   assert.equal(report.after.checks.agent_control_plane.ok, false);

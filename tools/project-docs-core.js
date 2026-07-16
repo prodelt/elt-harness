@@ -7,7 +7,8 @@ const crypto = require('node:crypto');
 
 const CANONICAL_DOC = 'AGENTS.md';
 const DOC_FILES = [CANONICAL_DOC, 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
-const CORE_SECTIONS = ['Commands', 'Stack', 'Gotchas', 'Memory'];
+// 9 канонических секций (spec 005 AC10). Порядок = порядок рендера.
+const CORE_SECTIONS = ['Overview', 'Stack', 'Structure', 'Commands', 'Code style', 'Testing', 'Commit & PR', 'Gotchas', 'Memory'];
 const MEMORY_LEAK_RE = /^-\s*\d{4}-\d{2}-\d{2}/m;
 const PROTECTED_RE = /<!--\s*project-docs:protected:start\s+([A-Za-z0-9_.-]+)\s*-->[\s\S]*?<!--\s*project-docs:protected:end\s+\1\s*-->/g;
 
@@ -58,6 +59,18 @@ function extractProtectedBlocks(text) {
   return [...text.matchAll(PROTECTED_RE)].map((match) => match[0].trim());
 }
 
+// Заголовки `## X`, которые не входят в 9 канонических секций И не лежат внутри
+// protected-блока = «unknown» контент. verify обязан их репортить (fail-closed),
+// но sync их НЕ удаляет молча — миграция явная (обернуть в protected-блок).
+function unknownSectionTitles(text) {
+  const ranges = [...text.matchAll(PROTECTED_RE)].map((match) => [match.index, match.index + match[0].length]);
+  const insideProtected = (index) => ranges.some(([start, end]) => index >= start && index < end);
+  return [...text.matchAll(/^##\s+(.+?)\s*$/gm)]
+    .filter((match) => !insideProtected(match.index))
+    .map((match) => match[1].trim())
+    .filter((title) => !CORE_SECTIONS.includes(canonicalSectionTitle(title)));
+}
+
 function uniqueItems(items) {
   return [...new Set(items.filter(Boolean))];
 }
@@ -84,8 +97,13 @@ function selectSourceDoc(docs) {
 function inferCoreSections(root, docs) {
   const source = selectSourceDoc(docs);
   const fallback = {
-    Stack: 'Detected from repository files; no package manifest was required for this bootstrap.\n',
+    Overview: 'One-paragraph description of what this project is and the problem it solves.\n',
+    Stack: 'Languages, runtimes and key dependencies this project builds on.\n',
+    Structure: 'Where the important code lives; key directories and entry points.\n',
     Commands: 'Run project-specific tests or doctor commands listed in this repository.\n',
+    'Code style': 'Match the existing conventions in the codebase; keep changes small and local.\n',
+    Testing: 'Run the test suite before committing and keep it green; add a test for new behavior.\n',
+    'Commit & PR': 'One task per feature branch; conventional commit messages; small reviewable PRs.\n',
     Gotchas: 'Preserve local rules and Windows path handling when syncing docs.\n',
     Memory: 'Long-lived state lives in .planning/STATE.md (spine) + .planning/PROJECT-HISTORY.md ' +
       '(archive). This section is a pointer, not a log — do not write dated entries here.\n',
@@ -138,21 +156,6 @@ function writeChanged(file, text) {
   return true;
 }
 
-function ensureRagManifest(root, now) {
-  const file = path.join(root, '.rag', 'manifest.json');
-  const existing = readText(file);
-  const createdAt = now.toISOString();
-  const manifest = existing ? existing : JSON.stringify({
-    version: 1,
-    project: path.basename(root),
-    root: normalizePath(root),
-    index_dir: '.rag/index',
-    queue_file: '.rag/queue.json',
-    createdAt,
-  }, null, 2) + '\n';
-  return writeChanged(file, manifest) ? [{ file: normalizePath(file), action: existing ? 'kept' : 'created' }] : [];
-}
-
 function ensurePlanning(root) {
   const dir = path.join(root, '.planning');
   const existed = fs.existsSync(dir);
@@ -190,7 +193,7 @@ function safeJson(text, fallback) {
 function docsMode(docs, requestedMode, verification) {
   const existingCount = docs.filter((doc) => doc.exists).length;
   if (existingCount === 0) return 'create';
-  if (verification.ok && verification.coreIdentical && requestedMode === 'init') return 'noop';
+  if (verification.ok && requestedMode === 'init') return 'noop';
   return 'upgrade';
 }
 
@@ -210,29 +213,38 @@ function initOrSyncProjectDocs(options) {
     return changed ? [summary] : [{ ...summary, action: 'unchanged' }];
   });
   const artifactChanges = [
-    ...ensureRagManifest(root, now),
     ...ensurePlanning(root),
     ...registerProject(root, home, now),
   ];
   const verification = verifyProjectDocs(root);
-  return { success: verification.ok && verification.coreIdentical, mode, docs: docChanges, artifacts: artifactChanges, verification };
+  return { success: verification.ok, mode, docs: docChanges, artifacts: artifactChanges, verification };
 }
 
-function sectionsForVerification(root) {
-  return readDocs(root).map((doc) => ({
+function verifyProjectDocs(root) {
+  const rawDocs = readDocs(root);
+  const docs = rawDocs.map((doc) => ({
     relative: doc.relative,
     exists: doc.exists,
     sections: CORE_SECTIONS.map((section) => ({ section, exists: Boolean(doc.parsed.sections[section]) })),
     coreText: CORE_SECTIONS.map((section) => `${section}\n${(doc.parsed.sections[section] || '').trim()}`).join('\n---\n'),
   }));
-}
-
-function verifyProjectDocs(root) {
-  const docs = sectionsForVerification(root);
-  const missing = docs.flatMap((doc) => doc.exists ? doc.sections.filter((item) => !item.exists).map((item) => `${doc.relative}:${item.section}`) : [`${doc.relative}:missing`]);
+  const missing = docs.flatMap((doc) => doc.exists
+    ? doc.sections.filter((item) => !item.exists).map((item) => `${doc.relative}:${item.section}`)
+    : [`${doc.relative}:missing`]);
   const existingCore = docs.filter((doc) => doc.exists && doc.sections.every((item) => item.exists)).map((doc) => doc.coreText);
   const coreIdentical = existingCore.length === DOC_FILES.length && new Set(existingCore).size === 1;
-  return { ok: missing.length === 0, missing, coreIdentical, docs };
+  const unknownSections = rawDocs.flatMap((doc) => doc.exists
+    ? unknownSectionTitles(doc.text).map((title) => `${doc.relative}:${title}`)
+    : []);
+  // Fail-closed: verify зелёный ТОЛЬКО когда все 9 секций есть, core идентичен по 3 файлам,
+  // и нет unprotected non-core секций (spec 005 AC10).
+  return {
+    ok: missing.length === 0 && coreIdentical && unknownSections.length === 0,
+    missing,
+    coreIdentical,
+    unknownSections,
+    docs,
+  };
 }
 
 const BLOAT_WARN = 150;

@@ -51,7 +51,8 @@ function testCreateModeBootstrapsProject() {
   assert.equal(result.mode, 'create');
   assert.equal(result.success, true);
   DOC_FILES.forEach((relative) => assert.equal(fs.existsSync(path.join(root, relative)), true));
-  assert.equal(fs.existsSync(path.join(root, '.rag', 'manifest.json')), true);
+  // AC10: legacy .rag больше не создаётся.
+  assert.equal(fs.existsSync(path.join(root, '.rag', 'manifest.json')), false);
   assert.equal(fs.existsSync(path.join(root, '.planning')), true);
   assert.equal(fs.existsSync(path.join(home, '.claude', 'projects-registry.json')), true);
   assert.equal(verifyProjectDocs(root).ok, true);
@@ -82,7 +83,10 @@ function testUpgradePreservesProtectedBlocks() {
 
 function testSyncMakesCoreSectionsIdentical() {
   const root = tempProject('project-docs-sync');
-  write(path.join(root, 'AGENTS.md'), coreDoc('\n## Codex Notes\nKeep me.\n'));
+  // Локальный контент оформлен как protected-блок (governed local) — sync его сохраняет,
+  // verify остаётся зелёным (в отличие от bare non-core секции, см. testVerifyFailsOnUnknownNonCoreSection).
+  const local = '<!-- project-docs:protected:start codex -->\nKeep me.\n<!-- project-docs:protected:end codex -->';
+  write(path.join(root, 'AGENTS.md'), coreDoc(`\n${local}\n`));
   write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Stack content.', 'Wrong stack.'));
   write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc());
   const result = initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
@@ -91,6 +95,61 @@ function testSyncMakesCoreSectionsIdentical() {
   assert.equal(verification.ok, true);
   assert.equal(verification.coreIdentical, true);
   assert.match(read(path.join(root, 'AGENTS.md')), /Keep me\./);
+}
+
+function testVerifyFailsOnMissingSection() {
+  const root = tempProject('project-docs-verify-missing');
+  const body = CORE_SECTIONS.filter((section) => section !== 'Testing')
+    .map((section) => `## ${section}\n${section} content.\n`).join('\n');
+  DOC_FILES.forEach((relative) => write(path.join(root, relative), `# Demo\n\n${body}`));
+  const verification = verifyProjectDocs(root);
+  assert.equal(verification.ok, false);
+  assert.ok(verification.missing.some((item) => /:Testing$/.test(item)));
+}
+
+function testVerifyFailsOnDrift() {
+  const root = tempProject('project-docs-verify-drift');
+  write(path.join(root, 'AGENTS.md'), coreDoc());
+  write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Stack content.', 'Drifted stack.'));
+  write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc());
+  const verification = verifyProjectDocs(root);
+  assert.equal(verification.coreIdentical, false);
+  assert.equal(verification.ok, false);
+}
+
+function testVerifyFailsOnUnknownNonCoreSection() {
+  const root = tempProject('project-docs-verify-unknown');
+  DOC_FILES.forEach((relative) => write(path.join(root, relative), coreDoc()));
+  const agents = path.join(root, 'AGENTS.md');
+  write(agents, read(agents) + '\n## Random Notes\nUngoverned content.\n');
+  const verification = verifyProjectDocs(root);
+  assert.equal(verification.ok, false);
+  assert.ok(verification.unknownSections.some((item) => /Random Notes/.test(item)));
+  // Guard: sync НЕ удаляет неизвестный user-контент молча.
+  initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
+  assert.match(read(agents), /Ungoverned content\./);
+}
+
+function testProtectedLocalSurvivesAndVerifies() {
+  const root = tempProject('project-docs-protected-local');
+  const block = '<!-- project-docs:protected:start local -->\nLocal-only note.\n<!-- project-docs:protected:end local -->';
+  DOC_FILES.forEach((relative) => write(path.join(root, relative), coreDoc(`\n${block}\n`)));
+  const verification = verifyProjectDocs(root);
+  assert.equal(verification.ok, true);
+  assert.equal(verification.unknownSections.length, 0);
+  DOC_FILES.forEach((relative) => assert.match(read(path.join(root, relative)), /Local-only note\./));
+}
+
+function testSyncIsIdempotent() {
+  const root = tempProject('project-docs-idempotent');
+  const created = initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'init' });
+  assert.equal(created.success, true);
+  initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
+  const first = DOC_FILES.map((relative) => read(path.join(root, relative)));
+  initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
+  const second = DOC_FILES.map((relative) => read(path.join(root, relative)));
+  assert.deepEqual(second, first);
+  assert.equal(verifyProjectDocs(root).ok, true);
 }
 
 function testAgentsMdWinsWhenSectionCoverageTies() {
@@ -145,6 +204,11 @@ function main() {
   testNoopModeDoesNotRewrite();
   testUpgradePreservesProtectedBlocks();
   testSyncMakesCoreSectionsIdentical();
+  testVerifyFailsOnMissingSection();
+  testVerifyFailsOnDrift();
+  testVerifyFailsOnUnknownNonCoreSection();
+  testProtectedLocalSurvivesAndVerifies();
+  testSyncIsIdempotent();
   testAgentsMdWinsWhenSectionCoverageTies();
   testSyncPreservesPreambleRules();
   testAuditFlagsBloatAndMissingDoc();
