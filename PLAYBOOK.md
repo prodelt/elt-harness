@@ -10,16 +10,21 @@
 Качество — это не «старайся лучше», это guide + sensor + gate вокруг задачи.
 
 ## Золотой путь (дефолт на 90% задач)
-1. **Код (фича/баг/рефактор/продолжи) →** `/elt` (v2). Слайсы с механическими инвариантами:
+1. **Код (фича/баг/рефактор/продолжи) →** `/elt` (v2 — **единственный active code route**). Слайсы с механическими инвариантами:
    elt CLI (оракул → авто-ветка → commit → run-log), судья sonnet, dirty-exit-gate.
    Автономно → драйвер `tools/elt-loop.ps1` (fresh `claude -p` на слайс).
    Параллельно (≥3 [P]-слайсов, disjoint `[files:]`) → **fleet** `tools/elt-fleet.ps1`
    (N воркеров claude/codex/agy в git worktree; гейт неизменен: оракул→судья→`elt commit`;
    merge-очередь, роутер+failover; `specs/002-elt-fleet`, T003 live-fire ждёт agy-логина).
    ⚠ **Fleet experimental — не для реальной работы, пока `specs/003-elt-fleet-hardening` не закрыт.**
-2. **Не-код нетривиальное →** `/pipeline` (классификация) или `/elt-work` (офис).
+2. **Не-код нетривиальное →** `/elt-work` (офис) или доменный `/harness-method` (guide+gate под домен).
 3. **Тривиальное** (опечатка, одна правка, вопрос) → просто делай, без церемоний.
 4. **Закрытие любой задачи** — только с доказательством (вывод build/test/lint), не «готово».
+
+> **⚠ Deprecated — не активные route.** Pipeline v3 / `/pipeline`, Agent Harness v1
+> (`harness-runner`/`harness-gates`/`pipeline-state`) и `install-harness-teeth` — прямой запуск
+> CLI падает с deprecated-ошибкой; единственный code control plane — `/elt`. Миграция и удаление:
+> `specs/005-elt-control-plane-convergence/spec.md §9`.
 
 ## Дерево решений — «что я делаю?»
 
@@ -27,10 +32,10 @@
 |---|---|---|
 | Новый проект / навести порядок / сделать эталонным | **`/project-bootstrap`** | доки + харнесс с зубами + индекс + память проекта |
 | Фича / баг / рефактор в коде | **`/elt`** | слайс: оракул → судья → авто-commit (внутри линзы `tdd`/`diagnose`) |
-| Архитектурное решение, развилка | `/pipeline` (ARCH) → `/architect-first` | план + инварианты до кода |
+| Архитектурное решение, развилка | `/elt` (план-шаг Mode 0) → `grill-me` / `/architect-first` | план + инварианты до кода |
 | Не-код: маркетинг / бизнес / дизайн | **`/harness-method`** (домен) + доменные скилы ниже | guide + gate перед публикацией/тратой |
 | Просто разобраться в коде / «как работает X» | `codegraph_context` (MCP), затем `codegraph_explore` | ответ без чтения файлов целиком |
-| Ресёрч / собрать факты до реализации | `/pipeline` (RESEARCH) или `/research-autopilot`, `ctx7`, `agent-browser` | компактные evidence |
+| Ресёрч / собрать факты до реализации | `/research-autopilot`, `ctx7`, `agent-browser` | компактные evidence |
 
 ## Домены (где сидят «зубы») — сводка, источник: `/harness-method` REFERENCE.md
 | Домен | Guide (конституция) | Sensor (тип) | Gate (где блок) |

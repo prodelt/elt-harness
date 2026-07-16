@@ -483,8 +483,15 @@ function cliMain(argv) {
   process.exit(1);
 }
 
+// ponytail: deprecated CLI (spec 005 T018). Exports stay live — doctor-core and
+// git-workflow-audit still import helpers; file is removed in T019 after zero-caller proof.
 if (require.main === module) {
-  cliMain(process.argv);
+  console.error(
+    'DEPRECATED: pipeline-state.js is not an active route. Pipeline v3 is retired.\n' +
+    '  Code work: /elt (tools/elt.js)   Project state: .planning/STATE.md via /elt checkpoint\n' +
+    '  Migration & removal plan: specs/005-elt-control-plane-convergence/spec.md §9'
+  );
+  process.exit(1);
 }
 
 module.exports = {

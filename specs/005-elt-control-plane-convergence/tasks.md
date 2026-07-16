@@ -97,7 +97,7 @@
 
 ## P1-B — convergence і видалення legacy
 
-- [ ] **T018** Оголосити ELT єдиною active code route у PLAYBOOK/AGENTS/CLAUDE/GEMINI/skills; Pipeline v3, old harness і install-harness-teeth перевести у deprecated error з посиланням на migration plan; прибрати stale health noise.  
+- [X] **T018** Оголосити ELT єдиною active code route у PLAYBOOK/AGENTS/CLAUDE/GEMINI/skills; Pipeline v3, old harness і install-harness-teeth перевести у deprecated error з посиланням на migration plan; прибрати stale health noise.  
   **Docs/API:** `spec.md` AC01; поточні route docs і usage scan.  
   **Proof:** `rg` active-route allowlist; docs sync audit; legacy CLI invocation nonzero з actionable message; 7-day usage baseline збережений у checkpoint.  
   **Guard:** compatibility shim тільки якщо є підтверджений caller; без caller — видалення в T019/T020. `[files:PLAYBOOK.md,AGENTS.md,CLAUDE.md,.gemini/GEMINI.md,tools/doctor-core.js]`

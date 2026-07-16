@@ -457,8 +457,15 @@ function checkArtifact(root, now = new Date()) {
   }
 }
 
+// ponytail: deprecated CLI (spec 005 T018). checkArtifact export still used by doctor-core;
+// file is removed in T019 after zero-caller proof.
 if (require.main === module) {
-  cliMain(process.argv.slice(2));
+  console.error(
+    'DEPRECATED: harness-gates.js is not an active route. Agent Harness v1 / Pipeline v3 is retired.\n' +
+    '  Code work: /elt (tools/elt.js) — the mechanical gate is `elt gate` / `elt commit`\n' +
+    '  Migration & removal plan: specs/005-elt-control-plane-convergence/spec.md §9'
+  );
+  process.exit(1);
 }
 
 module.exports = {
