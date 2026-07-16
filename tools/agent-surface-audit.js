@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runCodemapDoctor } = require('./codemap-core');
 
 const CLIENTS = {
   claude: {
@@ -329,15 +328,6 @@ function runAudit(options = {}) {
   const root = path.resolve(options.root || process.cwd());
   const home = path.resolve(options.home || os.homedir());
   const clients = Object.keys(CLIENTS).map((client) => auditClient(client, home));
-  const codemap = options.skipCodemap
-    ? {
-      graphify: { summary: {}, checks: [] },
-      codegraph: { summary: {}, checks: [] },
-    }
-    : {
-      graphify: runCodemapDoctor({ root }),
-      codegraph: runCodemapDoctor({ root, provider: 'codegraph' }),
-    };
   const report = {
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -347,7 +337,6 @@ function runAudit(options = {}) {
     parity: compareClients(clients),
     commandShims: auditCommandShims(home, root),
     context7: auditContext7(root),
-    codemap,
     memory: auditMemory(home),
     browser: auditBrowser(home, root),
   };
@@ -388,8 +377,6 @@ function formatMarkdown(report) {
     `- Context7 npx: ${report.context7.npx.status} (${report.context7.npx.command})`,
     `- Command shims: ${report.commandShims.files.filter((item) => item.exists).length}/${report.commandShims.files.length} present`,
     `- Harness CLI: ${report.harness.status} (${report.harness.wrappers.filter((item) => item.exists).length}/${report.harness.wrappers.length} wrappers, Stop hooks: ${report.harness.stopHooks.filter((item) => item.configured).length}/${report.harness.stopHooks.length})`,
-    `- Codemap graphify: PASS=${report.codemap.graphify.summary.pass || 0} WARN=${report.codemap.graphify.summary.warn || 0} FAIL=${report.codemap.graphify.summary.fail || 0}`,
-    `- Codemap codegraph: PASS=${report.codemap.codegraph.summary.pass || 0} WARN=${report.codemap.codegraph.summary.warn || 0} FAIL=${report.codemap.codegraph.summary.fail || 0}`,
     `- Browser tooling: ${report.browser.status}`,
     '',
     '## Fallback Contracts',

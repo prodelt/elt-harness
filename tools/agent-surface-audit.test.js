@@ -58,7 +58,7 @@ function addHarnessSurface(home) {
 }
 
 function runFastAudit(root, home) {
-  return runAudit({ root, home, skipCodemap: true });
+  return runAudit({ root, home });
 }
 
 function testParseArgs() {
@@ -88,7 +88,6 @@ function testExtractHookCommandsHandlesNestedHooks() {
 function testAuditReportsClientSurface() {
   const root = tempRoot('agent-surface-root');
   const home = createHome();
-  write(path.join(root, '.graphifyignore'), '.planning\n.rag\n.tmp\ngraphify-out\ntools/__pycache__\ntools/red-team\naudit/1c-dev-pilot\n');
   const report = runFastAudit(root, home);
   assert.equal(report.clients.length, 3);
   assert.equal(report.clients.find((client) => client.client === 'claude').skillCount, 2);

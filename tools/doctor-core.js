@@ -6,8 +6,6 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { runCodemapDoctor } = require('./codemap-core');
-const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
 const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
@@ -67,22 +65,20 @@ function readJson(file) {
 function findProjectRoot(start) {
   const current = path.resolve(start || process.cwd());
   const parent = path.dirname(current);
-  const markers = ['AGENTS.md', 'CLAUDE.md', '.git', '.rag'];
+  const markers = ['AGENTS.md', 'CLAUDE.md', '.git'];
   const found = markers.some((marker) => fs.existsSync(path.join(current, marker)));
   if (found || parent === current) return current;
   return findProjectRoot(parent);
 }
 
 function parseArgs(argv) {
-  const defaults = { root: process.cwd(), json: false, register: false, graphify: true, fleet: false, memoryProvider: process.env.MEMORY_PROVIDER || 'project-rag' };
+  const defaults = { root: process.cwd(), json: false, register: false, fleet: false };
   const parseNext = (index, state) => {
     if (index >= argv.length) return { ok: true, value: state };
     const arg = argv[index];
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
     if (arg === '--register') return parseNext(index + 1, { ...state, register: true });
     if (arg === '--fleet') return parseNext(index + 1, { ...state, fleet: true });
-    if (arg === '--no-graphify') return parseNext(index + 1, { ...state, graphify: false });
-    if (arg === '--memory-provider') return parseNext(index + 2, { ...state, memoryProvider: argv[index + 1] || state.memoryProvider });
     if (arg === '--root') {
       const root = argv[index + 1];
       if (!root) return { ok: false, error: '--root requires a path' };
@@ -320,17 +316,6 @@ function checkCodexDefaults(home) {
   return [modelFinding, checkCodexSandbox(text.value)];
 }
 
-function checkGraphify(root, enabled) {
-  if (!enabled) return [result('warn', 'graphify:skipped', 'Graphify check skipped', '--no-graphify was provided.', 'Run without --no-graphify.')];
-  const help = run('cmd.exe', ['/c', 'graphify', '--help'], root, 8000);
-  if (help.status !== 0) {
-    return [result('fail', 'graphify:cli', 'Graphify unavailable', help.error || help.output, 'Ensure graphify is installed and on PATH.')];
-  }
-  const cliCheck = result('pass', 'graphify:cli', 'Graphify CLI available', 'cmd /c graphify --help completed.', '');
-  const codemap = runCodemapDoctor({ root }).checks;
-  return [cliCheck, ...codemap];
-}
-
 // T008 (004-elt-selfdrive): mandate is "codegraph первым" — this must be a
 // real check, not silently skipped, so a project that's supposed to use
 // codegraph but has a dead index actually shows up in doctor.
@@ -367,8 +352,7 @@ function checkCodeGraph(root, runner = run) {
   const indexCheck = stale
     ? result('warn', 'codegraph:status', 'CodeGraph index stale (watcher may be dead)', detail || output.slice(0, 200), 'Run: cmd /c codegraph sync . (repeats after edits settle → watcher not syncing, restart the client).')
     : result('pass', 'codegraph:status', 'CodeGraph MCP/index healthy', detail || 'codegraph status completed.', '');
-  const providerChecks = runCodemapDoctor({ root, provider: 'codegraph' }).checks;
-  return [indexCheck, ...providerChecks];
+  return [indexCheck];
 }
 
 const CODEGRAPH_TOOL_USE_RE = /"name"\s*:\s*"mcp__codegraph__/;
@@ -411,37 +395,6 @@ function checkCodeGraphAdoption(root, home, options = {}) {
   }
   const status = codegraphTotal > 0 ? 'pass' : 'warn';
   return [result(status, 'codegraph:adoption', `CodeGraph adoption: ${codegraphTotal} call(s) in sample`, detail, status === 'warn' ? 'Mandate "codegraph первым" (CLAUDE.md) is being ignored in recent sessions.' : '')];
-}
-
-function checkRag(root) {
-  const manifest = path.join(root, '.rag', 'manifest.json');
-  const parsed = readJson(manifest);
-  if (!parsed.ok) {
-    return [result('warn', 'rag:manifest', 'RAG manifest missing/invalid', parsed.error, 'Create .rag/manifest.json via init-project v2.')];
-  }
-  const indexDir = path.join(root, parsed.value.index_dir || '.rag/index');
-  const queue = readJson(path.join(root, '.rag', 'queue.json'));
-  const indexExists = fs.existsSync(indexDir);
-  const manifestCheck = result('pass', 'rag:manifest', 'RAG manifest OK', manifest, '');
-  const indexCheck = indexExists
-    ? result('pass', 'rag:index', 'RAG index directory exists', indexDir, '')
-    : result('warn', 'rag:index', 'RAG index directory missing', indexDir, 'Run python tools/rag-ingest.py --project <name> --process-queue.');
-  const queueCheck = queue.ok
-    ? result('pass', 'rag:queue', 'RAG queue readable', path.join(root, '.rag', 'queue.json'), '')
-    : result('warn', 'rag:queue', 'RAG queue missing/invalid', queue.error, 'Run python tools/rag-ingest.py --project <name> --queue-stats.');
-  return [manifestCheck, indexCheck, queueCheck];
-}
-
-function checkMemoryProvider(root, provider) {
-  const report = runMemoryProviderCommand({ root, provider, command: 'status' });
-  if (report.provider === 'project-rag') {
-    return [result(report.status === 'ready' ? 'pass' : 'warn', 'memory:project-rag', 'Project RAG memory provider', report.status, 'Run init-project/RAG setup if degraded.', report)];
-  }
-  if (report.provider === 'agentmemory') {
-    const status = report.status === 'ready' ? 'pass' : 'warn';
-    return [result(status, 'memory:agentmemory', 'agentmemory provider health', report.cli.detail, 'Keep MEMORY_PROVIDER=project-rag until agentmemory CLI/server health passes.', report)];
-  }
-  return [result('warn', 'memory:provider', 'Memory provider invalid', report.reason || String(provider), 'Use project-rag or agentmemory.', report)];
 }
 
 function checkSurfaceSync(root) {
@@ -1020,12 +973,9 @@ function runDoctor(options) {
     ...checkSettingsSecrets(root, home),
     ...checkCodexDefaults(home),
     ...checkHooks(home),
-    ...checkGraphify(root, options.graphify),
     ...checkCodeGraph(root),
     checkCodeGraphMcp(home),
     ...checkCodeGraphAdoption(root, home),
-    ...checkRag(root),
-    ...checkMemoryProvider(root, options.memoryProvider),
     ...checkSurfaceSync(root),
     ...checkAgentSkillSupplyChain(root, home),
     ...checkAgentSkillsLock(root, home),

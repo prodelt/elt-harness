@@ -107,7 +107,7 @@
   **Proof:** `rg` zero active callers; загальний oracle green; skipped/absent test closeout negative test живе у новому gate; LOC delta зафіксований.  
   **Guard:** не зберігати мертву abstraction «про всяк випадок»; git history є rollback. `[files:tools/harness-runner.js,tools/harness-gates.js,tools/pipeline-state.js,tools/*harness*.test.js]`
 
-- [ ] **T020** Видалити old bootstrap advisor/installer, RAG/Graphify/codemap paths і відповідні doctor checks після canonical bootstrap migration; архівувати AMOS/audit history поза active runtime лише після link scan.  
+- [X] **T020** Видалити old bootstrap advisor/installer, RAG/Graphify/codemap paths і відповідні doctor checks після canonical bootstrap migration; архівувати AMOS/audit history поза active runtime лише після link scan.  
   **Docs/API:** `spec.md` §9, AC14; результати T009, T014, T016, T018.  
   **Proof:** `rg` zero active callers/links; bootstrap + doctor tests green; fresh repo не створює legacy files; LOC/artifact delta у checkpoint.  
   **Guard:** не видаляти user project data масово; тут чиститься control-plane repo, а registry projects отримують лише future explicit plans. `[files:tools/install-harness-teeth.js,tools/codemap.js,tools/doctor-core.js,amos,audit]`

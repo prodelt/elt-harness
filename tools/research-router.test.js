@@ -10,8 +10,6 @@ const { buildResearchRouterBlock } = require('./research-router');
 function tempProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'research-router-'));
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# Project docs\n', 'utf8');
-  fs.mkdirSync(path.join(root, '.rag'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.rag', 'queue.json'), '{"items":[]}\n', 'utf8');
   return root;
 }
 
@@ -43,7 +41,6 @@ function testInvalidProvidersAreSkippedAndResearchContinues() {
   assert.match(block.skipped_sources[0].attemptedCommand, /ctx7 library next|cmd.exe \/c ctx7 library next/);
   assert.match(block.skipped_sources[1].attemptedCommand, /gh auth status/);
   assert.ok(block.sources_used.some((source) => source.name === 'project-docs'));
-  assert.ok(block.sources_used.some((source) => source.name === 'codemap:graphify'));
 }
 
 function testEvidenceBlockStaysBounded() {

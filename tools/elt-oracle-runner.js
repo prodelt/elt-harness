@@ -13,14 +13,9 @@ const { spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 
-// Pre-existing, unrelated-to-005 failure: codemap-benchmark's codegraph
-// "blocked provider" path was never wired up (attemptedCommand ignores the
-// injected codegraphRunner mock; ERR_ASSERTION, not a regression from this
-// slice). Denylisted with a reason instead of silently masked — see
-// specs/005-elt-control-plane-convergence checkpoint for the tracked fix.
-const SKIP = new Set([
-  'tools/codemap-benchmark.test.js', // pre-existing bug, unrelated to 005
-]);
+// Denylist for known-broken tests (reason required). Empty since 005 T020
+// removed the codemap suite that was the only entry.
+const SKIP = new Set();
 
 function discover(dir) {
   let out = [];

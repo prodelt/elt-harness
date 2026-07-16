@@ -35,11 +35,10 @@ function write(file, text) {
 }
 
 function testParseArgs() {
-  const parsed = parseArgs(['node', 'doctor.js', '--root', 'C:\\tmp\\x', '--json', '--no-graphify']);
+  const parsed = parseArgs(['node', 'doctor.js', '--root', 'C:\\tmp\\x', '--json']);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.value.root, 'C:\\tmp\\x');
   assert.equal(parsed.value.json, true);
-  assert.equal(parsed.value.graphify, false);
 
   const invalid = parseArgs(['node', 'doctor.js', '--unknown']);
   assert.equal(invalid.ok, false);
@@ -63,19 +62,6 @@ function testSkillFrontmatter() {
   assert.equal(parseSkillFrontmatter(good).ok, true);
   assert.equal(parseSkillFrontmatter(goodBom).ok, true);
   assert.equal(parseSkillFrontmatter(bad).ok, false);
-}
-
-function testDoctorSkipsCodemapWithNoGraphify() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-no-graphify-'));
-  const home = path.join(dir, 'home');
-  const root = path.join(dir, 'project');
-  write(path.join(root, 'AGENTS.md'), coreDoc());
-  write(path.join(root, 'CLAUDE.md'), coreDoc());
-  write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc());
-  write(path.join(home, '.claude', 'skill-registry', 'digests.jsonl'), JSON.stringify({ name: 'x' }) + '\n');
-  const report = withHome(home, () => runDoctor({ root, register: true, graphify: false }));
-  assert.equal(report.checks.some((check) => check.id === 'codemap:scope'), false);
-  assert.equal(report.checks.some((check) => check.id === 'graphify:skipped'), true);
 }
 
 function testSettingsSecretsScanner() {
@@ -756,7 +742,7 @@ function testSelfDriveInvariantsCheck() {
   write(path.join(root, 'AGENTS.md'), coreDoc());
   write(path.join(root, 'CLAUDE.md'), coreDoc());
   write(path.join(root, '.gemini', 'GEMINI.md'), coreDoc());
-  const report = withHome(home, () => runDoctor({ root, graphify: false }));
+  const report = withHome(home, () => runDoctor({ root }));
   const ids = report.checks.map((c) => c.id);
   assert.ok(ids.includes('selfdrive:effort'), 'общий отчёт doctor несёт selfdrive:effort');
   assert.ok(ids.includes('selfdrive:judge-liveness'), 'общий отчёт doctor несёт selfdrive:judge-liveness');
@@ -1158,7 +1144,6 @@ function main() {
   testParseArgs();
   testProjectKeyStable();
   testSkillFrontmatter();
-  testDoctorSkipsCodemapWithNoGraphify();
   testCodeGraphStatusMissingDb();
   testCodeGraphStatusMockedGreenAndStale();
   testCodeGraphMcpCheck();
