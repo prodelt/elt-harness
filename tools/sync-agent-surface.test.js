@@ -441,7 +441,10 @@ process.stdout.write('\n[Suite 12] CLI --dry-run --json\n');
   try {
     output = execSync(
       'node tools/sync-agent-surface.js --dry-run --json',
-      { cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 10000 }
+      // ponytail: 60s (was 10s) — subprocess skill-dir scan chronically ETIMEDOUTs
+      // under machine load (accumulated cmd.exe from repeated 340s oracle runs);
+      // bump the ceiling, assertion (valid JSON from CLI) unchanged.
+      { cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 60000 }
     );
     const data = JSON.parse(output);
     assert(data.dryRun === true, 'dryRun=true in output');

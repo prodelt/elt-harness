@@ -102,7 +102,7 @@
   **Proof:** `rg` active-route allowlist; docs sync audit; legacy CLI invocation nonzero з actionable message; 7-day usage baseline збережений у checkpoint.  
   **Guard:** compatibility shim тільки якщо є підтверджений caller; без caller — видалення в T019/T020. `[files:PLAYBOOK.md,AGENTS.md,CLAUDE.md,.gemini/GEMINI.md,tools/doctor-core.js]`
 
-- [ ] **T019** Видалити old Pipeline v3 / Agent Harness runtime (`harness-runner`, `harness-gates`, `pipeline-state`) і тести після zero-caller proof; перенести лише ще потрібні негативні сценарії в ELT tests.  
+- [X] **T019** Видалити old Pipeline v3 / Agent Harness runtime (`harness-runner`, `harness-gates`, `pipeline-state`) і тести після zero-caller proof; перенести лише ще потрібні негативні сценарії в ELT tests.  
   **Docs/API:** `spec.md` §9, AC14–AC15; call/import scan перед delete.  
   **Proof:** `rg` zero active callers; загальний oracle green; skipped/absent test closeout negative test живе у новому gate; LOC delta зафіксований.  
   **Guard:** не зберігати мертву abstraction «про всяк випадок»; git history є rollback. `[files:tools/harness-runner.js,tools/harness-gates.js,tools/pipeline-state.js,tools/*harness*.test.js]`

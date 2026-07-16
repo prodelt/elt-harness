@@ -11,26 +11,28 @@ const { runCommand: runMemoryProviderCommand } = require('./memory-provider');
 const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
-const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
 const { readHarnessConfig } = require('./elt-config');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const { inspectProject } = require('./project-bootstrap');
 const fleetClaims = require('./fleet/claims');
 const fleetWorktree = require('./fleet/worktree');
 const fleetRouter = require('./fleet/router');
-const {
-  legacyStatePath,
-  normalizePath,
-  projectKey,
-  projectStatePath,
-} = require('./pipeline-state');
+// ponytail: normalizePath/projectKey were the only live imports from the retired
+// pipeline-state module (spec 005 T019) — inlined; the module is deleted.
+function normalizePath(value) {
+  return path.resolve(value).replace(/\\/g, '/');
+}
+function projectKey(root) {
+  const normalized = normalizePath(root).toLowerCase();
+  const base = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 8);
+  return `${base || 'project'}-${hash}`;
+}
 
 const DOCS = ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')];
 const SECTIONS = CORE_SECTIONS;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'runtime', 'sources']);
 const RISK_EXTS = new Set(['.exe', '.dll', '.pdb', '.bat', '.cmd', '.ps1', '.asm', '.cpp', '.c', '.bin']);
-const STATE_TTL_MS = 24 * 60 * 60 * 1000;
-const STATE_CLOCK_SKEW_MS = 60 * 1000;
 const SETTINGS_SECRET_PATTERNS = [
   { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
   { name: 'Context7 API key', pattern: /ctx7sk-[0-9A-Za-z-]{20,}/ },
@@ -691,83 +693,6 @@ function checkGitHubCli(root, runner = run) {
   ];
 }
 
-function validatePipelineState(state, root, now) {
-  if (!state || typeof state !== 'object') {
-    return { status: 'warn', title: 'Pipeline state invalid', detail: 'State JSON must be an object.', repair: 'Rewrite state via /pipeline.' };
-  }
-  const phase = typeof state.phase === 'string' ? state.phase : '';
-  const closedAt = typeof state.closedAt === 'string' ? new Date(state.closedAt) : null;
-  const closedTsInvalid = closedAt && Number.isNaN(closedAt.getTime());
-  if (['closed', 'shipped'].includes(phase)) {
-    if (closedTsInvalid || !closedAt) {
-      return { status: 'warn', title: 'Pipeline state close timestamp invalid', detail: String(state.closedAt), repair: 'Rewrite closed state with a valid closedAt timestamp.' };
-    }
-    return { status: 'pass', title: 'Pipeline state closed', detail: state.closedAt, repair: '' };
-  }
-  const stateCwd = state && typeof state.cwd === 'string' ? normalizePath(state.cwd) : '';
-  const expected = normalizePath(root);
-  const ts = state && typeof state.ts === 'string' ? new Date(state.ts) : null;
-  const invalidTs = !ts || Number.isNaN(ts.getTime());
-  const future = !invalidTs && ts.getTime() > now.getTime() + STATE_CLOCK_SKEW_MS;
-  const stale = !invalidTs && now.getTime() - ts.getTime() > STATE_TTL_MS;
-  if (stateCwd && stateCwd.toLowerCase() !== expected.toLowerCase()) {
-    return { status: 'warn', title: 'Pipeline state points to another project', detail: `${stateCwd} != ${expected}`, repair: 'Ignore this state and create project-local pipeline state.' };
-  }
-  if (!stateCwd) {
-    return { status: 'warn', title: 'Pipeline state cwd missing', detail: 'Missing cwd field.', repair: 'Rewrite state via /pipeline.' };
-  }
-  if (invalidTs) {
-    return { status: 'warn', title: 'Pipeline state timestamp invalid', detail: String(state && state.ts), repair: 'Rewrite state with a valid ISO timestamp.' };
-  }
-  if (future) {
-    return { status: 'warn', title: 'Pipeline state timestamp is in the future', detail: state.ts, repair: 'Reject future state and rewrite via project-local state.' };
-  }
-  if (stale) {
-    return { status: 'warn', title: 'Pipeline state is stale', detail: state.ts, repair: 'Refresh state after current sprint checkpoint.' };
-  }
-  return { status: 'pass', title: 'Pipeline state acceptable', detail: state.ts, repair: '' };
-}
-
-function checkProjectPipelineState(root, home, now) {
-  const file = projectStatePath(root, home);
-  if (!fs.existsSync(file)) {
-    return result('warn', 'state:pipeline', 'Project pipeline state missing', file, 'Run /pipeline to create project-local state.');
-  }
-  const parsed = readJson(file);
-  if (!parsed.ok) {
-    return result('warn', 'state:pipeline', 'Project pipeline state invalid', parsed.error, 'Rewrite project-local pipeline state.');
-  }
-  const checked = validatePipelineState(parsed.value, root, now);
-  return result(checked.status, 'state:pipeline', `Project ${checked.title}`, checked.status === 'pass' ? file : checked.detail, checked.repair, { file });
-}
-
-function checkLegacyPipelineState(root, home, now) {
-  const file = legacyStatePath(home);
-  if (!fs.existsSync(file)) {
-    return result('pass', 'state:pipeline:legacy', 'Legacy global pipeline state absent', file, '');
-  }
-  const parsed = readJson(file);
-  if (!parsed.ok) {
-    return result('warn', 'state:pipeline:legacy', 'Legacy global pipeline state invalid', parsed.error, 'Keep legacy state read-only; rewrite only project-local state.');
-  }
-  // Recognized tombstone — migration complete, no active state here.
-  if (parsed.value._legacy === true) {
-    return result('pass', 'state:pipeline:legacy', 'Legacy global pipeline state is tombstone', file, '');
-  }
-  const checked = validatePipelineState(parsed.value, root, now);
-  if (checked.status !== 'pass') {
-    return result('warn', 'state:pipeline:legacy', `Legacy global ${checked.title}`, checked.detail, 'Use only project-local state; keep legacy fallback read-only.', { file });
-  }
-  return result('warn', 'state:pipeline:legacy', 'Legacy global pipeline state present', file, 'Migrate active state to the project capsule and keep this file read-only.', { file });
-}
-
-function checkPipelineState(root, home, now = new Date()) {
-  return [
-    checkProjectPipelineState(root, home, now),
-    checkLegacyPipelineState(root, home, now),
-  ];
-}
-
 function countRiskFiles(root) {
   if (!fs.existsSync(root)) return { total: 0, byExt: {} };
   const files = walk(root, (file) => RISK_EXTS.has(path.extname(file).toLowerCase()));
@@ -808,25 +733,6 @@ function checkHarnessChecklist(root, now = new Date()) {
   const detail = `${c.pass || 0} pass / ${c.warn || 0} warn / ${c.fail || 0} fail / ${c.needsJustification || 0} needs-justification`;
   const repair = status === 'fail' ? 'Resolve failing harness checklist items, then rerun node tools\\harness-checklist.js --root . --write.' : '';
   return [result(status === 'fail' ? 'warn' : status, 'harness:checklist', title, detail, repair, { file: result_.file })];
-}
-
-function checkHarnessRun(root, now = new Date()) {
-  const result_ = checkHarnessRunArtifact(root, now);
-  if (!result_.ok) {
-    return [result('warn', 'harness:run', 'Harness run report missing', result_.error, 'Run node tools\\harness-gates.js run-gate <runId> --root .')];
-  }
-  const report = result_.value;
-  const status = (report.summary && report.summary.status) || 'unknown';
-  const phase = report.phase || 'unknown';
-  if (result_.stale) {
-    if (status === 'pass' || phase === 'complete' || report.status === 'complete') {
-      return [result('pass', 'harness:run', 'Harness run history complete', `phase=${phase}  status=${report.status || status}`, '', { file: result_.file })];
-    }
-    return [result('warn', 'harness:run', 'Harness run report stale', result_.value.generatedAt, 'Rerun node tools\\harness-gates.js run-gate <runId> --root .', { file: result_.file })];
-  }
-  const title  = status === 'pass' ? 'Harness run complete' : status === 'fail' ? 'Harness run failed' : 'Harness run in progress';
-  const detail = `phase=${phase}  status=${report.status || status}`;
-  return [result(status === 'fail' ? 'warn' : status === 'running' ? 'pass' : status, 'harness:run', title, detail, '', { file: result_.file })];
 }
 
 function checkHarnessConfig(root) {
@@ -1127,9 +1033,6 @@ function runDoctor(options) {
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
-    // ponytail: checkHarnessRun/checkPipelineState dropped from the report (spec 005 T018) —
-    // they WARN users toward retired routes (harness-gates run-gate, /pipeline). Functions
-    // and their unit tests stay until T019/T020 delete the legacy runtime they read.
     checkHarnessConfig(root),
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
@@ -1168,12 +1071,10 @@ function formatText(report) {
 module.exports = {
   parseArgs,
   projectKey,
-  projectStatePath,
   parseSkillFrontmatter,
   checkSettingsSecrets,
   checkCodexDefaults,
   checkGitHubCli,
-  checkPipelineState,
   checkSurfaceSync,
   checkCodeGraph,
   checkCodeGraphMcp,
@@ -1184,7 +1085,6 @@ module.exports = {
   checkAgentSurfaceAudit,
   checkDocsGate,
   checkHarnessChecklist,
-  checkHarnessRun,
   checkHarnessConfig,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
