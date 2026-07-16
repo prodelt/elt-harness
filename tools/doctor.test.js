@@ -28,7 +28,9 @@ const {
   checkFleetWorkers,
   checkSelfDriveInvariants,
   runDoctor,
+  runFleet,
 } = require('./doctor-core');
+const { CORE_SECTIONS } = require('./project-docs-core');
 
 function write(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -670,41 +672,112 @@ function testHarnessGlobalCheck() {
   assert.match(pathWarn[0].title, /PATH/);
 }
 
+function nineSectionDoc() {
+  return '# Managed\n\n' + CORE_SECTIONS.map((section) => `## ${section}\ncontent\n`).join('\n');
+}
+
+function writeManagedDocs(root) {
+  ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')]
+    .forEach((relative) => write(path.join(root, relative), nineSectionDoc()));
+}
+
+// AC11: doctor --fleet — table-driven readiness. Каждый класс = отдельная fixture.
+// PASS только при полном контракте типа проекта; файл сам по себе PASS не даёт.
 function testFleetCheck() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-fleet-'));
   const home = path.join(dir, 'home');
-  const withHarness = path.join(dir, 'with-harness');
-  const bare = path.join(dir, 'bare');
-  const halfCycle = path.join(dir, 'half-cycle');
-  // Full cycle: oracle armed AND a plan exists (specs/) → pass.
-  fs.mkdirSync(path.join(withHarness, '.git'), { recursive: true });
-  fs.mkdirSync(path.join(withHarness, '.harness'), { recursive: true });
-  write(path.join(withHarness, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } }));
-  write(path.join(withHarness, 'specs', '001-x', 'tasks.md'), '- [ ] **T001** x\n');
-  fs.mkdirSync(bare, { recursive: true });
-  // Half cycle: oracle armed but no specs/ → front half unused → warn.
-  fs.mkdirSync(path.join(halfCycle, '.git'), { recursive: true });
-  fs.mkdirSync(path.join(halfCycle, '.harness'), { recursive: true });
-  write(path.join(halfCycle, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } }));
+
+  const make = (name, build) => {
+    const root = path.join(dir, name);
+    fs.mkdirSync(root, { recursive: true });
+    build(root);
+    return root;
+  };
+  const gitDir = (root) => fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  const harness = (root, cfg) => write(path.join(root, '.harness', 'harness.json'), JSON.stringify(cfg));
+  const gate = (root) => write(path.join(root, '.githooks', 'pre-commit'), '#!/bin/sh\n');
+
+  // code-ready: git + package.json (code) + managed docs + valid oracle + gate → PASS.
+  const codeReady = make('code-ready', (root) => {
+    gitDir(root); write(path.join(root, 'package.json'), '{"name":"x"}');
+    writeManagedDocs(root);
+    harness(root, { kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } });
+    gate(root);
+  });
+  // code-no-gate: valid oracle FILE exists but no managed gate → NOT ready (false-green guard).
+  const codeNoGate = make('code-no-gate', (root) => {
+    gitDir(root); write(path.join(root, 'package.json'), '{"name":"x"}');
+    writeManagedDocs(root);
+    harness(root, { kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } });
+  });
+  // invalid-harness: harness.json EXISTS but oracle empty → invalid → NOT ready (false-green guard).
+  const invalidHarness = make('invalid-harness', (root) => {
+    gitDir(root); write(path.join(root, 'package.json'), '{"name":"x"}');
+    writeManagedDocs(root); gate(root);
+    harness(root, { kind: 'code', oracle: '' });
+  });
+  // docs-ready: git + managed docs + declared kind=docs + artifactVerifier; NO code gate needed → PASS.
+  const docsReady = make('docs-ready', (root) => {
+    gitDir(root); writeManagedDocs(root);
+    harness(root, { kind: 'docs', artifactVerifier: 'node tools/verify-artifacts.js', judge: { enabled: true, model: 'sonnet' } });
+  });
+  // non-git: fully-contracted code project but no .git → distinct non-git class, NOT ready.
+  const nonGit = make('non-git', (root) => {
+    write(path.join(root, 'package.json'), '{"name":"x"}');
+    writeManagedDocs(root);
+    harness(root, { kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } });
+    gate(root);
+  });
+  // unknown: empty dir, no manifest/docs/harness → explicit unknown, NOT a false PASS.
+  const unknown = make('unknown', () => {});
+
   write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({
     version: 1,
     projects: {
-      a: { key: 'a', name: 'with-harness', path: withHarness },
-      b: { key: 'b', name: 'bare', path: bare },
-      c: { key: 'c', name: 'gone', path: path.join(dir, 'does-not-exist') },
-      d: { key: 'd', name: 'half-cycle', path: halfCycle },
+      cr: { key: 'cr', name: 'code-ready', path: codeReady },
+      cng: { key: 'cng', name: 'code-no-gate', path: codeNoGate },
+      ih: { key: 'ih', name: 'invalid-harness', path: invalidHarness },
+      dr: { key: 'dr', name: 'docs-ready', path: docsReady },
+      ng: { key: 'ng', name: 'non-git', path: nonGit },
+      uk: { key: 'uk', name: 'unknown', path: unknown },
+      gone: { key: 'gone', name: 'gone', path: path.join(dir, 'does-not-exist') },
     },
   }));
-  const fakeGit = () => ({ status: 0, output: '' });
-  const checks = checkFleet(home, { runner: fakeGit });
+
+  const checks = checkFleet(home);
   const byKey = Object.fromEntries(checks.map((c) => [c.id, c]));
-  assert.equal(byKey['fleet:a'].status, 'pass');
-  assert.equal(byKey['fleet:b'].status, 'warn');
-  assert.match(byKey['fleet:b'].detail, /no oracle/);
-  assert.equal(byKey['fleet:c'].status, 'warn');
-  assert.match(byKey['fleet:c'].title, /path missing/);
-  assert.equal(byKey['fleet:d'].status, 'warn');
-  assert.match(byKey['fleet:d'].detail, /half-cycle/);
+
+  assert.equal(byKey['fleet:cr'].status, 'pass', 'code-ready → pass');
+  assert.match(byKey['fleet:cr'].title, /\[ready\]/);
+
+  assert.equal(byKey['fleet:cng'].status, 'warn', 'code missing gate → not ready');
+  assert.match(byKey['fleet:cng'].detail, /managed gate/);
+  assert.match(byKey['fleet:cng'].title, /\[code\]/);
+
+  assert.equal(byKey['fleet:ih'].status, 'warn', 'invalid harness → not ready even though file exists');
+  assert.match(byKey['fleet:ih'].title, /\[invalid-harness\]/);
+
+  assert.equal(byKey['fleet:dr'].status, 'pass', 'docs project ready without a code gate');
+  assert.match(byKey['fleet:dr'].title, /\[ready\]/);
+  assert.match(byKey['fleet:dr'].detail, /kind=docs/);
+
+  assert.equal(byKey['fleet:ng'].status, 'warn', 'non-git distinguished');
+  assert.match(byKey['fleet:ng'].title, /\[non-git\]/);
+
+  assert.equal(byKey['fleet:uk'].status, 'warn', 'unknown is explicit, not false PASS');
+  assert.match(byKey['fleet:uk'].title, /\[unknown\]/);
+
+  assert.equal(byKey['fleet:gone'].status, 'warn', 'missing path');
+  assert.match(byKey['fleet:gone'].title, /\[missing\]/);
+
+  // text/JSON counts consistent: runFleet summary is derived from the same checks array.
+  const report = runFleet({ home });
+  const tally = report.checks.reduce((acc, c) => ({ ...acc, [c.status]: (acc[c.status] || 0) + 1 }), {});
+  assert.deepEqual(report.summary, tally);
+  assert.equal((report.summary.pass || 0) + (report.summary.warn || 0) + (report.summary.fail || 0), report.checks.length);
+  assert.equal(report.summary.pass, 2, 'exactly code-ready + docs-ready are PASS');
+
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function testFleetWorkersCheck() {

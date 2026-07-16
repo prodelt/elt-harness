@@ -14,6 +14,7 @@ const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-chec
 const { checkArtifact: checkHarnessRunArtifact } = require('./harness-gates');
 const { readHarnessConfig } = require('./elt-config');
 const { CORE_SECTIONS } = require('./project-docs-core');
+const { inspectProject } = require('./project-bootstrap');
 const fleetClaims = require('./fleet/claims');
 const fleetWorktree = require('./fleet/worktree');
 const fleetRouter = require('./fleet/router');
@@ -940,52 +941,69 @@ const LOOP_READY_ITEMS = [
   ['Судья не гейт слайса (не может простить красный оракул)', /не гейт|не закрывает/],
 ];
 
-// Fleet mode (Задача C, ELT v2 2026-07-08): iterate ~/.claude/projects-registry.json
-// (written by `doctor --register`) and report per-project git/harness/stale-gate health.
-// Reuses the existing registry instead of a new harness-projects.json.
-function checkFleetProject(entry, runner = run) {
+// Fleet mode: iterate ~/.claude/projects-registry.json (written by `doctor --register`)
+// and report per-project DOMAIN-AWARE readiness (spec 005 AC11). Effective kind = the
+// explicitly declared harness kind when the config is valid, else the classifyKind
+// heuristic. PASS only when the FULL contract for that kind is met — a harness.json that
+// merely EXISTS is not enough: T001 validity already requires a non-empty oracle/verifier,
+// so an invalid/placeholder harness keeps the project not-ready (no false green by file).
+// Distinguishes: missing, non-git, code, docs/office, unknown, invalid-harness, ready.
+function checkFleetProject(entry) {
   const root = entry.path;
   if (!fs.existsSync(root)) {
-    return result('warn', `fleet:${entry.key}`, `${entry.name}: path missing`, root, 'Project moved or deleted — update or drop the registry entry.');
+    return result('warn', `fleet:${entry.key}`, `${entry.name} [missing]`, root,
+      'Project moved or deleted — update or drop the registry entry.', { path: root, klass: 'missing' });
   }
-  const notes = [];
-  let warn = false;
-
+  const inspected = inspectProject(root);
   const isRepo = fs.existsSync(path.join(root, '.git'));
-  if (!isRepo) {
-    notes.push('not a git repo');
-    warn = true;
-  } else {
-    const status = runner('git', ['status', '--porcelain'], root, 8000);
-    notes.push(status.status === 0 && status.output.trim() ? `dirty (${status.output.trim().split(/\r?\n/).length} files)` : 'clean');
+  const declaredKind = inspected.harness.ok && inspected.harness.config ? inspected.harness.config.kind : null;
+  const kind = declaredKind || inspected.classification.kind;
+
+  // Unknown = no managed contract to check. Explicit, not a false PASS and not a hard fail.
+  if (kind === 'unknown') {
+    return result('warn', `fleet:${entry.key}`, `${entry.name} [unknown]`,
+      `kind=unknown (${inspected.classification.confidence}) — classify explicitly (code/docs/office); no oracle invented`,
+      'Add a code manifest or docs and declare .harness/harness.json kind, then re-run doctor --register.',
+      { path: root, klass: 'unknown' });
   }
 
-  const hasHarness = fs.existsSync(path.join(root, '.harness', 'harness.json'));
-  if (!hasHarness) {
-    notes.push('no oracle (.harness/harness.json missing)');
-    warn = true;
-  } else {
-    const harness = readHarnessConfig(root);
-    notes.push(harness.ok ? `harness valid (${harness.config.kind})` : `invalid harness (${harness.errors.join('; ')})`);
-    warn ||= !harness.ok;
+  const reasons = [];
+  if (!isRepo) reasons.push('not a git repo');
+  // AI docs contract — code AND docs/office both carry managed AGENTS/CLAUDE/GEMINI docs.
+  if (!(inspected.docs.ok && inspected.docs.coreIdentical)) {
+    reasons.push(`docs missing/drifted (${(inspected.docs.missing || []).slice(0, 3).join(', ') || 'core not identical'})`);
+  }
+  // Harness config schema + real oracle/verifier (harness.ok ⇒ non-empty command per T001).
+  let invalidHarness = false;
+  if (!inspected.harness.exists) {
+    reasons.push(`no harness (.harness/harness.json missing — kind=${kind} needs a mechanical ${kind === 'code' ? 'oracle' : 'artifactVerifier'})`);
+  } else if (!inspected.harness.ok) {
+    reasons.push(`invalid harness (${(inspected.harness.errors || []).join('; ')})`);
+    invalidHarness = true;
+  }
+  // Git gate — code only; docs/office are NOT forced to carry a code gate (guard AC11).
+  if (kind === 'code' && !inspected.gitGate.managedHookInstalled) {
+    reasons.push('no managed gate (.githooks/pre-commit missing)');
   }
 
-  // Half-cycle (ELT v2 bridge, 2026-07-09): oracle armed (back half wired) but no
-  // specs/ at all means the front half — the plan the loop grinds — was never used.
-  // This is the exact gap the specify↔loop bridge closes; the doctor must name it.
-  if (hasHarness && !fs.existsSync(path.join(root, 'specs'))) {
-    notes.push('half-cycle: oracle armed, no specs/ (front half unused — run /elt план-шаг)');
-    warn = true;
-  }
+  const ready = reasons.length === 0;
+  const klass = invalidHarness ? 'invalid-harness' : !isRepo ? 'non-git' : ready ? 'ready' : kind;
+  // Signals — informational; never block readiness (idle specs / no index are legitimate).
+  const hasSpecs = fs.existsSync(path.join(root, 'specs'));
+  const notes = [
+    `kind=${kind} (${declaredKind ? 'declared' : 'heuristic'})`,
+    `codegraph=${inspected.codegraph.indexed ? 'indexed' : 'none'}`,
+    `specs=${hasSpecs ? 'present' : 'none'}`,
+    `state=${fs.existsSync(path.join(root, '.planning', 'STATE.md')) ? 'present' : 'none'}`,
+  ];
+  if (kind === 'code' && inspected.harness.exists && !hasSpecs) notes.push('front-half unused (no specs/ — run /elt план-шаг)');
+  const settingsText = readText(path.join(root, '.claude', 'settings.json'));
+  if (settingsText.ok && /judge-closeout-gate/.test(settingsText.value)) notes.push('stale judge-closeout-gate wiring');
 
-  const settingsFile = path.join(root, '.claude', 'settings.json');
-  const settingsText = readText(settingsFile);
-  if (settingsText.ok && /judge-closeout-gate/.test(settingsText.value)) {
-    notes.push('stale judge-closeout-gate wiring');
-    warn = true;
-  }
-
-  return result(warn ? 'warn' : 'pass', `fleet:${entry.key}`, `${entry.name}`, notes.join(' | '), warn ? 'See project-bootstrap SKILL.md for retrofit steps.' : '', { path: root });
+  return result(ready ? 'pass' : 'warn', `fleet:${entry.key}`, `${entry.name} [${klass}]`,
+    [...notes, ...reasons].join(' | '),
+    ready ? '' : 'Run project-bootstrap verify / apply to close the missing contract.',
+    { path: root, klass, kind });
 }
 
 function checkFleet(home, options = {}) {
@@ -998,7 +1016,7 @@ function checkFleet(home, options = {}) {
   if (entries.length === 0) {
     return [result('warn', 'fleet:registry', 'Project registry empty', registryPath(home), 'Run doctor --register in each project first.')];
   }
-  return entries.map((entry) => checkFleetProject(entry, options.runner));
+  return entries.map((entry) => checkFleetProject(entry));
 }
 
 function checkLoopReady(home) {

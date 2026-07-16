@@ -80,7 +80,7 @@
   **Proof:** missing section, drift, garbage non-core, protected local, idempotent sync; `verify` nonzero на перших трьох.  
   **Guard:** невідомий user content не видаляти мовчки — report + explicit migration. `[files:tools/project-docs-core.js,tools/project-docs.js,tools/project-docs.test.js]`
 
-- [ ] **T015** Перебудувати `doctor --fleet` на domain-aware readiness: missing/non-git/code/docs/unknown, config schema, real oracle/verifier, tasks/state, gate, CodeGraph policy; PASS лише для повного контракту типу проєкту.  
+- [X] **T015** Перебудувати `doctor --fleet` на domain-aware readiness: missing/non-git/code/docs/unknown, config schema, real oracle/verifier, tasks/state, gate, CodeGraph policy; PASS лише для повного контракту типу проєкту.  
   **Docs/API:** `spec.md` AC11; `checkFleetProject()`/registry helpers у `tools/doctor-core.js`.  
   **Proof:** table-driven fixtures для всіх класів; text/JSON counts узгоджені; false-green fixture red.  
   **Guard:** docs/office проєкти не змушувати мати code tests; classification має бути явною. `[files:tools/doctor-core.js,tools/doctor.test.js]`
