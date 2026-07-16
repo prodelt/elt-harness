@@ -8,12 +8,10 @@ const os = require('node:os');
 const {
   parseArgs,
   projectKey,
-  projectStatePath,
   parseSkillFrontmatter,
   checkSettingsSecrets,
   checkCodexDefaults,
   checkGitHubCli,
-  checkPipelineState,
   checkCodeGraph,
   checkCodeGraphMcp,
   checkCodeGraphAdoption,
@@ -22,7 +20,6 @@ const {
   checkAgentSkillsLock,
   checkAgentSkillsWrapper,
   checkHarnessChecklist,
-  checkHarnessRun,
   checkHarnessGlobal,
   checkFleet,
   checkFleetWorkers,
@@ -66,60 +63,6 @@ function testSkillFrontmatter() {
   assert.equal(parseSkillFrontmatter(good).ok, true);
   assert.equal(parseSkillFrontmatter(goodBom).ok, true);
   assert.equal(parseSkillFrontmatter(bad).ok, false);
-}
-
-function testPipelineStateValidation() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-state-'));
-  const home = path.join(dir, 'home');
-  const root = path.join(dir, 'project-a');
-  write(projectStatePath(root, home), JSON.stringify({
-    cwd: root,
-    ts: '2026-05-08T12:00:00Z',
-  }));
-  write(path.join(home, '.claude', 'pipeline-state.json'), JSON.stringify({
-    cwd: path.join(dir, 'project-b'),
-    ts: '2026-05-08T12:00:00Z',
-  }));
-  const checks = checkPipelineState(root, home, new Date('2026-05-08T12:00:00Z'));
-  assert.equal(checks[0].status, 'pass');
-  assert.equal(checks[0].id, 'state:pipeline');
-  assert.equal(checks[1].status, 'warn');
-  assert.equal(checks[1].id, 'state:pipeline:legacy');
-  assert.match(checks[1].title, /another project/);
-}
-
-function testPipelineStateRejectsFutureLegacy() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-state-future-'));
-  const home = path.join(dir, 'home');
-  const root = path.join(dir, 'project-a');
-  write(projectStatePath(root, home), JSON.stringify({
-    cwd: root,
-    ts: '2026-05-08T12:00:00Z',
-  }));
-  write(path.join(home, '.claude', 'pipeline-state.json'), JSON.stringify({
-    cwd: root,
-    ts: '2026-05-09T12:00:00Z',
-  }));
-  const checks = checkPipelineState(root, home, new Date('2026-05-08T12:00:00Z'));
-  assert.equal(checks[0].status, 'pass');
-  assert.equal(checks[1].status, 'warn');
-  assert.match(checks[1].title, /future/);
-}
-
-function testPipelineStateAcceptsClosedCyrillic() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-state-closed-'));
-  const home = path.join(dir, 'home');
-  const root = path.join(dir, 'project-a');
-  write(projectStatePath(root, home), JSON.stringify({
-    phase: 'closed',
-    closedAt: '2026-05-08T12:00:00Z',
-    note: 'Закрито після спринту',
-  }, null, 2));
-  const checks = checkPipelineState(root, home, new Date('2026-05-09T12:00:00Z'));
-  assert.equal(checks[0].status, 'pass');
-  assert.match(checks[0].title, /closed/);
-  const text = fs.readFileSync(projectStatePath(root, home), 'utf8');
-  assert.match(text, /Закрито після спринту/);
 }
 
 function testDoctorSkipsCodemapWithNoGraphify() {
@@ -631,55 +574,6 @@ function testHarnessChecklistCheck() {
   const stale = checkHarnessChecklist(root, now);
   assert.equal(stale[0].status, 'pass');
   assert.match(stale[0].detail, /25 pass/);
-}
-
-function testHarnessRunCheck() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-harness-run-'));
-  const now  = new Date('2026-05-30T12:00:00Z');
-
-  // missing → warn
-  const missing = checkHarnessRun(root, now);
-  assert.equal(missing[0].status, 'warn');
-  assert.equal(missing[0].id, 'harness:run');
-
-  // stale → warn
-  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-01T10:00:00Z',
-    runId: 'run-001', phase: 'linter', status: 'running',
-    summary: { status: 'running', phase: 'linter' },
-  }));
-  const stale = checkHarnessRun(root, now);
-  assert.equal(stale[0].status, 'warn');
-  assert.match(stale[0].title, /stale/i);
-
-  // stale complete history remains valid evidence
-  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-01T10:00:00Z',
-    runId: 'run-001', phase: 'complete', status: 'complete',
-    summary: { status: 'pass', phase: 'complete' },
-  }));
-  const staleComplete = checkHarnessRun(root, now);
-  assert.equal(staleComplete[0].status, 'pass');
-  assert.match(staleComplete[0].title, /history complete/i);
-
-  // running → pass (non-blocking)
-  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-30T11:00:00Z',
-    runId: 'run-001', phase: 'linter', status: 'running',
-    summary: { status: 'running', phase: 'linter' },
-  }));
-  const running = checkHarnessRun(root, now);
-  assert.equal(running[0].status, 'pass');
-
-  // complete → pass
-  write(path.join(root, '.planning', 'harness-run-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-30T11:30:00Z',
-    runId: 'run-001', phase: 'complete', status: 'complete',
-    summary: { status: 'pass', phase: 'complete' },
-  }));
-  const done = checkHarnessRun(root, now);
-  assert.equal(done[0].status, 'pass');
-  assert.match(done[0].title, /complete/i);
 }
 
 function testHarnessGlobalCheck() {
@@ -1264,9 +1158,6 @@ function main() {
   testParseArgs();
   testProjectKeyStable();
   testSkillFrontmatter();
-  testPipelineStateValidation();
-  testPipelineStateRejectsFutureLegacy();
-  testPipelineStateAcceptsClosedCyrillic();
   testDoctorSkipsCodemapWithNoGraphify();
   testCodeGraphStatusMissingDb();
   testCodeGraphStatusMockedGreenAndStale();
@@ -1284,7 +1175,6 @@ function main() {
   testAgentSkillsLockCheck();
   testAgentSkillsWrapperCheck();
   testHarnessChecklistCheck();
-  testHarnessRunCheck();
   testHarnessGlobalCheck();
   testFleetCheck();
   testFleetWorkersCheck();

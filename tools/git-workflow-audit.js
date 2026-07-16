@@ -5,7 +5,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { normalizePath } = require('./pipeline-state');
+
+// ponytail: inlined from the retired pipeline-state module (spec 005 T019) — one-liner.
+function normalizePath(value) {
+  return path.resolve(value).replace(/\\/g, '/');
+}
 
 const GIT_WORKFLOW_AUDIT_TTL_MS = 24 * 60 * 60 * 1000;
 const PLANNING_DIR = '.planning';
