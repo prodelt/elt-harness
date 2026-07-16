@@ -347,6 +347,40 @@ function testCodexDefaultsWarnOnExpensiveRoute() {
   assert.equal(checkCodexDefaults(home)[0].status, 'pass');
 }
 
+// AC13: dangerous Codex default (danger-full-access + approval=never) must be a high-risk
+// signal; safe profile passes. The sandbox finding is the second element ([1]).
+function testCodexSandboxProfileSignal() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-codex-sandbox-'));
+  const home = path.join(dir, 'home');
+  const cfg = (lines) => write(path.join(home, '.codex', 'config.toml'), lines.join('\n') + '\n');
+  const sandboxOf = () => checkCodexDefaults(home).find((c) => c.id === 'codex:sandbox');
+
+  // safe default → pass
+  cfg(['model = "gpt-5.5"', 'sandbox_mode = "workspace-write"', 'approval_policy = "on-request"']);
+  assert.equal(sandboxOf().status, 'pass');
+
+  // high-risk: no sandbox AND no approvals → fail
+  cfg(['model = "gpt-5.5"', 'sandbox_mode = "danger-full-access"', 'approval_policy = "never"']);
+  const risky = sandboxOf();
+  assert.equal(risky.status, 'fail', 'danger-full-access + approval=never is high-risk');
+  assert.match(risky.title, /high-risk/i);
+
+  // full access but with approvals → warn (privileged but gated)
+  cfg(['model = "gpt-5.5"', 'sandbox_mode = "danger-full-access"', 'approval_policy = "on-request"']);
+  assert.equal(sandboxOf().status, 'warn');
+
+  // sandbox keys unset → pass (Codex built-in default is not danger-full-access)
+  cfg(['model = "gpt-5.5"']);
+  assert.equal(sandboxOf().status, 'pass');
+
+  // guard: doctor never writes config.toml — file content unchanged after checks
+  const contentBefore = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+  checkCodexDefaults(home);
+  assert.equal(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8'), contentBefore);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 function testAgentSurfaceAuditCheck() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-surface-'));
   const missing = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
@@ -1244,6 +1278,7 @@ function main() {
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
+  testCodexSandboxProfileSignal();
   testAgentSurfaceAuditCheck();
   testAgentSkillSupplyChainCheck();
   testAgentSkillsLockCheck();

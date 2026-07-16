@@ -285,20 +285,37 @@ function checkSettingsSecrets(root, home) {
   return [result('pass', 'settings:secrets', 'No secret-like settings entries detected', `${files.length} settings/config files scanned.`, '')];
 }
 
+// Codex sandbox/approval safety (spec 005 AC13). Reads only — never writes config.toml.
+// danger-full-access + approval=never = no sandbox AND no approvals → high-risk signal.
+function checkCodexSandbox(configText) {
+  const sandbox = (configText.match(/^\s*sandbox_mode\s*=\s*"([^"]+)"/m) || [])[1] || '';
+  const approval = (configText.match(/^\s*approval_policy\s*=\s*"([^"]+)"/m) || [])[1] || '';
+  const detail = `sandbox_mode=${sandbox || '<unset>'}, approval_policy=${approval || '<unset>'}`;
+  if (sandbox === 'danger-full-access' && approval === 'never') {
+    return result('fail', 'codex:sandbox', 'Codex runs with NO sandbox and NO approvals (high-risk)', detail,
+      'danger-full-access + approval=never is a privileged emergency profile, never a default — see docs/CODEX-PROFILES.md. Change ~/.codex/config.toml only after explicit confirmation.');
+  }
+  if (sandbox === 'danger-full-access') {
+    return result('warn', 'codex:sandbox', 'Codex sandbox disabled (full access)', detail,
+      'danger-full-access grants full disk/network access; keep it a scoped, temporary exception, not a default — see docs/CODEX-PROFILES.md.');
+  }
+  return result('pass', 'codex:sandbox', 'Codex sandbox profile OK', detail, '');
+}
+
 function checkCodexDefaults(home) {
   const file = path.join(home, '.codex', 'config.toml');
   const text = readText(file);
   if (!text.ok) {
-    return [result('warn', 'codex:defaults', 'Codex config missing', text.error, 'Create ~/.codex/config.toml with model and model_reasoning_effort defaults.')];
+    return [result('warn', 'codex:defaults', 'Codex config missing', text.error, 'Create ~/.codex/config.toml with model, effort and a safe sandbox profile — see docs/CODEX-PROFILES.md.')];
   }
   const model = (text.value.match(/^model\s*=\s*"([^"]+)"/m) || [])[1] || '';
   const effort = (text.value.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/m) || [])[1] || '';
   // gpt-5.5 is the current flagship — not considered expensive legacy
   const legacyExpensiveModel = model && !['gpt-5.5', 'gpt-4o', 'gpt-4.1'].includes(model) && /gpt-[34]/i.test(model) && model !== 'gpt-4o-mini';
-  if (legacyExpensiveModel) {
-    return [result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Consider upgrading to gpt-5.5 for best results.')];
-  }
-  return [result('pass', 'codex:defaults', 'Codex defaults OK', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '')];
+  const modelFinding = legacyExpensiveModel
+    ? result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Consider upgrading to gpt-5.5 for best results.')
+    : result('pass', 'codex:defaults', 'Codex defaults OK', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '');
+  return [modelFinding, checkCodexSandbox(text.value)];
 }
 
 function checkGraphify(root, enabled) {

@@ -90,7 +90,7 @@
   **Proof:** hash/mtime registry projects до/після dry-run незмінні; report totals reconcile до registry; missing paths не crash.  
   **Guard:** ніякого `apply-all` у цій спеці; rollout по одному pilot/domain batch у майбутньому. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js,.planning]`
 
-- [ ] **T017** Додати repo-документацію та doctor signal для Codex profiles: safe default і explicit privileged profile; небезпечне `danger-full-access + approval=never` позначати high-risk, але global config не змінювати автоматично.  
+- [X] **T017** Додати repo-документацію та doctor signal для Codex profiles: safe default і explicit privileged profile; небезпечне `danger-full-access + approval=never` позначати high-risk, але global config не змінювати автоматично.  
   **Docs/API:** `spec.md` §5.5, AC13; OpenAI sandboxing guidance; `checkCodexDefaults()`.  
   **Proof:** fixtures safe/risky/missing; doctor severity правильна; окремий manual smoke для Claude/Codex surface parity.  
   **Guard:** будь-яка реальна зміна `%USERPROFILE%/.codex/config.toml` — лише після нового явного підтвердження користувача. `[files:docs/CODEX-PROFILES.md,tools/doctor-core.js,tools/doctor.test.js]`
