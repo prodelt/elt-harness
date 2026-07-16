@@ -683,6 +683,13 @@ module.exports = {
   submitReview,
 };
 
+// ponytail: deprecated CLI (spec 005 T018). Exports stay live for existing importers;
+// file is removed in T019 after zero-caller proof.
 if (require.main === module) {
-  cliMain(process.argv.slice(2));
+  console.error(
+    'DEPRECATED: harness-runner.js is not an active route. Agent Harness v1 / Pipeline v3 is retired.\n' +
+    '  Code work: /elt (tools/elt.js) — oracle → judge proof → guarded commit\n' +
+    '  Migration & removal plan: specs/005-elt-control-plane-convergence/spec.md §9'
+  );
+  process.exit(1);
 }

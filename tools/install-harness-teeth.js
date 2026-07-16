@@ -10,6 +10,18 @@
 // machine-specific path is baked into the target. ponytail: copy + JSON merge,
 // no template engine, no per-repo edits.
 
+// ponytail: deprecated (spec 005 T018). judge-closeout-gate teeth are retired;
+// the ELT control plane installs its harness via project-bootstrap. Full file
+// removed in T020 — the body below is dead-on-invocation.
+if (require.main === module) {
+  console.error(
+    'DEPRECATED: install-harness-teeth.js is not an active route. The judge-closeout teeth are retired.\n' +
+    '  Project setup: node tools/project-bootstrap.js apply   Code work: /elt (tools/elt.js)\n' +
+    '  Migration & removal plan: specs/005-elt-control-plane-convergence/spec.md §9'
+  );
+  process.exit(1);
+}
+
 const fs = require('fs');
 const path = require('path');
 

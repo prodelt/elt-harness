@@ -1127,7 +1127,9 @@ function runDoctor(options) {
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
-    ...checkHarnessRun(root),
+    // ponytail: checkHarnessRun/checkPipelineState dropped from the report (spec 005 T018) —
+    // they WARN users toward retired routes (harness-gates run-gate, /pipeline). Functions
+    // and their unit tests stay until T019/T020 delete the legacy runtime they read.
     checkHarnessConfig(root),
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
@@ -1135,7 +1137,6 @@ function runDoctor(options) {
     ...checkFleetWorkers(root),
     ...checkSelfDriveInvariants(),
     ...checkGitHubCli(root),
-    ...checkPipelineState(root, home),
     ...checkRedTeam(root, home),
     ...checkLoopReady(home),
   ];

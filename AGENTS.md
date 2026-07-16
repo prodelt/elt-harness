@@ -4,7 +4,8 @@
 
 ## Метод работы (точка входа — `PLAYBOOK.md`)
 - **Карта — `PLAYBOOK.md`** (корень): какой скилл когда, когда команда агентов. Непонятно — сюда.
-- **Задача разработчика → `/elt-code`** (роутер). Автономная спек-драйвен петля → **`/elt-loop`**: следующая задача из `specs/*/tasks.md` → имплемент по конституции → тесты-оракул → self-heal → commit + `.planning/STATE.md`. Оракул = тесты, судья = advisory.
+- **Задача разработчика → `/elt`** (v2 — **единственный active code route**; `elt-code`/`elt-loop` = алиасы). Слайс закрыт ⇔ `elt commit` (оракул → авто-ветка → `[X]` → commit → run-log); судья sonnet обязателен. Автономно → драйвер `tools/elt-loop.ps1`; параллельно (≥3 [P]-слайсов) → fleet (experimental).
+- **⚠ Deprecated — не активные route.** Pipeline v3 / `/pipeline`, Agent Harness v1 (`harness-runner`/`harness-gates`/`pipeline-state`), `install-harness-teeth` — прямой запуск CLI падает с ошибкой. Миграция: `specs/005-elt-control-plane-convergence/spec.md §9`.
 - **Офисная задача (нетехнарь) → `/elt-work`**: office-скилы (`docx`/`xlsx`/`pptx`/`pdf`/`doc-coauthoring`/`internal-comms`) + бизнес-скилы; оракул = verify-чеклист.
 - **Эталонный/«мусорный» проект → `/project-bootstrap`** (идемпотентно: конституция + харнесс-зубы + codegraph-индекс + память-в-проект).
 - Качество per-project — **`/harness-method`** (guide → sensor → блокирующий gate → live-fire).
@@ -22,7 +23,7 @@
 
 ## Commands
 ```bash
-node tools/doctor.js       # health: docs/skills/git
+node tools/doctor.js       # health: docs/skills/git (+ fleet-воркеры, если проект их юзает)
 codegraph status .         # codegraph-индекс свежий?
 ```
 Полный список — `.planning/COMMANDS-REFERENCE.md`.
