@@ -85,7 +85,7 @@
   **Proof:** table-driven fixtures для всіх класів; text/JSON counts узгоджені; false-green fixture red.  
   **Guard:** docs/office проєкти не змушувати мати code tests; classification має бути явною. `[files:tools/doctor-core.js,tools/doctor.test.js]`
 
-- [ ] **T016** Додати fleet-wide bootstrap migration planner: read-only аналіз усього current registry, machine-readable per-project actions/risk/domain; жодних writes без окремого `apply --project` і user confirmation.  
+- [X] **T016** Додати fleet-wide bootstrap migration planner: read-only аналіз усього current registry, machine-readable per-project actions/risk/domain; жодних writes без окремого `apply --project` і user confirmation.  
   **Docs/API:** `spec.md` AC12; registry з project-docs/doctor; canonical plan T008.  
   **Proof:** hash/mtime registry projects до/після dry-run незмінні; report totals reconcile до registry; missing paths не crash.  
   **Guard:** ніякого `apply-all` у цій спеці; rollout по одному pilot/domain batch у майбутньому. `[files:tools/project-bootstrap.js,tools/project-bootstrap.test.js,.planning]`

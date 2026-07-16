@@ -13,6 +13,7 @@ const {
   classifyKind,
   detectStack,
   inspectProject,
+  migrationPlan,
   planTargetState,
   run: runBootstrap,
   scanProject,
@@ -442,6 +443,74 @@ function testVerifyCliJsonAndTextExitCodesMatch() {
   assert.deepEqual(JSON.parse(jsonPass.stdout).ok, true);
 }
 
+// AC12: read-only migration planner for the whole registry.
+function buildRegistry() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bootstrap-migration-'));
+  const home = path.join(dir, 'home');
+  const codeProj = path.join(dir, 'code-proj');
+  fs.mkdirSync(codeProj, { recursive: true });
+  fs.writeFileSync(path.join(codeProj, 'package.json'), '{"name":"c"}', 'utf8');
+  const docsProj = path.join(dir, 'docs-proj');
+  fs.mkdirSync(docsProj, { recursive: true });
+  fs.writeFileSync(path.join(docsProj, 'notes.md'), '# notes\n', 'utf8');
+  const unknownProj = path.join(dir, 'unknown-proj');
+  fs.mkdirSync(unknownProj, { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({
+    version: 1,
+    projects: {
+      c: { key: 'c', name: 'code-proj', path: codeProj },
+      d: { key: 'd', name: 'docs-proj', path: docsProj },
+      u: { key: 'u', name: 'unknown-proj', path: unknownProj },
+      g: { key: 'g', name: 'gone', path: path.join(dir, 'gone') },
+    },
+  }), 'utf8');
+  return { dir, home, codeProj, docsProj, unknownProj };
+}
+
+function testMigrationPlanIsReadOnlyReconcilesAndSurvivesMissingPaths() {
+  const { dir, home, codeProj, docsProj, unknownProj } = buildRegistry();
+  const before = [codeProj, docsProj, unknownProj].map(hashTree);
+  const report = migrationPlan(home);
+  const after = [codeProj, docsProj, unknownProj].map(hashTree);
+
+  assert.deepEqual(after, before, 'dry-run must not modify any registry project');
+  assert.equal(report.dryRun, true);
+  assert.equal(report.scanned, 4, 'totals reconcile to registry entry count');
+  assert.equal(report.projects.length, 4);
+  assert.equal(Object.values(report.totals.byDomain).reduce((a, b) => a + b, 0), 4);
+  assert.equal(Object.values(report.totals.byRisk).reduce((a, b) => a + b, 0), 4);
+
+  const byKey = Object.fromEntries(report.projects.map((p) => [p.key, p]));
+  assert.equal(byKey.g.domain, 'missing', 'missing path handled, not crashed');
+  assert.equal(byKey.g.risk, 'missing');
+  assert.equal(byKey.c.domain, 'code');
+  assert.equal(byKey.c.risk, 'manual', 'code without oracle needs a human decision');
+  assert.ok(byKey.c.actions.includes('declare-oracle'));
+  assert.ok(byKey.c.actions.includes('sync-docs'));
+  assert.equal(byKey.d.domain, 'docs');
+  assert.equal(byKey.d.risk, 'safe');
+  assert.ok(!byKey.d.actions.includes('install-gate'), 'docs project never gets a code gate action');
+  assert.equal(byKey.u.domain, 'unknown');
+  assert.equal(byKey.u.risk, 'review');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function testMigrationPlanCliDryRunTouchesNothing() {
+  const { dir, home, codeProj, docsProj } = buildRegistry();
+  const before = [codeProj, docsProj].map(hashTree);
+  const completed = runCli(['migration-plan', '--home', home, '--json']);
+  const after = [codeProj, docsProj].map(hashTree);
+  assert.equal(completed.status, 0, 'read-only plan exits 0');
+  assert.deepEqual(after, before, 'CLI dry-run writes nothing');
+  const report = JSON.parse(completed.stdout);
+  assert.equal(report.kind, 'project-bootstrap-migration-plan');
+  assert.equal(report.dryRun, true);
+  assert.equal(report.scanned, 4);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
   testApplyCreatesOnlySafeInfrastructure();
@@ -474,6 +543,8 @@ function main() {
   testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult();
   testCliVerifyCommandRunsAndReportsFailClosed();
   testVerifyCliJsonAndTextExitCodesMatch();
+  testMigrationPlanIsReadOnlyReconcilesAndSurvivesMissingPaths();
+  testMigrationPlanCliDryRunTouchesNothing();
   process.stdout.write('project-bootstrap tests: PASS\n');
 }
 

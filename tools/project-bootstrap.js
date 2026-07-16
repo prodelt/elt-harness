@@ -262,6 +262,52 @@ function verifyProject(root, options = {}) {
   };
 }
 
+// Read-only migration planner for the whole registry (spec 005 AC12). Never writes:
+// per-project it reaches for the same read-only planTargetState (T008) the canonical
+// apply is built on, so a dry-run leaves every project byte-identical. Emits a
+// machine-readable plan (domain + actions + risk). Rollout stays per-project: apply is
+// only run via `project-bootstrap apply --root <path>` after review — no apply-all here.
+function planProjectMigration(entry, options = {}) {
+  const root = entry.path;
+  if (!root || !fs.existsSync(root)) {
+    return { key: entry.key, name: entry.name, path: root || null, domain: 'missing', risk: 'missing', actions: [], reason: 'registry path does not exist' };
+  }
+  const plan = planTargetState(root, options);
+  const kind = plan.classification.kind;
+  const actions = [];
+  if (!(plan.existing.docs.ok && plan.existing.docs.coreIdentical)) actions.push('sync-docs');
+  if (!fs.existsSync(path.join(root, '.planning', 'STATE.md'))) actions.push('create-state');
+  if (kind === 'code' && !plan.decisions.gitGate.managed) actions.push('install-gate');
+  const needsManualOracle = kind === 'code' && plan.decisions.oracle.source !== 'existing';
+  if (needsManualOracle) actions.push('declare-oracle');
+  const risk = kind === 'unknown' ? 'review'
+    : needsManualOracle ? 'manual'
+      : actions.length === 0 ? 'none' : 'safe';
+  return { key: entry.key, name: entry.name, path: plan.root, domain: kind, risk, actions };
+}
+
+function migrationPlan(home, options = {}) {
+  const resolvedHome = path.resolve(home || require('node:os').homedir());
+  const registryFile = path.join(resolvedHome, '.claude', 'projects-registry.json');
+  const registry = readJson(registryFile);
+  const projects = registry.ok && registry.value && registry.value.projects ? Object.values(registry.value.projects) : [];
+  const rows = projects.map((entry) => planProjectMigration(entry, options));
+  const totals = rows.reduce((acc, row) => {
+    acc.byDomain[row.domain] = (acc.byDomain[row.domain] || 0) + 1;
+    acc.byRisk[row.risk] = (acc.byRisk[row.risk] || 0) + 1;
+    return acc;
+  }, { byDomain: {}, byRisk: {} });
+  return {
+    kind: 'project-bootstrap-migration-plan',
+    dryRun: true,
+    registry: registryFile,
+    scanned: rows.length,
+    totals,
+    projects: rows,
+    note: 'read-only — no project modified; apply per project with `project-bootstrap apply --root <path>` after review (no apply-all)',
+  };
+}
+
 function detectStack(root) {
   const packageJson = path.join(root, 'package.json');
   if (!fs.existsSync(packageJson)) return { name: 'unknown', confidence: 'low' };
@@ -434,7 +480,7 @@ function applySafeActions(root, options = {}) {
 }
 
 function parseArgs(argv) {
-  const command = ['inspect', 'plan', 'apply', 'verify'].includes(argv[2]) ? argv[2] : null;
+  const command = ['inspect', 'plan', 'apply', 'verify', 'migration-plan'].includes(argv[2]) ? argv[2] : null;
   const defaults = { command, root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true, codegraph: false };
   const parseNext = (index, state) => {
     if (index >= argv.length) return state;
@@ -455,6 +501,7 @@ function run(options) {
   if (options.command === 'plan') return planTargetState(options.root, options);
   if (options.command === 'apply') return applyPlan(options.root, options);
   if (options.command === 'verify') return verifyProject(options.root, options);
+  if (options.command === 'migration-plan') return migrationPlan(options.home, options);
   return options.apply ? applySafeActions(options.root, options) : scanProject(options.root, options);
 }
 
@@ -463,6 +510,7 @@ const TEXT_SUMMARY = {
   plan: (report) => `project-bootstrap-plan: ${report.classification.kind}`,
   apply: (report) => `project-bootstrap-apply: ${report.changes.length} changes, ${report.blocked.length} blocked`,
   verify: (report) => `project-bootstrap-verify: ${report.ok ? 'PASS' : 'FAIL'} (${report.classification.kind})`,
+  'migration-plan': (report) => `project-bootstrap-migration-plan: ${report.scanned} projects — ${Object.entries(report.totals.byRisk).map(([r, n]) => `${r}=${n}`).join(' ')}`,
 };
 
 function main() {
@@ -474,6 +522,7 @@ function main() {
     : `${options.command ? TEXT_SUMMARY[options.command](report) : legacySummary().trimEnd()}\n`);
   if (options.command === 'inspect') { if (!report.harness.ok) process.exitCode = 1; return; }
   if (options.command === 'plan') return;
+  if (options.command === 'migration-plan') return;
   if (options.command === 'apply') { if (report.blocked.length > 0) process.exitCode = 1; return; }
   if (options.command === 'verify') { if (!report.ok) process.exitCode = 1; return; }
   const checks = report.after ? report.after.checks : report.checks;
@@ -489,6 +538,8 @@ module.exports = {
   controlPlaneStatus,
   detectStack,
   inspectProject,
+  migrationPlan,
+  planProjectMigration,
   planTargetState,
   recommendedProbes,
   run,
