@@ -290,6 +290,50 @@ function testApplyPlanDoesNotBlockWhenHarnessAlreadyValid() {
   assert.equal(report.blocked.length, 0);
 }
 
+function testApplyPlanFillsInMissingApprovalDefaultsOnExistingHarness() {
+  const root = tempProject();
+  validHarness(root); // no specApproval/ctx7Gate — the pre-006 shape
+  const report = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.ok(report.changes.some((c) => c.id === 'harness-approval-fields' && c.added.includes('specApproval') && c.added.includes('ctx7Gate')));
+  const written = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
+  assert.equal(written.specApproval, true);
+  assert.equal(written.ctx7Gate, 'warn');
+  assert.equal(written.oracle, 'npm test', 'apply must not touch unrelated existing fields');
+
+  const second = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.equal(second.changes.some((c) => c.id === 'harness-approval-fields'), false, 'idempotent: no re-patch once fields exist');
+}
+
+function testApplyPlanNeverOverridesExplicitApprovalChoice() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'npm test', judge: { enabled: true, model: 'sonnet' },
+    specApproval: false, ctx7Gate: 'off',
+  }, null, 2), 'utf8');
+  applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  const written = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
+  assert.equal(written.specApproval, false, 'explicit opt-out must survive apply');
+  assert.equal(written.ctx7Gate, 'off', 'explicit ctx7Gate choice must survive apply');
+}
+
+function testVerifyReportsApprovalGateSignalWithoutGatingOverallResult() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root); // still no specApproval/ctx7Gate
+  const report = verifyProject(root, { supplyChain: false });
+  assert.equal(report.signals.approvalGate.ok, false);
+  assert.equal(report.signals.approvalGate.specApproval, false);
+  assert.equal(report.signals.approvalGate.ctx7Gate, null);
+  assert.equal(report.ok, true, 'approvalGate is a signal, not a gating contract');
+
+  applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) }); // now patches defaults in
+  const after = verifyProject(root, { supplyChain: false });
+  assert.equal(after.signals.approvalGate.ok, true);
+  assert.equal(after.signals.approvalGate.ctx7Gate, 'warn');
+}
+
 function testApplyPlanSkipsGitGateForNonCodeKind() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-docs-'));
   fs.writeFileSync(path.join(root, 'README.md'), '# demo\n', 'utf8');
@@ -528,6 +572,9 @@ function main() {
   testApplyPlanKeepsProtectedBlocksAndUserFilesByteIdentical();
   testApplyPlanBlocksHarnessWithoutInventingOracle();
   testApplyPlanDoesNotBlockWhenHarnessAlreadyValid();
+  testApplyPlanFillsInMissingApprovalDefaultsOnExistingHarness();
+  testApplyPlanNeverOverridesExplicitApprovalChoice();
+  testVerifyReportsApprovalGateSignalWithoutGatingOverallResult();
   testApplyPlanSkipsGitGateForNonCodeKind();
   testCliApplyCommandRuns();
   testVerifyIsReadOnly();
