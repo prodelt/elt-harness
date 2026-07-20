@@ -9,6 +9,17 @@ const { after, test } = require('node:test');
 
 const ELT = path.join(__dirname, 'elt.js');
 const roots = [];
+// approve now runs `spec lint` first (006 T003) — the fixture spec.md needs all
+// required sections or approve fails closed before writing approval.json.
+const FIXTURE_SPEC_MD = [
+  '# fixture spec', '',
+  '## Проблема', 'test', '',
+  '## Решения', 'test', '',
+  '## User stories', 'test', '',
+  '## Критерии приёмки', 'test', '',
+  '## Риски', 'test', '',
+  '## Вне scope', 'test', '',
+].join('\n');
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -26,7 +37,7 @@ function fixture() {
   git(root, ['config', 'user.email', 'test@example.com']);
   git(root, ['config', 'user.name', 'Test']);
   fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'spec.md'), '# fixture spec\n');
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'spec.md'), FIXTURE_SPEC_MD);
   fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** first\n');
   git(root, ['add', '-A']);
   git(root, ['commit', '-qm', 'seed']);
