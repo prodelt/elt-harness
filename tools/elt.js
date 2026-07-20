@@ -162,6 +162,18 @@ function specApprovalStatus(specDir) {
   }
   return { status: 'approved', approvedAt: approval.approvedAt, ...hashes };
 }
+// 006 T002: entry gate. specDir here is the plan actually in play for the
+// caller (slice next's auto-selected plan, or the specific task's own spec
+// dir for commit) — NOT always findTasks()'s first-open plan, so a task from
+// a later spec (e.g. 006 while 005 still has open boxes) is judged by ITS OWN
+// approval, not an unrelated plan's.
+function specApprovalGateFor(cfg, specDir) {
+  if (!cfg.specApproval || !specDir) return { blocked: false };
+  if (!fs.existsSync(path.join(specDir, 'spec.md'))) return { blocked: false }; // micro-plan: gate doesn't apply
+  const status = specApprovalStatus(specDir);
+  if (status.status === 'approved') return { blocked: false };
+  return { blocked: true, status: status.status, specDir };
+}
 function headSha() {
   return git(['rev-parse', 'HEAD']).out;
 }
@@ -310,6 +322,23 @@ if (cmd === 'status') {
 
 if (cmd === 'slice' && sub === 'next') {
   const t = findTasks();
+  if (t && fs.existsSync(CONFIG)) {
+    // Lenient read on purpose: `slice next` never required a fully-valid
+    // harness.json before (only `commit`/`oracle` do), and specApproval is an
+    // opt-in extra field — a config that's otherwise minimal/invalid (e.g. the
+    // self-heal watchdog's {oracle, shell} fixture, no kind/judge) must still
+    // work exactly as before. Only a config that parses AND opts in can gate.
+    let rawCfg;
+    try { rawCfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8')); } catch { rawCfg = null; }
+    const gate = rawCfg ? specApprovalGateFor(rawCfg, path.dirname(t.file)) : { blocked: false };
+    if (gate.blocked) {
+      if (flag('--skip-approval')) {
+        console.error(`elt slice next: --skip-approval (спека не утверждена: ${gate.status}, ${path.relative(cwd, gate.specDir)})`);
+      } else {
+        die(`спека не утверждена: elt spec approve (status: ${gate.status}, ${path.relative(cwd, gate.specDir)})`, 4);
+      }
+    }
+  }
   const next = t && t.open[0];
   if (flag('--json')) { console.log(JSON.stringify(next || null)); process.exit(next ? 0 : 3); }
   if (!next) { console.log('план закрыт: открытых [ ] задач нет'); process.exit(3); }
@@ -449,6 +478,8 @@ if (cmd === 'commit') {
 
   // 1. oracle is the gate (driver that just ran it passes --skip-oracle —
   // but the claim is verified, not trusted blindly: F-P1-2 trust-hole).
+  // Runs (and, on failure, logs red-stop) regardless of --task — a red oracle
+  // must never go silent just because --task was also missing.
   let oracleExit = 0;
   let skipTrusted = false;
   if (flag('--skip-oracle')) {
@@ -467,6 +498,26 @@ if (cmd === 'commit') {
   }
 
   if (!taskId) die('elt commit: --task Txxx is required for a code commit', 4);
+
+  // 006 T002: approval gate, evaluated against the TASK'S OWN spec dir (not
+  // whatever findTasks() would auto-select) — otherwise a task from a later
+  // spec while an earlier one still has open boxes could never be gated (or
+  // never be committable at all).
+  let approvalSkipped = false;
+  {
+    const binding = findTaskBinding(taskId);
+    const specDir = binding ? path.dirname(path.join(cwd, binding.specPath)) : null;
+    const gate = specApprovalGateFor(cfg, specDir);
+    if (gate.blocked) {
+      if (flag('--skip-approval')) {
+        approvalSkipped = true;
+        console.error(`elt commit: --skip-approval (спека не утверждена: ${gate.status}, ${path.relative(cwd, gate.specDir)})`);
+      } else {
+        die(`спека не утверждена: elt spec approve (status: ${gate.status}, ${path.relative(cwd, gate.specDir)})`, 4);
+      }
+    }
+  }
+
   const judge = validateJudgeProof({ taskId });
   if (!judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
   // Captured now, BEFORE markDone() edits tasks.md and shifts treeHash — the
@@ -500,7 +551,7 @@ if (cmd === 'commit') {
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
 
-  appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict: judge.proof.verdict, msg });
+  appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}) });
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {
