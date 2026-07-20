@@ -152,6 +152,18 @@ function readSpecHashes(specDir) {
 function readApproval(specDir) {
   try { return JSON.parse(fs.readFileSync(specPaths(specDir).approvalJson, 'utf8')); } catch { return null; }
 }
+// 006 T003: spec.md completeness — required H2 sections present (prefix match,
+// since headings carry extra context, e.g. "## Вне scope (кандидаты в 007)").
+const SPEC_REQUIRED_SECTIONS = ['Проблема', 'Решения', 'User stories', 'Критерии приёмки', 'Риски', 'Вне scope'];
+function specLint(specDir) {
+  const { specMd } = specPaths(specDir);
+  if (!fs.existsSync(specMd)) return { ok: false, missing: SPEC_REQUIRED_SECTIONS.slice(), reason: 'spec.md-missing' };
+  const headings = fs.readFileSync(specMd, 'utf8').split(/\r?\n/)
+    .filter((line) => /^##\s+/.test(line))
+    .map((line) => line.replace(/^##\s+/, '').trim());
+  const missing = SPEC_REQUIRED_SECTIONS.filter((req) => !headings.some((h) => h.startsWith(req)));
+  return { ok: missing.length === 0, missing };
+}
 function specApprovalStatus(specDir) {
   const hashes = readSpecHashes(specDir);
   if (hashes.error) return { status: 'error', reason: hashes.error };
@@ -384,7 +396,16 @@ if (cmd === 'spec') {
   const specDir = resolveSpecDir();
   if (!specDir) die('elt spec: не найден specs/*/tasks.md (укажи --spec specs/NNN-slug)', 4);
 
+  if (sub === 'lint') {
+    const result = specLint(specDir);
+    if (!result.ok) die(`elt spec lint: не хватает секций — ${result.missing.join(', ')}`, 4);
+    console.log(`elt spec lint: ok (${path.relative(cwd, specDir)})`);
+    process.exit(0);
+  }
+
   if (sub === 'approve') {
+    const lint = specLint(specDir);
+    if (!lint.ok) die(`elt spec approve: lint не прошёл — не хватает секций: ${lint.missing.join(', ')}`, 4);
     const hashes = readSpecHashes(specDir);
     if (hashes.error) die(`elt spec approve: ${hashes.error} в ${path.relative(cwd, specDir)}`, 4);
     const { approvalJson } = specPaths(specDir);
@@ -407,7 +428,7 @@ if (cmd === 'spec') {
     process.exit(result.status === 'approved' ? 0 : (result.status === 'error' ? 4 : 1));
   }
 
-  die('elt spec approve [--spec specs/NNN-slug] | status [--spec specs/NNN-slug]');
+  die('elt spec approve [--spec specs/NNN-slug] | status [--spec specs/NNN-slug] | lint [--spec specs/NNN-slug]');
 }
 
 if (cmd === 'checkpoint') {
@@ -568,6 +589,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt slice next [--json]                                   следующая [ ] задача (exit 3 = план закрыт)
   elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
+  elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt oracle                                                прогнать оракул, exit-код = истина
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
   elt commit --task Txxx [--keep-task-open] [-m msg] [--skip-oracle] [--push]

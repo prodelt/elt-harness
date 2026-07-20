@@ -10,6 +10,16 @@ const { after, test } = require('node:test');
 const ELT = path.join(__dirname, 'elt.js');
 const SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
 const roots = [];
+// approve now runs `spec lint` first (006 T003) — needs all required sections.
+const FIXTURE_SPEC_MD = [
+  '# fixture spec', '',
+  '## Проблема', 'test', '',
+  '## Решения', 'test', '',
+  '## User stories', 'test', '',
+  '## Критерии приёмки', 'test', '',
+  '## Риски', 'test', '',
+  '## Вне scope', 'test', '',
+].join('\n');
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -35,7 +45,7 @@ function fixture({ specApproval = true, withSpecMd = true } = {}) {
   fs.mkdirSync(path.join(root, '.harness'));
   fs.writeFileSync(path.join(root, '.harness', 'harness.json'), harness(specApproval));
   fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
-  if (withSpecMd) fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'spec.md'), '# fixture spec\n');
+  if (withSpecMd) fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'spec.md'), FIXTURE_SPEC_MD);
   fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** first\n');
   git(root, ['add', '-A']);
   git(root, ['commit', '-qm', 'seed']);
