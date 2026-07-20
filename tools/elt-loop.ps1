@@ -77,7 +77,23 @@ $start = Get-Date
 $done = 0
 $committed = 0
 try {
+  # 0. pre-run approval guard (006 T004, opt-in via harness.json
+  # specApproval:true) — громкий стоп ДО первого слайса вместо тихого
+  # "elt slice next вернул 4" внутри цикла (T002's per-task gate).
+  # env var, not a positional arg: PS5.1 silently DROPS an empty-string ("")
+  # positional when marshalling argv to a native exe (node.exe) — passing
+  # $Project "" $eltCli here would shift $eltCli into the specDir slot and
+  # silently no-op the whole guard (found live: unapproved fixture, exit 0).
+  $env:ELT_CLI = $eltCli
+  & node (Join-Path $PSScriptRoot "approval-guard.js") $Project
+  $approvalOk = ($LASTEXITCODE -eq 0)
+  if (-not $approvalOk) {
+    Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $null; result = "approval-guard-stop" }
+    Write-Host "elt-loop: спека не утверждена — СТОП (см. вывод approval-guard выше)."
+  }
+
   for ($i = 1; $i -le $Slices; $i++) {
+    if (-not $approvalOk) { break }
 
     # 1. kill-switch + budget
     if (Test-Path $stopFile) { Write-Host "elt-loop: STOP-файл найден — стоп."; break }

@@ -23,7 +23,10 @@
 `C:\Ametrin projects\Ametrin web ecosystem 3` (AWE3) — Rust+Node, spec-kit стоит, `justfile` оракул, husky-зубы (live-fire 2026-06-19), `specs/001-service-aggregator-platform/tasks.md` = источник слайсов.
 
 ## Текущий фокус
-**ELT Control Plane Convergence (`specs/005-elt-control-plane-convergence`) — roadmap затверджено, 0/23 слайсів реалізовано.** Наступний слайс: **T001** (fail-closed harness config validator). Реалізацію почати в новому чаті; resume: `.planning/CHECKPOINT-2026-07-15-elt-control-plane-roadmap-approved.md`. Fleet не запускати до T021; legacy не видаляти до zero-caller proof.
+**006 ELT Front Gate (`specs/006-elt-front-gate`) — T001-T003 ЗАКРЫТЫ (approve-гейт + spec lint), T004 (pre-run approval-гейт для elt-loop.ps1/fleet) в работе, НЕ закоммичено.** Найден и почин­ен PS5.1 argv-баг (пустая строка молча роняется при marshalling в node.exe — гейт был no-op), фикс ждёт живой smoke-перепроверки. Resume: `.planning/CHECKPOINT-2026-07-20-006-T001-T004-inprogress.md`. Дальше T005-T018 тем же ритмом (implement → оракул → sonnet-судья → commit).
+
+### (архив фокуса) ELT Control Plane Convergence
+`specs/005-elt-control-plane-convergence` — T001-T020 закрыты, T021 (Fleet ledger) код-фиче доступна, T022/T023 внешние блокеры (paid API A/B + pilot approval). Resume при возврате: `.planning/CHECKPOINT-2026-07-16-T019-T020-closed-resume-T021.md`.
 
 ### (архив фокуса) AWE3-демо
 US1 (MVP, T020-T035) и **US2 (Phase 4, T036-T045) ОБЕ ЗАКРЫТЫ** — чекпоинт tasks.md
