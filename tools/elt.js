@@ -125,6 +125,43 @@ function oracleProofPath() {
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
+
+// ── spec approve (006 T001): mechanical signature over spec.md + tasks.md ──────
+// Same shape as judge-proof above — a hash-bound file next to the plan, not a
+// prose "I approved this" — so `elt spec status` can tell "signed" apart from
+// "signed, then someone edited the spec" (stale) without re-asking the user.
+function resolveSpecDir() {
+  const specArg = opt('--spec');
+  if (specArg) return path.isAbsolute(specArg) ? specArg : path.join(cwd, specArg);
+  const t = findTasks();
+  return t ? path.dirname(t.file) : null;
+}
+function specPaths(specDir) {
+  return {
+    specMd: path.join(specDir, 'spec.md'),
+    tasksMd: path.join(specDir, 'tasks.md'),
+    approvalJson: path.join(specDir, 'approval.json'),
+  };
+}
+function readSpecHashes(specDir) {
+  const { specMd, tasksMd } = specPaths(specDir);
+  if (!fs.existsSync(specMd)) return { error: 'spec.md-missing' };
+  if (!fs.existsSync(tasksMd)) return { error: 'tasks.md-missing' };
+  return { specHash: sha256(fs.readFileSync(specMd)), tasksHash: sha256(fs.readFileSync(tasksMd)) };
+}
+function readApproval(specDir) {
+  try { return JSON.parse(fs.readFileSync(specPaths(specDir).approvalJson, 'utf8')); } catch { return null; }
+}
+function specApprovalStatus(specDir) {
+  const hashes = readSpecHashes(specDir);
+  if (hashes.error) return { status: 'error', reason: hashes.error };
+  const approval = readApproval(specDir);
+  if (!approval) return { status: 'unapproved', ...hashes };
+  if (approval.specHash !== hashes.specHash || approval.tasksHash !== hashes.tasksHash) {
+    return { status: 'stale', approvedAt: approval.approvedAt, ...hashes };
+  }
+  return { status: 'approved', approvedAt: approval.approvedAt, ...hashes };
+}
 function headSha() {
   return git(['rev-parse', 'HEAD']).out;
 }
@@ -314,6 +351,36 @@ if (cmd === 'judge-proof') {
   die('elt judge-proof read | write --task Txxx --verdict pass|block|dead --model <model> | validate --task Txxx');
 }
 
+if (cmd === 'spec') {
+  const specDir = resolveSpecDir();
+  if (!specDir) die('elt spec: не найден specs/*/tasks.md (укажи --spec specs/NNN-slug)', 4);
+
+  if (sub === 'approve') {
+    const hashes = readSpecHashes(specDir);
+    if (hashes.error) die(`elt spec approve: ${hashes.error} в ${path.relative(cwd, specDir)}`, 4);
+    const { approvalJson } = specPaths(specDir);
+    const existing = readApproval(specDir);
+    if (existing && existing.specHash === hashes.specHash && existing.tasksHash === hashes.tasksHash) {
+      console.error(`elt spec approve: уже утверждена (${existing.approvedAt}) — без изменений`);
+      console.log(JSON.stringify(existing, null, 2));
+      process.exit(0);
+    }
+    const approval = { approvedAt: new Date().toISOString(), specHash: hashes.specHash, tasksHash: hashes.tasksHash };
+    fs.writeFileSync(approvalJson, JSON.stringify(approval, null, 2) + '\n');
+    console.error(`elt spec approve: ${path.relative(cwd, approvalJson)}`);
+    console.log(JSON.stringify(approval, null, 2));
+    process.exit(0);
+  }
+
+  if (sub === 'status') {
+    const result = specApprovalStatus(specDir);
+    console.log(JSON.stringify({ spec: path.relative(cwd, specDir).split(path.sep).join('/'), ...result }, null, 2));
+    process.exit(result.status === 'approved' ? 0 : (result.status === 'error' ? 4 : 1));
+  }
+
+  die('elt spec approve [--spec specs/NNN-slug] | status [--spec specs/NNN-slug]');
+}
+
 if (cmd === 'checkpoint') {
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
   const files = changedFiles();
@@ -448,6 +515,8 @@ console.log(`elt — ядро ELT v2 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt status                                                git + план + последний прогон
   elt slice next [--json]                                   следующая [ ] задача (exit 3 = план закрыт)
+  elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
+  elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt oracle                                                прогнать оракул, exit-код = истина
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
   elt commit --task Txxx [--keep-task-open] [-m msg] [--skip-oracle] [--push]
