@@ -8,5 +8,6 @@
     "enabled": true,
     "model": "sonnet"
   },
-  "codegraphGuard": true
+  "codegraphGuard": true,
+  "specApproval": true
 }
