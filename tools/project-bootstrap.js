@@ -141,6 +141,25 @@ function applyPlan(root, options = {}) {
     changes.push({ id: 'git-gate', created: true });
   }
 
+  // 006 T005: patch missing specApproval/ctx7Gate defaults into an existing
+  // valid harness.json — never invents the whole file (oracle stays
+  // user-declared, see the `blocked` branch below), and never overrides an
+  // explicit user choice (only fills in keys that are absent).
+  if (plan.classification.kind === 'code' && plan.existing.harness.exists && plan.existing.harness.ok) {
+    const harnessPath = path.join(resolved, '.harness', 'harness.json');
+    let current = null;
+    try { current = JSON.parse(fs.readFileSync(harnessPath, 'utf8')); } catch { current = null; }
+    if (current) {
+      const added = [];
+      if (!('specApproval' in current)) { current.specApproval = true; added.push('specApproval'); }
+      if (!('ctx7Gate' in current)) { current.ctx7Gate = 'warn'; added.push('ctx7Gate'); }
+      if (added.length > 0) {
+        fs.writeFileSync(harnessPath, JSON.stringify(current, null, 2) + '\n');
+        changes.push({ id: 'harness-approval-fields', added });
+      }
+    }
+  }
+
   const blocked = [];
   if (plan.classification.kind === 'code' && plan.decisions.oracle.source !== 'existing') {
     blocked.push({ id: 'harness', reason: plan.decisions.oracle.reason });
@@ -187,6 +206,29 @@ function checkOracleVerifierContract(inspected) {
     return { ok: false, reason: `harness.json kind=${cfgKind} requires a non-empty ${label}` };
   }
   return { ok: true, kind: cfgKind, command: value };
+}
+
+// 006 T005: reported as a signal, not a gating contract — specApproval is an
+// opt-in gate (see elt.js specApprovalGateFor), so a project without it isn't
+// "broken", just not opted in yet. Doesn't affect verifyProject's overall `ok`.
+function checkApprovalContract(inspected) {
+  if (inspected.classification.kind !== 'code') {
+    return { ok: true, skipped: true, reason: 'kind is not code — specApproval/ctx7Gate not evaluated' };
+  }
+  if (!inspected.harness.ok || !inspected.harness.config) {
+    return { ok: false, reason: 'no valid harness config to read specApproval/ctx7Gate from' };
+  }
+  const cfg = inspected.harness.config;
+  const specApproval = cfg.specApproval === true;
+  const ctx7Gate = typeof cfg.ctx7Gate === 'string' && cfg.ctx7Gate.trim() !== '' ? cfg.ctx7Gate : null;
+  return {
+    ok: specApproval && ctx7Gate !== null,
+    specApproval,
+    ctx7Gate,
+    reason: specApproval && ctx7Gate !== null
+      ? 'specApproval and ctx7Gate configured'
+      : 'specApproval/ctx7Gate missing — run project-bootstrap apply to fill in defaults',
+  };
 }
 
 function checkGateContract(inspected) {
@@ -248,6 +290,7 @@ function verifyProject(root, options = {}) {
   const signals = {
     specReadiness: checkSpecReadiness(resolved),
     cleanTree: checkCleanTree(resolved),
+    approvalGate: checkApprovalContract(inspected),
   };
   return {
     kind: 'project-bootstrap-verify',
