@@ -18,6 +18,7 @@ const merge = require('./merge');
 const heal = require('./heal');
 const providers = require('./providers');
 const router = require('./router');
+const approvalGuard = require('../approval-guard');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 
@@ -186,6 +187,19 @@ async function run(opts = {}) {
   const maxAttempts = opts.maxAttempts || 3;
 
   const summary = { merged: [], failed: [], conflicts: [], requeued: [], abandoned: [], parked: [], stopped: false, stoppedReason: null };
+
+  // 006 T004: pre-run approval guard — fleet reads tasksPath directly (never
+  // goes through elt.js's slice-next/commit gate at all), so an unapproved
+  // spec would otherwise spawn workers on it undetected. Explicit specDir
+  // (fleet already knows tasksPath) — no auto-detection needed here.
+  const approval = approvalGuard.guard(cwd, path.dirname(tasksPath), ELT_CLI);
+  if (!approval.ok) {
+    emit(cwd, { event: 'stopped', reason: 'approval-guard', detail: approval.reason });
+    summary.stopped = true;
+    summary.stoppedReason = 'approval-guard';
+    return summary;
+  }
+
   const policy = router.loadPolicy(cwd);
   const routerState = router.makeState();
   const callTracker = router.makeCallTracker();

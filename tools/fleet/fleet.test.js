@@ -62,6 +62,29 @@ test('STOP-файл до старта → прогон не начинает б�
   assert.deepEqual(s.merged, []);
 });
 
+test('approval-guard (006 T004): unapproved spec + specApproval:true → прогон не начинает батчи', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-approval-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs', '001-fixture'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', '001-fixture', 'spec.md'), '# fixture\n');
+  fs.writeFileSync(path.join(repo, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T1** something [P] [files:a*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash',
+    branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, specApproval: true,
+  }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  let calls = 0;
+  const worker = async () => { calls++; };
+  const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', '001-fixture', 'tasks.md'), integration: 'main', workers: 1, worker });
+  assert.equal(s.stopped, true);
+  assert.equal(s.stoppedReason, 'approval-guard');
+  assert.equal(calls, 0, 'воркер не должен был вызваться — спека не утверждена');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
 test('resume-sweep снимает stale-claim мёртвого воркера на старте', async () => {
   // засеять claim с заведомо мёртвым pid
   fs.mkdirSync(path.join(REPO, '.harness', 'fleet', 'claims'), { recursive: true });
