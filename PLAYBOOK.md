@@ -12,6 +12,8 @@
 ## Золотой путь (дефолт на 90% задач)
 1. **Код (фича/баг/рефактор/продолжи) →** `/elt` (v2 — **единственный active code route**). Слайсы с механическими инвариантами:
    elt CLI (оракул → авто-ветка → commit → run-log), судья sonnet, dirty-exit-gate.
+   Крупная цель без плана: спека чанками юзеру → явное «утверждаю» → `elt spec approve` (при
+   `harness.json.specApproval:true` без этого `slice next`/`commit` откажут, exit 4).
    Автономно → драйвер `tools/elt-loop.ps1` (fresh `claude -p` на слайс).
    Параллельно (≥3 [P]-слайсов, disjoint `[files:]`) → **fleet** `tools/elt-fleet.ps1`
    (N воркеров claude/codex/agy в git worktree; гейт неизменен: оракул→судья→`elt commit`;
