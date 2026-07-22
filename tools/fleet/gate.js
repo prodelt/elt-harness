@@ -113,7 +113,7 @@ function loadRubric(cwd, tid, specFile = null) {
   return { spec: readRubricFile(dir, 'spec.md'), constitution: readRubricFile(dir, 'constitution.md') };
 }
 
-function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null) {
+function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null, externalDiffs = []) {
   const prevBlock = prevBlockReason
     ? `\nПРЕДЫДУЩАЯ попытка этого слайса уже была ЗАБЛОКИРОВАНА по причине: ${prevBlockReason}\nПроверь, устранена ли именно она в текущем диффе — не повторяй тот же вердикт вслепую.\n`
     : '';
@@ -121,6 +121,14 @@ function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric =
     ? `\n--- РУБРИКА scope (меряй scope creep против неё, не только против однострочной ЗАДАЧИ ниже) ---\n` +
       (rubric.spec ? `spec.md (${rubric.spec.path}):\n${rubric.spec.text}\n` : '') +
       (rubric.constitution ? `constitution.md (${rubric.constitution.path}):\n${rubric.constitution.text}\n` : '')
+    : '';
+  const externalSection = externalDiffs.length
+    ? externalDiffs.map((e) =>
+        `\n--- ВНЕШНИЙ РЕПО ${e.root} (вне worktree слайса, но в зоне [files:]) — git status --porcelain ---\n${e.status}\n` +
+        `--- ВНЕШНИЙ РЕПО ${e.root} — git diff HEAD ---\n${e.diff}\n`).join('') +
+      `\nЗона [files:] может указывать на путь ВНЕ этого репо (отдельный git, напр. \`~/.claude\`) — секции\n` +
+      `«ВНЕШНИЙ РЕПО» выше — реальная работа слайса, суди по НИМ ТОЖЕ, не только по диффу текущего репо;\n` +
+      `пустой дифф текущего репо при непустом внешнем — это НЕ повод для block.\n`
     : '';
   return `Ты — судья слайса в харнесс-петле. Стойка REJECT-default: одобряй ТОЛЬКО если слайс строго в границах задачи. Ищи scope creep, ослабленные/удалённые тесты, side-effects вне задачи, скрытые зависимости.
 
@@ -135,7 +143,7 @@ ${status}
 
 --- git diff HEAD ---
 ${diff}
-
+${externalSection}
 Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).`;
 }
 
@@ -153,6 +161,35 @@ function slurpDiff(cwd, cap = 12000) {
   return { diff: diff.length > cap ? diff.slice(0, cap) + '\n…(обрезано)…' : diff, status };
 }
 
+// Межрепо-слепота (006 T007 blocker): `[files:]` слайса может указывать на путь ВНЕ репо
+// worktree'а (напр. `~/.claude/skills/x/SKILL.md`, отдельный git от Pipeline Setupper) — тогда
+// `slurpDiff(cwd)` видит пустой/нерелевантный дифф и судья REJECT-default бьёт по реальной
+// работе. Находим git-корень каждого файла зоны; если он не совпадает с корнем cwd — это
+// внешний репо, чей дифф нужно тоже показать судье.
+function expandHome(p) {
+  return p.startsWith('~') ? path.join(os.homedir(), p.slice(1).replace(/^[\\/]/, '')) : p;
+}
+function gitRoot(dir) {
+  try { return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' }).trim().replace(/\//g, path.sep); }
+  catch { return null; }
+}
+function externalRepoRoots(cwd, files) {
+  const cwdRoot = gitRoot(cwd);
+  const roots = new Set();
+  for (const f of files) {
+    const abs = expandHome(f);
+    if (!path.isAbsolute(abs)) continue; // относительный путь = зона внутри cwd-репо
+    const dir = path.dirname(abs);
+    if (!fs.existsSync(dir)) continue;
+    const root = gitRoot(dir);
+    if (root && root !== cwdRoot) roots.add(root);
+  }
+  return [...roots];
+}
+function slurpExternalDiffs(cwd, files) {
+  return externalRepoRoots(cwd, files).map((root) => ({ root, ...slurpDiff(root) }));
+}
+
 // Прогнать судью. runOk=false = судья НЕ смог отработать (timeout/spawn-error/nonzero-exit/
 // пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
 // judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
@@ -160,7 +197,8 @@ function slurpDiff(cwd, cap = 12000) {
 async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
   const { diff, status } = slurpDiff(cwd);
   const rubric = loadRubric(cwd, tid, specFile);
-  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric);
+  const externalDiffs = slurpExternalDiffs(cwd, scopeFilesFromTask(taskText));
+  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs);
   const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
   if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false };
   // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
@@ -259,4 +297,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase };
+module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs };
