@@ -1,53 +1,21 @@
-# Checkpoint — 006 ELT Front Gate, приостановлено на T007 (2026-07-22)
+# Checkpoint (auto) — 2026-07-22
 
-## Что сделано в этой сессии
-- **T019 закрыт** (`a148655`): routing-фикс мульти-спек автономии — `elt slice next --spec specs/NNN-slug`
-  (обходит алфавитный скан `findTasks()`) + `elt-loop.ps1 -SpecDir <path>` пробрасывает `--spec`
-  в slice next и specDir в approval-guard.js. Регресс-тест в `tools/elt-approval-gate.test.js`.
-  Правка синхронна в `~/.claude/bin/elt.js` И `tools/elt.js` (побайтовое зеркало). Судья (sonnet) pass,
-  оракул 40/40. Причина: `elt-loop.ps1` до фикса ВСЕГДА резолвил алфавитно-первый
-  `specs/*/tasks.md` с открытыми `[ ]` — это `specs/005-...` (не утверждена, T021-T023 внешние
-  блокеры) — и блокировался на approval-гейте 005, даже стоя на ветке `feature/006-...`.
-- Драйвер перезапущен с `-SpecDir specs/006-elt-front-gate`, дошёл до T007, оракул зелёный (40/40).
+Автозаписан `checkpoint-writer.js` на пороге ~237k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
-## Почему остановлено (2 находки, обе требуют юзера)
+## Git
+- branch: `feature/006-elt-front-gate`
+- dirty files: 0
 
-**1. Судья не видит межрепо-правки.** T007/T008 (и весь Режим 0 skill-фазы 006) правят
-`~/.claude/skills/*/SKILL.md` — это ОТДЕЛЬНЫЙ git-репозиторий от `Pipeline Setupper`. Судья
-(`judge-invoke.js`) кормится только `git diff HEAD` ЭТОГО репо → структурно не видит правки в
-`~/.claude`, даже когда они реально сделаны (проверено: `skills/grill-me/SKILL.md` + codex/gemini
-зеркала обновлены в момент прогона T007). Судья корректно вынес `block` — «диф пустой под
-заявленную задачу» — но правки implementer'а реально существуют, просто невидимы.
-Файл частичной работы T007 (контракт-тест) убран в scratchpad, НЕ потерян:
-`.../scratchpad/T007-skills-frontgate-contract.test.js` (относительно session temp dir).
+## Last Run
+- commit: `a148655`
+- verdict: pass
+- oracle exit: 0
+- msg: feat: T019 Routing-фикс для мульти-спек автономии: `elt slice next --spec specs/NNN-slug` 
 
-**2. `~/.claude` git-репо — 200 незакоммиченных изменений**, из них 168 untracked — НЕ elt-файлы,
-а весь рантайм-каталог Claude Code (sessions/, telemetry/, cache/, `settings.local.json`,
-демон-ключи и т.д.) + 16 удалённых `agents/*.md` + 16 изменённых (`settings.json`, хуки,
-`CLAUDE.md`, `bin/elt.js` — это T019, ожидаемо). Похоже, `git init` был сделан в корне `~/.claude`
-без `.gitignore`, поэтому репо тащит вообще всё. Конвенция «правки ~/.claude коммитятся тем же
-слайсом» (шапка `specs/006-elt-front-gate/tasks.md`) механически никогда не проверялась — только
-ручной дисциплиной, судя по всему прерванной после T003 (6f584fc). **Юзер решил разобраться
-вручную** — я туда не лез (только read-only `status`/`log`), т.к. там потенциально чувствительные
-файлы (`settings.local.json`, ключи).
+## Next Slice
+- plan file: `specs\005-elt-control-plane-convergence\tasks.md`
+- open: 3 / done: 20
+- next: T021 Зробити Fleet ledger правдивим: кожен implement/heal/judge spawn має phase/provider/model/duration/exit; unavailable tokens/cost = `unknown`, aggregation не перетворює unknown на 0; hard budgets рахують calls до spawn.
 
-## Состояние репо Pipeline Setupper (это, не ~/.claude)
-- Ветка `feature/006-elt-front-gate`, HEAD `a148655`.
-- `specs/006-elt-front-gate/tasks.md`: T001-T006, T019 = `[X]`; **T007 НЕ закрыт** (blocked, не
-  закоммичен) — T008-T018 всё ещё открыты.
-- `.harness/fleet/logs/claude-2026-07-22T06-00-49-629Z-16632.log` — полная транскрипция T007
-  (implementer + judge block reasons), для разбора при возобновлении.
-
-## Resume Prompt (когда юзер разберётся с ~/.claude)
-Два пути, юзеру выбирать:
-- (a) Почистить/заново инициализировать `~/.claude` git-репо с нормальным `.gitignore` (только
-  `bin/`, `skills/`, `hooks/*.js` релевантные elt/harness файлы) — тогда судья по-прежнему смотрит
-  только `git diff HEAD` этого репо и НЕ увидит межрепо-правки; нужен ОТДЕЛЬНЫЙ фикс judge-invoke,
-  чтобы он также умел принять диф из второго репо (или T007/T008 нужно переформулировать так, чтобы
-  вся правка укладывалась в ОДИН репо — напр. кормить судью explicit diff обеих репо).
-- (b) Переформулировать T007/T008: судье подавать заранее собранный дифф `~/.claude` (через
-  `git -C ~/.claude diff HEAD -- skills/grill-me/`) явно в промпте, а не полагаться на
-  `judge-invoke.js`'s дефолтный `git diff HEAD` (который смотрит только на cwd-репо).
-- Возобновить: `/elt` на ветке `feature/006-elt-front-gate`, `elt slice next --spec
-  specs/006-elt-front-gate` → T007 (уже частично сделан — SKILL.md-правки в `~/.claude` живы на
-  диске, контракт-тест в scratchpad, нужно только заново прогнать судью с исправленным дифом).
+## Resume Prompt
+/elt continue — план `specs\005-elt-control-plane-convergence\tasks.md`, следующий слайс: T021 Зробити Fleet ledger правдивим: кожен implement/heal/judge spawn має phase/provider/model/duration/exit; unavailable tokens/cost = `unknown`, aggregation не перетворює unknown на 0; hard budgets рахують calls до spawn.
