@@ -45,7 +45,12 @@ const PROVIDERS = {
     'exec', '--sandbox', 'workspace-write', ...(model ? ['--model', model] : []),
     ...(lean ? ['--ignore-user-config'] : []),
   ],
-  agy: (model, prompt, cwd) => ['-p', prompt, '--add-dir', cwd, '--dangerously-skip-permissions', '--print-timeout', '5m', ...(model ? ['--model', model] : [])],
+  // agy: --print-timeout ПРОИЗВОДЕН от нашего timeoutMs, а не литерал. Живой прогон 007
+  // (2026-07-22): литеральные '5m' у agy и DEFAULT_TIMEOUT_MS были двумя независимыми
+  // лимитами — воркеры T001/T003 дописали код за 2.5 мин, но упали на «Error: timeout
+  // waiting for response», потому что agy сдавался по СВОЕМУ лимиту раньше, чем наш
+  // caller успевал что-то решить. Один источник правды: сколько дали мы, столько и agy.
+  agy: (model, prompt, cwd, lean, timeoutMs) => ['-p', prompt, '--add-dir', cwd, '--dangerously-skip-permissions', '--print-timeout', `${Math.max(1, Math.round(timeoutMs / 60000))}m`, ...(model ? ['--model', model] : [])],
 };
 
 // Баг #10 (T016 live-fire): судья зовётся с inline `--json-schema {…}` (JSON с кавычками).
@@ -128,7 +133,7 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
     // поддерживает --json-schema/--output-format (claude поддерживает, T016 live-fire).
     const argv = [
       ...bin.slice(1),
-      ...PROVIDERS[provider](resolvedModel, prompt, cwd, leanFlag),
+      ...PROVIDERS[provider](resolvedModel, prompt, cwd, leanFlag, timeoutMs),
       // T003 (004-elt-selfdrive): адаптивный эффорт. `claude --effort <level>` — headless-флаг
       // (подтв. `claude --help`, 2.1.207). Только claude: codex/agy своего эквивалента не имеют.
       // Проброс на месте (не в PROVIDERS.claude) — argv-строитель провайдера остаётся про модель/lean.

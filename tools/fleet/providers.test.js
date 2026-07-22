@@ -184,6 +184,19 @@ test('T003: --effort только для claude — codex/agy своего фл�
   assert.ok(!codex.argv.includes('--effort'), 'codex не поддерживает --effort → не прокидываем');
 });
 
+// --- Живой прогон 007 (2026-07-22): у agy свой --print-timeout был литералом '5m', наш
+// timeoutMs — независимой константой. Воркер дописал [M]-слайс за 2.5 мин, но agy сдался
+// по собственному лимиту и вернул «Error: timeout waiting for response» — готовая работа
+// выброшена. Лимит должен быть ОДИН: сколько дал caller, столько и agy. ---
+test('agy: --print-timeout производен от timeoutMs, а не литерал 5m', async () => {
+  const long = await spawnArgs('agy', { timeoutMs: 20 * 60 * 1000 });
+  const i = long.argv.indexOf('--print-timeout');
+  assert.ok(i >= 0, 'флаг на месте');
+  assert.equal(long.argv[i + 1], '20m', 'наш лимит 20 мин → agy получает 20m');
+  const short = await spawnArgs('agy', { timeoutMs: 3 * 60 * 1000 });
+  assert.equal(short.argv[short.argv.indexOf('--print-timeout') + 1], '3m', 'лимит меняется вместе с timeoutMs');
+});
+
 // --- T007 (004-elt-selfdrive): session-rotation (elt-drive.ps1) ---
 test('T007: sessionId → argv несёт --session-id <id> (claude); без sessionId флага нет', async () => {
   const withId = await spawnArgs('claude', { sessionId: 'abc-123' });
