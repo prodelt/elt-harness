@@ -7,6 +7,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const exec = require('./exec');
 const plan = require('./plan');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
@@ -41,13 +42,16 @@ function markDoneInFile(tasksPath, tid) {
   return true;
 }
 
-function runOracle(cwd, elt) {
-  const r = spawnSync('node', [elt, 'oracle'], { cwd, encoding: 'utf8' });
+// exec.run, НЕ spawnSync: интеграционный оракул — те же ~96с, и синхронный вызов вешал
+// event loop оркестратора (поллинг STOP не тикал, in-flight таймеры стояли) — см. exec.js.
+// git-команды ниже остаются синхронными намеренно: они миллисекундные.
+async function runOracle(cwd, elt) {
+  const r = await exec.run('node', [elt, 'oracle'], { cwd });
   return r.status === 0;
 }
 
 // Влить один слайс. Возвращает {ok, tid, conflict?, requeue?, marked?, oracleOk?, stage?}.
-function mergeSlice(tid, { cwd = process.cwd(), integration = 'main', tasksPath = null, elt = ELT_CLI, oracle = true } = {}) {
+async function mergeSlice(tid, { cwd = process.cwd(), integration = 'main', tasksPath = null, elt = ELT_CLI, oracle = true } = {}) {
   const branch = 'fleet/' + tid;
   const co = gitTry(['checkout', integration], cwd);
   if (!co.ok) return { ok: false, stage: 'checkout', tid, err: co.out };
@@ -76,16 +80,16 @@ function mergeSlice(tid, { cwd = process.cwd(), integration = 'main', tasksPath 
   }
   // inMerge=false и нет staged ⇒ слайс уже влит (идемпотентный re-merge) — коммитить нечего
 
-  const oracleOk = oracle ? runOracle(cwd, elt) : null;
+  const oracleOk = oracle ? await runOracle(cwd, elt) : null;
   return { ok: true, tid, merged: inMerge, marked, oracleOk };
 }
 
 // Серийная очередь. Конфликтные слайсы собираются в conflicts (requeue-serial —
 // оркестратор повторит их после того, как остальные влились и дерево сдвинулось).
-function mergeAll(tids, opts = {}) {
+async function mergeAll(tids, opts = {}) {
   const merged = [], conflicts = [], oracleFails = [];
   for (const tid of tids) {
-    const r = mergeSlice(tid, opts);
+    const r = await mergeSlice(tid, opts);
     if (r.conflict) conflicts.push(tid);
     else if (r.ok) { merged.push(tid); if (r.oracleOk === false) oracleFails.push(tid); }
   }

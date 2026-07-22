@@ -38,8 +38,8 @@ before(() => {
 });
 after(() => { try { fs.rmSync(REPO, { recursive: true, force: true }); } catch { /* noop */ } });
 
-test('mergeSlice: чистый merge (disjoint) → [X]-марк + зелёный smoke-оракул', () => {
-  const r = merge.mergeSlice('T3', { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
+test('mergeSlice: чистый merge (disjoint) → [X]-марк + зелёный smoke-оракул', async () => {
+  const r = await merge.mergeSlice('T3', { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
   assert.equal(r.ok, true);
   assert.equal(r.marked, true);
   assert.equal(r.oracleOk, true, 'smoke-оракул зелёный после merge');
@@ -47,15 +47,15 @@ test('mergeSlice: чистый merge (disjoint) → [X]-марк + зелёны�
   assert.ok(fs.existsSync(path.join(REPO, 'newc.txt')), 'файл T3 влит');
 });
 
-test('mergeSlice: второй чистый merge (правит shared) проходит', () => {
-  const r = merge.mergeSlice('T1', { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
+test('mergeSlice: второй чистый merge (правит shared) проходит', async () => {
+  const r = await merge.mergeSlice('T1', { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
   assert.equal(r.ok, true);
   assert.equal(readShared(), 'from-T1');
   assert.match(readTasks(), /- \[X\] \*\*T1\*\*/);
 });
 
-test('mergeSlice: конфликт → abort, requeue-serial, интеграционная чистая', () => {
-  const r = merge.mergeSlice('T2', { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
+test('mergeSlice: конфликт → abort, requeue-serial, интеграционная чистая', async () => {
+  const r = await merge.mergeSlice('T2', { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
   assert.equal(r.ok, false);
   assert.equal(r.conflict, true);
   assert.equal(r.requeue, 'serial');
@@ -65,20 +65,20 @@ test('mergeSlice: конфликт → abort, requeue-serial, интеграци
   assert.equal(git(['status', '--porcelain']).trim(), '');
 });
 
-test('mergeSlice: повторный merge уже влитого слайса идемпотентен (merged:false, чисто)', () => {
-  const r = merge.mergeSlice('T3', { cwd: REPO, integration: 'main', tasksPath: tasksPath(), oracle: false });
+test('mergeSlice: повторный merge уже влитого слайса идемпотентен (merged:false, чисто)', async () => {
+  const r = await merge.mergeSlice('T3', { cwd: REPO, integration: 'main', tasksPath: tasksPath(), oracle: false });
   assert.equal(r.ok, true);
   assert.equal(r.merged, false, 'already up to date — реального merge не было');
   assert.equal(git(['status', '--porcelain']).trim(), '', 'дерево чистое, нет пустого коммита');
 });
 
-test('mergeAll: серийная очередь собирает конфликты в requeue', () => {
-  const summary = merge.mergeAll(['T2'], { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
+test('mergeAll: серийная очередь собирает конфликты в requeue', async () => {
+  const summary = await merge.mergeAll(['T2'], { cwd: REPO, integration: 'main', tasksPath: tasksPath() });
   assert.deepEqual(summary.conflicts, ['T2']);
   assert.deepEqual(summary.merged, []);
 });
 
-test('markDoneInFile: [ ] → [X] только для нужного слайса', () => {
+test('markDoneInFile: [ ] → [X] только для нужного слайса', async () => {
   const p = path.join(REPO, 'mark-probe.md');
   fs.writeFileSync(p, '- [ ] **T10** a\n- [ ] **T11** b\n');
   assert.equal(merge.markDoneInFile(p, 'T10'), true);
@@ -113,16 +113,16 @@ describe('mergeSlice: scoped staging (T023) — [files:] вместо git add -A
   });
   after(() => { try { fs.rmSync(REPO2, { recursive: true, force: true }); } catch { /* noop */ } });
 
-  test('посторонний dirty-файл вне [files:] остаётся нетронутым после merge', () => {
+  test('посторонний dirty-файл вне [files:] остаётся нетронутым после merge', async () => {
     fs.writeFileSync(path.join(REPO2, 'foreign.txt'), 'untracked-foreign\n');
-    const r = merge.mergeSlice('T1', { cwd: REPO2, integration: 'main', tasksPath: tasksPath2, oracle: false });
+    const r = await merge.mergeSlice('T1', { cwd: REPO2, integration: 'main', tasksPath: tasksPath2, oracle: false });
     assert.equal(r.ok, true);
     assert.equal(fs.readFileSync(path.join(REPO2, 'a.txt'), 'utf8').trim(), 'from-T1', 'слайс влит');
     assert.equal(git2(['status', '--porcelain', '--', 'foreign.txt']).trim(), '?? foreign.txt',
       'foreign.txt остался untracked, git add -A его бы закоммитил');
   });
 
-  test('sliceFiles: читает [files:] глобы конкретного слайса из tasks.md', () => {
+  test('sliceFiles: читает [files:] глобы конкретного слайса из tasks.md', async () => {
     assert.deepEqual(merge.sliceFiles(tasksPath2, 'T1'), ['a.txt']);
     assert.deepEqual(merge.sliceFiles(tasksPath2, 'T99'), [], 'нет слайса → []');
   });
@@ -151,9 +151,9 @@ describe('mergeSlice: error-path без git reset --hard (T023)', () => {
   });
   after(() => { try { fs.rmSync(REPO3, { recursive: true, force: true }); } catch { /* noop */ } });
 
-  test('commit-фейл → merge --abort БЕЗ reset --hard, чужой dirty-файл выживает', () => {
+  test('commit-фейл → merge --abort БЕЗ reset --hard, чужой dirty-файл выживает', async () => {
     fs.writeFileSync(path.join(REPO3, 'foreign.txt'), 'survive-me\n');
-    const r = merge.mergeSlice('T1', { cwd: REPO3, integration: 'main', tasksPath: tasksPath3, oracle: false });
+    const r = await merge.mergeSlice('T1', { cwd: REPO3, integration: 'main', tasksPath: tasksPath3, oracle: false });
     assert.equal(r.ok, false);
     assert.equal(r.stage, 'commit');
     assert.equal(fs.readFileSync(path.join(REPO3, 'foreign.txt'), 'utf8'), 'survive-me\n',

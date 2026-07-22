@@ -216,6 +216,33 @@ test('gate: красный оракул → stage oracle, судья не зов
   writeHarness('node --version'); // вернуть зелёный для гигиены
 });
 
+// --- Живой прогон 007 (2026-07-22): оракул гонялся через spawnSync и вешал ВЕСЬ event loop
+// оркестратора на свои ~96с. Следствия были видны живьём: таймауты воркеров не срабатывали,
+// поллинг .harness/STOP не тикал, close-события соседних слайсов копились, а гейты внутри
+// Promise.all шли последовательно — параллельность fleet съедалась на самом дорогом шаге.
+// Тест меряет НЕ время гейта, а живость петли во время него: тикает ли таймер. ---
+// Меряем МАКСИМАЛЬНЫЙ ЗАЗОР между тиками, а не их количество: количество набегает во время
+// судьи (он и так асинхронный) и регресс маскирует — проверено, первая версия теста прошла
+// и с spawnSync. Блокировка event loop видна только как дыра длиной в сам оракул.
+test('gate: оракул не блокирует event loop оркестратора', async () => {
+  const ORACLE_MS = 2000;
+  writeHarness(`node -e "setTimeout(()=>{},${ORACLE_MS})"`); // «долгий» оракул, зелёный
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', PASS_STUB]);
+  fs.writeFileSync(path.join(REPO, 'heartbeat.txt'), 'work\n');
+  let last = Date.now();
+  let maxGap = 0;
+  const beat = setInterval(() => { const now = Date.now(); maxGap = Math.max(maxGap, now - last); last = now; }, 50);
+  try {
+    await gate.gate({ tid: 'T3', taskText: 'x', cwd: REPO });
+  } finally {
+    clearInterval(beat);
+    delete process.env.FLEET_BIN_CLAUDE;
+    writeHarness('node --version');
+  }
+  // async: зазоры ~интервал таймера. spawnSync: одна дыра длиной в оракул (≈ORACLE_MS).
+  assert.ok(maxGap < ORACLE_MS / 2, `event loop стоял ${maxGap}мс при оракуле ${ORACLE_MS}мс — гейт снова синхронный`);
+});
+
 // --- 006 T007: межрепо-слепота судьи — [files:] может указывать на путь ВНЕ репо worktree'а ---
 test('judgePrompt: externalDiffs добавляет секцию «ВНЕШНИЙ РЕПО» с root/status/diff', () => {
   const p0 = gate.judgePrompt('T1', 'задача', 'diff', 'status');

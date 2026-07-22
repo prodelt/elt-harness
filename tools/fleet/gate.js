@@ -4,11 +4,12 @@
 // Коммит БЕЗ [X]-марка (no --task): пометку в tasks.md ставит оркестратор на
 // интеграционной ветке ПОСЛЕ merge (T008), иначе tasks.md конфликтует при merge.
 // Судья гоняется через providers.run (claude), парсер вердикта портирован из elt-loop.ps1.
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const providers = require('./providers');
+const exec = require('./exec');
 const plan = require('./plan');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
@@ -307,8 +308,10 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   //      иначе судья видит пустой/шумный дифф и REJECT-default бьёт по чистой работе.
   normalizeWorktree(cwd, mergeBase(cwd, integration), scopeFilesFromTask(taskText));
 
-  // 1. оракул (неизменный, из harness.json worktree)
-  const o = spawnSync('node', [elt, 'oracle'], { cwd, encoding: 'utf8' });
+  // 1. оракул (неизменный, из harness.json worktree). exec.run, НЕ spawnSync: оракул —
+  // самый долгий шаг гейта (~96с), и синхронный вызов вешал event loop всего оркестратора
+  // (таймеры воркеров, поллинг STOP, close-события соседних слайсов) — см. exec.js.
+  const o = await exec.run('node', [elt, 'oracle'], { cwd });
   if (o.status !== 0) return { ok: false, stage: 'oracle', tid, oracleExit: o.status };
 
   // 2. судья (обязателен, REJECT-default). T022: prevBlockReason — причина прошлого block
@@ -318,10 +321,10 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
 
   // 3. Persist the same proof schema as solo, then commit without changing tasks.md.
-  const proof = spawnSync('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', 'pass', '--model', judgeModel, '--reasons-json', JSON.stringify(j.reasons)], { cwd, encoding: 'utf8' });
+  const proof = await exec.run('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', 'pass', '--model', judgeModel, '--reasons-json', JSON.stringify(j.reasons)], { cwd });
   if (proof.status !== 0) return { ok: false, stage: 'judge-proof', tid, err: (proof.stderr || proof.stdout || '').trim() };
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
-  const c = spawnSync('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd, encoding: 'utf8' });
+  const c = await exec.run('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
   if (c.status !== 0) return { ok: false, stage: 'commit', tid, err: (c.stderr || c.stdout || '').trim() };
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
