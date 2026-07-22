@@ -65,7 +65,10 @@ function eventsPath(cwd) {
 // Пишем в .git/info/exclude (локальный, ОБЩИЙ для всех worktree, не коммитится и не мёржится
 // — трекаемый .gitignore создавал бы merge-трение одинаковым путём в параллельных ветках).
 // Игнорим только runtime-артефакты fleet (logs/events/claims), НЕ fleet.json (это конфиг).
-const FLEET_IGNORE_LINES = ['.harness/fleet/logs/', '.harness/fleet/events.jsonl', '.harness/fleet/claims/'];
+// .fleet-wt/ — корень worktree'ов воркеров (worktree.js). Пропуск в этом списке означал,
+// что КАЖДЫЙ fleet-прогон оставлял основное дерево грязным (`?? .fleet-wt/`) и ронял
+// dirty-exit gate, хотя коммитить там нечего — это runtime-скрэтч, а не работа.
+const FLEET_IGNORE_LINES = ['.harness/fleet/logs/', '.harness/fleet/events.jsonl', '.harness/fleet/claims/', '.fleet-wt/'];
 function ensureFleetIgnore(dir) {
   try {
     const rel = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8' }).trim();
@@ -347,6 +350,15 @@ async function run(opts = {}) {
           emit(cwd, { event: 'stopped-mid-slice', tid: slice.id });
           return { tid: slice.id, gateOk: false, stoppedMidSlice: true };
         }
+        // Фатальная конфигурация (протухшее имя модели, неизвестный флаг, нет логина):
+        // воркер не отработал ВООБЩЕ, дифф пуст, повтор даст ту же ошибку. Раньше падали
+        // сюда как в обычный fail → полный оракул + судья на пустом диффе + ретрай
+        // (live-fire 007: минуты и лишние LLM-вызовы на опечатку в конфиге). Валим сразу.
+        const fatal = router.detectFatalConfig(res);
+        if (fatal) {
+          emit(cwd, { event: 'fatal-config', tid: slice.id, provider, model, detail: fatal });
+          return { tid: slice.id, gateOk: false, fatalConfig: fatal, provider };
+        }
 
         claims.setState(slice.id, { state: 'oracle' }, { cwd });
         // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed).
@@ -436,6 +448,13 @@ async function run(opts = {}) {
         if (r.capped) {
           summary.failed.push(r.tid); // terminal-failed, не транзиент — без retry
           stopHit = true; stopReason = 'cap-exceeded';
+        } else if (r.fatalConfig) {
+          // Не транзиент и не про этот слайс: провайдер сконфигурирован неверно, у остальных
+          // слайсов будет ровно та же ошибка. Валим прогон с сообщением САМОГО CLI, иначе
+          // юзер видит «failed» и идёт искать проблему в коде слайса, а не в конфиге.
+          summary.failed.push(r.tid);
+          stopHit = true;
+          stopReason = `fatal-config (${r.provider}): ${r.fatalConfig}`;
         } else if (r.limitHit) {
           summary.requeued.push(r.tid);
         } else {
@@ -570,7 +589,7 @@ const STATE_BY_EVENT = {
   'gate-pass': 'gated', 'gate-reject': 'rejected', merged: 'merged', 'redo-merged': 'merged',
   'merge-conflict': 'conflict', 'requeue-serial': 'requeue', 'redo-conflict': 'conflict',
   'redo-gate-reject': 'rejected', 'slice-error': 'error', 'skip-held': 'held',
-  'batch-abandoned': 'abandoned',
+  'batch-abandoned': 'abandoned', 'fatal-config': 'fatal-config',
 };
 
 function status({ cwd = process.cwd(), tasksPath = null } = {}) {
@@ -596,7 +615,7 @@ function status({ cwd = process.cwd(), tasksPath = null } = {}) {
   const counts = { merged: 0, failed: 0, conflict: 0, working: 0 };
   for (const s of slices) {
     if (s.state === 'merged') counts.merged++;
-    else if (['rejected', 'error', 'heal-failed', 'abandoned'].includes(s.state)) counts.failed++;
+    else if (['rejected', 'error', 'heal-failed', 'abandoned', 'fatal-config'].includes(s.state)) counts.failed++;
     else if (['conflict', 'requeue'].includes(s.state)) counts.conflict++;
     else if (['working', 'in-progress'].includes(s.state)) counts.working++;
   }

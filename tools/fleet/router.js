@@ -10,7 +10,10 @@ const path = require('node:path');
 // --model, упавших на ambient-дефолт аккаунта (opus/high). Значения — текущие дефолты
 // каждого CLI на этой машине (~/.codex/config.toml model=, ~/.gemini/antigravity/settings.json
 // model=), НЕ произвольные догадки; claude — 'sonnet' (конвенция всей системы: судья/ладдер).
-const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.1-pro-preview' };
+// agy: 'gemini-3.1-pro-preview' протух — live-fire 2026-07-22 (прогон 007) показал, что CLI
+// его больше не знает («invalid model selection»), и КАЖДЫЙ agy-воркер умирал за секунду.
+// Актуальное имя сверено с `agy models`.
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.6-flash-high' };
 
 // T020: hard caps до spawn — Infinity = выключено (дефолт не ломает существующие прогоны,
 // caps включаются явно через fleet.json). maxMinutes считается от старта fleet.run().
@@ -105,6 +108,37 @@ function detectLimit(result) {
   return LIMIT_SIGNATURES.some((re) => re.test(readResultText(result)));
 }
 
+// --- Фатальная конфигурация (live-fire 2026-07-22, прогон 007) ---
+// Отдельный класс от лимита: лимит лечится ожиданием/failover, а протухшее имя модели или
+// неизвестный флаг НЕ ЛЕЧАТСЯ НИЧЕМ — повтор даст ту же ошибку за ту же секунду. Раньше
+// такой отказ выглядел как обычный nonzero-exit: fleet прогонял ПОЛНЫЙ оракул в worktree,
+// звал судью на пустом диффе, получал законный block и ретраил слайс — минуты работы и
+// несколько LLM-вызовов на ошибку в одну строку конфига. Ловим и валим слайс сразу, громко.
+const FATAL_CONFIG_SIGNATURES = [
+  /invalid model selection/i,
+  /is not recognized as a known model/i,
+  /unknown model/i,
+  /model .* (?:not found|does not exist)/i,
+  /unknown (?:flag|option|argument)/i,
+  /unrecognized (?:flag|option|argument)/i,
+  /not logged in|authentication (?:failed|required)|please (?:run )?login/i,
+];
+
+// Фатальная ли причина? Возвращает саму строку-улику (для лога/сообщения) или null —
+// пустая улика бесполезна: юзер должен видеть, ЧТО именно сказал CLI.
+function detectFatalConfig(result) {
+  if (!result || result.ok) return null;
+  const text = readResultText(result);
+  for (const re of FATAL_CONFIG_SIGNATURES) {
+    const m = text.match(re);
+    if (m) {
+      const line = text.split(/\r?\n/).find((l) => re.test(l)) || m[0];
+      return line.trim().slice(0, 300);
+    }
+  }
+  return null;
+}
+
 // Решение по результату провайдера. Лимит → cooldown текущего + следующий не-остывший
 // в цепочке (failover). Не лимит → тот же провайдер (красный оракул лечит heal, T012).
 function failover({ result, provider, chain, state = makeState(), policy = DEFAULT_POLICY, now = Date.now() }) {
@@ -151,5 +185,6 @@ function tryBeginCall(tracker, policy, provider, now = Date.now()) {
 module.exports = {
   loadPolicy, chainFor, makeState, inCooldown, cool, pick, ledgerEntry, DEFAULT_POLICY,
   detectLimit, failover, LIMIT_SIGNATURES, modelFor, DEFAULT_MODELS, DEFAULT_CAPS,
+  detectFatalConfig, FATAL_CONFIG_SIGNATURES,
   makeCallTracker, capReason, tryBeginCall, endCall,
 };
