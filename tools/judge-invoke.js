@@ -15,8 +15,22 @@
 //   runOk:false          → судья мёртв (ERROR-STOP у драйвера, judge-dead в run-log)
 //   runOk:true, verdict  → реальный вердикт (pass|block, REJECT-default внутри gate)
 const fs = require('node:fs');
+const path = require('node:path');
 const { runJudge } = require('./fleet/gate');
-const { judgeSettings } = require('./elt-config');
+const { redProof } = require('./red-proof');
+const { judgeSettings, verifySettings } = require('./elt-config');
+
+// 008 T004: включённый контур — verify задан ИЛИ harness.json.redProof не "off"/пуст.
+// redProof — простое строковое поле, elt-config.js его не валидирует, читаем напрямую.
+function redProofMode(cwd) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'));
+    return typeof j.redProof === 'string' ? j.redProof.trim() : '';
+  } catch { return ''; }
+}
+function circuitEnabled(cwd) {
+  return !!verifySettings(cwd) || (redProofMode(cwd) !== '' && redProofMode(cwd) !== 'off');
+}
 
 async function main() {
   const descPath = process.argv[2];
@@ -29,8 +43,31 @@ async function main() {
   const provider = desc.provider || cfg.provider;
   const model = desc.model || cfg.model;
   const r = await runJudge({ cwd, tid, taskText, provider, model, specFile });
+
+  // judges[] (008 T004): всегда массив, даже без второго судьи (T002 обратная совместимость
+  // оставляет r.judges===undefined без verify) — иначе proof не мог бы требовать judges[]
+  // при контуре, включённом только через redProof (без verify).
+  const judges = Array.isArray(r.judges) && r.judges.length
+    ? r.judges
+    : [{ provider, model, verdict: r.verdict, reasons: r.reasons || [], durationSec: r.durationSec, runOk: r.runOk }];
+  const grounding = { filesReviewed: r.filesReviewed || [] };
+
+  let verdict = r.verdict || null;
+  let reasons = r.reasons || [];
+  let redProofResult = null;
+  // Red-proof — только на легитимный pass (флоу спеки 008: судья(и) pass → red-proof) и
+  // только когда контур включён (без опт-ина — не платим прогоном тестов на каждом слайсе).
+  if (r.runOk && verdict === 'pass' && circuitEnabled(cwd)) {
+    redProofResult = redProof({ cwd, baseHead: 'HEAD' });
+    if (redProofResult.status === 'green') {
+      verdict = 'block';
+      reasons = [...reasons, 'red-proof:green'];
+    }
+  }
+
   process.stdout.write(JSON.stringify({
-    runOk: !!r.runOk, verdict: r.verdict || null, reasons: r.reasons || [], judgeLog: r.judgeLog || null,
+    runOk: !!r.runOk, verdict: r.runOk ? verdict : null, reasons, judgeLog: r.judgeLog || null,
+    judges, grounding, redProof: redProofResult,
   }));
   process.exit(0);
 }
