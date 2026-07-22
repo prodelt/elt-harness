@@ -33,6 +33,14 @@ function testValidatorFailsClosed() {
   assert.equal(validateHarnessConfig({ kind: 'docs', artifactVerifier: ' ', judge: { enabled: true, model: 'sonnet' } }).ok, false, 'empty artifact verifier must fail');
   assert.equal(validateHarnessConfig({ kind: 'code', oracle: 'node --test', judge: { enabled: 'yes', model: 'sonnet' } }).ok, false, 'malformed judge must fail');
   assert.equal(validateHarnessConfig(validCodeConfig()).ok, true, 'current code config must pass');
+
+  // judge.provider: опционален (дефолт claude), но опечатка обязана падать на валидации, а не
+  // в рантайме (unknown-provider → судья «мёртв» → слайс паркуется без внятной причины).
+  const withProvider = (p) => ({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet', provider: p } });
+  assert.equal(validateHarnessConfig(withProvider('agy')).ok, true, 'agy is a valid judge provider');
+  assert.equal(validateHarnessConfig(withProvider('codex')).ok, true, 'codex is a valid judge provider');
+  assert.equal(validateHarnessConfig(withProvider('gemini')).ok, false, 'unknown judge provider must fail');
+  assert.equal(validateHarnessConfig(withProvider('')).ok, false, 'empty judge provider must fail');
 }
 
 function testBootstrapReportsInvalidHarness() {

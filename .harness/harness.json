@@ -6,7 +6,8 @@
   "push": false,
   "judge": {
     "enabled": true,
-    "model": "sonnet"
+    "provider": "agy",
+    "model": "gemini-3.6-flash-high"
   },
   "codegraphGuard": true,
   "specApproval": true
