@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const { readHarnessConfig } = require('./elt-config');
+const { readHarnessConfig, verifySettings } = require('./elt-config');
 const runLog = require('./run-log');
 
 const cwd = process.cwd();
@@ -270,6 +270,18 @@ function findTaskBinding(taskId) {
 function invalidJudgeProof(reason, detail = '') {
   return { ok: false, reason, detail };
 }
+// 008 T004: включённый контур усиленного судьи — judges[]/grounding/redProof обязательны в
+// proof только когда хотя бы один слой сверх базового активен (judge.verify задан ИЛИ
+// harness.json.redProof не "off"/пуст). Без этого — старое однопроходное поведение (крит. 7
+// спеки 008, обратная совместимость). redProof — простое строковое поле, elt-config.js его
+// не валидирует (нет схемы под T005 testCmd/redProof-режимы), читаем напрямую.
+function redProofMode() {
+  const loaded = readHarnessConfig(cwd);
+  return loaded.ok && typeof loaded.config.redProof === 'string' ? loaded.config.redProof.trim() : '';
+}
+function circuitEnabled() {
+  return !!verifySettings(cwd) || (redProofMode() !== '' && redProofMode() !== 'off');
+}
 function validateJudgeProof({ taskId } = {}) {
   if (!taskId) return invalidJudgeProof('task-required');
   const binding = findTaskBinding(taskId);
@@ -296,9 +308,26 @@ function validateJudgeProof({ taskId } = {}) {
   }
   if (p.verdict === 'block') return invalidJudgeProof('judge-block');
   if (p.verdict === 'dead') return invalidJudgeProof('judge-dead');
+  // Контур-полнота проверяется ТОЛЬКО для pass (block/dead уже отвергнуты выше) — урезанный
+  // proof (без judges[]/grounding/redProof) при включённом контуре не проводится через гейт.
+  if (circuitEnabled()) {
+    if (!Array.isArray(p.judges) || !p.judges.length ||
+        p.judges.some((j) => !j || typeof j !== 'object' || !j.provider || !j.model || !['pass', 'block'].includes(j.verdict))) {
+      return invalidJudgeProof('missing-judges');
+    }
+    if (!p.grounding || typeof p.grounding !== 'object' || Array.isArray(p.grounding) || !Array.isArray(p.grounding.filesReviewed)) {
+      return invalidJudgeProof('missing-grounding');
+    }
+    if (!p.redProof || typeof p.redProof !== 'object' || Array.isArray(p.redProof) || !['red', 'green', 'skipped'].includes(p.redProof.status)) {
+      return invalidJudgeProof('missing-redProof');
+    }
+    // Зелёный red-proof = тест ничего не ловит на baseHead — слайс НЕ доказан (спека 008,
+    // критерий 5), даже если оба судьи дали pass.
+    if (p.redProof.status === 'green') return invalidJudgeProof('red-proof-green');
+  }
   return { ok: true, proof: p };
 }
-function writeJudgeProof({ taskId, verdict, reasons, model }) {
+function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof }) {
   const binding = findTaskBinding(taskId);
   if (!binding) die(`judge proof: task ${taskId} not found`);
   if (!['pass', 'block', 'dead'].includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
@@ -311,7 +340,12 @@ function writeJudgeProof({ taskId, verdict, reasons, model }) {
   const baseHead = headSha();
   const currentTree = treeHash();
   if (oracle.exit !== 0 || oracle.baseHead !== baseHead || oracle.treeHash !== currentTree) die('judge proof: stale oracle proof');
-  const proof = { ...binding, baseHead, treeHash: currentTree, oracleProofHash: sha256(oracleRaw), verdict, reasons, model, createdAt: new Date().toISOString() };
+  const proof = {
+    ...binding, baseHead, treeHash: currentTree, oracleProofHash: sha256(oracleRaw), verdict, reasons, model, createdAt: new Date().toISOString(),
+    ...(judges !== undefined ? { judges } : {}),
+    ...(grounding !== undefined ? { grounding } : {}),
+    ...(redProof !== undefined ? { redProof } : {}),
+  };
   fs.mkdirSync(path.dirname(judgeProofPath()), { recursive: true });
   fs.writeFileSync(judgeProofPath(), JSON.stringify(proof, null, 2) + '\n');
   return proof;
@@ -429,8 +463,17 @@ if (cmd === 'judge-proof') {
     const model = opt('--model');
     let reasons;
     try { reasons = JSON.parse(opt('--reasons-json', '[]')); } catch { die('judge proof: --reasons-json must be JSON array'); }
-    if (!taskId || !verdict || !model) die('elt judge-proof write --task Txxx --verdict pass|block|dead --model <model> [--reasons-json "[]"]');
-    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model }), null, 2));
+    if (!taskId || !verdict || !model) die('elt judge-proof write --task Txxx --verdict pass|block|dead --model <model> [--reasons-json "[]"] [--extra-file <path>]');
+    // --extra-file (008 T004): judges[]/grounding/redProof приходят файлом, не argv — JSON
+    // с embedded-кавычками бьётся о PS5.1 native-marshalling баг (см. elt-loop.ps1 comment).
+    let extra = {};
+    const extraFile = opt('--extra-file');
+    if (extraFile) {
+      let raw;
+      try { raw = fs.readFileSync(extraFile, 'utf8').replace(/^﻿/, ''); } catch { die('judge proof: --extra-file not readable'); }
+      try { extra = JSON.parse(raw) || {}; } catch { die('judge proof: --extra-file must be JSON'); }
+    }
+    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof }), null, 2));
     process.exit(0);
   }
   if (sub === 'validate') {
@@ -439,7 +482,7 @@ if (cmd === 'judge-proof') {
     console.log(JSON.stringify(check, null, 2));
     process.exit(check.ok ? 0 : 4);
   }
-  die('elt judge-proof read | write --task Txxx --verdict pass|block|dead --model <model> | validate --task Txxx');
+  die('elt judge-proof read | write --task Txxx --verdict pass|block|dead --model <model> [--extra-file <path>] | validate --task Txxx');
 }
 
 if (cmd === 'spec') {

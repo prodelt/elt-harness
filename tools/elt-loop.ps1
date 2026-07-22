@@ -253,7 +253,17 @@ $tail
     }
 
     # 7. Persist the judge result against this exact green-oracle tree, then commit.
-    & node $eltCli judge-proof write --task $id --verdict pass --model $JudgeModel --reasons-json "[]"
+    # judges[]/grounding/redProof (008 T004) идут временным файлом, не argv — JSON с
+    # embedded-кавычками бьётся о тот же PS5.1 native-marshalling баг, что и Invoke-Claude
+    # выше (claude.exe/node.exe не маршалят `"` внутри аргумента корректно).
+    $extra = @{ judges = $j.judges; grounding = $j.grounding; redProof = $j.redProof }
+    $extraFile = [System.IO.Path]::GetTempFileName()
+    try {
+      ($extra | ConvertTo-Json -Compress -Depth 8) | Out-File -FilePath $extraFile -Encoding utf8
+      & node $eltCli judge-proof write --task $id --verdict pass --model $JudgeModel --reasons-json "[]" --extra-file $extraFile
+    } finally {
+      Remove-Item -Path $extraFile -ErrorAction SilentlyContinue
+    }
     if ($LASTEXITCODE -ne 0) { Write-Error "judge proof вернул $LASTEXITCODE"; break }
     & node $eltCli commit --task $id --skip-oracle
     if ($LASTEXITCODE -ne 0) { Write-Error "elt commit вернул $LASTEXITCODE"; break }
