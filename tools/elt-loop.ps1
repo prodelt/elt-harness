@@ -12,6 +12,7 @@ param(
   [string]$JudgeModel = "",
   [string]$JudgeProvider = "",
   [string]$SpecDir = "",
+  [int]$Batch = 0,
   [switch]$DryRun
 )
 
@@ -37,6 +38,13 @@ if (Test-Path $harnessJson) {
 }
 if ([string]::IsNullOrWhiteSpace($JudgeProvider)) { $JudgeProvider = "claude" }
 if ([string]::IsNullOrWhiteSpace($JudgeModel))    { $JudgeModel    = "sonnet" }
+
+# Батч (2026-07-22): сколько задач имплементируется ПОДРЯД до одного прогона гейта.
+# Оракул (~96с) + судья (~40-90с) платятся раз на батч, а не раз на задачу — на мелких
+# слайсах гейт стоил дороже самой работы. Инвариант тот же: зелёный оракул + судья по
+# объединённому диффу + hash-связанный proof. harness.json → "batch": N; -Batch перебивает.
+if ($Batch -le 0 -and (Test-Path $harnessJson) -and $hj.batch) { $Batch = [int]$hj.batch }
+if ($Batch -le 0) { $Batch = 1 }
 
 if (-not (Test-Path $eltCli))              { Write-Error "нет elt CLI: $eltCli"; exit 1 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue))   { Write-Error "нет node в PATH"; exit 1 }
@@ -113,25 +121,36 @@ try {
     Write-Host "elt-loop: спека не утверждена — СТОП (см. вывод approval-guard выше)."
   }
 
-  for ($i = 1; $i -le $Slices; $i++) {
+  $i = 0
+  while ($i -lt $Slices) {
     if (-not $approvalOk) { break }
 
     # 1. kill-switch + budget
     if (Test-Path $stopFile) { Write-Host "elt-loop: STOP-файл найден — стоп."; break }
     if (((Get-Date) - $start).TotalMinutes -ge $MaxMinutes) { Write-Host "elt-loop: бюджет $MaxMinutes мин исчерпан — стоп."; break }
 
-    # 2. следующий слайс (exit 3 = план закрыт)
+    # 2. следующие слайсы батча (exit 3 = план закрыт). --count 1 отдаёт объект (не массив) —
+    # @() нормализует обе формы в массив, парсер не зависит от размера батча.
+    $take = [Math]::Min($Batch, $Slices - $i)
     if ($SpecDir -ne "") {
-      $sliceJson = & node $eltCli slice next --json --spec $SpecDir
+      $sliceJson = & node $eltCli slice next --json --count $take --spec $SpecDir
     } else {
-      $sliceJson = & node $eltCli slice next --json
+      $sliceJson = & node $eltCli slice next --json --count $take
     }
     $sliceExit = $LASTEXITCODE
     if ($sliceExit -eq 3) { Write-Host "elt-loop: план закрыт — открытых [ ] задач нет."; break }
     if ($sliceExit -ne 0) { Write-Error "elt slice next вернул $sliceExit"; break }
-    $slice = $sliceJson | ConvertFrom-Json
-    $id = $slice.id; $text = $slice.text
-    Write-Host "`n=== слайс $i/$Slices : $id — $text ==="
+    # PS 5.1: ConvertFrom-Json отдаёт массив ОДНИМ объектом (Object[] без развёртывания) —
+    # `@(...)` вокруг него даёт массив-из-одного, и весь батч склеивается в один промпт
+    # (поймано DryRun'ом 2026-07-22). foreach-statement разворачивает по IEnumerable честно,
+    # и одиночный объект (--count 1) проходит через него без изменений.
+    $parsed = $sliceJson | ConvertFrom-Json
+    $picked = @()
+    foreach ($x in $parsed) { $picked += $x }
+    if ($picked.Count -eq 0) { Write-Host "elt-loop: slice next вернул пусто — стоп."; break }
+    $id   = ($picked | ForEach-Object { $_.id }) -join ','
+    $text = ($picked | ForEach-Object { "$($_.id): $($_.text)" }) -join '; '
+    Write-Host "`n=== батч $($i + 1)-$($i + $picked.Count)/$Slices : $id ==="
 
     # 2.5 pre-slice codegraph guard (T009, opt-in via .harness/harness.json
     # codegraphGuard:true) — громкий стоп на мёртвом/устаревшем индексе вместо
@@ -143,27 +162,37 @@ try {
       break
     }
 
-    # 3. промпт имплементатора
-    $implPrompt = @"
-Ты выполняешь ОДИН слайс spec-driven плана. Задача ${id}: ${text}.
+    # 3-4. имплементатор: СВЕЖИЙ claude на КАЖДУЮ задачу батча (анти-context-rot),
+    # но гейт (шаги 5-7) один на весь батч.
+    $logTag = ($picked | ForEach-Object { $_.id }) -join '-'
+    $implLog  = Join-Path $logDir ("{0}-{1}-impl.log"  -f (Ts), $logTag)
+    $judgeLog = Join-Path $logDir ("{0}-{1}-judge.log" -f (Ts), $logTag)
+
+    foreach ($p in $picked) {
+      $pid_ = $p.id; $ptext = $p.text
+      # Дерево уже содержит незакоммиченную работу предыдущих задач батча — имплементатор
+      # обязан её НЕ трогать, иначе батч съедает сам себя (первая задача откатывается второй).
+      $batchNote = if ($picked.Count -gt 1) { "`nВ рабочем дереве уже есть НЕЗАКОММИЧЕННЫЕ правки предыдущих задач этого батча ($id) — не откатывай и не переписывай их, дополняй." } else { "" }
+      $implPrompt = @"
+Ты выполняешь ОДИН слайс spec-driven плана. Задача ${pid_}: ${ptext}.
 Прочитай .specify/memory/constitution.md и spec.md рядом с tasks.md, если они есть.
 Сделай МИНИМАЛЬНУЮ имплементацию ТОЛЬКО этой задачи.
 НЕ коммить. НЕ правь tasks.md. Тесты не ослаблять и не удалять. Scope не расширять.
-После правок приведи код форматтером проекта (cargo fmt / prettier), чтобы пройти pre-commit хук.
+Тест обязан ЛОВИТЬ поломку: если замокано ровно то, что проверяется, такой тест не считается доказательством.
+После правок приведи код форматтером проекта (cargo fmt / prettier), чтобы пройти pre-commit хук.$batchNote
 "@
 
-    $implLog  = Join-Path $logDir ("{0}-{1}-impl.log"  -f (Ts), $id)
-    $judgeLog = Join-Path $logDir ("{0}-{1}-judge.log" -f (Ts), $id)
-
+      if ($DryRun) {
+        Write-Host "[DryRun] impl-промпт ($pid_) →`n$implPrompt"
+        continue
+      }
+      Write-Host "elt-loop: имплементатор $pid_… (эффорт high)"
+      Invoke-Claude -Prompt $implPrompt -LogPath $implLog -Phase "impl" | Out-Null
+    }
     if ($DryRun) {
-      Write-Host "[DryRun] impl-промпт →`n$implPrompt"
       Write-Host "[DryRun] оракул/судья/commit пропущены. Одна итерация — стоп."
       break
     }
-
-    # 4. имплементатор (свежий контекст)
-    Write-Host "elt-loop: имплементатор… (эффорт high)"
-    Invoke-Claude -Prompt $implPrompt -LogPath $implLog -Phase "impl" | Out-Null
 
     # 5. оракул + 1 retry
     & node $eltCli oracle
@@ -199,7 +228,7 @@ $tail
     Write-Host "elt-loop: судья ($JudgeProvider/$JudgeModel)…"
     # Дескриптор через файл (без argv-кавычек, PS5.1). judge-invoke сам грузит рубрику spec.md
     # рядом с tasks.md слайса и строит промпт (gate.runJudge/loadRubric — уже под тестом).
-    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; provider = $JudgeProvider; model = $JudgeModel; specFile = $slice.file }
+    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; provider = $JudgeProvider; model = $JudgeModel; specFile = $picked[0].file }
     $jDescFile = [System.IO.Path]::GetTempFileName()
     $judgeRaw = ""
     try {
@@ -228,7 +257,8 @@ $tail
     if ($LASTEXITCODE -ne 0) { Write-Error "judge proof вернул $LASTEXITCODE"; break }
     & node $eltCli commit --task $id --skip-oracle
     if ($LASTEXITCODE -ne 0) { Write-Error "elt commit вернул $LASTEXITCODE"; break }
-    $done++; $committed++
+    $done += $picked.Count; $committed++
+    $i += $picked.Count
   }
 }
 finally {

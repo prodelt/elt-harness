@@ -86,6 +86,21 @@ function findTasks(explicitSpecDir) {
   return selected ? { ...selected, all: plans } : null;
 }
 
+// ── батч (2026-07-22) ─────────────────────────────────────────────────────────
+// `--task T001,T002,T003`: оракул и судья — САМАЯ дорогая часть слайса (оракул ~96с +
+// судья ~40-90с на КАЖДЫЙ таск), и на мелких слайсах гейт стоил больше самой работы.
+// Батч платит этот налог один раз на N тасков. Инвариант не ослаблен: тот же зелёный
+// оракул, тот же судья по ОБЪЕДИНЁННОМУ диффу, тот же hash-связанный proof — просто
+// единица гейта = батч, а не таск. taskId остаётся СТРОКОЙ ("T001,T002") — вся
+// hash/валидация proof работает без изменения схемы.
+function parseTaskIds(raw) {
+  return String(raw == null ? '' : raw).split(',').map((s) => s.trim()).filter(Boolean);
+}
+function normalizeTaskArg(raw) {
+  const ids = parseTaskIds(raw);
+  return ids.length ? ids.join(',') : null;
+}
+
 function findTaskItem(taskId, openOnly = false) {
   const selected = findTasks();
   if (!selected) return null;
@@ -236,10 +251,21 @@ function readJudgeProof() {
   try { raw = fs.readFileSync(judgeProofPath(), 'utf8'); } catch { return { error: 'missing' }; }
   try { return { raw, proof: JSON.parse(raw) }; } catch { return { error: 'malformed' }; }
 }
+// Батч связывается ЦЕЛИКОМ: любой из тасков не открыт → binding нет (proof на
+// полу-закрытый батч был бы враньём). Разные tasks.md в одном батче тоже нет —
+// specPath в proof один, и судья судит по одной рубрике.
 function findTaskBinding(taskId) {
-  const found = findTaskItem(taskId, true);
-  if (!found) return null;
-  return { taskId, specPath: path.relative(cwd, found.plan.file).split(path.sep).join('/') };
+  const ids = parseTaskIds(taskId);
+  if (!ids.length) return null;
+  let specPath = null;
+  for (const id of ids) {
+    const found = findTaskItem(id, true);
+    if (!found) return null;
+    const p = path.relative(cwd, found.plan.file).split(path.sep).join('/');
+    if (specPath !== null && specPath !== p) return null;
+    specPath = p;
+  }
+  return { taskId: ids.join(','), specPath };
 }
 function invalidJudgeProof(reason, detail = '') {
   return { ok: false, reason, detail };
@@ -257,7 +283,7 @@ function validateJudgeProof({ taskId } = {}) {
       !['pass', 'block', 'dead'].includes(p.verdict) || Number.isNaN(Date.parse(p.createdAt))) {
     return invalidJudgeProof('malformed');
   }
-  if (taskId && p.taskId !== taskId) return invalidJudgeProof('task-mismatch');
+  if (taskId && p.taskId !== normalizeTaskArg(taskId)) return invalidJudgeProof('task-mismatch');
   if (p.specPath !== binding.specPath) return invalidJudgeProof('spec-mismatch');
   if (p.baseHead !== headSha()) return invalidJudgeProof('stale-base');
   if (p.treeHash !== treeHash()) return invalidJudgeProof('stale-tree');
@@ -367,10 +393,18 @@ if (cmd === 'slice' && sub === 'next') {
       }
     }
   }
-  const next = t && t.open[0];
-  if (flag('--json')) { console.log(JSON.stringify(next || null)); process.exit(next ? 0 : 3); }
+  // --count N: N первых открытых задач ОДНОГО плана — вход для батч-режима драйвера.
+  // Форма вывода при --count 1 (дефолт) не изменилась (объект, не массив), иначе
+  // сломались бы существующие парсеры драйверов (elt-loop.ps1 / fleet).
+  const count = Math.max(1, parseInt(opt('--count', '1'), 10) || 1);
+  const picks = t ? t.open.slice(0, count) : [];
+  const next = picks[0];
+  if (flag('--json')) {
+    console.log(JSON.stringify(count > 1 ? picks : (next || null)));
+    process.exit(next ? 0 : 3);
+  }
   if (!next) { console.log('план закрыт: открытых [ ] задач нет'); process.exit(3); }
-  console.log(`${next.id} ${next.text}\n(${path.relative(cwd, next.file)}:${next.lineNo + 1})`);
+  for (const p of picks) console.log(`${p.id} ${p.text}\n(${path.relative(cwd, p.file)}:${p.lineNo + 1})`);
   process.exit(0);
 }
 
@@ -390,7 +424,7 @@ if (cmd === 'judge-proof') {
     process.exit(0);
   }
   if (sub === 'write') {
-    const taskId = opt('--task');
+    const taskId = normalizeTaskArg(opt('--task'));
     const verdict = opt('--verdict');
     const model = opt('--model');
     let reasons;
@@ -400,7 +434,7 @@ if (cmd === 'judge-proof') {
     process.exit(0);
   }
   if (sub === 'validate') {
-    const taskId = opt('--task');
+    const taskId = normalizeTaskArg(opt('--task'));
     const check = validateJudgeProof({ taskId });
     console.log(JSON.stringify(check, null, 2));
     process.exit(check.ok ? 0 : 4);
@@ -508,7 +542,7 @@ if (cmd === 'gate') {
 if (cmd === 'commit') {
   runLog.runtimeRunLog(cwd);
   const cfg = loadConfig();
-  const taskId = opt('--task');
+  const taskId = normalizeTaskArg(opt('--task'));
   if (flag('--verdict')) die('elt commit: --verdict is not authority; write a judge proof instead', 4);
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
   if (!git(['status', '--porcelain']).out) die('нечего коммитить: дерево чистое', 3);
@@ -574,13 +608,16 @@ if (cmd === 'commit') {
   }
 
   // 3. Fleet validates the same task/proof but leaves [X] to its merge queue.
-  const taskText = flag('--keep-task-open')
-    ? (() => {
-        const found = findTaskItem(taskId, true);
-        if (!found) die(`задача ${taskId} не найдена среди открытых [ ]`);
-        return found.item.text;
-      })()
-    : markDone(taskId).text;
+  const ids = parseTaskIds(taskId);
+  const texts = ids.map((id) => {
+    if (flag('--keep-task-open')) {
+      const found = findTaskItem(id, true);
+      if (!found) die(`задача ${id} не найдена среди открытых [ ]`);
+      return found.item.text;
+    }
+    return markDone(id).text;
+  });
+  const taskText = texts[0] + (texts.length > 1 ? ` (+${texts.length - 1})` : '');
 
   const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice');
   if (git(['add', '-A']).code !== 0) die('git add failed');
@@ -602,12 +639,14 @@ if (cmd === 'commit') {
 console.log(`elt — ядро ELT v2 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt status                                                git + план + последний прогон
-  elt slice next [--json] [--spec specs/NNN-slug]           следующая [ ] задача (exit 3 = план закрыт)
+  elt slice next [--json] [--count N] [--spec specs/NNN-slug]  следующая [ ] задача (--count N → N первых; exit 3 = план закрыт)
   elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt oracle                                                прогнать оракул, exit-код = истина
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
-  elt commit --task Txxx [--keep-task-open] [-m msg] [--skip-oracle] [--push]
-      зелёный oracle + актуальный judge proof → авто-ветка с main → [X] → add+commit → run-log.jsonl → push`);
+  elt commit --task Txxx[,Tyyy,...] [--keep-task-open] [-m msg] [--skip-oracle] [--push]
+      зелёный oracle + актуальный judge proof → авто-ветка с main → [X] → add+commit → run-log.jsonl → push
+      БАТЧ: --task T001,T002,T003 — один оракул + один судья + один коммит на N задач
+            (judge-proof write --task тем же списком; все задачи должны быть открыты и в одном tasks.md)`);
 process.exit(cmd ? 1 : 0);

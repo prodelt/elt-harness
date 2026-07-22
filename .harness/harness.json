@@ -9,6 +9,7 @@
     "provider": "agy",
     "model": "gemini-3.6-flash-high"
   },
+  "batch": 3,
   "codegraphGuard": true,
   "specApproval": true
 }
