@@ -3,6 +3,11 @@
 Центральный репо управления инфраструктурой разработки (хуки, скилы, настройки Claude Code / Codex / Gemini). Живое состояние проверять: `settings.json` + `claude plugin list` + `/skills`. Памятка — `CHEATSHEET.html`. История — `.planning/PROJECT-HISTORY.md`.
 
 ## Метод работы (точка входа — `PLAYBOOK.md`)
+- **Нет механизма skills у твоего CLI (Antigravity/`agy`, Gemini)? Код-задача → СНАЧАЛА прочитай
+  `C:\Users\espad\.gemini\skills\elt\SKILL.md` и следуй ему.** Проверено живьём 2026-07-22: `agy`
+  папку `~/.gemini/skills` НЕ читает (`agy agents` пуст) и при этом уверенно заявляет, что скилл у
+  него есть — верить его самоотчёту нельзя, файл надо открыть явно. Claude Code грузит скилл сам —
+  этот пункт его не касается.
 - **Карта — `PLAYBOOK.md`** (корень): какой скилл когда, когда команда агентов. Непонятно — сюда.
 - **Задача разработчика → `/elt`** (v2 — **единственный active code route**; `elt-code`/`elt-loop` = алиасы). Слайс закрыт ⇔ `elt commit` (оракул → авто-ветка → `[X]` → commit → run-log); судья sonnet обязателен. Автономно → драйвер `tools/elt-loop.ps1`; параллельно (≥3 [P]-слайсов) → fleet (experimental).
 - **⚠ Deprecated — не активные route.** Pipeline v3 / `/pipeline`, Agent Harness v1 (`harness-runner`/`harness-gates`/`pipeline-state`), `install-harness-teeth` — прямой запуск CLI падает с ошибкой. Миграция: `specs/005-elt-control-plane-convergence/spec.md §9`.
