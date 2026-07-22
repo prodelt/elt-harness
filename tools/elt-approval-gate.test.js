@@ -177,6 +177,39 @@ test('commit: gate follows the TASK\'s own spec dir, not an unrelated first-open
   assert.equal(passed.status, 0, passed.stderr.toString());
 });
 
+// 006 T019 regression: an EARLIER (alphabetically) spec that's gated AND still
+// unapproved must not be able to block an explicitly targeted, approved spec.
+// Before the fix, `slice next` (and elt-loop.ps1) had no way to say which
+// specs/*/tasks.md to use — the alphabetically-first one with open boxes
+// always won, so a stalled older spec could permanently block an active one.
+test('slice next --spec: targets one spec directly, unaffected by an earlier unapproved+gated spec', () => {
+  const root = fixture(); // specs/001-fixture: spec.md present, unapproved
+  fs.mkdirSync(path.join(root, 'specs', '000-blocked'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '000-blocked', 'spec.md'), FIXTURE_SPEC_MD);
+  fs.writeFileSync(path.join(root, 'specs', '000-blocked', 'tasks.md'), '- [ ] **T900** stalled elsewhere\n');
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-qm', 'add earlier blocked plan']);
+
+  // default (no --spec) auto-selects the earlier plan and gates on IT
+  const auto = run(root, ['slice', 'next']);
+  assert.equal(auto.status, 4, auto.stderr.toString());
+  assert.match(auto.stderr.toString(), /000-blocked/);
+
+  // explicit --spec targets 001-fixture directly — still gated on ITS OWN status
+  const targeted = run(root, ['slice', 'next', '--spec', 'specs/001-fixture']);
+  assert.equal(targeted.status, 4, targeted.stderr.toString());
+  assert.match(targeted.stderr.toString(), /001-fixture/);
+
+  // approving 001-fixture (NOT 000-blocked, which the bare `approve()` helper
+  // would auto-select here since it's alphabetically earlier) unblocks the
+  // targeted run without touching 000-blocked at all.
+  const approveResult = run(root, ['spec', 'approve', '--spec', 'specs/001-fixture']);
+  assert.equal(approveResult.status, 0, approveResult.stderr.toString());
+  const passed = run(root, ['slice', 'next', '--json', '--spec', 'specs/001-fixture']);
+  assert.equal(passed.status, 0, passed.stderr.toString());
+  assert.equal(result(passed).id, 'T001');
+});
+
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });

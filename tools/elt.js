@@ -35,7 +35,29 @@ function git(args) {
 }
 
 // ── tasks.md (spec-kit): first specs/*/tasks.md that still has open boxes ──────
-function findTasks() {
+const TASK_LINE_RE = /^(\s*(?:[-*]\s*)?)\[( |X|x)\]\s*(?:\*\*)?(T\d+)?(?:\*\*)?[:.]?\s*(.*)$/;
+function parseTasksFile(f) {
+  const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
+  const open = [], done = [];
+  lines.forEach((ln, i) => {
+    const m = ln.match(TASK_LINE_RE);
+    if (!m) return;
+    (m[2] === ' ' ? open : done).push({ file: f, lineNo: i, id: m[3] || `L${i + 1}`, text: m[4].trim() });
+  });
+  return { file: f, open, done, lines };
+}
+// explicitSpecDir (006 T019): bypass the alphabetical scan and target one
+// spec's tasks.md directly — needed once more than one specs/*/tasks.md has
+// open boxes at once (e.g. an older spec with unresolved external blockers),
+// otherwise the alphabetically-first one always wins and a later spec that's
+// actually being worked can never be reached by `slice next`/the driver.
+function findTasks(explicitSpecDir) {
+  if (explicitSpecDir) {
+    const f = path.join(explicitSpecDir, 'tasks.md');
+    if (!fs.existsSync(f)) return null;
+    const plan = parseTasksFile(f);
+    return { ...plan, all: [plan] };
+  }
   const specsDir = path.join(cwd, 'specs');
   const files = [];
   const rootTasks = path.join(cwd, 'tasks.md');
@@ -48,25 +70,17 @@ function findTasks() {
       if (fs.existsSync(f)) files.push(f);
     }
   }
-  const re = /^(\s*(?:[-*]\s*)?)\[( |X|x)\]\s*(?:\*\*)?(T\d+)?(?:\*\*)?[:.]?\s*(.*)$/;
   const plans = [];
   let fallback = null;
   let firstOpen = null;
   for (const f of files) {
-    const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
-    const open = [], done = [];
-    lines.forEach((ln, i) => {
-      const m = ln.match(re);
-      if (!m) return;
-      (m[2] === ' ' ? open : done).push({ file: f, lineNo: i, id: m[3] || `L${i + 1}`, text: m[4].trim() });
-    });
     // Приоритет — файл, где ещё остались открытые боксы (комментарий выше это и обещает).
     // Если открытых нигде нет, `status`/`commit` всё равно должны на что-то опереться —
     // fallback запоминает последний файл с любыми боксами (open или done).
-    const plan = { file: f, open, done, lines };
+    const plan = parseTasksFile(f);
     plans.push(plan);
-    if (open.length && !firstOpen) firstOpen = plan;
-    if (open.length || done.length) fallback = { file: f, open, done, lines };
+    if (plan.open.length && !firstOpen) firstOpen = plan;
+    if (plan.open.length || plan.done.length) fallback = plan;
   }
   const selected = firstOpen || fallback;
   return selected ? { ...selected, all: plans } : null;
@@ -333,7 +347,9 @@ if (cmd === 'status') {
 }
 
 if (cmd === 'slice' && sub === 'next') {
-  const t = findTasks();
+  const specArg = opt('--spec');
+  const explicitSpecDir = specArg ? (path.isAbsolute(specArg) ? specArg : path.join(cwd, specArg)) : null;
+  const t = findTasks(explicitSpecDir);
   if (t && fs.existsSync(CONFIG)) {
     // Lenient read on purpose: `slice next` never required a fully-valid
     // harness.json before (only `commit`/`oracle` do), and specApproval is an
@@ -586,7 +602,7 @@ if (cmd === 'commit') {
 console.log(`elt — ядро ELT v2 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt status                                                git + план + последний прогон
-  elt slice next [--json]                                   следующая [ ] задача (exit 3 = план закрыт)
+  elt slice next [--json] [--spec specs/NNN-slug]           следующая [ ] задача (exit 3 = план закрыт)
   elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
