@@ -1100,7 +1100,7 @@ function testEltSelfhealAutoMergeGate() {
     "const fs = require('fs');",
     'process.stdin.resume();',
     "if (process.argv.includes('--json-schema')) {",
-    "  process.stdout.write(JSON.stringify({ verdict: 'pass', reasons: [] }));",
+    "  process.stdout.write(JSON.stringify({ verdict: 'pass', reasons: ['stub: в границах задачи'] }));",
     '} else {',
     "  fs.writeFileSync('.selfheal-fixed', 'fixed\\n');",
     "  process.stdout.write('self-heal stub: fixed\\n');",

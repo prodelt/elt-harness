@@ -45,7 +45,7 @@ const injectedWorker = async (slice, wtPath) => { WORK[slice.id](wtPath); };
 before(() => {
   REPO = seedRepo();
   JUDGE_STUB = path.join(REPO, 'judge-pass.js');
-  fs.writeFileSync(JUDGE_STUB, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(JUDGE_STUB, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', JUDGE_STUB]);
 });
 after(() => {
@@ -186,7 +186,7 @@ test('провайдер возвращает 429 → failover на следую
 
   // фейковый судья pass
   const judgeStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
   let calls = [];
@@ -238,7 +238,7 @@ test('T020: cap=4 → 5-й spawn заблокирован, слайс terminal-f
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   const judgeStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
   const workerCalls = [];
@@ -357,7 +357,7 @@ test('T021: crash-resume дожимает judge_pending БЕЗ повторно�
   });
 
   const passStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(passStub, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(passStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', passStub]);
 
   let workerCalls = 0;
@@ -400,7 +400,7 @@ test('T024: 1 abandoned слайс среди прочих → честный fa
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   const judgeStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
   const mockWorker = async (slice, wt) => {
@@ -443,7 +443,7 @@ test('T026: ledger несёт отдельные implement/judge строки н
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   const judgeStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
   const mockWorker = async (slice, wt) => { fs.writeFileSync(path.join(wt, `${slice.id}.txt`), 'done\n'); return { ok: true, exit: 0, stdout: 'done' }; };
@@ -497,7 +497,7 @@ test('T027: crash-resume чистит worktree упавшего implementing-cla
   assert.ok(fs.existsSync(wt.path), 'предусловие: worktree реально на диске');
 
   const judgeStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\"}');");
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
   const mockWorker = async (slice, w) => { fs.writeFileSync(path.join(w, 'a.txt'), 'done\n'); return { ok: true, exit: 0 }; };

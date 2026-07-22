@@ -19,13 +19,22 @@ const JUDGE_TIMEOUT_MS = 5 * 60 * 1000;
 // prose-парсер регулярно мимо: модель пишет "принято"/"зачёт" вместо литерального pass/block,
 // REJECT-default тогда блокирует легитимные слайсы). claude -p --output-format json оборачивает
 // весь транскрипт в JSON-массив; последний элемент (type:"result") несёт structured_output.
+// filesReviewed (008 T001): граундинг-чек сверяет его с реальным списком файлов диффа —
+// назвал файл не из диффа → галлюцинация, пропустил файл диффа → судил не весь слайс.
 const VERDICT_SCHEMA = JSON.stringify({
   type: 'object',
-  properties: { verdict: { type: 'string', enum: ['pass', 'block'] }, reasons: { type: 'array', items: { type: 'string' } } },
-  required: ['verdict', 'reasons'],
+  properties: {
+    verdict: { type: 'string', enum: ['pass', 'block'] },
+    reasons: { type: 'array', items: { type: 'string' } },
+    filesReviewed: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['verdict', 'reasons', 'filesReviewed'],
 });
 
 // Структурированный путь: последний элемент JSON-массива --output-format json → structured_output.
+// filesReviewed: null, если поле в ответе вообще отсутствует (старый провайдер/стаб без
+// схемы) — отличаем от намеренно пустого массива, чтобы граундинг-чек мог не сработать
+// вместо ложного block на проводке, которая ещё не знает про поле.
 function parseStructuredOutput(text) {
   try {
     const arr = JSON.parse(text);
@@ -33,7 +42,11 @@ function parseStructuredOutput(text) {
     const so = last && last.structured_output;
     const v = so && so.verdict;
     if (v !== 'pass' && v !== 'block') return null;
-    return { verdict: v, reasons: Array.isArray(so.reasons) ? so.reasons.map(String) : [] };
+    return {
+      verdict: v,
+      reasons: Array.isArray(so.reasons) ? so.reasons.map(String) : [],
+      filesReviewed: Array.isArray(so.filesReviewed) ? so.filesReviewed.map(String) : null,
+    };
   } catch { return null; }
 }
 function parseStructuredVerdict(text) {
@@ -62,6 +75,17 @@ function parseReasons(text) {
     if (m) return JSON.parse(m[1]).map(String);
   } catch { /* нет reasons в prose-фолбэке */ }
   return [];
+}
+// filesReviewed: null = поле в ответе отсутствует вовсе (провайдер не поддерживает граундинг —
+// граундинг-чек по файлам тогда пропускается), [] = судья явно заявил «не разобрал ни файла».
+function parseFilesReviewed(text) {
+  const so = parseStructuredOutput(text);
+  if (so) return so.filesReviewed;
+  try {
+    const m = lastMatch(text, /"filesReviewed"\s*:\s*(\[[^\]]*\])/i);
+    if (m) return JSON.parse(m[1]).map(String);
+  } catch { /* нет filesReviewed в prose-фолбэке */ }
+  return null;
 }
 
 // Парсер вердикта, REJECT-default (портирован из tools/elt-loop.ps1):
@@ -127,7 +151,55 @@ function loadRubric(cwd, tid, specFile = null) {
   return { spec: readRubricFile(dir, 'spec.md'), constitution: readRubricFile(dir, 'constitution.md') };
 }
 
+// 008 T001: полный список файлов диффа из `git status --porcelain` — НЕ зависит от cap
+// диффа (риск спеки: обрезанный дифф не даёт судье физически перечислить хвост). Разбор
+// porcelain-строки: 2-символьный код + пробел + путь; переименование "R  old -> new" берём
+// как новый путь (это и есть файл диффа после переименования).
+function diffFileList(status) {
+  const files = [];
+  for (const line of (status || '').split(/\r?\n/)) {
+    if (line.length < 4) continue;
+    let rel = line.slice(3).replace(/^"|"$/g, '').trim();
+    if (!rel) continue;
+    const arrow = rel.indexOf(' -> ');
+    if (arrow !== -1) rel = rel.slice(arrow + 4).trim();
+    files.push(rel.replace(/\\/g, '/'));
+  }
+  return files;
+}
+// Grounding-чек (008 T001): filesReviewed===null → провайдер вообще не знает про поле
+// (старый стаб/провайдер без схемы, напр. существующие тесты gate.test.js/fleet.test.js,
+// где стаб — литерал `{"verdict":"pass"}` без reasons) — весь чек молчит целиком, и
+// file-проверки, и no-reasons: нет сигнала о новом контракте вообще, значит нечего сверять.
+// filesReviewed присутствует (даже пустым массивом) — судья ЗНАЕТ о контракте, тогда
+// действуют все три отказа: назвал файл не из диффа → phantom-file; пропустил файл диффа →
+// unreviewed-file; пустой reasons → no-reasons.
+function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd()) {
+  // no-reasons — БЕЗУСЛОВНО, до и независимо от filesReviewed. Прятать его за наличием
+  // поля значило бы оставить открытым ровно мотивирующий баг спеки (7f8183b: `pass` с
+  // reasons:[] прошёл гейт): провайдер без structured output (codex/agy отвечают
+  // JSON-хвостом и инструкции следуют не всегда) просто не вернул бы filesReviewed — и
+  // весь чек замолчал бы целиком. Вердикт без причины не проводится никогда.
+  if (!reasons || !reasons.length) return 'grounding:no-reasons';
+  // Файловые проверки — только когда судья сообщил filesReviewed. null = провайдер не
+  // знает про контракт (легаси-стаб/старая схема), сверять нечего.
+  if (filesReviewed === null) return null;
+  const diffSet = new Set(diffFileList(status));
+  const reviewed = filesReviewed.map((f) => String(f).replace(/\\/g, '/'));
+  // Фантом = путь, которого НЕ существует: только это галлюцинация. «Не в диффе» — не
+  // критерий: судье целиком показывают рубрику (spec.md/constitution.md), он читает
+  // tasks.md, и честное упоминание этих файлов в filesReviewed — не выдумка. Живой блок
+  // T001 2026-07-22: судья дал pass, перечислил 3 файла диффа + spec.md/tasks.md рубрики
+  // и получил phantom-file — ложное срабатывание на добросовестном ответе.
+  for (const f of reviewed) if (!diffSet.has(f) && !fs.existsSync(path.resolve(cwd, f))) return 'grounding:phantom-file';
+  const reviewedSet = new Set(reviewed);
+  for (const f of diffSet) if (!reviewedSet.has(f)) return 'grounding:unreviewed-file';
+  return null;
+}
+
 function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null, externalDiffs = []) {
+  const files = diffFileList(status);
+  const filesSection = files.length ? files.join('\n') : '(нет изменённых файлов)';
   const prevBlock = prevBlockReason
     ? `\nПРЕДЫДУЩАЯ попытка этого слайса уже была ЗАБЛОКИРОВАНА по причине: ${prevBlockReason}\nПроверь, устранена ли именно она в текущем диффе — не повторяй тот же вердикт вслепую.\n`
     : '';
@@ -165,9 +237,17 @@ gh run view и т.п.) — суди ИСКЛЮЧИТЕЛЬНО дифф теку
 --- git status --porcelain ---
 ${status}
 
+--- ФАЙЛЫ ДИФФА (полный список, не зависит от обрезки диффа ниже) ---
+${filesSection}
+
 --- git diff HEAD ---
 ${diff}
 ${externalSection}
+Верни filesReviewed — список ВСЕХ путей из секции «ФАЙЛЫ ДИФФА» выше, которые ты реально
+разобрал (тем же написанием пути); не называй файл, которого там нет, и не пропускай ни
+одного — это сверяется кодом, не читается на веру. reasons не может быть пустым ни при
+каком вердикте.
+
 Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).`;
 }
 
@@ -219,7 +299,7 @@ function slurpExternalDiffs(cwd, files) {
 // provider: только claude умеет --json-schema (структурированный вывод, T016). codex/agy
 // эквивалента не имеют → требуем JSON последней строкой и читаем prose-парсером; стойка
 // REJECT-default та же (нет явного pass → block), так что кривой ответ безопасен.
-const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"]}  или  {"verdict":"block","reasons":["…"]}';
+const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"],"filesReviewed":["path/a.js"]}  или  {"verdict":"block","reasons":["…"],"filesReviewed":["path/a.js"]}';
 async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [] }) {
   const structured = provider === 'claude';
   const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs)
@@ -235,7 +315,18 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
     try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
   }
   const verdict = parseVerdict(output) === 'pass' ? 'pass' : 'block';
-  return { verdict, reasons: parseReasons(output), judgeLog: r.logPath, runOk: true, durationSec };
+  const reasons = parseReasons(output);
+  const filesReviewed = parseFilesReviewed(output);
+  // 008 T001: grounding — механическая сверка filesReviewed с реальным списком файлов диффа.
+  // Любой отказ граундинга форсирует block независимо от того, что сказала модель, — это и
+  // есть смысл проверки («судья сказал pass» ≠ «судья реально смотрел дифф»).
+  const groundingReason = checkGrounding(status, filesReviewed, reasons, cwd);
+  return {
+    verdict: groundingReason ? 'block' : verdict,
+    reasons: groundingReason ? [...reasons, groundingReason] : reasons,
+    filesReviewed: filesReviewed || [],
+    judgeLog: r.logPath, runOk: true, durationSec,
+  };
 }
 
 // Прогнать судью. runOk=false = судья НЕ смог отработать (timeout/spawn-error/nonzero-exit/
@@ -339,4 +430,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, judgeDiff, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs };
+module.exports = { gate, runJudge, judgeDiff, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs };

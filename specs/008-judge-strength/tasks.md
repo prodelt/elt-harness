@@ -4,7 +4,7 @@
 T004 (проводка в proof/commit/драйвер) → T005 (замер + живой прогон). T001-T003 трогают
 разные функции `gate.js`, но T004 связывает их в один контракт proof — параллелить нельзя.
 
-- [ ] **T001** Grounding-чек: промпт судьи требует `filesReviewed` (+ секция «ФАЙЛЫ ДИФФА» из `git status`, не зависящая от cap диффа); `judgeDiff` механически сверяет — файл не из диффа → `block` `grounding:phantom-file`, непокрытый файл диффа → `block` `grounding:unreviewed-file`, пустой `reasons` → `block` `grounding:no-reasons`. Схема structured output и JSON-хвост для codex/agy расширены полем. Тесты на все три отказа + на честный вердикт. [files: tools/fleet/gate.js, tools/judge-grounding.test.js]
+- [X] **T001** Grounding-чек: промпт судьи требует `filesReviewed` (+ секция «ФАЙЛЫ ДИФФА» из `git status`, не зависящая от cap диффа); `judgeDiff` механически сверяет — файл не из диффа → `block` `grounding:phantom-file`, непокрытый файл диффа → `block` `grounding:unreviewed-file`, пустой `reasons` → `block` `grounding:no-reasons`. Схема structured output и JSON-хвост для codex/agy расширены полем. Тесты на все три отказа + на честный вердикт. [files: tools/fleet/gate.js, tools/judge-grounding.test.js]
 
 - [ ] **T002** Двойной судья: `harness.json.judge.verify = {provider, model}` читается `elt-config`; `runJudge` при `pass` первичного зовёт второго тем же `judgeDiff` (чистый контекст, тот же дифф), `block` первичного второго НЕ зовёт; итог — `block` если любой `block`, `judge-dead` если второй `runOk=false`; возвращается `judges[]` с обоими вердиктами/моделями/временем. Тесты: pass+pass, pass+block, block-короткое-замыкание, verify-dead. [files: tools/fleet/gate.js, ~/.claude/bin/elt-config.js, tools/judge-verify.test.js]
 
