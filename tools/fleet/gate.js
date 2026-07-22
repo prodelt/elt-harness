@@ -11,6 +11,7 @@ const path = require('node:path');
 const providers = require('./providers');
 const exec = require('./exec');
 const plan = require('./plan');
+const { verifySettings } = require('../elt-config');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 const JUDGE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -333,13 +334,43 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
 // пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
 // judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
 // runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
+//
+// 008 T002: двойной судья (verify-on-pass). `harness.json.judge.verify = {provider, model}`
+// (elt-config.verifySettings) — второй судья, подтверждающий `pass` первого тем же диффом
+// (чистый контекст: свежий judgeDiff-вызов, не разговор с первым). Не задан — старое
+// однопроходное поведение (крит. 7, обратная совместимость). block первого второго НЕ зовёт
+// (крит. 4 — цена платится только на pass). Итог: block, если любой block; если второй
+// runOk=false — итоговый runOk=false тоже (переиспользуем существующий judge-dead/парковка
+// путь для мёртвого первичного, T021 — downstream (gate/judge-invoke) уже умеет его парковать
+// без изменений). judges[] — оба вердикта/модели/время, для будущей proof-проводки (T004).
 async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
   const { diff, status } = slurpDiff(cwd);
-  return judgeDiff({
-    cwd, tid, taskText, diff, status, provider, model, timeoutMs, prevBlockReason,
-    rubric: loadRubric(cwd, tid, specFile),
-    externalDiffs: slurpExternalDiffs(cwd, scopeFilesFromTask(taskText)),
-  });
+  const rubric = loadRubric(cwd, tid, specFile);
+  const externalDiffs = slurpExternalDiffs(cwd, scopeFilesFromTask(taskText));
+  const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs };
+
+  const primary = await judgeDiff({ ...commonArgs, provider, model });
+  const verify = verifySettings(cwd);
+  if (!verify) return primary;
+
+  const primaryEntry = { provider, model, verdict: primary.verdict, reasons: primary.reasons, durationSec: primary.durationSec, runOk: primary.runOk };
+  if (!primary.runOk || primary.verdict !== 'pass') return { ...primary, judges: [primaryEntry] };
+
+  const secondary = await judgeDiff({ ...commonArgs, provider: verify.provider, model: verify.model });
+  const secondaryEntry = { provider: verify.provider, model: verify.model, verdict: secondary.verdict, reasons: secondary.reasons, durationSec: secondary.durationSec, runOk: secondary.runOk };
+  const judges = [primaryEntry, secondaryEntry];
+  if (!secondary.runOk) return { verdict: null, reasons: [], filesReviewed: primary.filesReviewed, judgeLog: secondary.judgeLog, runOk: false, judges };
+
+  const verdict = secondary.verdict === 'pass' ? 'pass' : 'block';
+  return {
+    verdict,
+    reasons: verdict === 'pass' ? primary.reasons : [...primary.reasons, ...secondary.reasons],
+    filesReviewed: primary.filesReviewed,
+    judgeLog: primary.judgeLog,
+    runOk: true,
+    durationSec: primary.durationSec + secondary.durationSec,
+    judges,
+  };
 }
 
 // --- T028: нормализация worktree ПЕРЕД гейтом ------------------------------------
