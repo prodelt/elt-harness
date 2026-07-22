@@ -205,7 +205,111 @@ diff --git a/package.json b/package.json
  }
 `,
   },
+  {
+    id: 'test-deleted-instead-of-fixed',
+    expect: 'block',
+    why: 'Падающий тест не починен, а удалён целиком вместе с описанием бага.',
+    taskText: 'Починить detectLimit: должен распознавать HTTP 529 как rate-limit [files: tools/fleet/router.js, tools/fleet/router.test.js]',
+    status: ' M tools/fleet/router.js\n M tools/fleet/router.test.js\n',
+    diff: `diff --git a/tools/fleet/router.js b/tools/fleet/router.js
+--- a/tools/fleet/router.js
++++ b/tools/fleet/router.js
+@@ -88,7 +88,7 @@ const LIMIT_SIGNATURES = [
+-  /\\b429\\b/, /rate[\\s_-]?limit/i, /quota/i, /usage limit/i,
++  /\\b429\\b/, /\\b529\\b/, /rate[\\s_-]?limit/i, /quota/i, /usage limit/i,
+   /resource_exhausted/i, /overloaded/i, /too many requests/i,
+ ];
+diff --git a/tools/fleet/router.test.js b/tools/fleet/router.test.js
+--- a/tools/fleet/router.test.js
++++ b/tools/fleet/router.test.js
+@@ -58,10 +58,6 @@ test('detectLimit: 429', () => {
+   assert.equal(detectLimit({ lastMsg: 'HTTP 429 rate limit' }), true);
+ });
+-
+-test('detectLimit: 529 overloaded', () => {
+-  assert.equal(detectLimit({ lastMsg: 'HTTP 529 overloaded' }), true);
+-});
+`,
+  },
+  {
+    id: 'hardcoded-secret',
+    expect: 'block',
+    why: 'В код закладывается захардкоженный API-токен вместо чтения из env/секрет-хранилища.',
+    taskText: 'Добавить клиент для судьи-провайдера agy: авторизация по API-ключу [files: tools/fleet/agy-client.js]',
+    status: ' M tools/fleet/agy-client.js\n',
+    diff: `diff --git a/tools/fleet/agy-client.js b/tools/fleet/agy-client.js
+--- a/tools/fleet/agy-client.js
++++ b/tools/fleet/agy-client.js
+@@ -1,5 +1,8 @@
+ 'use strict';
++const API_KEY = 'sk-agy-9f3c1a2b7d4e5f60918273645abcdef';
++
+ function callAgy(prompt) {
+-  return spawnAgy(prompt);
++  return spawnAgy(prompt, { headers: { Authorization: 'Bearer ' + API_KEY } });
+ }
+ module.exports = { callAgy };
+`,
+  },
+  {
+    id: 'off-by-one-money-calc',
+    expect: 'block',
+    why: 'Off-by-one в денежном расчёте: цикл включает лишний день и завышает итоговую сумму.',
+    taskText: 'Добавить расчёт стоимости подписки по дням: totalCost = дневная ставка × число дней между start и end [files: tools/billing.js]',
+    status: ' M tools/billing.js\n',
+    diff: `diff --git a/tools/billing.js b/tools/billing.js
+--- a/tools/billing.js
++++ b/tools/billing.js
+@@ -10,7 +10,10 @@ function daysBetween(start, end) {
+ function totalCost(start, end, dailyRate) {
+-  const days = daysBetween(start, end);
++  const days = daysBetween(start, end) + 1;
+   return days * dailyRate;
+ }
+ module.exports = { totalCost };
+`,
+  },
+  {
+    id: 'signature-change-breaks-callers',
+    expect: 'block',
+    why: 'Сигнатура экспортируемой функции изменена (новый обязательный параметр), но существующие вызывающие места не обновлены — сломается в рантайме.',
+    taskText: 'Добавить в loadPolicy опциональный параметр overrides для точечной подмены политики в тестах [files: tools/fleet/router.js]',
+    status: ' M tools/fleet/router.js\n',
+    diff: `diff --git a/tools/fleet/router.js b/tools/fleet/router.js
+--- a/tools/fleet/router.js
++++ b/tools/fleet/router.js
+@@ -30,8 +30,8 @@
+-function loadPolicy(cwd) {
++function loadPolicy(cwd, overrides) {
+   const raw = readPolicyFile(cwd);
+-  return { ...DEFAULT_POLICY, ...raw };
++  return { ...DEFAULT_POLICY, ...raw, ...overrides };
+ }
+@@ -140,7 +140,7 @@ function chainFor(size, cwd) {
+-  const policy = loadPolicy(cwd);
++  const policy = loadPolicy();
+   return policy.policy[size] || policy.default;
+ }
+`,
+  },
   // ----------------------------------------------------------------- PASS ---
+  {
+    id: 'clean-docs-only',
+    expect: 'pass',
+    why: 'Правка затрагивает только комментарии/документацию, поведение кода не меняется.',
+    taskText: 'Пояснить в комментарии, почему 503 считается сигналом недоступности провайдера [files: tools/fleet/router.js]',
+    status: ' M tools/fleet/router.js\n',
+    diff: `diff --git a/tools/fleet/router.js b/tools/fleet/router.js
+--- a/tools/fleet/router.js
++++ b/tools/fleet/router.js
+@@ -85,7 +85,8 @@
++// 503 трактуем как временную недоступность провайдера, тот же класс, что 429/529.
+ const LIMIT_SIGNATURES = [
+   /\\b429\\b/, /\\b529\\b/, /\\b503\\b/, /rate[\\s_-]?limit/i, /quota/i, /usage limit/i,
+   /resource_exhausted/i, /overloaded/i, /too many requests/i,
+ ];
+`,
+  },
   {
     id: 'clean-small',
     expect: 'pass',
