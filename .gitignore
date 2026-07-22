@@ -69,3 +69,5 @@ vendor/
 
 # judge-bench: отчёты прогонов = артефакт замера, не исходник
 .harness/judge-bench/
+.harness/fleet/
+.harness/loop-logs/
