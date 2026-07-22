@@ -49,6 +49,20 @@ function judgeSettings(root) {
   } catch { return { ...JUDGE_DEFAULTS }; }
 }
 
+// 008 T002: второй судья (verify-on-pass) — опционален, по умолчанию выключен (обратная
+// совместимость, критерий 7 спеки). Криво заданный verify (провайдер вне списка / пустая
+// модель) не подставляет дефолты — контур молча выключается, а не подставляет неожиданного
+// судью: подставлять дефолт значило бы включить второй судья конфигом, который его не просил.
+function verifySettings(root) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).judge || {};
+    const v = j.verify;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    if (!JUDGE_PROVIDERS.has(v.provider) || !nonEmptyString(v.model)) return null;
+    return { provider: v.provider, model: v.model };
+  } catch { return null; }
+}
+
 function readHarnessConfig(root) {
   const file = path.join(root, '.harness', 'harness.json');
   let config;
@@ -58,4 +72,4 @@ function readHarnessConfig(root) {
   return { ...validateHarnessConfig(config), file, config };
 }
 
-module.exports = { readHarnessConfig, validateHarnessConfig, judgeSettings, JUDGE_PROVIDERS, JUDGE_DEFAULTS };
+module.exports = { readHarnessConfig, validateHarnessConfig, judgeSettings, verifySettings, JUDGE_PROVIDERS, JUDGE_DEFAULTS };
