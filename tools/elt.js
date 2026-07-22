@@ -473,6 +473,10 @@ if (cmd === 'judge-proof') {
       try { raw = fs.readFileSync(extraFile, 'utf8').replace(/^﻿/, ''); } catch { die('judge proof: --extra-file not readable'); }
       try { extra = JSON.parse(raw) || {}; } catch { die('judge proof: --extra-file must be JSON'); }
     }
+    // reasons тоже принимаем файлом: обоснования живого судьи — свободный текст с кавычками
+    // и переводами строк, в argv PS5.1 они не доезжают (ровно поэтому драйвер годами слал
+    // литерал `[]` и пруф был содержательно пуст). argv-форма остаётся для ручных вызовов.
+    if (Array.isArray(extra.reasons) && extra.reasons.length) reasons = extra.reasons.map(String);
     console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof }), null, 2));
     process.exit(0);
   }

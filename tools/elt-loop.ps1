@@ -256,11 +256,15 @@ $tail
     # judges[]/grounding/redProof (008 T004) идут временным файлом, не argv — JSON с
     # embedded-кавычками бьётся о тот же PS5.1 native-marshalling баг, что и Invoke-Claude
     # выше (claude.exe/node.exe не маршалят `"` внутри аргумента корректно).
-    $extra = @{ judges = $j.judges; grounding = $j.grounding; redProof = $j.redProof }
+    # reasons верхнего уровня — тем же файлом. Раньше здесь стоял литерал `--reasons-json "[]"`,
+    # и обоснования живого судьи в пруф НЕ попадали: файл, ради которого весь протокол
+    # доказательности, был содержательно пуст (видно в proof T002/T003 — `"reasons": []`
+    # при судье с развёрнутым разбором).
+    $extra = @{ judges = $j.judges; grounding = $j.grounding; redProof = $j.redProof; reasons = $j.reasons }
     $extraFile = [System.IO.Path]::GetTempFileName()
     try {
       ($extra | ConvertTo-Json -Compress -Depth 8) | Out-File -FilePath $extraFile -Encoding utf8
-      & node $eltCli judge-proof write --task $id --verdict pass --model $JudgeModel --reasons-json "[]" --extra-file $extraFile
+      & node $eltCli judge-proof write --task $id --verdict pass --model $JudgeModel --extra-file $extraFile
     } finally {
       Remove-Item -Path $extraFile -ErrorAction SilentlyContinue
     }
