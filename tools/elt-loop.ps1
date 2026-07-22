@@ -10,6 +10,7 @@ param(
   [int]$Slices = 4,
   [int]$MaxMinutes = 120,
   [string]$JudgeModel = "sonnet",
+  [string]$SpecDir = "",
   [switch]$DryRun
 )
 
@@ -85,7 +86,14 @@ try {
   # $Project "" $eltCli here would shift $eltCli into the specDir slot and
   # silently no-op the whole guard (found live: unapproved fixture, exit 0).
   $env:ELT_CLI = $eltCli
-  & node (Join-Path $PSScriptRoot "approval-guard.js") $Project
+  # -SpecDir (006 T019): pin the guard (and slice next below) to one spec when
+  # another specs/*/tasks.md also has open boxes — otherwise both auto-detect
+  # via the alphabetically-first one, which can block an unrelated active spec.
+  if ($SpecDir -ne "") {
+    & node (Join-Path $PSScriptRoot "approval-guard.js") $Project $SpecDir
+  } else {
+    & node (Join-Path $PSScriptRoot "approval-guard.js") $Project
+  }
   $approvalOk = ($LASTEXITCODE -eq 0)
   if (-not $approvalOk) {
     Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $null; result = "approval-guard-stop" }
@@ -100,7 +108,11 @@ try {
     if (((Get-Date) - $start).TotalMinutes -ge $MaxMinutes) { Write-Host "elt-loop: бюджет $MaxMinutes мин исчерпан — стоп."; break }
 
     # 2. следующий слайс (exit 3 = план закрыт)
-    $sliceJson = & node $eltCli slice next --json
+    if ($SpecDir -ne "") {
+      $sliceJson = & node $eltCli slice next --json --spec $SpecDir
+    } else {
+      $sliceJson = & node $eltCli slice next --json
+    }
     $sliceExit = $LASTEXITCODE
     if ($sliceExit -eq 3) { Write-Host "elt-loop: план закрыт — открытых [ ] задач нет."; break }
     if ($sliceExit -ne 0) { Write-Error "elt slice next вернул $sliceExit"; break }
