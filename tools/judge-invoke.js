@@ -16,14 +16,19 @@
 //   runOk:true, verdict  → реальный вердикт (pass|block, REJECT-default внутри gate)
 const fs = require('node:fs');
 const { runJudge } = require('./fleet/gate');
+const { judgeSettings } = require('./elt-config');
 
 async function main() {
   const descPath = process.argv[2];
   if (!descPath) { process.stderr.write('usage: node judge-invoke.js <descriptor.json>\n'); process.exit(2); }
   // PS5.1 Out-File -Encoding utf8 пишет BOM — снимаем перед JSON.parse (ловушка проекта).
   const desc = JSON.parse(fs.readFileSync(descPath, 'utf8').replace(/^﻿/, ''));
-  const { cwd = process.cwd(), tid = '', taskText = '', model = 'sonnet', specFile = null } = desc;
-  const r = await runJudge({ cwd, tid, taskText, model, specFile });
+  const { cwd = process.cwd(), tid = '', taskText = '', specFile = null } = desc;
+  // Судья из harness.json проекта; дескриптор драйвера перебивает (явный флаг сильнее конфига).
+  const cfg = judgeSettings(cwd);
+  const provider = desc.provider || cfg.provider;
+  const model = desc.model || cfg.model;
+  const r = await runJudge({ cwd, tid, taskText, provider, model, specFile });
   process.stdout.write(JSON.stringify({
     runOk: !!r.runOk, verdict: r.verdict || null, reasons: r.reasons || [], judgeLog: r.judgeLog || null,
   }));

@@ -17,6 +17,7 @@ const gate = require('./gate');
 const merge = require('./merge');
 const heal = require('./heal');
 const providers = require('./providers');
+const { judgeSettings } = require('../elt-config');
 const router = require('./router');
 const approvalGuard = require('../approval-guard');
 
@@ -133,7 +134,7 @@ function applyMergeResult(m, tid, cwd, summary, mergedEvent) {
 // НЕ зовёт worker — реализация уже лежит в worktree (judge_pending) или уже закоммичена
 // (merge_pending), передел исключён. Судья снова недоступен → ре-парковка, суммарный
 // прогон не считает это failed (ждёт следующего resume).
-async function resumeParked(resumable, { cwd, integration, tasksPath, judgeModel, summary }) {
+async function resumeParked(resumable, { cwd, integration, tasksPath, judgeProvider, judgeModel, summary }) {
   for (const c of resumable) {
     const wtPath = c.wtPath;
     claims.claim(c.tid, { cwd, pid: process.pid, worker: 'fleet-resume', meta: { provider: c.provider, state: c.state, wtPath, taskText: c.taskText } });
@@ -141,9 +142,9 @@ async function resumeParked(resumable, { cwd, integration, tasksPath, judgeModel
 
     if (c.state === 'judge_pending') {
       const judgeStart = Date.now();
-      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeModel, integration });
+      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeProvider, judgeModel, integration });
       logSpawn(cwd, {
-        tid: c.tid, phase: 'judge', provider: 'claude', model: judgeModel,
+        tid: c.tid, phase: 'judge', provider: judgeProvider, model: judgeModel,
         durationSec: Math.round((Date.now() - judgeStart) / 1000),
         exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
         verdict: g.stage === 'judge-unavailable' ? 'judge-unavailable' : (g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage)),
@@ -182,7 +183,12 @@ async function run(opts = {}) {
   const model = opts.model || null;
   const worker = opts.worker || defaultWorker;
   const stopFile = opts.stopFile || path.join(cwd, '.harness', 'STOP');
-  const judgeModel = opts.judgeModel || 'sonnet';
+  // Судья: явный opts побеждает, иначе — harness.json проекта (единый источник, elt-config).
+  const judgeCfg = judgeSettings(cwd);
+  const judgeModel = opts.judgeModel || judgeCfg.model;
+  // Провайдер судьи (judge-bench 2026-07-22: agy/gemini-3.6-flash и codex/gpt-5.6 дают тот же
+  // recall 7/7, что sonnet, но не жгут Claude-лимит) — из harness.json, дефолт claude.
+  const judgeProvider = opts.judgeProvider || judgeCfg.provider;
   const maxLoops = opts.maxLoops || 100;
   const maxAttempts = opts.maxAttempts || 3;
 
@@ -237,7 +243,7 @@ async function run(opts = {}) {
   const resumable = staleAtStart.filter((c) => (c.state === 'judge_pending' || c.state === 'merge_pending') && c.wtPath && fs.existsSync(c.wtPath));
   if (resumable.length) {
     emit(cwd, { event: 'resume-parked-found', tids: resumable.map((c) => c.tid) });
-    await resumeParked(resumable, { cwd, integration, tasksPath, judgeModel, summary });
+    await resumeParked(resumable, { cwd, integration, tasksPath, judgeProvider, judgeModel, summary });
   }
   // T027 (crash-resume не оставляет orphan .fleet-wt): claims.sweep() снимает только
   // claim-файл — worktree упавшего процесса (implementing/oracle/heal, до judge_pending)
@@ -372,7 +378,7 @@ async function run(opts = {}) {
         const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
-        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '', integration }); }
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '', integration }); }
         finally { router.endCall(callTracker, 'claude'); }
         const judgeDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
@@ -382,7 +388,7 @@ async function run(opts = {}) {
         if (g.stage === 'judge-unavailable') {
           emit(cwd, { event: 'judge-unavailable-park', tid: slice.id });
           logSpawn(cwd, {
-            tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: judgeDurationSec,
+            tid: slice.id, phase: 'judge', provider: judgeProvider, model: judgeModel, durationSec: judgeDurationSec,
             exit: null, failoverFrom: null, limitHit: false, verdict: 'judge-unavailable',
           });
           return { tid: slice.id, gateOk: false, parked: true };
@@ -396,7 +402,7 @@ async function run(opts = {}) {
         if (g.ok) claims.setState(slice.id, { state: 'merge_pending' }, { cwd });
 
         logSpawn(cwd, {
-          tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: judgeDurationSec,
+          tid: slice.id, phase: 'judge', provider: judgeProvider, model: judgeModel, durationSec: judgeDurationSec,
           exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
           verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
         });
@@ -443,7 +449,7 @@ async function run(opts = {}) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
         cleanupSlice(cwd, r.tid); // сбросить ветку/worktree
         summary.conflicts.push(r.tid);
-        const rr = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker, stopFile });
+        const rr = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeProvider, judgeModel, provFor, policy, routerState, callTracker, stopFile });
         if (rr.ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
         else if (rr.stoppedMidSlice) { stopHit = true; stopReason = stopReason || 'STOP-файл'; }
         else {
@@ -471,7 +477,7 @@ async function run(opts = {}) {
 // requeue-serial: пересобрать worktree с ОБНОВЛЁННОЙ интеграционной (там уже победивший
 // слайс) и переделать — теперь правки ложатся сверху, merge чистый. Возвращает
 // {ok, capped?, allCooling?} — T020: caller решает, стопать ли весь прогон.
-async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeModel, provFor, policy, routerState, callTracker, stopFile }) {
+async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, judgeProvider, judgeModel, provFor, policy, routerState, callTracker, stopFile }) {
   const provider = provFor(slice);
   if (provider === null) {
     emit(cwd, { event: 'all-providers-cooling', tids: [slice.id] });
@@ -523,10 +529,10 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
     if (!judgeCap.ok) return capBlock(judgeCap.reason);
     let g;
-    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeModel, integration }); }
+    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider, judgeModel, integration }); }
     finally { router.endCall(callTracker, 'claude'); }
     logSpawn(cwd, {
-      tid: slice.id, phase: 'judge', provider: 'claude', model: judgeModel, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+      tid: slice.id, phase: 'judge', provider: judgeProvider, model: judgeModel, durationSec: Math.round((Date.now() - phaseStart) / 1000),
       exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
       verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
     });

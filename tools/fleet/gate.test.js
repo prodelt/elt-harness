@@ -18,6 +18,31 @@ test('parseVerdict: JSON/проза → verdict, иначе block', () => {
   assert.equal(gate.parseVerdict('код вернул { status: "ok" }'), 'block', 'чужой JSON не ловим');
 });
 
+// --- Эхо промпта (баг 2026-07-22, judge-bench): `codex exec` печатает весь промпт в свой
+// stdout, а промпт несёт и строку-инструкцию {"verdict":"pass"…}, и дифф (где встречается
+// `return 'pass'`). Читать надо ПОСЛЕДНЕЕ совпадение — ответ модели идёт в конце. Пока
+// парсер брал первое, codex-судья давал recall 0/7: настоящий block читался как pass. ---
+test('parseVerdict: эхо промпта не подменяет ответ модели', () => {
+  const echo = [
+    'ОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:',
+    '{"verdict":"pass","reasons":["…"]}  или  {"verdict":"block","reasons":["…"]}',
+    '--- git diff HEAD ---',
+    "-  return 'block';",
+    "+  return 'pass';",
+    'codex',
+    'Изменение выходит за рамки рефакторинга: fail-closed заменено на fail-open.',
+    '{"verdict":"block","reasons":["Ослаблена REJECT-default семантика"]}',
+  ].join('\n');
+  assert.equal(gate.parseVerdict(echo), 'block', 'вердикт берётся из ХВОСТА, а не из эха инструкции');
+  assert.deepEqual(gate.parseReasons(echo), ['Ослаблена REJECT-default семантика'], 'reasons тоже из ответа, а не из эха');
+});
+
+test('parseVerdict: эхо не превращает block-инструкцию в ложный block при честном pass', () => {
+  const echo = '{"verdict":"pass"} или {"verdict":"block"}\n…рассуждения…\n{"verdict":"pass","reasons":["в границах задачи"]}';
+  assert.equal(gate.parseVerdict(echo), 'pass');
+  assert.deepEqual(gate.parseReasons(echo), ['в границах задачи']);
+});
+
 // --- T022: block-причина прокидывается в prompt следующей попытки ---
 test('parseReasons: читает reasons из JSON-фолбэка', () => {
   assert.deepEqual(gate.parseReasons('{"verdict":"block","reasons":["scope creep"]}'), ['scope creep']);

@@ -9,7 +9,8 @@ param(
   [string]$Project = ".",
   [int]$Slices = 4,
   [int]$MaxMinutes = 120,
-  [string]$JudgeModel = "sonnet",
+  [string]$JudgeModel = "",
+  [string]$JudgeProvider = "",
   [string]$SpecDir = "",
   [switch]$DryRun
 )
@@ -24,6 +25,18 @@ $gitDir = (& git -C $Project rev-parse --git-dir 2>$null | Select-Object -First 
 if (-not [string]::IsNullOrWhiteSpace($gitDir) -and -not [System.IO.Path]::IsPathRooted($gitDir)) { $gitDir = Join-Path $Project $gitDir }
 $runLog  = if ([string]::IsNullOrWhiteSpace($gitDir)) { $null } else { Join-Path $gitDir "elt\run-log.jsonl" }
 $stopFile = Join-Path $Project ".harness\STOP"
+
+# Судья — из harness.json проекта (единый источник, tools/elt-config.js judgeSettings);
+# явные -JudgeProvider/-JudgeModel перебивают. Раньше здесь был литерал "sonnet", из-за
+# которого правка harness.json молча не действовала на solo-драйвер.
+$harnessJson = Join-Path $Project ".harness\harness.json"
+if (Test-Path $harnessJson) {
+  $hj = (Get-Content $harnessJson -Raw | ConvertFrom-Json)
+  if ([string]::IsNullOrWhiteSpace($JudgeProvider) -and $hj.judge.provider) { $JudgeProvider = $hj.judge.provider }
+  if ([string]::IsNullOrWhiteSpace($JudgeModel)    -and $hj.judge.model)    { $JudgeModel    = $hj.judge.model }
+}
+if ([string]::IsNullOrWhiteSpace($JudgeProvider)) { $JudgeProvider = "claude" }
+if ([string]::IsNullOrWhiteSpace($JudgeModel))    { $JudgeModel    = "sonnet" }
 
 if (-not (Test-Path $eltCli))              { Write-Error "нет elt CLI: $eltCli"; exit 1 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue))   { Write-Error "нет node в PATH"; exit 1 }
@@ -183,10 +196,10 @@ $tail
       Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить, стоп."
       break
     }
-    Write-Host "elt-loop: судья ($JudgeModel)…"
+    Write-Host "elt-loop: судья ($JudgeProvider/$JudgeModel)…"
     # Дескриптор через файл (без argv-кавычек, PS5.1). judge-invoke сам грузит рубрику spec.md
     # рядом с tasks.md слайса и строит промпт (gate.runJudge/loadRubric — уже под тестом).
-    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; model = $JudgeModel; specFile = $slice.file }
+    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; provider = $JudgeProvider; model = $JudgeModel; specFile = $slice.file }
     $jDescFile = [System.IO.Path]::GetTempFileName()
     $judgeRaw = ""
     try {

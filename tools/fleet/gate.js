@@ -39,12 +39,25 @@ function parseStructuredVerdict(text) {
   const so = parseStructuredOutput(text);
   return so ? so.verdict : null;
 }
+// ПОСЛЕДНЕЕ совпадение, не первое (баг 2026-07-22, judge-bench): `codex exec` эхает весь
+// промпт в свой stdout/лог, а промпт содержит и строку-инструкцию {"verdict":"pass",…}, и
+// сам дифф (где легко встречается `return 'pass'`). Парсер брал ПЕРВОЕ вхождение → читал
+// эхо инструкции вместо ответа модели → codex-судья давал recall 0/7: правильный `block`
+// с точным обоснованием превращался в `pass`. Тихая дыра в гейте, а не «плохая модель».
+// Ответ модели всегда в КОНЦЕ вывода — значит и читать надо последнее совпадение.
+function lastMatch(text, re) {
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+  let m, last = null;
+  while ((m = g.exec(text)) !== null) last = m;
+  return last;
+}
+
 // T022: причина block читается для проброса в prompt следующей попытки этого же слайса.
 function parseReasons(text) {
   const so = parseStructuredOutput(text);
   if (so) return so.reasons;
   try {
-    const m = text.match(/"reasons"\s*:\s*(\[[^\]]*\])/i);
+    const m = lastMatch(text, /"reasons"\s*:\s*(\[[^\]]*\])/i);
     if (m) return JSON.parse(m[1]).map(String);
   } catch { /* нет reasons в prose-фолбэке */ }
   return [];
@@ -59,9 +72,9 @@ function parseVerdict(text) {
   if (!text) return 'block';
   const structured = parseStructuredVerdict(text);
   if (structured) return structured;
-  const mJson = text.match(/"verdict"\s*:\s*"(pass|block)"/i);
+  const mJson = lastMatch(text, /"verdict"\s*:\s*"(pass|block)"/i);
   if (mJson) return mJson[1].toLowerCase();
-  const mProse = text.match(/(?:verdict|вердикт)\W{0,5}(pass|block)/i);
+  const mProse = lastMatch(text, /(?:verdict|вердикт)\W{0,5}(pass|block)/i);
   if (mProse) return mProse[1].toLowerCase();
   return 'block';
 }
@@ -190,17 +203,20 @@ function slurpExternalDiffs(cwd, files) {
   return externalRepoRoots(cwd, files).map((root) => ({ root, ...slurpDiff(root) }));
 }
 
-// Прогнать судью. runOk=false = судья НЕ смог отработать (timeout/spawn-error/nonzero-exit/
-// пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
-// judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
-// runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
-async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
-  const { diff, status } = slurpDiff(cwd);
-  const rubric = loadRubric(cwd, tid, specFile);
-  const externalDiffs = slurpExternalDiffs(cwd, scopeFilesFromTask(taskText));
-  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs);
-  const r = await providers.run({ provider: 'claude', prompt, cwd, model, timeoutMs, jsonSchema: VERDICT_SCHEMA });
-  if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false };
+// Судья по ГОТОВОМУ диффу (без git-чтения) — общий путь для runJudge и judge-bench:
+// бенч обязан мерить ТУ ЖЕ функцию, что работает в проде, иначе меряет фикцию.
+// provider: только claude умеет --json-schema (структурированный вывод, T016). codex/agy
+// эквивалента не имеют → требуем JSON последней строкой и читаем prose-парсером; стойка
+// REJECT-default та же (нет явного pass → block), так что кривой ответ безопасен.
+const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"]}  или  {"verdict":"block","reasons":["…"]}';
+async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [] }) {
+  const structured = provider === 'claude';
+  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs)
+    + (structured ? '' : JSON_TAIL_INSTRUCTION);
+  const started = Date.now();
+  const r = await providers.run({ provider, prompt, cwd, model, timeoutMs, jsonSchema: structured ? VERDICT_SCHEMA : null });
+  const durationSec = (Date.now() - started) / 1000;
+  if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false, durationSec, reason: r.reason };
   // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
   // ответа. Лог-файл (stdout+stderr вперемешку) — только фолбэк для старого prose-парсера.
   let output = r.stdout || r.lastMsg || '';
@@ -208,7 +224,20 @@ async function runJudge({ cwd, tid, taskText, model = 'sonnet', timeoutMs = JUDG
     try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
   }
   const verdict = parseVerdict(output) === 'pass' ? 'pass' : 'block';
-  return { verdict, reasons: parseReasons(output), judgeLog: r.logPath, runOk: true };
+  return { verdict, reasons: parseReasons(output), judgeLog: r.logPath, runOk: true, durationSec };
+}
+
+// Прогнать судью. runOk=false = судья НЕ смог отработать (timeout/spawn-error/nonzero-exit/
+// пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
+// judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
+// runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
+async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
+  const { diff, status } = slurpDiff(cwd);
+  return judgeDiff({
+    cwd, tid, taskText, diff, status, provider, model, timeoutMs, prevBlockReason,
+    rubric: loadRubric(cwd, tid, specFile),
+    externalDiffs: slurpExternalDiffs(cwd, scopeFilesFromTask(taskText)),
+  });
 }
 
 // --- T028: нормализация worktree ПЕРЕД гейтом ------------------------------------
@@ -270,7 +299,7 @@ function normalizeWorktree(cwd, base, files) {
 // НЕ reject) | 'judge' (легитимный block) | 'commit' (git-фейл).
 // integration — интеграционная ветка (база слайса): включает T028-нормализацию. Без неё
 // (тесты/ручной вызов) нормализация = no-op, поведение как раньше.
-async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeModel = 'sonnet', prevBlockReason = '', integration = null }) {
+async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
 
@@ -284,7 +313,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
 
   // 2. судья (обязателен, REJECT-default). T022: prevBlockReason — причина прошлого block
   // этого же слайса (caller хранит между попытками) прокидывается в prompt.
-  const j = await runJudge({ cwd, tid, taskText, model: judgeModel, prevBlockReason });
+  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason });
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
   if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
 
@@ -297,4 +326,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs };
+module.exports = { gate, runJudge, judgeDiff, parseVerdict, parseReasons, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs };

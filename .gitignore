@@ -66,3 +66,6 @@ audit/S11_pipeline_top1/PLAN\ (1).md
 # Vendored external skill packs (provenance tracked in config/agent-skill-sources.json)
 vendor/
 
+
+# judge-bench: отчёты прогонов = артефакт замера, не исходник
+.harness/judge-bench/
