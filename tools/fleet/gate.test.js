@@ -191,6 +191,69 @@ test('gate: красный оракул → stage oracle, судья не зов
   writeHarness('node --version'); // вернуть зелёный для гигиены
 });
 
+// --- 006 T007: межрепо-слепота судьи — [files:] может указывать на путь ВНЕ репо worktree'а ---
+test('judgePrompt: externalDiffs добавляет секцию «ВНЕШНИЙ РЕПО» с root/status/diff', () => {
+  const p0 = gate.judgePrompt('T1', 'задача', 'diff', 'status');
+  assert.doesNotMatch(p0, /ВНЕШНИЙ РЕПО/);
+  const p1 = gate.judgePrompt('T1', 'задача', 'diff', 'status', '', null, [{ root: 'C:\\fake\\repo', diff: 'внешний дифф ABC', status: 'M x.md' }]);
+  assert.match(p1, /ВНЕШНИЙ РЕПО C:\\fake\\repo/);
+  assert.match(p1, /внешний дифф ABC/);
+});
+
+test('externalRepoRoots: файл зоны в другом git-репо → его корень; файл внутри cwd-репо → пусто', () => {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-outer-'));
+  const cwdRepo = path.join(outer, 'cwd-repo');
+  const otherRepo = path.join(outer, 'other-repo');
+  try {
+    for (const r of [cwdRepo, otherRepo]) {
+      fs.mkdirSync(r, { recursive: true });
+      execFileSync('git', ['init', '-q'], { cwd: r });
+      execFileSync('git', ['config', 'user.email', 't@t'], { cwd: r });
+      execFileSync('git', ['config', 'user.name', 't'], { cwd: r });
+      fs.writeFileSync(path.join(r, 'seed.txt'), 'seed\n');
+      execFileSync('git', ['add', '-A'], { cwd: r });
+      execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: r });
+    }
+    fs.writeFileSync(path.join(otherRepo, 'skill.md'), 'изменено\n');
+    const roots = gate.externalRepoRoots(cwdRepo, [path.join(otherRepo, 'skill.md'), 'tools/local.js']);
+    assert.deepEqual(roots.map((r) => fs.realpathSync(r)), [fs.realpathSync(otherRepo)]);
+    const diffs = gate.slurpExternalDiffs(cwdRepo, [path.join(otherRepo, 'skill.md')]);
+    assert.equal(diffs.length, 1);
+    assert.match(diffs[0].status, /skill\.md/);
+  } finally { fs.rmSync(outer, { recursive: true, force: true }); }
+});
+
+// Реальный кейс 006 T007: скилл-слайс правит SKILL.md в отдельном репо (~/.claude) +
+// контракт-тест в этом репо (tools/). cwd-дифф НЕ пуст (тест реален), но главная работа
+// (сам SKILL.md) видна судье только через внешний дифф — раньше судья её не видел вообще.
+test('gate: задача с [files: тест-в-cwd, SKILL.md во внешнем репо] → судья видит ОБА диффа', async () => {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-crossrepo-'));
+  const otherRepo = path.join(outer, 'other-repo');
+  try {
+    fs.mkdirSync(otherRepo, { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: otherRepo });
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: otherRepo });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: otherRepo });
+    fs.writeFileSync(path.join(otherRepo, 'SKILL.md'), 'v1\n');
+    execFileSync('git', ['add', '-A'], { cwd: otherRepo });
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: otherRepo });
+    fs.writeFileSync(path.join(otherRepo, 'SKILL.md'), 'v2 — реальная правка слайса\n');
+    fs.writeFileSync(path.join(REPO, 'contract-check.js'), 'ok\n'); // cwd-репо тоже трогается (реальный паттерн 006)
+    fs.appendFileSync(path.join(REPO, 'specs', 'tasks.md'), '- [ ] **T5** демо\n');
+
+    const cap = path.join(os.tmpdir(), `fleet-gate-crossrepo-${Date.now()}.txt`);
+    process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubCapture('judge-crossrepo.js', 'pass', cap)]);
+    const taskText = `демо [files:contract-check.js,${otherRepo.replace(/\\/g, '/')}/SKILL.md]`;
+    const r = await gate.gate({ tid: 'T5', taskText, cwd: REPO });
+    delete process.env.FLEET_BIN_CLAUDE;
+    assert.equal(r.ok, true);
+    const promptSeen = fs.readFileSync(cap, 'utf8');
+    assert.match(promptSeen, /ВНЕШНИЙ РЕПО/);
+    assert.match(promptSeen, /v2 — реальная правка слайса/, 'внешняя правка реально видна судье');
+    fs.rmSync(cap, { force: true });
+  } finally { fs.rmSync(outer, { recursive: true, force: true }); }
+});
+
 // --- inScope: чистая функция зоны [files:] ---
 test('inScope: точный путь и вне-зонные файлы', () => {
   assert.equal(gate.inScope('out/alpha.txt', ['out/alpha.txt']), true);
