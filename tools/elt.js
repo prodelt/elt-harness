@@ -388,13 +388,31 @@ if (cmd === 'init') {
   if (!oracle) die('elt init --oracle "<cmd>" [--shell powershell] [--push] [--force]');
   if (fs.existsSync(CONFIG) && !flag('--force')) die('harness.json уже есть (перезапись: --force)');
   fs.mkdirSync(HARNESS_DIR, { recursive: true });
+  const VERIFY_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.6-flash-high' };
+  const judgeProvider = opt('--judge-provider', 'claude');
+  // Второй судья — первый не-совпадающий провайдер: контур обязан быть межмодельным.
+  const verifyProvider = opt('--verify-provider', judgeProvider === 'codex' ? 'claude' : 'codex');
+  // Инвариант, а не дефолт: судья, подтверждающий сам себя, подтверждает и свою галлюцинацию.
+  // Явный `--judge-provider X --verify-provider X` обязан падать, а не тихо создавать самопроверку.
+  if (verifyProvider === judgeProvider) die(`elt init: verify-судья обязан отличаться от основного (оба ${judgeProvider})`, 4);
   const cfg = {
     kind: 'code',
     oracle,
     shell: opt('--shell', 'bash'),
     branchPolicy: opt('--branch-policy', 'feature'),
     push: flag('--push'),
-    judge: { enabled: true, model: opt('--judge-model', 'sonnet') },
+    // 009 T003: новый проект рождается с ВКЛЮЧЁННЫМ контуром судьи. До этого контур 008
+    // (двойной судья + grounding + red-proof) не был включён ни в одном проекте — код был,
+    // а работал он ноль раз. Verify — обязательно ДРУГОЙ провайдер: судья, подтверждающий
+    // сам себя, подтверждает и собственную галлюцинацию.
+    judge: {
+      enabled: true,
+      provider: judgeProvider,
+      model: opt('--judge-model', VERIFY_MODELS[judgeProvider] || 'sonnet'),
+      attest: true,
+      verify: { provider: verifyProvider, model: opt('--verify-model', VERIFY_MODELS[verifyProvider]) },
+    },
+    redProof: 'on',
   };
   fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + '\n');
   console.log('elt init: ' + path.relative(cwd, CONFIG));

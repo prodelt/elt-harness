@@ -6,8 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { validateHarnessConfig } = require('./elt-config');
-const { scanProject } = require('./project-bootstrap');
+const { validateHarnessConfig, verifySettings } = require('./elt-config');
+const { scanProject, applyPlan } = require('./project-bootstrap');
 const { checkHarnessConfig } = require('./doctor-core');
 
 function tempProject(config) {
@@ -83,8 +83,75 @@ function testCliFailsClosed() {
   assert.equal(current.status, 0, current.stderr.toString());
 }
 
+// 009 T003: новый проект обязан рождаться с ВКЛЮЧЁННЫМ контуром судьи. До этого контур 008
+// (двойной судья + grounding + red-proof) был кодом, который не отработал ни разу: ни один
+// harness.json его не включал. Проверяем реальный `elt init`, а не намерение.
+function testInitEnablesCircuit() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-init-circuit-'));
+  const init = spawnSync(process.execPath, [path.join(__dirname, 'elt.js'), 'init', '--oracle', 'node --test'], { cwd: root, encoding: 'utf8' });
+  assert.equal(init.status, 0, init.stderr);
+  const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
+  assert.equal(validateHarnessConfig(cfg).ok, true, 'сгенерированный конфиг обязан быть схема-валидным');
+  assert.equal(cfg.judge.attest, true, 'вердикт пишет только `elt judge run`');
+  assert.equal(cfg.redProof, 'on');
+  assert.equal(verifySettings(root) !== null, true, 'второй судья реально резолвится, а не лежит текстом');
+  assert.notEqual(cfg.judge.verify.provider, cfg.judge.provider || 'claude', 'судья не подтверждает сам себя');
+  fs.rmSync(root, { recursive: true, force: true });
+
+  // Совпадающие провайдеры — не «поправим молча», а отказ: тихая самопроверка выглядела бы
+  // как работающий контур и была бы хуже отсутствия контура.
+  const same = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-init-same-'));
+  const bad = spawnSync(process.execPath, [path.join(__dirname, 'elt.js'), 'init', '--oracle', 'node --test',
+    '--judge-provider', 'codex', '--verify-provider', 'codex'], { cwd: same, encoding: 'utf8' });
+  assert.equal(bad.status, 4, 'init обязан отказать на самоподтверждающемся судье');
+  assert.equal(fs.existsSync(path.join(same, '.harness', 'harness.json')), false, 'битый конфиг не создаётся');
+  fs.rmSync(same, { recursive: true, force: true });
+}
+
+// Второй путь включения контура — `project-bootstrap apply` на УЖЕ существующем валидном
+// конфиге (живые проекты приходят именно так, не через init). Проверяем сам патч-слой, а не
+// намерение: конфиг без контура → после apply контур включён и circuitEnabled()=true.
+function testBootstrapPatchesCircuit() {
+  const root = tempProject({ ...validCodeConfig(), specApproval: true, ctx7Gate: 'warn' });
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), '# fixture\n');
+  // Патч контура — только для kind:code, а kind определяется наличием кода, не конфигом.
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }));
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, 'src', 'index.js'), 'module.exports = 1;\n');
+  const report = applyPlan(root, { supplyChain: false });
+  const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
+  assert.equal(cfg.judge.attest, true, JSON.stringify(report.changes));
+  assert.equal(cfg.redProof, 'on');
+  assert.notEqual(cfg.judge.verify.provider, cfg.judge.provider || 'claude');
+  assert.equal(verifySettings(root) !== null, true, 'второй судья резолвится');
+  // circuitEnabled() ЖИВЬЁМ, а не пересказом её логики: при включённом контуре elt требует в
+  // proof judges[]/grounding/redProof, и урезанный proof отвергается именно с missing-judges.
+  // Поломка circuitEnabled() уронит этот assert, а копия условия — нет.
+  assert.equal(circuitVerdictFor(root), 'missing-judges', 'CLI реально считает контур включённым');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// Прогоняет проект через настоящий elt CLI: оракул → урезанный proof (аварийным люком, т.к.
+// attest уже включён) → validate. Причина отказа и есть ответ живой circuitEnabled().
+function circuitVerdictFor(root) {
+  const elt = (...args) => spawnSync(process.execPath, [path.join(__dirname, 'elt.js'), ...args], { cwd: root, encoding: 'utf8' });
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** слайс\n');
+  git('add', '-A'); git('commit', '-qm', 'seed');
+  fs.writeFileSync(path.join(root, 'slice.txt'), 'работа\n');
+  assert.equal(elt('oracle').status, 0, 'оракул фикстуры обязан быть зелёным');
+  const write = elt('judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'stub', '--reasons-json', '["ok"]', '--skip-attest');
+  assert.equal(write.status, 0, write.stderr);
+  const v = elt('judge-proof', 'validate', '--task', 'T001');
+  return JSON.parse(v.stdout).reason;
+}
+
 function main() {
   testValidatorFailsClosed();
+  testInitEnablesCircuit();
+  testBootstrapPatchesCircuit();
   testBootstrapReportsInvalidHarness();
   testDoctorFailsInvalidHarness();
   testCliFailsClosed();

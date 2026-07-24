@@ -112,8 +112,19 @@ test('project-bootstrap live-fire: apply x2, red->green oracle, stub judge proof
   assert.equal(greenOracle.status, 0, greenOracle.stderr);
 
   // Stub judge proof — written directly through the CLI, no LLM/paid API call.
-  const proof = runElt(root, home, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'stub-e2e', '--reasons-json', '["deterministic live-fire stub"]']);
+  // 009 T003: bootstrap теперь включает контур (judge.attest + verify + redProof), поэтому
+  // ручной proof обязан идти через аварийный люк --skip-attest и нести полный набор полей
+  // контура. Это и есть проверка, что bootstrap реально включил контур: убери --skip-attest
+  // или extra — и CLI откажет (exit 4), как отказал бы живому агенту-самозаверителю.
+  const extra = path.join(root, '..', 'stub-proof-extra.json');   // вне дерева: treeHash
+  fs.writeFileSync(extra, JSON.stringify({
+    judges: [{ provider: 'codex', model: 'stub-e2e', verdict: 'pass', runOk: true }],
+    grounding: { filesReviewed: ['IMPLEMENTED.txt'] },
+    redProof: { status: 'red' },
+  }));
+  const proof = runElt(root, home, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'stub-e2e', '--reasons-json', '["deterministic live-fire stub"]', '--extra-file', extra, '--skip-attest']);
   assert.equal(proof.status, 0, proof.stderr);
+  assert.equal(JSON.parse(proof.stdout).attestSkipped, true, 'обход attest виден в самом proof');
 
   // Guarded commit, positive path: same staged tree, now with a valid proof.
   const allowed = gitTry(root, home, ['commit', '-qm', 'implement T001']);

@@ -153,6 +153,20 @@ function applyPlan(root, options = {}) {
       const added = [];
       if (!('specApproval' in current)) { current.specApproval = true; added.push('specApproval'); }
       if (!('ctx7Gate' in current)) { current.ctx7Gate = 'warn'; added.push('ctx7Gate'); }
+      // 009 T003: контур судьи (двойной судья + attest + red-proof). Тот же принцип, что
+      // выше: дописываем только отсутствующие ключи, явный выбор пользователя не трогаем.
+      // verify — всегда ДРУГОЙ провайдер, чем основной судья (само-подтверждение бесполезно).
+      if (current.judge && typeof current.judge === 'object' && !Array.isArray(current.judge)) {
+        if (!('attest' in current.judge)) { current.judge.attest = true; added.push('judge.attest'); }
+        if (!('verify' in current.judge)) {
+          const primary = current.judge.provider || 'claude';
+          current.judge.verify = primary === 'codex'
+            ? { provider: 'claude', model: 'sonnet' }
+            : { provider: 'codex', model: 'gpt-5.6-sol' };
+          added.push('judge.verify');
+        }
+      }
+      if (!('redProof' in current)) { current.redProof = 'on'; added.push('redProof'); }
       if (added.length > 0) {
         fs.writeFileSync(harnessPath, JSON.stringify(current, null, 2) + '\n');
         changes.push({ id: 'harness-approval-fields', added });

@@ -305,11 +305,15 @@ function budgetDiff(sections, cap = 12000, zoneFiles = []) {
   }
   return { diff: shown.join('\n'), omitted };
 }
-function slurpDiff(cwd, cap = 12000, zoneFiles = []) {
-  const tracked = execFileSync('git', ['diff', 'HEAD'], { cwd, encoding: 'utf8' });
+// pathspec (009 T014): ограничить дифф перечисленными путями. Нужен для ВНЕШНЕГО репо:
+// `~/.claude` — общий репо пользователя, и показывать судье его целиком значит вменять слайсу
+// чужие правки (живой ложный block T003 2026-07-24: settings.json/plans/**/projects-registry).
+function slurpDiff(cwd, cap = 12000, zoneFiles = [], pathspec = null) {
+  const scope = pathspec && pathspec.length ? ['--', ...pathspec] : [];
+  const tracked = execFileSync('git', ['diff', 'HEAD', ...scope], { cwd, encoding: 'utf8' });
   const sections = splitDiffSections(tracked);
   try {
-    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd, encoding: 'utf8' })
+    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z', ...scope], { cwd, encoding: 'utf8' })
       .split('\0').filter(Boolean).sort();
     for (const file of untracked) {
       const full = path.join(cwd, file);
@@ -318,7 +322,7 @@ function slurpDiff(cwd, cap = 12000, zoneFiles = []) {
       }
     }
   } catch { /* unreadable untracked files remain visible in status */ }
-  const status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+  const status = execFileSync('git', ['status', '--porcelain', ...scope], { cwd, encoding: 'utf8' });
   return { ...budgetDiff(sections, cap, zoneFiles), status };
 }
 
@@ -334,21 +338,29 @@ function gitRoot(dir) {
   try { return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' }).trim().replace(/\//g, path.sep); }
   catch { return null; }
 }
-function externalRepoRoots(cwd, files) {
+// 009 T014: возвращаем не только корни, но и ЗОНУ внутри каждого — внешний репо
+// показывается судье только по объявленным файлам, а не целиком.
+function externalRepoScopes(cwd, files) {
   const cwdRoot = gitRoot(cwd);
-  const roots = new Set();
+  const byRoot = new Map();
   for (const f of files) {
     const abs = expandHome(f);
     if (!path.isAbsolute(abs)) continue; // относительный путь = зона внутри cwd-репо
     const dir = path.dirname(abs);
     if (!fs.existsSync(dir)) continue;
     const root = gitRoot(dir);
-    if (root && root !== cwdRoot) roots.add(root);
+    if (!root || root === cwdRoot) continue;
+    const rel = path.relative(root, abs).split(path.sep).join('/');
+    if (!byRoot.has(root)) byRoot.set(root, []);
+    byRoot.get(root).push(rel);
   }
-  return [...roots];
+  return [...byRoot].map(([root, paths]) => ({ root, paths }));
+}
+function externalRepoRoots(cwd, files) {
+  return externalRepoScopes(cwd, files).map((s) => s.root);
 }
 function slurpExternalDiffs(cwd, files) {
-  return externalRepoRoots(cwd, files).map((root) => ({ root, ...slurpDiff(root) }));
+  return externalRepoScopes(cwd, files).map(({ root, paths }) => ({ root, ...slurpDiff(root, 12000, paths, paths) }));
 }
 
 // Судья по ГОТОВОМУ диффу (без git-чтения) — общий путь для runJudge и judge-bench:
