@@ -282,6 +282,14 @@ function redProofMode() {
 function circuitEnabled() {
   return !!verifySettings(cwd) || (redProofMode() !== '' && redProofMode() !== 'off');
 }
+// 009 T002: attest — вердикт проводится ТОЛЬКО машинным вызовом судьи (`elt judge run`).
+// Мотив (аудит 24.07): в интерактиве вердикт был самозаверением — тот же агент, что писал
+// код, печатал `judge-proof write --verdict pass`, и механического судьи в проде не было
+// вообще. attest:false — старое поведение (обратная совместимость проектов без контура).
+function attestEnabled() {
+  const loaded = readHarnessConfig(cwd);
+  return !!(loaded.ok && loaded.config.judge && loaded.config.judge.attest === true);
+}
 function validateJudgeProof({ taskId } = {}) {
   if (!taskId) return invalidJudgeProof('task-required');
   const binding = findTaskBinding(taskId);
@@ -325,9 +333,12 @@ function validateJudgeProof({ taskId } = {}) {
     // критерий 5), даже если оба судьи дали pass.
     if (p.redProof.status === 'green') return invalidJudgeProof('red-proof-green');
   }
+  // 009 T002: при attest:true проводится только proof машинного происхождения (`judge run`)
+  // либо явно помеченный аварийный обход — оба оставляют след в самом proof.
+  if (attestEnabled() && p.attested !== true && p.attestSkipped !== true) return invalidJudgeProof('missing-attestation');
   return { ok: true, proof: p };
 }
-function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof }) {
+function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof, attested, attestSkipped }) {
   const binding = findTaskBinding(taskId);
   if (!binding) die(`judge proof: task ${taskId} not found`);
   if (!['pass', 'block', 'dead'].includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
@@ -345,6 +356,8 @@ function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, r
     ...(judges !== undefined ? { judges } : {}),
     ...(grounding !== undefined ? { grounding } : {}),
     ...(redProof !== undefined ? { redProof } : {}),
+    ...(attested ? { attested: true } : {}),
+    ...(attestSkipped ? { attestSkipped: true } : {}),
   };
   fs.mkdirSync(path.dirname(judgeProofPath()), { recursive: true });
   fs.writeFileSync(judgeProofPath(), JSON.stringify(proof, null, 2) + '\n');
@@ -450,6 +463,49 @@ if (cmd === 'oracle') {
   process.exit(exit);
 }
 
+// 009 T002: судья как ШАГ КОДА в интерактиве. Тот же путь, что у драйвера
+// (tools/judge-invoke.js → fleet/gate.runJudge: рубрика, двойной судья, red-proof) —
+// один источник истины, а не второй промпт в прозе скилла.
+if (cmd === 'judge' && sub === 'run') {
+  const taskId = normalizeTaskArg(opt('--task'));
+  if (!taskId) die('elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]', 4);
+  const binding = findTaskBinding(taskId);
+  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди открытых [ ]`, 4);
+  const texts = taskId.split(',').map((id) => {
+    const found = findTaskItem(id, true);
+    return found ? `${id} ${found.item.text}` : id;
+  });
+  // judge-invoke.js живёт в проекте (тянет fleet/gate + red-proof + elt-config оттуда же).
+  const invoke = opt('--invoke', path.join(cwd, 'tools', 'judge-invoke.js'));
+  if (!fs.existsSync(invoke)) die(`elt judge run: не найден ${path.relative(cwd, invoke)} — судья-мост живёт в проекте (--invoke <path>)`, 4);
+  // Дескриптор — в .git/elt/, НЕ в рабочее дерево: любой файл в дереве меняет treeHash и
+  // мгновенно делает оракул-пруф stale (proof привязан к дереву — тем и ценен).
+  const descPath = path.join(cwd, '.git', 'elt', 'judge-desc.json');
+  fs.mkdirSync(path.dirname(descPath), { recursive: true });
+  fs.writeFileSync(descPath, JSON.stringify({
+    cwd, tid: taskId, taskText: texts.join('\n'), specFile: binding.specPath,
+    ...(opt('--provider') ? { provider: opt('--provider') } : {}),
+    ...(opt('--model') ? { model: opt('--model') } : {}),
+  }));
+  const r = spawnSync(process.execPath, [invoke, descPath], { cwd, encoding: 'utf8' });
+  let out;
+  try { out = JSON.parse((r.stdout || '').trim().split('\n').pop()); } catch { out = null; }
+  if (!out) die(`elt judge run: судья не вернул JSON (exit ${r.status})\n${(r.stderr || '').slice(-2000)}`, 4);
+  // runOk:false — судья НЕ отработал (timeout/spawn/limit). Это не вердикт: пишем `dead`,
+  // чтобы гейт отказал явной причиной judge-dead, а не молчаливым отсутствием proof.
+  const verdict = out.runOk ? (out.verdict === 'pass' ? 'pass' : 'block') : 'dead';
+  const model = (out.judges && out.judges[0] && out.judges[0].model) || opt('--model', 'unknown');
+  const reasons = (out.reasons && out.reasons.length ? out.reasons : [`judge ${verdict}`]).map(String);
+  const proof = writeJudgeProof({
+    taskId, verdict, reasons, model,
+    judges: out.judges, grounding: out.grounding, redProof: out.redProof || undefined,
+    attested: true,
+  });
+  appendRunLog({ task: taskId, status: `judge-${verdict}`, verdict, judges: out.judges, judgeLog: out.judgeLog || null });
+  console.log(JSON.stringify(proof, null, 2));
+  process.exit(verdict === 'pass' ? 0 : 4);
+}
+
 if (cmd === 'judge-proof') {
   if (sub === 'read') {
     const loaded = readJudgeProof();
@@ -464,6 +520,13 @@ if (cmd === 'judge-proof') {
     let reasons;
     try { reasons = JSON.parse(opt('--reasons-json', '[]')); } catch { die('judge proof: --reasons-json must be JSON array'); }
     if (!taskId || !verdict || !model) die('elt judge-proof write --task Txxx --verdict pass|block|dead --model <model> [--reasons-json "[]"] [--extra-file <path>]');
+    // 009 T002: при attest:true ручной вердикт не проводится — вызови `elt judge run`.
+    // --skip-attest остаётся аварийным люком, но оставляет громкий след и в run-log, и в proof.
+    const skipAttest = flag('--skip-attest');
+    if (attestEnabled() && !skipAttest) {
+      die('judge proof: judge.attest=true — вердикт пишет только `elt judge run --task Txxx` (аварийно: --skip-attest)', 4);
+    }
+    if (attestEnabled() && skipAttest) appendRunLog({ task: taskId, status: 'attest-skipped', verdict });
     // --extra-file (008 T004): judges[]/grounding/redProof приходят файлом, не argv — JSON
     // с embedded-кавычками бьётся о PS5.1 native-marshalling баг (см. elt-loop.ps1 comment).
     let extra = {};
@@ -477,7 +540,7 @@ if (cmd === 'judge-proof') {
     // и переводами строк, в argv PS5.1 они не доезжают (ровно поэтому драйвер годами слал
     // литерал `[]` и пруф был содержательно пуст). argv-форма остаётся для ручных вызовов.
     if (Array.isArray(extra.reasons) && extra.reasons.length) reasons = extra.reasons.map(String);
-    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof }), null, 2));
+    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof, attestSkipped: attestEnabled() && skipAttest }), null, 2));
     process.exit(0);
   }
   if (sub === 'validate') {
@@ -691,6 +754,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt oracle                                                прогнать оракул, exit-код = истина
+  elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]  запустить судью КОДОМ и записать proof (exit 0 = pass)
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
   elt commit --task Txxx[,Tyyy,...] [--keep-task-open] [-m msg] [--skip-oracle] [--push]
       зелёный oracle + актуальный judge proof → авто-ветка с main → [X] → add+commit → run-log.jsonl → push
