@@ -275,6 +275,36 @@ test('externalRepoRoots: файл зоны в другом git-репо → ег
   } finally { fs.rmSync(outer, { recursive: true, force: true }); }
 });
 
+// 009 T014: внешний репо показывается судье ТОЛЬКО по зоне [files:]. Живой ложный block
+// T003 (2026-07-24): слайс правил ~/.claude/skills/elt/SKILL.md, а судья увидел заодно
+// пользовательские settings.json/plans/** того же репо и вменил их слайсу как scope creep.
+test('slurpExternalDiffs: внешний репо режется по зоне — чужие правки того же репо не видны', () => {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-extscope-'));
+  const cwdRepo = path.join(outer, 'cwd-repo');
+  const shared = path.join(outer, 'shared-repo');   // ~/.claude: общий репо пользователя
+  try {
+    for (const r of [cwdRepo, shared]) {
+      fs.mkdirSync(r, { recursive: true });
+      execFileSync('git', ['init', '-q'], { cwd: r });
+      execFileSync('git', ['config', 'user.email', 't@t'], { cwd: r });
+      execFileSync('git', ['config', 'user.name', 't'], { cwd: r });
+      fs.writeFileSync(path.join(r, 'seed.txt'), 'seed\n');
+      execFileSync('git', ['add', '-A'], { cwd: r });
+      execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: r });
+    }
+    fs.mkdirSync(path.join(shared, 'skills'));
+    fs.writeFileSync(path.join(shared, 'skills', 'SKILL.md'), 'работа слайса\n');       // зона
+    fs.writeFileSync(path.join(shared, 'settings.json'), '{"effortLevel":"medium"}\n');  // чужое
+    fs.writeFileSync(path.join(shared, 'seed.txt'), 'правка пользователя\n');            // чужое
+
+    const [ext] = gate.slurpExternalDiffs(cwdRepo, [path.join(shared, 'skills', 'SKILL.md')]);
+    assert.match(ext.status, /SKILL\.md/, 'файл зоны показан');
+    assert.doesNotMatch(ext.status, /settings\.json/, 'чужая правка того же репо не вменяется слайсу');
+    assert.doesNotMatch(ext.diff, /правка пользователя/);
+    assert.match(ext.diff, /работа слайса/);
+  } finally { fs.rmSync(outer, { recursive: true, force: true }); }
+});
+
 // Реальный кейс 006 T007: скилл-слайс правит SKILL.md в отдельном репо (~/.claude) +
 // контракт-тест в этом репо (tools/). cwd-дифф НЕ пуст (тест реален), но главная работа
 // (сам SKILL.md) видна судье только через внешний дифф — раньше судья её не видел вообще.
