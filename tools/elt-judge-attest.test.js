@@ -1,0 +1,139 @@
+'use strict';
+// 009 T002: вердикт судьи — шаг КОДА, не проза. `elt judge run` спавнит судью-мост
+// (judge-invoke.js) и сам пишет proof с attested:true; при harness.json judge.attest=true
+// ручной `judge-proof write --verdict pass` (самозаверение агента, писавшего код) отвергается.
+// Мост подменяется стабом через --invoke: тест проверяет проводку elt.js, а не живого судью.
+const assert = require('node:assert/strict');
+const { execFileSync, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { after, test } = require('node:test');
+
+const ELT = path.join(__dirname, 'elt.js');
+const SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
+const roots = [];
+
+function run(root, args) {
+  return spawnSync(process.execPath, [ELT, ...args], { cwd: root, encoding: 'utf8' });
+}
+// Стаб судьи-моста: печатает JUDGE_OUT как judge-invoke.js (один JSON в stdout).
+// Живёт ВНЕ репо-фикстуры: файл в рабочем дереве изменил бы treeHash и сделал оракул-пруф
+// stale — тот же капкан, из-за которого дескриптор судьи пишется в .git/elt/.
+function stubInvoke(root, out) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-attest-stub-'));
+  roots.push(dir);
+  const p = path.join(dir, 'stub-invoke.js');
+  fs.writeFileSync(p, `process.stdout.write(process.env.JUDGE_OUT || '${JSON.stringify(out)}');\n`);
+  return p;
+}
+function fixture({ attest = true, circuit = false } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-attest-'));
+  roots.push(root);
+  const git = (...a) => execFileSync('git', a, { cwd: root, stdio: 'pipe' });
+  git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  fs.mkdirSync(path.join(root, '.harness'));
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node -e "process.exit(0)"', shell: SHELL,
+    judge: { enabled: true, provider: 'agy', model: 'gemini', ...(attest ? { attest: true } : {}) },
+    ...(circuit ? { redProof: 'on' } : {}),
+  }));
+  fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** первый слайс\n');
+  fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+  git('add', '-A'); git('commit', '-qm', 'seed');
+  fs.writeFileSync(path.join(root, 'slice.txt'), 'работа слайса\n');
+  assert.equal(run(root, ['oracle']).status, 0, 'оракул-пруф нужен для записи judge proof');
+  return root;
+}
+function proof(root) {
+  return JSON.parse(fs.readFileSync(path.join(root, '.git', 'elt', 'judge-proof.json'), 'utf8'));
+}
+function runLogTail(root) {
+  const raw = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  return JSON.parse(raw[raw.length - 1]);
+}
+after(() => { for (const r of roots) try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* windows lock */ } });
+
+test('judge run: happy path — proof пишется кодом, с attested/judges/grounding, validate ok', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, {
+    runOk: true, verdict: 'pass', reasons: ['в границах задачи'], judgeLog: 'log.txt',
+    judges: [{ provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true }],
+    grounding: { filesReviewed: ['slice.txt'] }, redProof: null,
+  });
+  const r = run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]);
+  assert.equal(r.status, 0, r.stderr);
+  const p = proof(root);
+  assert.equal(p.verdict, 'pass');
+  assert.equal(p.attested, true, 'машинное происхождение помечено в самом proof');
+  assert.deepEqual(p.reasons, ['в границах задачи'], 'обоснования судьи доезжают, а не теряются');
+  assert.deepEqual(p.grounding.filesReviewed, ['slice.txt']);
+  assert.equal(p.judges.length, 1);
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'гейт проводит attested proof');
+});
+
+test('judge run: block судьи — exit 4, proof block, гейт не проводит', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, { runOk: true, verdict: 'block', reasons: ['scope creep'], judges: [{ provider: 'agy', model: 'gemini', verdict: 'block', runOk: true }], grounding: { filesReviewed: ['slice.txt'] } });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 4);
+  assert.equal(proof(root).verdict, 'block');
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 4);
+});
+
+test('judge run: судья не отработал (runOk:false) — это dead, а не block по умолчанию', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, { runOk: false, verdict: null, reasons: [], judges: [{ provider: 'agy', model: 'gemini', verdict: 'block', runOk: false }] });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 4);
+  assert.equal(proof(root).verdict, 'dead', 'инфраструктурный сбой отличим от вердикта');
+  assert.equal(JSON.parse(run(root, ['judge-proof', 'validate', '--task', 'T001']).stdout).reason, 'judge-dead');
+});
+
+test('attest:true — ручной judge-proof write отвергается exit 4 (самозаверение закрыто)', () => {
+  const root = fixture();
+  const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'я-сам']);
+  assert.equal(r.status, 4, r.stdout);
+  assert.match(r.stderr, /judge run/, 'ошибка указывает на правильный путь');
+  assert.ok(!fs.existsSync(path.join(root, '.git', 'elt', 'judge-proof.json')), 'proof не написан');
+});
+
+test('--skip-attest: аварийный люк проходит, но оставляет след в run-log и в proof', () => {
+  const root = fixture();
+  const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'ручной', '--skip-attest']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(proof(root).attestSkipped, true);
+  assert.equal(runLogTail(root).status, 'attest-skipped', 'громкий след в run-log, а не тихий обход');
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'люк реально проводит слайс');
+});
+
+test('attest:false — старое поведение: ручной write проходит без пометок', () => {
+  const root = fixture({ attest: false });
+  const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'codex']);
+  assert.equal(r.status, 0, r.stderr);
+  const p = proof(root);
+  assert.equal(p.attested, undefined);
+  assert.equal(p.attestSkipped, undefined);
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0);
+});
+
+// Proof без пометки происхождения = дописан мимо `judge run` (или остался от старой версии
+// CLI). При attest:true он не проводится, даже будучи во всём остальном валидным.
+test('attest:true — proof без пометки происхождения не проводится (missing-attestation)', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, { runOk: true, verdict: 'pass', reasons: ['ok'], judges: [{ provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true }], grounding: { filesReviewed: ['slice.txt'] } });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 0);
+  const pp = path.join(root, '.git', 'elt', 'judge-proof.json');
+  const p = JSON.parse(fs.readFileSync(pp, 'utf8'));
+  delete p.attested;                                  // .git/ вне дерева — treeHash не трогаем
+  fs.writeFileSync(pp, JSON.stringify(p));
+  const v = run(root, ['judge-proof', 'validate', '--task', 'T001']);
+  assert.equal(v.status, 4);
+  assert.equal(JSON.parse(v.stdout).reason, 'missing-attestation');
+});
+
+test('judge run: мост не найден — явный отказ, а не тихий пропуск судьи', () => {
+  const root = fixture();
+  const r = run(root, ['judge', 'run', '--task', 'T001', '--invoke', path.join(root, 'нет-такого.js')]);
+  assert.equal(r.status, 4);
+  assert.match(r.stderr, /судья-мост/);
+});
