@@ -175,7 +175,11 @@ function diffFileList(status) {
 // filesReviewed присутствует (даже пустым массивом) — судья ЗНАЕТ о контракте, тогда
 // действуют все три отказа: назвал файл не из диффа → phantom-file; пропустил файл диффа →
 // unreviewed-file; пустой reasons → no-reasons.
-function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd()) {
+// 009 T001: omitted — файлы диффа, которые в промпт судьи НЕ попали (бюджет исчерпан).
+// Спрашивать за них filesReviewed нельзя: судья физически их не видел, и старое правило
+// «пропустил файл диффа → unreviewed-file» превращало обрезку в ложный block (аудит 24.07:
+// диффы 67K/66K/44K при cap 12K — судья мог только соврать или быть заблокирован).
+function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd(), omitted = []) {
   // no-reasons — БЕЗУСЛОВНО, до и независимо от filesReviewed. Прятать его за наличием
   // поля значило бы оставить открытым ровно мотивирующий баг спеки (7f8183b: `pass` с
   // reasons:[] прошёл гейт): провайдер без structured output (codex/agy отвечают
@@ -194,13 +198,21 @@ function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd()) {
   // и получил phantom-file — ложное срабатывание на добросовестном ответе.
   for (const f of reviewed) if (!diffSet.has(f) && !fs.existsSync(path.resolve(cwd, f))) return 'grounding:phantom-file';
   const reviewedSet = new Set(reviewed);
-  for (const f of diffSet) if (!reviewedSet.has(f)) return 'grounding:unreviewed-file';
+  const notShown = new Set(omitted.map((f) => String(f).replace(/\\/g, '/')));
+  for (const f of diffSet) if (!reviewedSet.has(f) && !notShown.has(f)) return 'grounding:unreviewed-file';
   return null;
 }
 
-function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null, externalDiffs = []) {
+function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = []) {
   const files = diffFileList(status);
   const filesSection = files.length ? files.join('\n') : '(нет изменённых файлов)';
+  // 009 T001: честная пометка «не показано» вместо молчаливой обрезки. Судья бежит в cwd
+  // слайса — он МОЖЕТ дочитать такой файл с диска, но обязан не выдумывать за него.
+  const omittedSection = omitted.length
+    ? `\n--- НЕ ПОКАЗАНЫ (файлы диффа, не вместившиеся в бюджет промпта) ---\n${omitted.join('\n')}\n` +
+      `Эти файлы в дифф выше НЕ вошли. filesReviewed за них не спрашивается; если они важны\n` +
+      `для вердикта — прочитай их с диска сам, иначе прямо скажи в reasons, что судил без них.\n`
+    : '';
   const prevBlock = prevBlockReason
     ? `\nПРЕДЫДУЩАЯ попытка этого слайса уже была ЗАБЛОКИРОВАНА по причине: ${prevBlockReason}\nПроверь, устранена ли именно она в текущем диффе — не повторяй тот же вердикт вслепую.\n`
     : '';
@@ -212,7 +224,8 @@ function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric =
   const externalSection = externalDiffs.length
     ? externalDiffs.map((e) =>
         `\n--- ВНЕШНИЙ РЕПО ${e.root} (вне worktree слайса, но в зоне [files:]) — git status --porcelain ---\n${e.status}\n` +
-        `--- ВНЕШНИЙ РЕПО ${e.root} — git diff HEAD ---\n${e.diff}\n`).join('') +
+        `--- ВНЕШНИЙ РЕПО ${e.root} — git diff HEAD ---\n${e.diff}\n` +
+        (e.omitted && e.omitted.length ? `--- ВНЕШНИЙ РЕПО ${e.root} — НЕ ПОКАЗАНЫ ---\n${e.omitted.join('\n')}\n` : '')).join('') +
       `\nЗона [files:] может указывать на путь ВНЕ этого репо (отдельный git, напр. \`~/.claude\`) — секции\n` +
       `«ВНЕШНИЙ РЕПО» выше — реальная работа слайса, суди по НИМ ТОЖЕ, не только по диффу текущего репо;\n` +
       `пустой дифф текущего репо при непустом внешнем — это НЕ повод для block.\n`
@@ -241,29 +254,72 @@ ${status}
 --- ФАЙЛЫ ДИФФА (полный список, не зависит от обрезки диффа ниже) ---
 ${filesSection}
 
---- git diff HEAD ---
+--- git diff HEAD (пофайлово; обрезанные файлы помечены явно) ---
 ${diff}
-${externalSection}
-Верни filesReviewed — список ВСЕХ путей из секции «ФАЙЛЫ ДИФФА» выше, которые ты реально
-разобрал (тем же написанием пути); не называй файл, которого там нет, и не пропускай ни
-одного — это сверяется кодом, не читается на веру. reasons не может быть пустым ни при
+${omittedSection}${externalSection}
+Верни filesReviewed — список ВСЕХ ${omitted.length ? 'ПОКАЗАННЫХ' : ''} путей из секции «ФАЙЛЫ ДИФФА» выше${omitted.length ? ' (кроме перечисленных в «НЕ ПОКАЗАНЫ»)' : ''}, которые ты
+реально разобрал (тем же написанием пути); не называй файл, которого там нет, и не пропускай
+ни одного — это сверяется кодом, не читается на веру. reasons не может быть пустым ни при
 каком вердикте.
 
 Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).`;
 }
 
-function slurpDiff(cwd, cap = 12000) {
-  let diff = execFileSync('git', ['diff', 'HEAD'], { cwd, encoding: 'utf8' });
+// 009 T001: слепая обрезка `diff.slice(0, cap)` рубила хвост файлов целиком и молча —
+// судья не знал ни что обрезано, ни что вообще существовало. Режем ПОФАЙЛОВО: каждый файл
+// получает свою долю бюджета с явной пометкой обрезки, невместившиеся уходят в отдельный
+// список «НЕ ПОКАЗАНЫ» (и не спрашиваются грандингом, см. checkGrounding).
+function splitDiffSections(diff) {
+  if (!diff || !diff.trim()) return [];
+  return diff.split(/(?=^diff --git )/m).filter((s) => s.trim()).map((text) => {
+    const m = text.match(/^diff --git a\/(.*?) b\/(.*)$/m);
+    return { file: (m ? m[2] : '(файл не распознан)').trim().replace(/\\/g, '/'), text };
+  });
+}
+const TEST_FILE_RE = /(^|\/)(tests?|spec)\/|\.(test|spec)\.[a-z]+$|_test\.[a-z]+$/i;
+// Приоритет бюджета: тесты (главный носитель доказательства слайса) → файлы объявленной
+// зоны [files:] → остальное. Внутри группы — по возрастанию размера: маленькие файлы
+// вмещаются целиком и дёшево, огромный не съедает бюджет соседей.
+function prioritize(sections, zoneFiles = []) {
+  const zone = new Set(zoneFiles.map((f) => String(f).replace(/\\/g, '/')));
+  const rank = (s) => (TEST_FILE_RE.test(s.file) ? 0 : zone.has(s.file) ? 1 : 2);
+  return [...sections].sort((a, b) => rank(a) - rank(b) || a.text.length - b.text.length);
+}
+const MIN_FILE_BUDGET = 400; // меньше — показывать бессмысленно, честнее объявить «не показан»
+function budgetDiff(sections, cap = 12000, zoneFiles = []) {
+  const ordered = prioritize(sections, zoneFiles);
+  const perFile = Math.max(MIN_FILE_BUDGET, Math.floor(cap / Math.max(1, ordered.length)));
+  const shown = [];
+  const omitted = [];
+  let left = cap;
+  for (const s of ordered) {
+    const allow = Math.min(perFile, left);
+    if (allow < MIN_FILE_BUDGET && s.text.length > allow) { omitted.push(s.file); continue; }
+    if (s.text.length > allow) {
+      shown.push(`${s.text.slice(0, allow)}\n…(файл обрезан: показано ${allow} из ${s.text.length} символов)…`);
+      left -= allow;
+    } else {
+      shown.push(s.text);
+      left -= s.text.length;
+    }
+  }
+  return { diff: shown.join('\n'), omitted };
+}
+function slurpDiff(cwd, cap = 12000, zoneFiles = []) {
+  const tracked = execFileSync('git', ['diff', 'HEAD'], { cwd, encoding: 'utf8' });
+  const sections = splitDiffSections(tracked);
   try {
     const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd, encoding: 'utf8' })
       .split('\0').filter(Boolean).sort();
     for (const file of untracked) {
       const full = path.join(cwd, file);
-      if (fs.statSync(full).isFile()) diff += `\n--- /dev/null\n+++ b/${file}\n${fs.readFileSync(full, 'utf8')}`;
+      if (fs.statSync(full).isFile()) {
+        sections.push({ file: file.replace(/\\/g, '/'), text: `diff --git a/${file} b/${file}\n--- /dev/null\n+++ b/${file}\n${fs.readFileSync(full, 'utf8')}` });
+      }
     }
   } catch { /* unreadable untracked files remain visible in status */ }
   const status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
-  return { diff: diff.length > cap ? diff.slice(0, cap) + '\n…(обрезано)…' : diff, status };
+  return { ...budgetDiff(sections, cap, zoneFiles), status };
 }
 
 // Межрепо-слепота (006 T007 blocker): `[files:]` слайса может указывать на путь ВНЕ репо
@@ -301,9 +357,9 @@ function slurpExternalDiffs(cwd, files) {
 // эквивалента не имеют → требуем JSON последней строкой и читаем prose-парсером; стойка
 // REJECT-default та же (нет явного pass → block), так что кривой ответ безопасен.
 const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"],"filesReviewed":["path/a.js"]}  или  {"verdict":"block","reasons":["…"],"filesReviewed":["path/a.js"]}';
-async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [] }) {
+async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = [] }) {
   const structured = provider === 'claude';
-  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs)
+  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs, omitted)
     + (structured ? '' : JSON_TAIL_INSTRUCTION);
   const started = Date.now();
   const r = await providers.run({ provider, prompt, cwd, model, timeoutMs, jsonSchema: structured ? VERDICT_SCHEMA : null });
@@ -321,7 +377,7 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
   // 008 T001: grounding — механическая сверка filesReviewed с реальным списком файлов диффа.
   // Любой отказ граундинга форсирует block независимо от того, что сказала модель, — это и
   // есть смысл проверки («судья сказал pass» ≠ «судья реально смотрел дифф»).
-  const groundingReason = checkGrounding(status, filesReviewed, reasons, cwd);
+  const groundingReason = checkGrounding(status, filesReviewed, reasons, cwd, omitted);
   return {
     verdict: groundingReason ? 'block' : verdict,
     reasons: groundingReason ? [...reasons, groundingReason] : reasons,
@@ -344,10 +400,11 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
 // путь для мёртвого первичного, T021 — downstream (gate/judge-invoke) уже умеет его парковать
 // без изменений). judges[] — оба вердикта/модели/время, для будущей proof-проводки (T004).
 async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
-  const { diff, status } = slurpDiff(cwd);
+  const zoneFiles = scopeFilesFromTask(taskText);
+  const { diff, status, omitted } = slurpDiff(cwd, undefined, zoneFiles);
   const rubric = loadRubric(cwd, tid, specFile);
-  const externalDiffs = slurpExternalDiffs(cwd, scopeFilesFromTask(taskText));
-  const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs };
+  const externalDiffs = slurpExternalDiffs(cwd, zoneFiles);
+  const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted };
 
   const primary = await judgeDiff({ ...commonArgs, provider, model });
   const verify = verifySettings(cwd);
@@ -461,4 +518,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, judgeDiff, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs };
+module.exports = { gate, runJudge, judgeDiff, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };

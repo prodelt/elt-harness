@@ -136,6 +136,85 @@ test('judgePrompt: секция «ФАЙЛЫ ДИФФА» из status + треб
   assert.match(p, /filesReviewed/);
 });
 
+// --- 009 T001: пофайловый бюджет вместо слепой обрезки -----------------------------
+// Мотив (аудит 24.07): cap 12K против живых диффов 67K/66K/44K — судья не видел хвост,
+// но grounding требовал перечислить КАЖДЫЙ файл: честный вердикт получал unreviewed-file.
+const { execFileSync } = require('node:child_process');
+
+// Реальный git-репо с 8 файлами по ~7.5K = дифф ~60K. Тест гоняет прод-функцию slurpDiff,
+// а не имитацию строки, — иначе доказывал бы не то, что работает в гейте.
+function repo60K() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-bigdiff-'));
+  const git = (...a) => execFileSync('git', a, { cwd: root, stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+  git('add', '-A'); git('commit', '-qm', 'base');
+  fs.mkdirSync(path.join(root, 'src')); fs.mkdirSync(path.join(root, 'tests'));
+  const files = [];
+  for (let i = 0; i < 7; i++) {
+    const rel = `src/mod${i}.js`;
+    fs.writeFileSync(path.join(root, rel), `// mod${i}\n` + `const x${i} = 1;\n`.repeat(500));
+    files.push(rel);
+  }
+  fs.writeFileSync(path.join(root, 'tests/big.test.js'), '// тест слайса\n' + 'assert(true);\n'.repeat(500));
+  files.push('tests/big.test.js');
+  git('add', '-N', '.'); // как в fleet: intent-to-add, иначе porcelain даёт каталог, а не файлы
+  return { root, files };
+}
+
+test('slurpDiff: 60K-дифф на 8 файлов — каждый файл представлен, обрезка помечена явно, бюджет соблюдён', () => {
+  const { root, files } = repo60K();
+  const raw = execFileSync('git', ['diff', 'HEAD'], { cwd: root, encoding: 'utf8' })
+    + execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
+  assert.ok(raw.length > 40000, `подготовленный дифф должен быть большим, а он ${raw.length}`);
+
+  const { diff, status, omitted } = gate.slurpDiff(root, 12000, ['src/mod0.js']);
+  assert.ok(diff.length <= 12000 * 1.2, `бюджет соблюдён (получено ${diff.length})`);
+  assert.match(diff, /…\(файл обрезан: показано \d+ из \d+ символов\)…/, 'обрезка видна судье, а не молчит');
+  const shown = files.filter((f) => diff.includes(f));
+  assert.equal(shown.length + omitted.length, files.length, 'каждый файл диффа либо показан, либо в «НЕ ПОКАЗАНЫ»');
+  assert.ok(diff.includes('tests/big.test.js'), 'тестовый файл приоритетен — показан всегда');
+  assert.deepEqual(gate.diffFileList(status).sort(), [...files].sort());
+
+  // Тесный бюджет: часть файлов физически не вмещается — они обязаны попасть в omitted,
+  // а не исчезнуть молча (это и есть вход для «НЕ ПОКАЗАНЫ» + послабления грандинга).
+  const tight = gate.slurpDiff(root, 2000, []);
+  assert.ok(tight.omitted.length > 0, 'невместившиеся файлы объявлены, а не потеряны');
+  assert.equal(files.filter((f) => tight.diff.includes(f)).length + tight.omitted.length, files.length);
+  assert.ok(tight.diff.includes('tests/big.test.js'), 'тест не выпадает даже при тесном бюджете');
+});
+
+test('checkGrounding: невместившийся файл не даёт unreviewed-file, но фантом остаётся фантомом', () => {
+  const status = ' M a.js\n M b.js\n';
+  assert.equal(gate.checkGrounding(status, ['a.js'], ['ok'], process.cwd(), ['b.js']), null,
+    'b.js судье не показывали — спрашивать за него нельзя');
+  assert.equal(gate.checkGrounding(status, ['a.js'], ['ok'], process.cwd(), []), 'grounding:unreviewed-file',
+    'показанный файл пропускать по-прежнему нельзя');
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'grounding-omitted-'));
+  assert.equal(gate.checkGrounding(status, ['a.js', 'b.js', 'выдумка.js'], ['ok'], empty, ['b.js']),
+    'grounding:phantom-file', 'обрезка не открывает дверь галлюцинациям');
+});
+
+test('judgeDiff: честный вердикт на большом диффе больше не блокируется обрезкой', async () => {
+  const r = await withStub(
+    { verdict: 'pass', reasons: ['в границах задачи'], filesReviewed: ['a.js'] },
+    () => gate.judgeDiff({ cwd: TMP, tid: 'T1', taskText: 'demo', diff: 'diff a.js …(файл обрезан: показано 400 из 40000 символов)…',
+      status: STATUS_TWO_FILES, omitted: ['b.js'], provider: 'claude', model: 'sonnet', timeoutMs: 30000 }),
+  );
+  assert.equal(r.verdict, 'pass', 'b.js не показали — честный pass проходит');
+  assert.deepEqual(r.reasons, ['в границах задачи']);
+});
+
+test('judgePrompt: секция «НЕ ПОКАЗАНЫ» перечисляет невместившиеся файлы', () => {
+  const p = gate.judgePrompt('T1', 'задача', 'diff', STATUS_TWO_FILES, '', null, [], ['b.js']);
+  assert.match(p, /НЕ ПОКАЗАНЫ/);
+  assert.match(p, /b\.js/);
+  assert.match(p, /ПОКАЗАННЫХ/, 'требование filesReviewed сужено до показанных файлов');
+  assert.doesNotMatch(gate.judgePrompt('T1', 'задача', 'diff', STATUS_TWO_FILES), /НЕ ПОКАЗАНЫ/,
+    'без обрезки промпт не меняется');
+});
+
 // Регрессия на ЖИВОЙ ложный block (T001, 2026-07-22): судья дал pass с семью обоснованиями
 // и перечислил 3 файла диффа + spec.md/tasks.md, которые ему показывают как рубрику. Правило
 // «не в диффе = фантом» объявило это галлюцинацией и срубило честный вердикт. Фантом — это
