@@ -67,10 +67,31 @@ function lastMatch(text, re) {
   return last;
 }
 
+// Ответ судьи без --json-schema приходит одной JSON-строкой в хвосте прозы. Читаем её целиком
+// (последняя строка вида {...} с "verdict"), а не регексом по полю: regex `\[[^\]]*\]` обрывался
+// на ПЕРВОЙ `]` внутри строки reason — судья, обосновавший вердикт текстом со скобками
+// («[L]->max, [S]/[M]->high»), отдавал reasons:[] и получал безусловный `grounding:no-reasons`.
+// Живой ложный block, дважды подряд, 2026-07-27, слайс 009 T006.
+function parseJsonTail(text) {
+  if (!text) return null;
+  const lines = String(text).split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const s = lines[i].trim();
+    if (!s.startsWith('{') || !s.endsWith('}') || !s.includes('"verdict"')) continue;
+    try {
+      const o = JSON.parse(s);
+      if (o && typeof o === 'object') return o;
+    } catch { /* не JSON — идём дальше вверх */ }
+  }
+  return null;
+}
+
 // T022: причина block читается для проброса в prompt следующей попытки этого же слайса.
 function parseReasons(text) {
   const so = parseStructuredOutput(text);
   if (so) return so.reasons;
+  const tail = parseJsonTail(text);
+  if (tail && Array.isArray(tail.reasons)) return tail.reasons.map(String);
   try {
     const m = lastMatch(text, /"reasons"\s*:\s*(\[[^\]]*\])/i);
     if (m) return JSON.parse(m[1]).map(String);
@@ -82,6 +103,8 @@ function parseReasons(text) {
 function parseFilesReviewed(text) {
   const so = parseStructuredOutput(text);
   if (so) return so.filesReviewed;
+  const tail = parseJsonTail(text);
+  if (tail && Array.isArray(tail.filesReviewed)) return tail.filesReviewed.map(String);
   try {
     const m = lastMatch(text, /"filesReviewed"\s*:\s*(\[[^\]]*\])/i);
     if (m) return JSON.parse(m[1]).map(String);
