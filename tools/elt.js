@@ -142,8 +142,12 @@ function unpark(taskId) {
   return list.length - rest.length;
 }
 
+// `--spec` уважают ВСЕ команды, работающие с задачей (judge run, commit, park), а не только
+// `slice next`: id уникальны внутри спеки, но не между спеками — открытый T005 есть и в 008,
+// и в 009, и без выбора спеки побеждала первая по алфавиту. Живьём это значило судью с чужой
+// рубрикой (гарантированный block) и, хуже, `[X]` в ЧУЖОМ плане после успешного слайса.
 function findTaskItem(taskId, openOnly = false) {
-  const selected = findTasks();
+  const selected = findTasks(opt('--spec') ? resolveSpecDir() : undefined);
   if (!selected) return null;
   for (const plan of selected.all || [selected]) {
     const item = (openOnly ? plan.open : plan.open.concat(plan.done)).find((x) => x.id === taskId);
