@@ -50,6 +50,16 @@ test('parseReasons: читает reasons из JSON-фолбэка', () => {
   assert.deepEqual(gate.parseReasons('текст без reasons'), []);
 });
 
+test('parseReasons/parseFilesReviewed: квадратные скобки ВНУТРИ reason не обрезают ответ', () => {
+  // Живой ложный block 2026-07-27 (009 T006, дважды подряд): regex `\[[^\]]*\]` рвался на
+  // первой `]` внутри строки → reasons:[] → безусловный grounding:no-reasons на честном pass.
+  const out = 'проза судьи\n{"verdict":"pass","reasons":["эффорт по тегу [L]->max, [S]/[M]->high","в границах"],"filesReviewed":["gate.js","gate.test.js"]}';
+  assert.deepEqual(gate.parseReasons(out), ['эффорт по тегу [L]->max, [S]/[M]->high', 'в границах']);
+  assert.deepEqual(gate.parseFilesReviewed(out), ['gate.js', 'gate.test.js']);
+  assert.equal(gate.checkGrounding('', gate.parseFilesReviewed(out), gate.parseReasons(out), __dirname), null,
+    'честный ответ со скобками обязан проходить grounding-чек');
+});
+
 test('judgePrompt: prevBlockReason добавляет секцию «предыдущая попытка заблокирована»', () => {
   const p0 = gate.judgePrompt('T1', 'задача', 'diff', 'status');
   assert.doesNotMatch(p0, /ПРЕДЫДУЩАЯ/);
