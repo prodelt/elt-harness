@@ -56,3 +56,69 @@ test('T004 e2e: явный effort в дескрипторе побеждает �
   const argv = invokeArgv({ phase: 'impl', effort: 'max' });
   assert.match(argv.join(' '), /--effort max\b/);
 });
+
+// ── 009 T006: эффорт по тегу сложности + промпт имплементатора v2 ──────────────────
+
+test('T006: effortFor(impl, size) — [L]→max, [S]/[M]/без тега→high', () => {
+  assert.equal(effortFor('impl', 'L'), 'max', 'крупный слайс стартует на max, не ждёт heal');
+  assert.equal(effortFor('impl', 'l'), 'max', 'регистр тега не важен');
+  assert.equal(effortFor('impl', 'S'), 'high');
+  assert.equal(effortFor('impl', 'M'), 'high');
+  assert.equal(effortFor('impl', null), 'high', 'без тега — старое поведение');
+  assert.equal(effortFor('impl', 'XXL'), 'high', 'неизвестный тег не эскалирует');
+  assert.equal(effortFor('heal', 'S'), 'max', 'heal остаётся max независимо от размера');
+});
+
+test('T006 e2e: драйвер даёт промпт v2 (разведка → решение → запреты) и эффорт по тегу',
+  { skip: process.platform !== 'win32' ? 'PowerShell 5.1 только на Windows' : false }, () => {
+  // Исполняемое доказательство: гоняем настоящий elt-loop.ps1 против temp-репо, стаб claude
+  // сохраняет полученный промпт и argv. Ассертим латиницу/структуру, не русский текст —
+  // stdout PowerShell приходит в OEM-кодировке, а промпт долетает сюда файлом (utf8).
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-t006-'));
+    const g = (a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
+    g(['init', '-q']); g(['config', 'user.email', 't@e.com']); g(['config', 'user.name', 'T']);
+    fs.mkdirSync(path.join(repo, '.harness'));
+    fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
+      kind: 'code', shell: 'powershell', branchPolicy: 'feature',
+      oracle: 'node -e "process.exit(1)"', judge: { enabled: true, model: 'sonnet' },
+    }));
+    fs.mkdirSync(path.join(repo, 'specs', '001-fx'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'specs', '001-fx', 'tasks.md'), '- [ ] **T001** большой слайс [L] [files:seed.txt]\n');
+    fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+    g(['add', '-A']); g(['commit', '-qm', 'seed']); g(['checkout', '-qb', 'work']);
+
+    // Зонд пишем ВНЕ репо: парковка слайса откатывает дерево `git stash -u` и унесла бы файл.
+    const capture = path.join(TMP, 'capture-t006.json');
+    fs.rmSync(capture, { force: true });
+    const stub = path.join(TMP, 'capture-stub.js');
+    fs.writeFileSync(stub, `const fs=require("fs");let s="";
+process.stdin.on("data",(c)=>{s+=c}).on("end",()=>{
+  if(!fs.existsSync(${JSON.stringify(capture)})) fs.writeFileSync(${JSON.stringify(capture)},JSON.stringify({argv:process.argv.slice(2),prompt:s}));
+  fs.appendFileSync(${JSON.stringify(path.join(repo, 'seed.txt'))},"impl\\n");console.log("stub");process.exit(0);});`);
+
+    spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, '..', 'elt-loop.ps1'),
+      '-Project', repo, '-Slices', '1', '-Batch', '1'],
+    { cwd: repo, encoding: 'utf8', env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
+
+    assert.ok(fs.existsSync(capture), 'драйвер обязан дойти до вызова имплементатора');
+    const { argv, prompt } = JSON.parse(fs.readFileSync(capture, 'utf8'));
+    assert.match(argv.join(' '), /--effort max\b/, 'тег [L] обязан поднять impl-эффорт до max');
+    // Разведка названа полностью: зона через codegraph, рубрика (spec+constitution), тесты зоны.
+    assert.match(prompt, /codegraph_context/, 'секция разведки обязана называть codegraph');
+    assert.match(prompt, /spec\.md/, 'разведка обязана посылать в спеку — по ней судит судья');
+    assert.match(prompt, /constitution\.md/);
+    assert.match(prompt, /существующие тесты|тесты в зоне/, 'разведка обязана посылать в существующие тесты');
+    assert.match(prompt, /"filesChanged"/, 'слайс обязан требовать JSON-заявку (почва T009)');
+    assert.match(prompt, /"testsAdded"/);
+    // Порядок секций и ЕСТЬ механизм слайса: перестановка запретов вперёд обязана валить тест.
+    const at = (re) => { const m = prompt.match(re); assert.ok(m, `нет секции ${re}`); return m.index; };
+    const recon = at(/СНАЧАЛА РАЗБЕРИСЬ/), decide = at(/ПОТОМ РЕШИ/), ban = at(/ЗАПРЕТЫ:/), claim = at(/"filesChanged"/);
+    assert.ok(recon < decide && decide < ban && ban < claim,
+      `порядок обязан быть разведка(${recon}) → решение(${decide}) → запреты(${ban}) → заявка(${claim})`);
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+test('T006: elt-loop.ps1 остаётся UTF-8 с BOM (PS 5.1 иначе читает кириллицу как mojibake)', () => {
+  const head = fs.readFileSync(path.join(__dirname, '..', 'elt-loop.ps1')).subarray(0, 3);
+  assert.deepEqual([...head], [0xef, 0xbb, 0xbf]);
+});
