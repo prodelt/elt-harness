@@ -101,6 +101,47 @@ function normalizeTaskArg(raw) {
   return ids.length ? ids.join(',') : null;
 }
 
+// 009 T004 — парковка. Слайс, не прошедший гейт, раньше убивал ВЕСЬ прогон (`break`):
+// одна упрямая задача съедала бюджет автономки, остальной план оставался нетронутым.
+// Теперь такой слайс записывается сюда, дерево откатывается, петля берёт следующий.
+const PARKED = path.join(HARNESS_DIR, 'parked.json');
+function readParked() {
+  try { const p = JSON.parse(fs.readFileSync(PARKED, 'utf8')); return Array.isArray(p) ? p : []; } catch { return []; }
+}
+function writeParked(list) {
+  if (!list.length) { fs.rmSync(PARKED, { force: true }); return; }
+  fs.mkdirSync(HARNESS_DIR, { recursive: true });
+  fs.writeFileSync(PARKED, JSON.stringify(list, null, 2) + '\n');
+  // Парковка — состояние прогона, не артефакт репо: без игнора `elt commit` (git add -A)
+  // утащил бы её в коммит следующего же слайса. Игнор пишем в .git/info/exclude, а НЕ
+  // файлом в дереве: любой новый файл в дереве сам ломает драйвер — ветка «имплементатор
+  // ничего не изменил» смотрит на `git status --porcelain`, и он перестал бы быть пустым.
+  const gitDirOut = git(['rev-parse', '--git-dir']);
+  if (gitDirOut.code === 0 && gitDirOut.out) {
+    const gd = path.isAbsolute(gitDirOut.out) ? gitDirOut.out : path.join(cwd, gitDirOut.out);
+    const exclude = path.join(gd, 'info', 'exclude');
+    const body = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
+    if (!body.split(/\r?\n/).includes('.harness/parked.json')) {
+      fs.mkdirSync(path.dirname(exclude), { recursive: true });
+      fs.writeFileSync(exclude, body + (body && !body.endsWith('\n') ? '\n' : '') + '.harness/parked.json\n');
+    }
+  }
+}
+// Сверка по ОТДЕЛЬНЫМ id, а не по строке батча: припаркованный батч "T001,T002" обязан
+// сниматься и когда позже коммитится один T001 — иначе status врёт про живую задачу.
+function parkedIds() {
+  const ids = new Set();
+  for (const e of readParked()) for (const id of parseTaskIds(e.tid)) ids.add(id);
+  return ids;
+}
+function unpark(taskId) {
+  const ids = new Set(parseTaskIds(taskId));
+  const list = readParked();
+  const rest = list.filter((e) => !parseTaskIds(e.tid).some((id) => ids.has(id)));
+  if (rest.length !== list.length) writeParked(rest);
+  return list.length - rest.length;
+}
+
 function findTaskItem(taskId, openOnly = false) {
   const selected = findTasks();
   if (!selected) return null;
@@ -431,9 +472,31 @@ if (cmd === 'status') {
     git: branch.code === 0 ? { branch: branch.out || '(detached)', dirty: dirtyN } : 'NOT A REPO',
     harness: cfgExists ? loadConfig() : 'NO harness.json — elt init',
     plan: t ? { file: path.relative(cwd, t.file), open: t.open.length, done: t.done.length, next: t.open[0] ? `${t.open[0].id} ${t.open[0].text}` : null } : 'no specs/*/tasks.md',
+    parked: readParked(),
     lastRun,
   };
   console.log(JSON.stringify(out, null, 2));
+  process.exit(0);
+}
+
+// 009 T004: парковка слайса (вызывает драйвер вместо `break`). Формат записи —
+// {tid, reason, ts, logPath, attempts}; повторная парковка той же задачи растит attempts.
+if (cmd === 'park') {
+  const taskId = normalizeTaskArg(opt('--task'));
+  if (!taskId) die('elt park --task Txxx[,Tyyy] --reason <reason> [--log <path>] | elt park --clear --task Txxx', 4);
+  if (flag('--clear')) {
+    const removed = unpark(taskId);
+    console.log(JSON.stringify({ cleared: removed, parked: readParked() }, null, 2));
+    process.exit(0);
+  }
+  const reason = opt('--reason');
+  if (!reason) die('elt park: --reason обязателен (red-stop|judge-block|judge-dead|empty-diff)', 4);
+  const list = readParked();
+  const prev = list.find((e) => e.tid === taskId);
+  const entry = { tid: taskId, reason, ts: new Date().toISOString(), logPath: opt('--log', null), attempts: (prev ? prev.attempts : 0) + 1 };
+  writeParked(list.filter((e) => e.tid !== taskId).concat([entry]));
+  appendRunLog({ task: taskId, status: 'parked', reason, attempts: entry.attempts });
+  console.log(JSON.stringify(entry, null, 2));
   process.exit(0);
 }
 
@@ -462,7 +525,11 @@ if (cmd === 'slice' && sub === 'next') {
   // Форма вывода при --count 1 (дефолт) не изменилась (объект, не массив), иначе
   // сломались бы существующие парсеры драйверов (elt-loop.ps1 / fleet).
   const count = Math.max(1, parseInt(opt('--count', '1'), 10) || 1);
-  const picks = t ? t.open.slice(0, count) : [];
+  // 009 T004: припаркованные задачи пропускаются — иначе петля «продолжает» тем же
+  // упавшим слайсом по кругу. Они остаются `[ ]` в плане и видны в `elt status`.
+  const parkedSkip = parkedIds();
+  const open = t ? t.open.filter((x) => !parkedSkip.has(x.id)) : [];
+  const picks = open.slice(0, count);
   const next = picks[0];
   if (flag('--json')) {
     console.log(JSON.stringify(count > 1 ? picks : (next || null)));
@@ -753,6 +820,10 @@ if (cmd === 'commit') {
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
 
+  // Задача закрылась — снимаем её с парковки (009 T004), иначе status/slice next
+  // продолжали бы считать её припаркованной после успешной перезакрытия.
+  unpark(taskId);
+
   appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}) });
 
   // 4. push strictly by flag (config or CLI)
@@ -771,6 +842,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
+  elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
   elt oracle                                                прогнать оракул, exit-код = истина
   elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]  запустить судью КОДОМ и записать proof (exit 0 = pass)
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)

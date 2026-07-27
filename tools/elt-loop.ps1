@@ -94,10 +94,39 @@ function Invoke-Claude {
   }
 }
 
+# 009 T004 — park & continue. Слайс, не прошедший гейт (red-stop / judge-block / judge-dead /
+# пустой дифф), раньше убивал ВЕСЬ прогон: одна упрямая задача съедала автономку целиком, а
+# остальной план оставался нетронутым. Теперь он паркуется (`elt park` → .harness/parked.json,
+# `slice next` его пропускает), дерево откатывается в stash, петля берёт следующий слайс.
+# Жёсткие стопы остаются жёсткими: STOP-файл, бюджет, slice next, approval, codegraph-guard.
+function Park-Slice {
+  param([string]$Ids, [string]$Reason, [string]$LogPath)
+  # Откат первым, парковка после. `stash -u` забирает untracked, но НЕ игнорируемое —
+  # поэтому parked.json (его игнор пишет `elt park` в .git/info/exclude) переживает откат;
+  # иначе парковка уехала бы в stash и петля взяла бы тот же павший слайс по кругу.
+  & git stash push -u -m "elt-park $Ids" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    # Откат не состоялся: правки павшего слайса остались в дереве и утекли бы в дифф
+    # следующего (судья вменил бы их ему как чужой scope creep). Жёсткий стоп.
+    Write-Host "elt-loop: git stash вернул $LASTEXITCODE — дерево НЕ откачено, СТОП (правки $Ids загрязнили бы следующий слайс)."
+    return $false
+  }
+  & node $eltCli park --task $Ids --reason $Reason --log $LogPath | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    # Парковка не записалась → `slice next` снова отдаст этот же слайс, и петля будет
+    # молотить его до конца бюджета. Это поломка харнесса, а не слайса — жёсткий стоп.
+    Write-Host "elt-loop: elt park вернул $LASTEXITCODE — парковка НЕ записана, СТОП (иначе петля зациклится на $Ids)."
+    return $false
+  }
+  Write-Host "elt-loop: $Ids ПРИПАРКОВАН ($Reason) — беру следующий слайс. Лог: $LogPath"
+  return $true
+}
+
 Push-Location $Project
 $start = Get-Date
 $done = 0
 $committed = 0
+$parked = 0
 try {
   # 0. pre-run approval guard (006 T004, opt-in via harness.json
   # specApproval:true) — громкий стоп ДО первого слайса вместо тихого
@@ -209,8 +238,9 @@ $tail
       & node $eltCli oracle
       if ($LASTEXITCODE -ne 0) {
         Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; oracle = @{ exit = $LASTEXITCODE }; result = "red-stop" }
-        Write-Host "elt-loop: оракул всё ещё красный — стоп, НЕ коммичу. Лог: $implLog"
-        break
+        Write-Host "elt-loop: оракул всё ещё красный — НЕ коммичу. Лог: $implLog"
+        if (-not (Park-Slice -Ids $id -Reason "red-stop" -LogPath $implLog)) { break }
+        $parked += $picked.Count; $i += $picked.Count; continue
       }
     }
 
@@ -222,8 +252,9 @@ $tail
     # источник истины (gate.runJudge, инвариант runOk), а не хрупкий PS-дубль парсинга/рубрики.
     $porcelain = (& git status --porcelain) -join "`n"
     if ([string]::IsNullOrWhiteSpace($porcelain)) {
-      Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить, стоп."
-      break
+      Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить."
+      if (-not (Park-Slice -Ids $id -Reason "empty-diff" -LogPath $implLog)) { break }
+      $parked += $picked.Count; $i += $picked.Count; continue
     }
     Write-Host "elt-loop: судья ($JudgeProvider/$JudgeModel)…"
     # Дескриптор через файл (без argv-кавычек, PS5.1). judge-invoke сам грузит рубрику spec.md
@@ -243,13 +274,15 @@ $tail
       # judge-dead: судья не отработал (нет JSON / runOk:false) — ERROR-STOP, НЕ молчаливый block.
       $jl = if ($j) { $j.judgeLog } else { "(нет JSON от judge-invoke)" }
       Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "judge-dead"; judgeLog = $jl }
-      Write-Host "elt-loop: судья НЕ отработал (judge-dead) — СТОП, НЕ коммичу. Лог: $jl"
-      break
+      Write-Host "elt-loop: судья НЕ отработал (judge-dead) — НЕ коммичу. Лог: $jl"
+      if (-not (Park-Slice -Ids $id -Reason "judge-dead" -LogPath $jl)) { break }
+      $parked += $picked.Count; $i += $picked.Count; continue
     }
     if ($j.verdict -ne "pass") {
       Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; verdict = "block"; result = "judge-block" }
       Write-Host "elt-loop: судья BLOCK по $id — НЕ коммичу. Лог: $($j.judgeLog)"
-      break
+      if (-not (Park-Slice -Ids $id -Reason "judge-block" -LogPath $j.judgeLog)) { break }
+      $parked += $picked.Count; $i += $picked.Count; continue
     }
 
     # 7. Persist the judge result against this exact green-oracle tree, then commit.
@@ -279,7 +312,20 @@ finally {
   Pop-Location
 }
 
-# финал
+# финал: закрытые и припаркованные — РАЗДЕЛЬНО, и ненулевой exit при непустой парковке
+# (иначе «прогон прошёл, exit 0» скрывает, что половина плана не сделана).
 $elapsed = [math]::Round(((Get-Date) - $start).TotalMinutes, 1)
-Write-Host "`n=== elt-loop итог: слайсов закрыто $done, коммитов $committed, время ${elapsed} мин ==="
+Write-Host "`n=== elt-loop итог: слайсов закрыто $done, коммитов $committed, припарковано $parked, время ${elapsed} мин ==="
+# Источник истины про парковку — файл, а не счётчик прогона: парковки прошлых прогонов
+# так же означают «план не сделан», и exit 0 при них врал бы вызывающему (CI/обёртке).
+$parkedFile = Join-Path $Project ".harness\parked.json"
+$parkedAll = @()
+if (Test-Path $parkedFile) { foreach ($p in (Get-Content $parkedFile -Raw | ConvertFrom-Json)) { $parkedAll += $p } }
+if ($parkedAll.Count -gt 0) {
+  Write-Host ("припаркованы, всего {0} (снять: elt park --clear --task Txxx):" -f $parkedAll.Count)
+  foreach ($p in $parkedAll) {
+    Write-Host ("  {0} — {1} (попыток {2}) {3}" -f $p.tid, $p.reason, $p.attempts, $p.logPath)
+  }
+}
 if (Test-Path $runLog) { Write-Host ("последний run-log: " + (Get-Content $runLog -Tail 1)) }
+if ($parkedAll.Count -gt 0) { exit 1 }
