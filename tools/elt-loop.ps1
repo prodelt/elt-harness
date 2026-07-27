@@ -223,20 +223,33 @@ try {
       break
     }
 
-    # 5. оракул + 1 retry
+    # 5. оракул + до 2 попыток self-heal (009 T005). Раньше heal получал ТОЛЬКО хвост
+    # impl-лога — что имплементатор делал, но не текст ошибки, на которую он должен
+    # реагировать; чинил вслепую. Теперь первым в промпт идёт вывод самого оракула
+    # (.harness/oracle-tail.log), impl-лог — вторичной секцией. Вторая попытка на эффорте max.
     & node $eltCli oracle
     if ($LASTEXITCODE -ne 0) {
-      Write-Host "elt-loop: оракул красный — 1 попытка self-heal…"
-      $tail = (Get-Content $implLog -Tail 100 -ErrorAction SilentlyContinue) -join "`n"
-      $healPrompt = @"
-Оракул красный. Хвост лога имплементатора (до 100 строк):
+      $oracleTail = Join-Path $Project ".harness\oracle-tail.log"
+      $healed = $false
+      foreach ($attempt in 1..2) {
+        $errTail = (Get-Content $oracleTail -Tail 120 -ErrorAction SilentlyContinue) -join "`n"
+        $tail = (Get-Content $implLog -Tail 60 -ErrorAction SilentlyContinue) -join "`n"
+        $effort = if ($attempt -eq 1) { "high" } else { "max" }
+        $healPrompt = @"
+Оракул красный. ВЫВОД ОРАКУЛА (это и есть ошибка, чини по нему):
+$errTail
+
+Хвост лога имплементатора (контекст, что он делал):
 $tail
 Почини МИНИМАЛЬНО только то, на что указывает ошибка. Тесты не ослаблять и не удалять. НЕ коммить.
 "@
-      Write-Host "elt-loop: self-heal… (эскалация эффорта → max)"
-      Invoke-Claude -Prompt $healPrompt -LogPath $implLog -Phase "heal" | Out-Null
-      & node $eltCli oracle
-      if ($LASTEXITCODE -ne 0) {
+        Write-Host "elt-loop: self-heal попытка $attempt/2 (эффорт $effort)…"
+        Invoke-Claude -Prompt $healPrompt -LogPath $implLog -Phase "heal" -Effort $effort | Out-Null
+        & node $eltCli oracle
+        Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "heal"; healAttempt = $attempt; effort = $effort; oracle = @{ exit = $LASTEXITCODE } }
+        if ($LASTEXITCODE -eq 0) { $healed = $true; break }
+      }
+      if (-not $healed) {
         Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; oracle = @{ exit = $LASTEXITCODE }; result = "red-stop" }
         Write-Host "elt-loop: оракул всё ещё красный — НЕ коммичу. Лог: $implLog"
         if (-not (Park-Slice -Ids $id -Reason "red-stop" -LogPath $implLog)) { break }

@@ -23,11 +23,21 @@ function loadConfig() {
   if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
   return loaded.config;
 }
+// 009 T005: вывод оракула ЗАХВАТЫВАЕТСЯ (pipe), а не только льётся в консоль — self-heal
+// раньше получал в промпт хвост impl-лога (что делал имплементатор), но НЕ текст ошибки,
+// на которую должен реагировать. Цена: вывод печатается по завершении, а не построчно.
+// maxBuffer обязателен: дефолт spawnSync — 1 МБ, а при его превышении процесс УБИВАЕТСЯ
+// (ENOBUFS) — то есть болтливый оракул не просто терял бы хвост, а получал ложный
+// провал. Cap на 8K применяется к сохраняемому хвосту, а не к самому оракулу.
+const ORACLE_MAX_BUFFER = 256 * 1024 * 1024;
 function sh(cmd, shell) {
+  const opts = { encoding: 'utf8', maxBuffer: ORACLE_MAX_BUFFER };
   const r = shell === 'powershell'
-    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { stdio: 'inherit' })
-    : spawnSync('bash', ['-c', cmd], { stdio: 'inherit' });
-  return r.status === null ? 1 : r.status;
+    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], opts)
+    : spawnSync('bash', ['-c', cmd], opts);
+  const out = (r.stdout || '') + (r.stderr || '');
+  process.stderr.write(out);
+  return { code: r.status === null ? 1 : r.status, out };
 }
 function git(args) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -112,20 +122,7 @@ function writeParked(list) {
   if (!list.length) { fs.rmSync(PARKED, { force: true }); return; }
   fs.mkdirSync(HARNESS_DIR, { recursive: true });
   fs.writeFileSync(PARKED, JSON.stringify(list, null, 2) + '\n');
-  // Парковка — состояние прогона, не артефакт репо: без игнора `elt commit` (git add -A)
-  // утащил бы её в коммит следующего же слайса. Игнор пишем в .git/info/exclude, а НЕ
-  // файлом в дереве: любой новый файл в дереве сам ломает драйвер — ветка «имплементатор
-  // ничего не изменил» смотрит на `git status --porcelain`, и он перестал бы быть пустым.
-  const gitDirOut = git(['rev-parse', '--git-dir']);
-  if (gitDirOut.code === 0 && gitDirOut.out) {
-    const gd = path.isAbsolute(gitDirOut.out) ? gitDirOut.out : path.join(cwd, gitDirOut.out);
-    const exclude = path.join(gd, 'info', 'exclude');
-    const body = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
-    if (!body.split(/\r?\n/).includes('.harness/parked.json')) {
-      fs.mkdirSync(path.dirname(exclude), { recursive: true });
-      fs.writeFileSync(exclude, body + (body && !body.endsWith('\n') ? '\n' : '') + '.harness/parked.json\n');
-    }
-  }
+  gitExclude('.harness/parked.json');
 }
 // Сверка по ОТДЕЛЬНЫМ id, а не по строке батча: припаркованный батч "T001,T002" обязан
 // сниматься и когда позже коммитится один T001 — иначе status врёт про живую задачу.
@@ -167,6 +164,21 @@ function markDone(taskId) {
 // Hash of the working tree at the moment the oracle ran, so a later
 // `commit --skip-oracle` can tell "still the tree the oracle validated" apart
 // from "something changed since — the claim is untrusted" (F-P1-2 trust-hole).
+// Состояние прогона (парковка, хвост оракула) — не артефакт репо: без игнора `elt commit`
+// (git add -A) утащил бы его в коммит следующего слайса. Игнор пишем в .git/info/exclude,
+// а НЕ файлом в дереве: любой новый файл в дереве сам ломает драйвер — ветка «имплементатор
+// ничего не изменил» смотрит на `git status --porcelain`, и он перестал бы быть пустым.
+function gitExclude(rel) {
+  const gitDirOut = git(['rev-parse', '--git-dir']);
+  if (gitDirOut.code !== 0 || !gitDirOut.out) return;
+  const gd = path.isAbsolute(gitDirOut.out) ? gitDirOut.out : path.join(cwd, gitDirOut.out);
+  const exclude = path.join(gd, 'info', 'exclude');
+  const body = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
+  if (body.split(/\r?\n/).includes(rel)) return;
+  fs.mkdirSync(path.dirname(exclude), { recursive: true });
+  fs.writeFileSync(exclude, body + (body && !body.endsWith('\n') ? '\n' : '') + rel + '\n');
+}
+
 function treeHash() {
   // No `git add -N`: intent-to-add MUTATES the index permanently (until reset/commit) —
   // tried that first, it left leftover staged garbage in the integration checkout after
@@ -278,11 +290,22 @@ function readOracleProof() {
   try { return JSON.parse(fs.readFileSync(oracleProofPath(), 'utf8')); } catch { return null; }
 }
 
+// Хвост оракула для self-heal (009 T005). Cap — с КОНЦА: сообщения об ошибках и стек
+// у тест-раннеров идут последними, обрезать надо голову.
+const ORACLE_TAIL = path.join(HARNESS_DIR, 'oracle-tail.log');
+const ORACLE_TAIL_CAP = 8000;
+function writeOracleTail(out) {
+  fs.mkdirSync(HARNESS_DIR, { recursive: true });
+  fs.writeFileSync(ORACLE_TAIL, out.length > ORACLE_TAIL_CAP ? out.slice(-ORACLE_TAIL_CAP) : out);
+  gitExclude('.harness/oracle-tail.log');
+}
+
 function runOracle(cfg) {
   console.error(`elt oracle: ${cfg.oracle}`);
   const started = Date.now();
-  const code = sh(cfg.oracle, cfg.shell);
+  const { code, out } = sh(cfg.oracle, cfg.shell);
   console.error(`elt oracle: exit ${code} (${Math.round((Date.now() - started) / 1000)}s)`);
+  writeOracleTail(out);
   writeOracleProof(code, cfg);
   return code;
 }
