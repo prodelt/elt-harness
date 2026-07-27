@@ -11,7 +11,15 @@
 const IMPL_EFFORT = 'high';
 const HEAL_EFFORT = 'max';
 
+// 009 T006: impl-фаза больше не плоская — крупный слайс (`[L]` в тексте задачи) стартует
+// сразу на 'max', не дожидаясь красного оракула и heal'а. `[S]`/`[M]`/без тега → 'high'.
+// Тег извлекает драйвер (тот же regex, что fleet/plan.js) и передаёт сюда.
+const BIG_SIZE = 'L';
+
 // unknown/пустая фаза → 'high' (безопасный дефолт: не эскалируем зря, не тратим токены).
-function effortFor(phase) { return phase === 'heal' ? HEAL_EFFORT : IMPL_EFFORT; }
+function effortFor(phase, size) {
+  if (phase === 'heal') return HEAL_EFFORT;
+  return String(size || '').toUpperCase() === BIG_SIZE ? HEAL_EFFORT : IMPL_EFFORT;
+}
 
 module.exports = { effortFor, IMPL_EFFORT, HEAL_EFFORT };
