@@ -30,7 +30,7 @@ D (fleet-роли и контроль agy) → E (живой замер). Вну
 
 ## Фаза D — fleet-роли и механический контроль agy
 
-- [ ] **T009** Worker-attestation (контроль галлюцинаций воркера, 0 LLM-вызовов): воркер обязан закончить JSON `{"filesChanged":[…],"testsAdded":[…]}`; `tools/fleet/attest.js` сверяет заявку с реальным диффом worktree — заявленный, но неизменённый файл → `hallucinated-file`, изменённый незаявленный → `undeclared-file`, пустой дифф при непустой заявке → `phantom-work`, нет JSON вовсе → `no-attestation`. Любое расхождение: слайс НЕ идёт к судье, пишется в ledger и перевыдаётся следующему провайдеру цепочки. `workerPrompt` дополнен требованием заявки. Тесты на четыре отказа + честную заявку. [files: tools/fleet/attest.js, tools/fleet/attest.test.js, tools/fleet/fleet.js, tools/fleet/fleet.test.js, tools/harness-watch.test.js]
+- [X] **T009** Worker-attestation (контроль галлюцинаций воркера, 0 LLM-вызовов): воркер обязан закончить JSON `{"filesChanged":[…],"testsAdded":[…]}`; `tools/fleet/attest.js` сверяет заявку с реальным диффом worktree — заявленный, но неизменённый файл → `hallucinated-file`, изменённый незаявленный → `undeclared-file`, пустой дифф при непустой заявке → `phantom-work`, нет JSON вовсе → `no-attestation`. Любое расхождение: слайс НЕ идёт к судье, пишется в ledger и перевыдаётся следующему провайдеру цепочки. `workerPrompt` дополнен требованием заявки. Тесты на четыре отказа + честную заявку. [files: tools/fleet/attest.js, tools/fleet/attest.test.js, tools/fleet/fleet.js, tools/fleet/fleet.test.js, tools/harness-watch.test.js]
 
   Зона расширена на тесты со стабами воркера (`fleet.test.js`, `harness-watch.test.js`;
   уточнение границы, утверждено 28.07): контракт воркера

@@ -366,7 +366,13 @@ test('fleet между батчами: park + cooldown + judge-fallback прим
   try {
     await fleet.run({
       cwd: root, tasksPath: path.join(root, 'specs', 'tasks.md'), integration: 'main', workers: 1,
-      worker: async (slice, wtPath) => { touched.push(slice.id); fs.writeFileSync(path.join(wtPath, `${slice.id}.txt`), 'x\n'); },
+      // 009 T009: стаб отвечает по контракту воркера (заявка о файлах), иначе attest
+      // режет его как no-attestation и цикл до watchdog-решений не доходит.
+      worker: async (slice, wtPath) => {
+        touched.push(slice.id);
+        fs.writeFileSync(path.join(wtPath, `${slice.id}.txt`), 'x\n');
+        return { ok: true, exit: 0, stdout: JSON.stringify({ filesChanged: [`${slice.id}.txt`], testsAdded: [] }) };
+      },
     });
   } finally { delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; }
 

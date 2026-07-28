@@ -18,6 +18,7 @@ const merge = require('./merge');
 const watch = require('../harness-watch');
 const heal = require('./heal');
 const providers = require('./providers');
+const attestation = require('./attest');
 const { judgeSettings } = require('../elt-config');
 const router = require('./router');
 const approvalGuard = require('../approval-guard');
@@ -96,7 +97,13 @@ function workerPrompt(slice) {
 Слайс ${slice.id}: ${slice.text}
 Меняй только файлы из зоны [files:], оракул проекта должен остаться зелёным.
 НЕ выполняй git add/commit — оркестратор коммитит сам после проверки. НЕ трогай tasks.md
-и harness.json. НЕ запускай elt commit/elt status — только записал файл(ы) и всё, работа окончена.`;
+и harness.json. НЕ запускай elt commit/elt status — только записал файл(ы) и всё, работа окончена.
+
+ПОСЛЕДНЕЙ строкой ответа выдай заявку о проделанной работе — ровно один JSON:
+{"filesChanged":["путь/от/корня.js"],"testsAdded":["путь/к/тесту.test.js"]}
+Пути — относительно корня репозитория. Заявка сверяется с реальным диффом механически:
+названный, но неизменённый файл, изменённый но не названный, или отсутствие заявки —
+слайс отклоняется без разбора судьёй и перевыдаётся другому исполнителю.`;
 }
 
 // Лимит воркера ОТДЕЛЬНО от дефолта providers (5 мин): тот рассчитан на короткий вызов
@@ -270,9 +277,14 @@ async function run(opts = {}) {
   // T020: все провайдеры цепочки в cooldown → provFor вернёт null, а НЕ тихий fallback
   // на c[0] (тот остыл тоже — спавнить на него значит бить по тому же лимиту, который
   // его туда загнал).
+  // 009 T009: слайс, отклонённый worker-attestation, перевыдаётся СЛЕДУЮЩЕМУ провайдеру
+  // цепочки — иначе следующий проход по приоритету вернул бы его тому же воркеру, который
+  // только что соврал о своей работе. Цепочки длиной 1 — повтор тем же, ограничен maxAttempts.
+  const reissueTo = new Map(); // tid → провайдер, которому перевыдан слайс
   const provFor = (slice) => {
     const c = getChainForSlice(slice, policy);
-    return router.pick(c, routerState);
+    const pref = reissueTo.get(slice.id);
+    return router.pick(pref ? [pref, ...c.filter((p) => p !== pref)] : c, routerState);
   };
 
   // Баг #8: без верхнего предела попыток застрявший слайс (heal-failed/gate-reject) реквеился
@@ -423,6 +435,28 @@ async function run(opts = {}) {
           return { tid: slice.id, gateOk: false, fatalConfig: fatal, provider };
         }
 
+        // 009 T009: заявка воркера против реального диффа worktree — ДО оракула и судьи.
+        // Проверка безусловна: воркер без транскрипта (res.stdout пуст) — это ровно
+        // случай no-attestation, а не повод пропустить контроль.
+        // ponytail: heal чинит красный оракул ПРАВКАМИ УЖЕ ЗАЯВЛЕННЫХ файлов; новый файл
+        // от heal ломает сверку и слайс уходит на перевыдачу. Осознанный потолок: heal
+        // не имеет права расширять множество файлов молча. Мешать начнёт живьём —
+        // заводить отдельную заявку для heal (там же, где failover воркера, T010).
+        const checkAttestation = () => {
+          const at = attestation.attest({ stdout: res.stdout || '', cwd: wtPath, integration });
+          if (at.ok) return null;
+          const chain = getChainForSlice(slice, policy);
+          const next = chain[chain.indexOf(provider) + 1] || null;
+          emit(cwd, { event: 'attest-fail', tid: slice.id, provider, code: at.code, detail: at.detail, next, afterHeal: phase === 'heal' });
+          logSpawn(cwd, {
+            tid: slice.id, phase: 'attest', provider, model: implModel, durationSec: 0,
+            exit: 1, failoverFrom: null, limitHit: false, verdict: at.code,
+          });
+          return { tid: slice.id, gateOk: false, attestFail: at.code, provider, nextProvider: next };
+        };
+        const attestFail = checkAttestation();
+        if (attestFail) return attestFail;
+
         claims.setState(slice.id, { state: 'oracle' }, { cwd });
         // красный оракул после воркера → heal-эскалация (свой провайдер → claude → failed).
         // T022: healUsedSoFar — суммарный heal-бюджет (≤2) переживает batch-retry этого
@@ -446,6 +480,14 @@ async function run(opts = {}) {
           return { tid: slice.id, gateOk: false };
         }
         if (h.attempts) emit(cwd, { event: 'healed', tid: slice.id, attempts: h.attempts, by: h.healedBy });
+
+        // Повторная сверка ПОСЛЕ heal: между первой аттестацией и судьёй дифф успел
+        // измениться чужой рукой (heal — отдельный spawn того же провайдера). Без неё
+        // контроль обходится тривиально: отчитаться честно, а дописать в heal-фазе.
+        if (h.attempts > 0) {
+          const afterHeal = checkAttestation();
+          if (afterHeal) return afterHeal;
+        }
 
         // Судья всегда claude (gate.gate/runJudge) — cap проверяем под провайдером 'claude'.
         claims.setState(slice.id, { state: 'judge_pending' }, { cwd });
@@ -520,6 +562,12 @@ async function run(opts = {}) {
           stopReason = `fatal-config (${r.provider}): ${r.fatalConfig}`;
         } else if (r.limitHit) {
           summary.requeued.push(r.tid);
+        } else if (r.attestFail) {
+          // Работа воркера не соответствует его отчёту: судья её не видел, переделываем
+          // другим провайдером. recordFail — чтобы слайс, который врут ВСЕ, не крутился вечно.
+          if (r.nextProvider) reissueTo.set(r.tid, r.nextProvider);
+          summary.requeued.push(r.tid);
+          recordFail(r.tid);
         } else {
           summary.failed.push(r.tid);
           recordFail(r.tid);
@@ -534,7 +582,13 @@ async function run(opts = {}) {
         const rr = await redoSerial(byId.get(r.tid), { cwd, integration, tasksPath, worker, model, judgeProvider, judgeModel, provFor, policy, routerState, callTracker, stopFile });
         if (rr.ok) { summary.requeued.push(r.tid); summary.merged.push(r.tid); }
         else if (rr.stoppedMidSlice) { stopHit = true; stopReason = stopReason || 'STOP-файл'; }
-        else {
+        else if (rr.attestFail) {
+          // Тот же порядок, что на основном пути: врал воркер, а не слайс — переделываем
+          // следующим провайдером цепочки, а не хороним как failed.
+          if (rr.nextProvider) reissueTo.set(r.tid, rr.nextProvider);
+          summary.requeued.push(r.tid);
+          recordFail(r.tid);
+        } else {
           summary.failed.push(r.tid);
           if (rr.capped) { stopHit = true; stopReason = 'cap-exceeded'; }
           else if (rr.allCooling) { stopHit = true; stopReason = 'all-providers-cooling'; }
@@ -606,6 +660,19 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
       emit(cwd, { event: 'stopped-mid-slice', tid: slice.id });
       cleanupSlice(cwd, slice.id);
       return { ok: false, stoppedMidSlice: true };
+    }
+    // 009 T009: serial-передел — тот же контроль заявки, иначе через redoSerial к судье
+    // попадала бы непроверенная работа (обход основного пути).
+    const at = attestation.attest({ stdout: res.stdout || '', cwd: wt.path, integration });
+    if (!at.ok) {
+      const next = chain[chain.indexOf(provider) + 1] || null;
+      emit(cwd, { event: 'attest-fail', tid: slice.id, provider, code: at.code, detail: at.detail, next });
+      logSpawn(cwd, {
+        tid: slice.id, phase: 'attest', provider, model: implModel, durationSec: 0,
+        exit: 1, failoverFrom: null, limitHit: false, verdict: at.code,
+      });
+      cleanupSlice(cwd, slice.id);
+      return { ok: false, attestFail: at.code, nextProvider: next };
     }
     phase = 'judge'; phaseStart = Date.now();
     const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');

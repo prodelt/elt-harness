@@ -13,6 +13,10 @@ const fleet = require('./fleet');
 const worktree = require('./worktree');
 const claims = require('./claims');
 
+// 009 T009: воркер обязан закончить ответ заявкой о файлах — стабы отвечают по тому же
+// контракту, что и живой провайдер, иначе attest честно режет их как no-attestation.
+const said = (...files) => JSON.stringify({ filesChanged: files, testsAdded: [] });
+
 let REPO, JUDGE_STUB;
 const git = (args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8' });
 const tasksPath = () => path.join(REPO, 'specs', 'tasks.md');
@@ -36,11 +40,15 @@ function seedRepo() {
 
 // Инжектируемый воркер — детерминированная «работа» слайса.
 const WORK = {
-  T1: (wt) => fs.writeFileSync(path.join(wt, 'shared.txt'), 'from-T1\n'),
-  T2: (wt) => fs.writeFileSync(path.join(wt, 'shared.txt'), 'from-T2\n'),
-  T3: (wt) => fs.writeFileSync(path.join(wt, 'a.txt'), 'from-T3\n'),
+  T1: { file: 'shared.txt', body: 'from-T1\n' },
+  T2: { file: 'shared.txt', body: 'from-T2\n' },
+  T3: { file: 'a.txt', body: 'from-T3\n' },
 };
-const injectedWorker = async (slice, wtPath) => { WORK[slice.id](wtPath); };
+const injectedWorker = async (slice, wtPath) => {
+  const w = WORK[slice.id];
+  fs.writeFileSync(path.join(wtPath, w.file), w.body);
+  return { ok: true, exit: 0, stdout: said(w.file) };
+};
 
 before(() => {
   REPO = seedRepo();
@@ -108,7 +116,7 @@ test('баг #8: застрявший слайс (оракул всегда кр
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
 
   let calls = 0;
-  const brokenWorker = async (_slice, wt) => { calls++; fs.writeFileSync(path.join(wt, 'z.txt'), 'x\n'); };
+  const brokenWorker = async (_slice, wt) => { calls++; fs.writeFileSync(path.join(wt, 'z.txt'), 'x\n'); return { ok: true, exit: 0, stdout: said('z.txt') }; };
   const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
     integration: 'main', workers: 1, worker: brokenWorker, maxAttempts: 3 });
 
@@ -196,7 +204,7 @@ test('провайдер возвращает 429 → failover на следую
       return { ok: false, lastMsg: 'Error 429: Too Many Requests' };
     }
     fs.writeFileSync(path.join(wt, 's.txt'), 'done\n');
-    return { ok: true, stdout: 'done' };
+    return { ok: true, stdout: said('s.txt') };
   };
 
   const s = await fleet.run({
@@ -245,7 +253,7 @@ test('T020: cap=4 → 5-й spawn заблокирован, слайс terminal-f
   const mockWorker = async (slice, wt) => {
     workerCalls.push(slice.id);
     fs.writeFileSync(path.join(wt, `${slice.id}.txt`), 'done\n');
-    return { ok: true, stdout: 'done' };
+    return { ok: true, stdout: said(`${slice.id}.txt`) };
   };
 
   const s = await fleet.run({
@@ -324,7 +332,7 @@ test('T021: судья недоступен (краш/timeout) → слайс п
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', crashStub]);
 
   let workerCalls = 0;
-  const worker = async (_slice, wt) => { workerCalls++; fs.writeFileSync(path.join(wt, 'a.txt'), 'impl\n'); return { ok: true, stdout: 'done' }; };
+  const worker = async (_slice, wt) => { workerCalls++; fs.writeFileSync(path.join(wt, 'a.txt'), 'impl\n'); return { ok: true, stdout: said('a.txt') }; };
 
   const s = await fleet.run({ cwd: repo, tasksPath, integration: 'main', workers: 1, worker, maxLoops: 3 });
   delete process.env.FLEET_BIN_CLAUDE;
@@ -406,11 +414,11 @@ test('T024: 1 abandoned слайс среди прочих → честный fa
   const mockWorker = async (slice, wt) => {
     if (slice.id === 'T1') {
       fs.writeFileSync(path.join(wt, 'a.txt'), 'A\n');
-    } else {
-      fs.writeFileSync(path.join(wt, 'z.txt'), 'z\n');
-      fs.writeFileSync(path.join(wt, 'broken.flag'), 'x\n'); // оракул слайса всегда красный
+      return { ok: true, stdout: said('a.txt') };
     }
-    return { ok: true, stdout: 'done' };
+    fs.writeFileSync(path.join(wt, 'z.txt'), 'z\n');
+    fs.writeFileSync(path.join(wt, 'broken.flag'), 'x\n'); // оракул слайса всегда красный
+    return { ok: true, stdout: said('z.txt', 'broken.flag') };
   };
 
   const s = await fleet.run({
@@ -446,7 +454,7 @@ test('T026: ledger несёт отдельные implement/judge строки н
   fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
-  const mockWorker = async (slice, wt) => { fs.writeFileSync(path.join(wt, `${slice.id}.txt`), 'done\n'); return { ok: true, exit: 0, stdout: 'done' }; };
+  const mockWorker = async (slice, wt) => { fs.writeFileSync(path.join(wt, `${slice.id}.txt`), 'done\n'); return { ok: true, exit: 0, stdout: said(`${slice.id}.txt`) }; };
 
   const s = await fleet.run({
     cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
@@ -500,7 +508,7 @@ test('T027: crash-resume чистит worktree упавшего implementing-cla
   fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
 
-  const mockWorker = async (slice, w) => { fs.writeFileSync(path.join(w, 'a.txt'), 'done\n'); return { ok: true, exit: 0 }; };
+  const mockWorker = async (slice, w) => { fs.writeFileSync(path.join(w, 'a.txt'), 'done\n'); return { ok: true, exit: 0, stdout: said('a.txt') }; };
   const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'), integration: 'main', workers: 1, worker: mockWorker, maxLoops: 3 });
   delete process.env.FLEET_BIN_CLAUDE;
 
@@ -546,7 +554,9 @@ test('T028: воркер self-commit + правка tasks.md вне [files:] →
     fs.writeFileSync(tp, fs.readFileSync(tp, 'utf8').replace('[ ] **T1**', '[X] **T1**'));
     execFileSync('git', ['add', '-A'], { cwd: wt });                            // agy: сам коммитит всё
     execFileSync('git', ['commit', '-q', '-m', 'feat: alpha (self-commit)'], { cwd: wt });
-    return { ok: true, exit: 0, stdout: 'done' };
+    // заявка честная (в т.ч. про tasks.md) — self-commit прячет дифф от `git status`,
+    // но attest считает его от базы интеграционной, поэтому phantom-work тут нет
+    return { ok: true, exit: 0, stdout: said('out/a.txt', 'specs/tasks.md') };
   };
 
   const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'),
