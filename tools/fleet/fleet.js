@@ -15,6 +15,7 @@ const claims = require('./claims');
 const worktree = require('./worktree');
 const gate = require('./gate');
 const merge = require('./merge');
+const watch = require('../harness-watch');
 const heal = require('./heal');
 const providers = require('./providers');
 const { judgeSettings } = require('../elt-config');
@@ -111,6 +112,51 @@ async function defaultWorker(slice, wtPath, ctx) {
   return providers.run({ provider: ctx.provider, prompt: workerPrompt(slice), cwd: wtPath, model: ctx.model, stopFile: ctx.stopFile, timeoutMs: WORKER_TIMEOUT_MS });
 }
 
+// 009 T008: решения watchdog применяются ЗДЕСЬ, а не в CLI-процессе — router-state и
+// провайдер судьи живут в памяти этого прогона. Отдельная функция, потому что «fleet
+// уважает решения» иначе нечем доказать: тест зовёт её так же, как цикл.
+//   cooldown       → провайдер остывает; куда уйдёт следующий слайс, решает router.pick
+//   park           → задача выпадает из батчей до конца прогона
+//   judge-fallback → судья меняется на остаток прогона
+// Класс без действия сюда не доходит (закрытый список — в harness-watch).
+function applyWatchdog(actions, { cwd, routerState, policy, judgeProvider, judgeModel, parked }) {
+  let judge = { provider: judgeProvider, model: judgeModel };
+  const done = []; // подтверждаем ТОЛЬКО фактически применённые (см. watch.ack)
+  for (const a of actions || []) {
+    if (a.action === 'cooldown' && a.from) {
+      // Воркеру маршрут не назначается: остывший провайдер выпадает из pick(), а КОГО
+      // выберет следующий слайс, решает приоритет его цепочки размера (для [agy,codex,claude]
+      // с остывшим codex это agy — он приоритетнее и здоров). Единственный реальный маршрут
+      // здесь — судья: он в конфиге один, сам себя не заменит.
+      router.cool(routerState, a.from, policy.cooldownSec);
+      if (a.subject === 'judge' && a.to && a.from === judge.provider) {
+        judge = { provider: a.to, model: a.toModel || router.modelFor(a.to, policy) };
+      }
+      emit(cwd, { event: 'watchdog-cooldown', provider: a.from, subject: a.subject || 'worker', to: a.to || null, reason: a.reason });
+      done.push(a.key);
+    } else if (a.action === 'park' && a.from) {
+      for (const id of String(a.from).split(',')) parked.add(id.trim());
+      // Парковка обязана ПЕРЕЖИТЬ прогон: in-memory Set вернул бы задаче третью попытку
+      // после рестарта fleet — ровно то, что решение red-repeat и запрещает. Поэтому
+      // провал `elt park` НЕ подтверждается: действие выдастся снова на следующем проходе.
+      let persisted = true;
+      try { execFileSync(process.execPath, [ELT_CLI, 'park', '--task', a.from, '--reason', a.reason], { cwd, encoding: 'utf8' }); }
+      catch (e) { persisted = false; emit(cwd, { event: 'watchdog-park-failed', tid: a.from, err: String(e && e.message || e) }); }
+      emit(cwd, { event: 'watchdog-park', tid: a.from, reason: a.reason, persisted });
+      if (!persisted) continue;
+      done.push(a.key);
+    } else if (a.action === 'judge-fallback' && a.to) {
+      // Провайдер И модель вместе: чужая модель у нового провайдера = fatal config,
+      // то есть «фолбэк», который гарантированно не запускается.
+      judge = { provider: a.to, model: a.toModel || router.modelFor(a.to, policy) };
+      emit(cwd, { event: 'watchdog-judge-fallback', from: a.from, to: a.to, model: judge.model, reason: a.reason });
+      done.push(a.key);
+    }
+  }
+  watch.ack(cwd, done.filter(Boolean));
+  return judge;
+}
+
 function cleanupSlice(cwd, tid, { deleteBranch = true } = {}) {
   try { worktree.remove(tid, { cwd, force: true, deleteBranch }); } catch { /* уже нет */ }
   claims.release(tid, { cwd });
@@ -194,10 +240,13 @@ async function run(opts = {}) {
   const stopFile = opts.stopFile || path.join(cwd, '.harness', 'STOP');
   // Судья: явный opts побеждает, иначе — harness.json проекта (единый источник, elt-config).
   const judgeCfg = judgeSettings(cwd);
-  const judgeModel = opts.judgeModel || judgeCfg.model;
+  let judgeModel = opts.judgeModel || judgeCfg.model; // let: watchdog меняет пару provider+model
   // Провайдер судьи (judge-bench 2026-07-22: agy/gemini-3.6-flash и codex/gpt-5.6 дают тот же
   // recall 7/7, что sonnet, но не жгут Claude-лимит) — из harness.json, дефолт claude.
-  const judgeProvider = opts.judgeProvider || judgeCfg.provider;
+  // let, не const: watchdog (009 T008) может увести судью на фолбэк-провайдера
+  // на остаток прогона, когда основной судья умирает подряд.
+  let judgeProvider = opts.judgeProvider || judgeCfg.provider;
+  const watchdogParked = new Set();
   const maxLoops = opts.maxLoops || 100;
   const maxAttempts = opts.maxAttempts || 3;
 
@@ -278,7 +327,15 @@ async function run(opts = {}) {
     const parkedIds = new Set(claims.list({ cwd })
       .filter((c) => !c.stale && (c.state === 'judge_pending' || c.state === 'merge_pending'))
       .map((c) => c.tid));
-    const batch = plan.nextBatch(slices).filter((s) => !isAbandoned(s.id) && !parkedIds.has(s.id)).slice(0, workers);
+    // 009 T008: watchdog между батчами. Fleet держит router-state в памяти процесса,
+    // поэтому решение `cooldown` применяется прямо здесь (CLI-процесс watchdog'а своим
+    // state не поделился бы). Остальные классы — только запись в health.jsonl.
+    // judgeProvider — текущий (opts-override или уже применённый фолбэк), не из harness.json.
+    ({ provider: judgeProvider, model: judgeModel } = applyWatchdog(watch.runOnce(cwd, { judgeProvider }).actions, {
+      cwd, routerState, policy, judgeProvider, judgeModel, parked: watchdogParked,
+    }));
+
+    const batch = plan.nextBatch(slices).filter((s) => !isAbandoned(s.id) && !parkedIds.has(s.id) && !watchdogParked.has(s.id)).slice(0, workers);
     if (!batch.length) { emit(cwd, { event: 'done' }); break; }
     emit(cwd, { event: 'batch', tids: batch.map((s) => s.id) });
 
@@ -651,7 +708,7 @@ function exitCodeFor(summary) {
   return (summary.stoppedReason || summary.failed.length || summary.abandoned.length) ? 1 : 0;
 }
 
-module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor };
+module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor, applyWatchdog };
 
 // --- CLI (для обёртки tools/elt-fleet.ps1) ---
 if (require.main === module) {

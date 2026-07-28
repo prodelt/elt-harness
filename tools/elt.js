@@ -300,11 +300,17 @@ function writeOracleTail(out) {
   gitExclude('.harness/oracle-tail.log');
 }
 
+// 009 T008: длительность прогона измерялась и печаталась, но не сохранялась — детектор
+// `oracle-slow` (harness-watch) был слеп. Модульная переменная, а не новый тип возврата:
+// runOracle зовут из четырёх мест, и менять контракт ради одного числа дороже, чем читать
+// его рядом с appendRunLog. ponytail: одно значение на процесс, процесс гоняет оракул раз.
+let lastOracleSec = null;
 function runOracle(cfg) {
   console.error(`elt oracle: ${cfg.oracle}`);
   const started = Date.now();
   const { code, out } = sh(cfg.oracle, cfg.shell);
-  console.error(`elt oracle: exit ${code} (${Math.round((Date.now() - started) / 1000)}s)`);
+  lastOracleSec = Math.round((Date.now() - started) / 1000);
+  console.error(`elt oracle: exit ${code} (${lastOracleSec}s)`);
   writeOracleTail(out);
   writeOracleProof(code, cfg);
   return code;
@@ -571,7 +577,9 @@ if (cmd === 'oracle') {
   const cfg = loadConfig();
   runLog.runtimeRunLog(cwd);
   const exit = runOracle(cfg);
-  if (exit !== 0) appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit } });
+  // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
+  // красные прогоны редки и систематически медленнее (падение после self-heal).
+  appendRunLog({ task: null, status: exit === 0 ? 'oracle-green' : 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec } });
   process.exit(exit);
 }
 
@@ -728,7 +736,7 @@ if (cmd === 'gate') {
     runLog.runtimeRunLog(cwd);
     const exit = runOracle(cfg);
     if (exit !== 0) {
-      appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit } });
+      appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec } });
       die(`elt gate --ci: оракул красный (exit ${exit})`, exit);
     }
     console.log('elt gate --ci: oracle green');
@@ -785,7 +793,7 @@ if (cmd === 'commit') {
   if (!flag('--skip-oracle') || !skipTrusted) {
     oracleExit = runOracle(cfg);
     if (oracleExit !== 0) {
-      appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit } });
+      appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit, durationSec: lastOracleSec } });
       die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit);
     }
   }
@@ -851,7 +859,7 @@ if (cmd === 'commit') {
   // продолжали бы считать её припаркованной после успешной перезакрытия.
   unpark(taskId);
 
-  appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted }, commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}) });
+  appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted, durationSec: lastOracleSec }, commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}) });
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {
