@@ -181,6 +181,74 @@ try {
     $text = ($picked | ForEach-Object { "$($_.id): $($_.text)" }) -join '; '
     Write-Host "`n=== батч $($i + 1)-$($i + $picked.Count)/$Slices : $id ==="
 
+    # 2.2 watchdog между слайсами (009 T008): детекторы поверх run-log/parked/config,
+    # решения — из закрытого списка. `park` и `judge-fallback` применяются; `cooldown`
+    # драйвер применить НЕ МОЖЕТ (у него один имплементатор — claude, цепочки нет), поэтому
+    # он его не молча глотает, а печатает и пишет в run-log: инцидент виден, действие честно
+    # помечено неприменимым. ponytail: появится -Worker с цепочкой — здесь и переключать.
+    # --judge-provider — ТЕКУЩИЙ судья прогона (флаг запуска или уже применённый фолбэк),
+    # а не тот, что записан в harness.json: иначе лимит настоящего судьи признаётся
+    # воркерным и уходит в noop, а фолбэк заявляется не от того провайдера.
+    $watchRaw = (& node (Join-Path $PSScriptRoot "harness-watch.js") --once --json --judge-provider $JudgeProvider 2>$null | Out-String)
+    $watch = $null
+    try { $watch = $watchRaw | ConvertFrom-Json } catch { }
+    if ($watch -and $watch.actions) {
+      # ack ТОЛЬКО за фактически применённое: ключ добавляется внутри ветки, после успеха.
+      # Неприменённое (cooldown без цепочки, упавший `elt park`) остаётся неподтверждённым
+      # и будет выдано снова — иначе решение теряется молча.
+      $watchAcked = @()
+      $watchParked = @()
+      foreach ($a in $watch.actions) {
+        if ($a.action -eq "judge-fallback" -and $a.to) {
+          # Провайдер И модель: codex с моделью agy = fatal config, а не фолбэк.
+          Write-Host "elt-loop: watchdog — судья $($a.from) мёртв, переключаюсь на $($a.to) до конца прогона."
+          $JudgeProvider = $a.to
+          if ($a.toModel) { $JudgeModel = $a.toModel }
+          Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "watchdog-judge-fallback"; from = $a.from; to = $a.to; model = $JudgeModel }
+          $watchAcked += $a.key
+        }
+        elseif ($a.action -eq "cooldown") {
+          # Маршрут в решении есть только у subject=judge (цепочка судей). Имплементатор
+          # у драйвера один (claude, цепочки нет), поэтому cooldown на него применить нечем:
+          # пишем явный noop, а не глотаем решение молча.
+          if ($a.subject -eq "judge" -and $a.from -eq $JudgeProvider -and $a.to) {
+            Write-Host "elt-loop: watchdog — судья $($a.from) в лимите, увожу на $($a.to)."
+            $JudgeProvider = $a.to
+            if ($a.toModel) { $JudgeModel = $a.toModel }
+            Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "watchdog-judge-cooldown"; from = $a.from; to = $a.to; model = $JudgeModel }
+            $watchAcked += $a.key
+          } else {
+            Write-Host "elt-loop: watchdog — $($a.from) в лимите; у имплементатора драйвера нет цепочки. Записано, не применено."
+            Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "watchdog-cooldown-noop"; provider = $a.from }
+          }
+        }
+        elseif ($a.action -eq "park" -and $a.from) {
+          Write-Host "elt-loop: watchdog — $($a.from) повторно красный, паркую без новой попытки."
+          & node $eltCli park --task $a.from --reason $a.reason | Out-Null
+          if ($LASTEXITCODE -eq 0) { $watchAcked += $a.key; $watchParked += ($a.from -split ',') }
+          else { Write-Host "elt-loop: watchdog — парковка $($a.from) НЕ удалась (exit $LASTEXITCODE), решение остаётся неподтверждённым." }
+        }
+      }
+      # Подтверждаем ПОСЛЕ применения: упади драйвер раньше — решение выдастся снова.
+      if ($watchAcked.Count -gt 0) {
+        & node (Join-Path $PSScriptRoot "harness-watch.js") --ack ($watchAcked -join ',') | Out-Null
+      }
+      # Парковка могла закрыть задачу(-и) из выбранного батча — выбрасываем ИМЕННО их,
+      # а не весь батч: остальные слайсы состава ни в чём не виноваты и должны исполниться.
+      if ($watchParked.Count -gt 0) {
+        $kept = @($picked | Where-Object { $watchParked -notcontains $_.id })
+        $dropped = $picked.Count - $kept.Count
+        if ($dropped -gt 0) {
+          $parked += $dropped; $i += $dropped
+          if ($kept.Count -eq 0) { continue }
+          $picked = $kept
+          $id   = ($picked | ForEach-Object { $_.id }) -join ','
+          $text = ($picked | ForEach-Object { "$($_.id): $($_.text)" }) -join '; '
+          Write-Host "elt-loop: батч сузился до $id (припарковано $dropped)."
+        }
+      }
+    }
+
     # 2.5 pre-slice codegraph guard (T009, opt-in via .harness/harness.json
     # codegraphGuard:true) — громкий стоп на мёртвом/устаревшем индексе вместо
     # тихой деградации имплементатора на Read.
