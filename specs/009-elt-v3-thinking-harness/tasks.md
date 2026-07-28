@@ -30,7 +30,12 @@ D (fleet-роли и контроль agy) → E (живой замер). Вну
 
 ## Фаза D — fleet-роли и механический контроль agy
 
-- [ ] **T009** Worker-attestation (контроль галлюцинаций воркера, 0 LLM-вызовов): воркер обязан закончить JSON `{"filesChanged":[…],"testsAdded":[…]}`; `tools/fleet/attest.js` сверяет заявку с реальным диффом worktree — заявленный, но неизменённый файл → `hallucinated-file`, изменённый незаявленный → `undeclared-file`, пустой дифф при непустой заявке → `phantom-work`, нет JSON вовсе → `no-attestation`. Любое расхождение: слайс НЕ идёт к судье, пишется в ledger и перевыдаётся следующему провайдеру цепочки. `workerPrompt` дополнен требованием заявки. Тесты на четыре отказа + честную заявку. [files: tools/fleet/attest.js, tools/fleet/attest.test.js, tools/fleet/fleet.js]
+- [ ] **T009** Worker-attestation (контроль галлюцинаций воркера, 0 LLM-вызовов): воркер обязан закончить JSON `{"filesChanged":[…],"testsAdded":[…]}`; `tools/fleet/attest.js` сверяет заявку с реальным диффом worktree — заявленный, но неизменённый файл → `hallucinated-file`, изменённый незаявленный → `undeclared-file`, пустой дифф при непустой заявке → `phantom-work`, нет JSON вовсе → `no-attestation`. Любое расхождение: слайс НЕ идёт к судье, пишется в ledger и перевыдаётся следующему провайдеру цепочки. `workerPrompt` дополнен требованием заявки. Тесты на четыре отказа + честную заявку. [files: tools/fleet/attest.js, tools/fleet/attest.test.js, tools/fleet/fleet.js, tools/fleet/fleet.test.js, tools/harness-watch.test.js]
+
+  Зона расширена на тесты со стабами воркера (`fleet.test.js`, `harness-watch.test.js`;
+  уточнение границы, утверждено 28.07): контракт воркера
+  стал обязательным, поэтому стабы воркеров существующих fleet-тестов обязаны его соблюдать —
+  иначе attest честно режет их как `no-attestation`.
 
 - [ ] **T010** Failover воркера и роли (сюда же — цепочка провайдеров имплементатора для solo-драйвера, вынесенная из T008): `implement`-вызов, упавший по limit/timeout/fatal-config, перевыдаётся следующему провайдеру цепочки (переиспользовать `router.failover`, а не новый механизм), с записью `failoverFrom` в ledger и лимитом попыток `maxAttempts`; воркеры больше не бегут `lean` по умолчанию (`FLEET_LEAN=1` — явный откат); судья слайса не может совпасть с провайдером его воркера ни первичным, ни `verify` (резолв в коде: agy-воркер → судьи claude/codex); red-proof обязателен и в fleet-гейте. Тесты: failover по лимиту доводит слайс до гейта, agy-воркер не получает agy-судью, lean выключен по умолчанию. [files: tools/fleet/fleet.js, tools/fleet/gate.js, tools/fleet/providers.js, tools/fleet/fleet.test.js]
 
