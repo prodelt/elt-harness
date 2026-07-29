@@ -1,0 +1,59 @@
+{
+  "pre_fix": {
+    "query": {
+      "city": "Пустомити",
+      "street": "Михайла Грушевського",
+      "house_number": "7"
+    },
+    "candidates": [],
+    "verdict": "НЕ найден дом — пустой список кандидатов"
+  },
+  "post_fix": {
+    "query": {
+      "raw_text": "Пустомити, вул. Грушевського, 7"
+    },
+    "candidates": [
+      {
+        "lat": 49.716047,
+        "lon": 23.906079,
+        "categories": "adr_address",
+        "name": "7",
+        "settlement": "Пустомити",
+        "street": "Грушевського"
+      },
+      {
+        "lat": 49.722432,
+        "lon": 23.902478,
+        "categories": "adr_address",
+        "name": "70",
+        "settlement": "Пустомити",
+        "street": "Грушевського"
+      },
+      {
+        "lat": 49.722679,
+        "lon": 23.902258,
+        "categories": "adr_address",
+        "name": "74",
+        "settlement": "Пустомити",
+        "street": "Грушевського"
+      },
+      {
+        "lat": 49.722881,
+        "lon": 23.902129,
+        "categories": "adr_address",
+        "name": "76",
+        "settlement": "Пустомити",
+        "street": "Грушевського"
+      },
+      {
+        "lat": 49.722995,
+        "lon": 23.901963,
+        "categories": "adr_address",
+        "name": "78",
+        "settlement": "Пустомити",
+        "street": "Грушевського"
+      }
+    ],
+    "verdict": "НАЙДЕН adr_address дом 7 (street='Грушевського')"
+  }
+}
