@@ -14,7 +14,7 @@
 
 ## Фаза B — D1: мост доезжает до проектов
 
-- [ ] **T002** `tools/sync-bin.js`: копирует замыкание моста в `~/.claude/bin/judge/`
+- [X] **T002** `tools/sync-bin.js`: копирует замыкание моста в `~/.claude/bin/judge/`
   (`judge-invoke.js`, `red-proof.js`, `elt-config.js`, `fleet/{gate,providers,exec,plan,router}.js`).
   Тест: мост грузится из копии во временном HOME и `require` резолвится целиком внутри неё
   (репо на пути загрузки отсутствует). [AC3]
