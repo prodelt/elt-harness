@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { readHarnessConfig, verifySettings } = require('./elt-config');
@@ -464,6 +465,18 @@ const argv = process.argv.slice(2);
 function flag(name) { return argv.includes(name); }
 function opt(name, dflt) { const i = argv.indexOf(name); return i >= 0 && argv[i + 1] != null ? argv[i + 1] : dflt; }
 
+// T003 010: явный --invoke > локальный (репо-разработчик) > глобальный (~/.claude/bin/judge/,
+// доставлен tools/sync-bin.js, T002). Явный --invoke возвращается как есть (даже если файла
+// нет) — вызывающий код различает «указан явно, но не существует» от «резолв исчерпан».
+function resolveJudgeInvoke(baseCwd) {
+  const explicit = opt('--invoke');
+  if (explicit) return { invoke: explicit, explicit: true };
+  const local = path.join(baseCwd, 'tools', 'judge-invoke.js');
+  if (fs.existsSync(local)) return { invoke: local, explicit: false };
+  const global = path.join(os.homedir(), '.claude', 'bin', 'judge', 'judge-invoke.js');
+  return { invoke: global, explicit: false, exhausted: !fs.existsSync(global) };
+}
+
 if (cmd === 'init') {
   const oracle = opt('--oracle');
   if (!oracle) die('elt init --oracle "<cmd>" [--shell powershell] [--push] [--force]');
@@ -602,9 +615,14 @@ if (cmd === 'judge' && sub === 'run') {
     const found = findTaskItem(id, true);
     return found ? `${id} ${found.item.text}` : id;
   });
-  // judge-invoke.js живёт в проекте (тянет fleet/gate + red-proof + elt-config оттуда же).
-  const invoke = opt('--invoke', path.join(cwd, 'tools', 'judge-invoke.js'));
-  if (!fs.existsSync(invoke)) die(`elt judge run: не найден ${path.relative(cwd, invoke)} — судья-мост живёт в проекте (--invoke <path>)`, 4);
+  // T003 010: мост резолвится локально (репо-разработчик) → глобально (проекты после
+  // `node tools/sync-bin.js`, T002) → явный --invoke сильнее обоих.
+  const resolved = resolveJudgeInvoke(cwd);
+  const invoke = resolved.invoke;
+  if (!fs.existsSync(invoke)) {
+    if (resolved.explicit) die(`elt judge run: не найден ${invoke} — судья-мост не существует по указанному --invoke`, 4);
+    die('elt judge run: судья-мост не найден ни локально (tools/judge-invoke.js), ни глобально (~/.claude/bin/judge/judge-invoke.js) — прогони `node tools/sync-bin.js` в репо-разработчике или укажи --invoke <path>', 4);
+  }
   // Дескриптор — в .git/elt/, НЕ в рабочее дерево: любой файл в дереве меняет treeHash и
   // мгновенно делает оракул-пруф stale (proof привязан к дереву — тем и ценен).
   const descPath = path.join(cwd, '.git', 'elt', 'judge-desc.json');
