@@ -40,6 +40,12 @@ Node.js 18+ (хуки .js), Claude Code hooks API (`~/.claude/settings.json`), C
 - **cwd в хуках** — из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
 - **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s.
 - **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для др. тулов.
+- **agy-судья падает `spawn ENAMETOOLONG` на больших диффах** (2026-07-29, живьём на T001
+  спеки 010): промпт agy идёт через argv (`-p prompt`), не stdin — упирается в лимит длины
+  командной строки Windows раньше, чем в `DIFF_CAP`. Живой обход: `elt judge run --task Txxx
+  --provider claude --model sonnet` (verify из `harness.json` остаётся независимым — не
+  совпадает с новым provider). Системный фикс не сделан — `gate.js:486` не имеет failover для
+  МЁРТВОГО ПЕРВИЧНОГО судьи (failover есть только для мёртвого verify, `JUDGE_ALTS`).
 
 ## Git Workflow
 - Одна задача = одна ветка (`feature/<slug>` / `fix/<slug>`). Commit: `<type>: <description>`.
