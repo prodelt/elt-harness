@@ -20,7 +20,7 @@
   (репо на пути загрузки отсутствует). [AC3]
   [files: tools/sync-bin.js, tools/sync-bin.test.js]
 
-- [ ] **T003** Fallback-резолв в `tools/elt.js:606`: `<cwd>/tools/judge-invoke.js` → иначе
+- [X] **T003** Fallback-резолв в `tools/elt.js:606`: `<cwd>/tools/judge-invoke.js` → иначе
   `~/.claude/bin/judge/judge-invoke.js` → иначе exit 4 с инструкцией `node tools/sync-bin.js`.
   Явный `--invoke` перебивает оба. Тест на все три ветки. Синхронить `~/.claude/bin/elt.js`. [AC1]
   [files: tools/elt.js, tools/elt-judge-contract.test.js]
