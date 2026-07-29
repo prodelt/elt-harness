@@ -106,6 +106,27 @@ test('--skip-attest: аварийный люк проходит, но остав
   assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'люк реально проводит слайс');
 });
 
+// 009 T010: fleet-гейт — тоже машинный судья, но идёт не через `judge run` (тот заново спавнил
+// бы судью). Маркер источника проводит его proof и оставляет собственный след в run-log —
+// в отличие от --skip-attest, который врал бы, что контроль пропущен.
+test('--attested-by fleet-gate: машинный вердикт гейта проводится и помечается attested', () => {
+  const root = fixture();
+  const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'gemini', '--attested-by', 'fleet-gate']);
+  assert.equal(r.status, 0, r.stderr);
+  const p = proof(root);
+  assert.equal(p.attested, true);
+  assert.equal(p.attestSkipped, undefined, 'это не аварийный люк');
+  assert.equal(runLogTail(root).status, 'attested-by-fleet-gate', 'происхождение видно в run-log');
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0);
+});
+
+test('--attested-by с чужим значением не открывает обход attest:true', () => {
+  const root = fixture();
+  const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'я-сам', '--attested-by', 'я-код-писал']);
+  assert.equal(r.status, 4, r.stdout);
+  assert.ok(!fs.existsSync(path.join(root, '.git', 'elt', 'judge-proof.json')), 'proof не написан');
+});
+
 test('attest:false — старое поведение: ручной write проходит без пометок', () => {
   const root = fixture({ attest: false });
   const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'codex']);
@@ -136,4 +157,34 @@ test('judge run: мост не найден — явный отказ, а не �
   const r = run(root, ['judge', 'run', '--task', 'T001', '--invoke', path.join(root, 'нет-такого.js')]);
   assert.equal(r.status, 4);
   assert.match(r.stderr, /судья-мост/);
+});
+
+test('009 T010: мёртвая попытка в judges[] проводится (след перевыдачи), из одних смертей — нет', () => {
+  const root = fixture({ circuit: true });
+  // Ровно то, что пишет gate.runJudge после перевыдачи: первичный ответил, verify завис
+  // (verdict:null, runOk:false), замена ответила. Валидатор обязан спрашивать вердикт с
+  // ОТВЕТИВШИХ — иначе гейт с failover не может закоммититься вовсе.
+  const withDead = stubInvoke(root, {
+    runOk: true, verdict: 'pass', reasons: ['в границах задачи'],
+    judges: [
+      { provider: 'claude', model: 'sonnet', verdict: 'pass', runOk: true },
+      { provider: 'codex', model: 'gpt-5.6-sol', verdict: null, reasons: [], runOk: false },
+      { provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true },
+    ],
+    grounding: { filesReviewed: ['slice.txt'] }, redProof: { status: 'red', reason: 'fails-on-base' },
+  });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', withDead]).status, 0);
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'след перевыдачи не должен рубить гейт');
+  assert.equal(proof(root).judges.length, 3, 'мёртвая попытка остаётся в proof, а не вычищается');
+
+  // А proof, где НИКТО не ответил, обязан быть отвергнут: иначе одни смерти проехали бы как pass.
+  const allDead = stubInvoke(root, {
+    runOk: true, verdict: 'pass', reasons: ['якобы pass'],
+    judges: [{ provider: 'codex', model: 'gpt-5.6-sol', verdict: null, runOk: false }],
+    grounding: { filesReviewed: ['slice.txt'] }, redProof: { status: 'red', reason: 'fails-on-base' },
+  });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', allDead]).status, 0);
+  const v = run(root, ['judge-proof', 'validate', '--task', 'T001']);
+  assert.equal(v.status, 4, 'proof из одних мёртвых судей не проводится');
+  assert.equal(JSON.parse(v.stdout).reason, 'missing-judges');
 });

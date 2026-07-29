@@ -149,26 +149,40 @@ test('T019: codex тоже получает явный --model (router-дефо�
   assert.match(argv.join(' '), /--model gpt-5\.6-sol\b/);
 });
 
-test('T019: lean-профиль включён по умолчанию — claude получает --safe-mode, codex --ignore-user-config', async () => {
+// 009 T010 развернул дефолт: lean снимал с воркера проектную дисциплину (CLAUDE.md/скилы/хуки),
+// а не только токен-налог. Профиль остался, включается явно.
+test('T010: lean-профиль ВЫКЛЮЧЕН по умолчанию — воркер видит проектный профиль', async () => {
   const claude = await spawnArgs('claude');
-  assert.ok(claude.argv.includes('--safe-mode'));
+  assert.ok(!claude.argv.includes('--safe-mode'));
   const codex = await spawnArgs('codex');
-  assert.ok(codex.argv.includes('--ignore-user-config'));
+  assert.ok(!codex.argv.includes('--ignore-user-config'));
 });
 
-test('T019: FLEET_LEAN=0 — явный откат lean-профиля', async () => {
-  process.env.FLEET_LEAN = '0';
+test('T010: FLEET_LEAN=1 — явное включение lean-профиля (claude --safe-mode, codex --ignore-user-config)', async () => {
+  process.env.FLEET_LEAN = '1';
   try {
-    const { argv } = await spawnArgs('claude');
-    assert.ok(!argv.includes('--safe-mode'));
+    const claude = await spawnArgs('claude');
+    assert.ok(claude.argv.includes('--safe-mode'));
+    const codex = await spawnArgs('codex');
+    assert.ok(codex.argv.includes('--ignore-user-config'));
   } finally {
     delete process.env.FLEET_LEAN;
   }
 });
 
-test('T019: явный lean:false в опциях побеждает даже без env', async () => {
-  const { argv } = await spawnArgs('claude', { lean: false });
-  assert.ok(!argv.includes('--safe-mode'));
+test('T019: явный lean:true в опциях побеждает даже без env', async () => {
+  const { argv } = await spawnArgs('claude', { lean: true });
+  assert.ok(argv.includes('--safe-mode'));
+});
+
+test('T019: явный lean:false в опциях побеждает даже при FLEET_LEAN=1', async () => {
+  process.env.FLEET_LEAN = '1';
+  try {
+    const { argv } = await spawnArgs('claude', { lean: false });
+    assert.ok(!argv.includes('--safe-mode'));
+  } finally {
+    delete process.env.FLEET_LEAN;
+  }
 });
 
 // --- T003 (004-elt-selfdrive): адаптивный эффорт ---
@@ -222,4 +236,24 @@ test('неизвестный провайдер → reason unknown-provider, б�
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'unknown-provider');
   assert.equal(r.logPath, null);
+});
+
+test('009 T010: судья спавнится read-only, воркер — с правом записи', () => {
+  // Живой разбор: судья-codex с workspace-write уходил гонять оракул внутри судейского вызова
+  // (лог 567KB, DEAD 5/5). Роль судьи ограничена структурно, а не просьбой в промпте.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'provider-ro-'));
+  const argvStub = path.join(dir, 'argv.js');
+  fs.writeFileSync(argvStub, 'console.log(JSON.stringify(process.argv.slice(2)));');
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', argvStub]);
+  const judge = run({ provider: 'codex', prompt: 'x', cwd: dir, readOnly: true });
+  const worker = run({ provider: 'codex', prompt: 'x', cwd: dir });
+  return Promise.all([judge, worker]).then(([j, w]) => {
+    delete process.env.FLEET_BIN_CODEX;
+    const jargv = JSON.parse(j.stdout.trim().split('\n').pop());
+    const wargv = JSON.parse(w.stdout.trim().split('\n').pop());
+    assert.ok(jargv.includes('read-only'), 'судья не может писать в дерево: ' + JSON.stringify(jargv));
+    assert.ok(!jargv.includes('workspace-write'));
+    assert.ok(wargv.includes('workspace-write'), 'воркеру запись по-прежнему нужна');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });

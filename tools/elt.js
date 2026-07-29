@@ -393,8 +393,15 @@ function validateJudgeProof({ taskId } = {}) {
   // Контур-полнота проверяется ТОЛЬКО для pass (block/dead уже отвергнуты выше) — урезанный
   // proof (без judges[]/grounding/redProof) при включённом контуре не проводится через гейт.
   if (circuitEnabled()) {
-    if (!Array.isArray(p.judges) || !p.judges.length ||
-        p.judges.some((j) => !j || typeof j !== 'object' || !j.provider || !j.model || !['pass', 'block'].includes(j.verdict))) {
+    // 009 T010: `runOk:false` — судья, который НЕ ответил (завис/таймаут) и был перевыдан
+    // следующему CLI. Такая запись остаётся в judges[] намеренно — это след перевыдачи, и
+    // вердикта у неё нет по определению. Требовать pass/block от неё значило бы, что гейт с
+    // перевыдачей физически не может закоммититься. Вердикт спрашиваем с ОТВЕТИВШИХ, и хотя
+    // бы один ответивший обязан быть — иначе proof из одних смертей проехал бы как pass.
+    const answered = Array.isArray(p.judges) ? p.judges.filter((j) => j && typeof j === 'object' && j.runOk !== false) : [];
+    if (!Array.isArray(p.judges) || !p.judges.length || !answered.length ||
+        p.judges.some((j) => !j || typeof j !== 'object' || !j.provider || !j.model) ||
+        answered.some((j) => !['pass', 'block'].includes(j.verdict))) {
       return invalidJudgeProof('missing-judges');
     }
     if (!p.grounding || typeof p.grounding !== 'object' || Array.isArray(p.grounding) || !Array.isArray(p.grounding.filesReviewed)) {
@@ -643,10 +650,16 @@ if (cmd === 'judge-proof') {
     // 009 T002: при attest:true ручной вердикт не проводится — вызови `elt judge run`.
     // --skip-attest остаётся аварийным люком, но оставляет громкий след и в run-log, и в proof.
     const skipAttest = flag('--skip-attest');
-    if (attestEnabled() && !skipAttest) {
+    // 009 T010: у fleet-гейта вердикт тоже машинный (tools/fleet/gate.runJudge), но пройти через
+    // `judge run` он не может — тот заново спавнил бы судью, которого гейт уже отработал. Явный
+    // маркер источника вместо аварийного люка: proof помечается attested (правда), а не
+    // attestSkipped (ложь про пропуск контроля). След остаётся: строка в run-log на каждый вызов.
+    const attestedBy = opt('--attested-by') === 'fleet-gate' ? 'fleet-gate' : null;
+    if (attestEnabled() && !skipAttest && !attestedBy) {
       die('judge proof: judge.attest=true — вердикт пишет только `elt judge run --task Txxx` (аварийно: --skip-attest)', 4);
     }
     if (attestEnabled() && skipAttest) appendRunLog({ task: taskId, status: 'attest-skipped', verdict });
+    if (attestedBy) appendRunLog({ task: taskId, status: `attested-by-${attestedBy}`, verdict });
     // --extra-file (008 T004): judges[]/grounding/redProof приходят файлом, не argv — JSON
     // с embedded-кавычками бьётся о PS5.1 native-marshalling баг (см. elt-loop.ps1 comment).
     let extra = {};
@@ -660,7 +673,7 @@ if (cmd === 'judge-proof') {
     // и переводами строк, в argv PS5.1 они не доезжают (ровно поэтому драйвер годами слал
     // литерал `[]` и пруф был содержательно пуст). argv-форма остаётся для ручных вызовов.
     if (Array.isArray(extra.reasons) && extra.reasons.length) reasons = extra.reasons.map(String);
-    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof, attestSkipped: attestEnabled() && skipAttest }), null, 2));
+    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof, attested: !!attestedBy, attestSkipped: attestEnabled() && skipAttest }), null, 2));
     process.exit(0);
   }
   if (sub === 'validate') {

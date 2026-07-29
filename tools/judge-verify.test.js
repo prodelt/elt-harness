@@ -4,6 +4,9 @@
 // block первичного второго НЕ зовёт (цена платится только на pass); второй судья мёртв
 // (runOk=false) → итог runOk:false — тот же judge-dead/парковка путь, что и у мёртвого
 // первичного (T021 downstream уже умеет его парковать без изменений).
+// 009 T010: «мёртвый» теперь значит «мёртв И заменить некем» — verify перевыдаётся следующему
+// доступному CLI. Поэтому стабить надо ВСЕ три CLI: незастабленный провайдер считается живым
+// (providers.available видит его в PATH) и тест спавнил бы реальный codex.
 const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
@@ -34,11 +37,12 @@ before(() => {
 after(() => { try { fs.rmSync(REPO, { recursive: true, force: true }); } catch { /* noop */ } });
 beforeEach(() => { fs.writeFileSync(path.join(REPO, 'slice.txt'), 'work-' + Date.now() + '\n'); }); // непустой дифф на каждый тест
 
-function setBins({ claude, agy }) {
+function setBins({ claude, agy, codex }) {
   if (claude) process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', claude]);
   if (agy) process.env.FLEET_BIN_AGY = JSON.stringify(['node', agy]);
+  if (codex) process.env.FLEET_BIN_CODEX = JSON.stringify(['node', codex]);
 }
-function clearBins() { delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_AGY; }
+function clearBins() { delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_AGY; delete process.env.FLEET_BIN_CODEX; }
 
 test('pass+pass → итоговый pass, judges[] несёт оба вердикта/модели', async () => {
   writeHarness({ provider: 'agy', model: 'agy-model' });
@@ -75,9 +79,12 @@ test('block первичного — второй судья НЕ зовётся
   assert.equal(fs.existsSync(marker), false, 'второй судья не должен был запуститься на block первичного');
 });
 
-test('второй судья мёртв (пустой вывод) → runOk:false, НЕ молчаливый pass', async () => {
+test('второй судья мёртв и заменить некем → runOk:false, НЕ молчаливый pass', async () => {
   writeHarness({ provider: 'agy', model: 'agy-model' });
-  setBins({ claude: stub('p4.js', judgeStub('pass')), agy: stub('s4.js', 'process.exit(0);') }); // пустой stdout → providers ok:false
+  // Оба возможных verify-CLI мертвы (пустой stdout → providers ok:false): перевыдавать некому,
+  // значит второй слой честно не отработал — это judge-dead, а не тихий pass одного судьи.
+  const dead = stub('s4.js', 'process.exit(0);');
+  setBins({ claude: stub('p4.js', judgeStub('pass')), agy: dead, codex: dead });
   const r = await gate.runJudge({ cwd: REPO, tid: 'T1', taskText: 'демо', model: 'sonnet' });
   clearBins();
   assert.equal(r.runOk, false, 'мёртвый второй судья не должен маскироваться под pass');
