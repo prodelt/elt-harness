@@ -19,7 +19,7 @@ const watch = require('../harness-watch');
 const heal = require('./heal');
 const providers = require('./providers');
 const attestation = require('./attest');
-const { judgeSettings } = require('../elt-config');
+const { judgeSettings, verifySettings } = require('../elt-config');
 const router = require('./router');
 const approvalGuard = require('../approval-guard');
 
@@ -162,6 +162,46 @@ function applyWatchdog(actions, { cwd, routerState, policy, judgeProvider, judge
   }
   watch.ack(cwd, done.filter(Boolean));
   return judge;
+}
+
+// 009 T010: судья не совпадает с воркером слайса. Резолв В КОДЕ, а не в конфиге: конфиг знает
+// одну пару судей на прогон, а провайдер воркера меняется от слайса к слайсу (роутер по размеру
+// + failover), и agy-воркер иначе штатно получал бы agy-судью. JUDGE_ALTS — те же три CLI, что
+// умеет providers.js; порядок = приоритет замены.
+// Заменять судью можно только на РЕАЛЬНО доступный CLI: увести его на не установленный
+// провайдер значит превратить каждый слайс в judge-unavailable-парковку. Список альтернатив и
+// резолв доступности — в gate/providers: тот же выбор делает gate при перевыдаче мёртвого
+// verify-судьи, и расходиться этим двум местам нельзя.
+const JUDGE_ALTS = gate.JUDGE_ALTS;
+const providerAvailable = providers.available;
+// avail прокинут параметром (а не берётся из модуля) ровно ради тестируемости ветки «замены
+// нет»: на машине разработчика все три CLI реально в PATH, и смоделировать её иначе нельзя.
+function judgeAwayFrom(cwd, workerProvider, judge, policy, avail = providerAvailable) {
+  if (judge.provider !== workerProvider) return judge;
+  const v = verifySettings(cwd);
+  if (v && v.provider !== workerProvider) return v; // уже настроенный в проекте судья — первый выбор
+  const p = JUDGE_ALTS.find((x) => x !== workerProvider && avail(x));
+  if (!p) {
+    // Единственный CLI на машине — разводить не с кем. Раньше здесь возвращался тот же судья
+    // (== воркер) с записью в ledger: слайс заверял сам себя, то есть ровно та дыра, которую
+    // T010 и закрывает, оставалась открытой в самой опасной ветке. Теперь — null: вызывающий
+    // паркует слайс как judge-unavailable. Цена осознанная: на машине с одним CLI гейт
+    // непроходим. Потолок снимается установкой второго CLI, не ослаблением инварианта.
+    emit(cwd, { event: 'judge-same-as-worker', provider: workerProvider });
+    return null;
+  }
+  return { provider: p, model: router.modelFor(p, policy) };
+}
+// verify-судья (второй, подтверждающий pass) не должен совпасть ни с воркером, ни с первичным
+// судьёй. Возвращает undefined, когда verify в проекте не настроен вовсе (gate читает конфиг
+// сам — старое поведение), пару — когда настроен, и null, если заменить некем: лучше один
+// честный судья, чем второй, дублирующий первого или воркера.
+function verifyAwayFrom(cwd, workerProvider, primaryProvider, policy, avail = providerAvailable) {
+  const v = verifySettings(cwd);
+  if (!v) return undefined;
+  if (v.provider !== workerProvider && v.provider !== primaryProvider) return v;
+  const p = JUDGE_ALTS.find((x) => x !== workerProvider && x !== primaryProvider && avail(x));
+  return p ? { provider: p, model: router.modelFor(p, policy) } : null;
 }
 
 function cleanupSlice(cwd, tid, { deleteBranch = true } = {}) {
@@ -403,6 +443,22 @@ async function run(opts = {}) {
         // Проверяем лимит
         const c = getChainForSlice(slice, policy);
         const limit = router.failover({ result: res, provider, chain: c, state: routerState, policy });
+        // 009 T010: три причины, по которым воркер не дал работы ПО ВИНЕ ПРОВАЙДЕРА, ведут
+        // в одно место — перевыдачу следующему в цепочке. Раньше туда шёл только лимит:
+        // timeout хоронился как обычный fail (слайс переделывался тем же CLI, который уже
+        // не уложился), а fatal-config валил ВЕСЬ прогон, хотя сломан один провайдер и рядом
+        // в цепочке стоит здоровый. Остужаем тем же router.cool, чтобы следующий проход по
+        // приоритету не вернул слайс обратно.
+        const fatal = router.detectFatalConfig(res);
+        const providerFail = res.reason === 'stopped' ? null
+          : limit.limitHit ? 'limit'
+            : res.reason === 'timeout' ? 'timeout'
+              : fatal ? 'fatal-config' : null;
+        let nextProvider = limit.limitHit ? limit.next : null;
+        if (providerFail === 'timeout' || providerFail === 'fatal-config') {
+          router.cool(routerState, provider, policy.cooldownSec);
+          nextProvider = router.pick(c.slice(c.indexOf(provider) + 1), routerState);
+        }
         // T026: implement-строка пишется ВСЕГДА (раньше — только на limit/error-ветках,
         // успешный воркер вообще не попадал в ledger). model — реальный дефолт роутера,
         // если caller не передал явный (иначе ledger врал бы null там, где providers.js
@@ -411,12 +467,13 @@ async function run(opts = {}) {
         logSpawn(cwd, {
           tid: slice.id, phase: 'implement', provider, model: implModel, durationSec: implDurationSec,
           exit: res.exit != null ? res.exit : (res.ok === false ? 1 : 0),
-          failoverFrom: limit.failoverFrom, limitHit: limit.limitHit,
-          verdict: limit.limitHit ? 'limit' : (res.ok === false ? (res.reason || 'fail') : 'ok'),
+          failoverFrom: providerFail ? provider : null, limitHit: limit.limitHit,
+          verdict: providerFail || (res.ok === false ? (res.reason || 'fail') : 'ok'),
         });
-        if (limit.limitHit) {
-          emit(cwd, { event: 'limit-hit', tid: slice.id, provider, next: limit.next });
-          return { tid: slice.id, gateOk: false, limitHit: true, nextProvider: limit.next };
+        if (providerFail) {
+          emit(cwd, { event: providerFail === 'limit' ? 'limit-hit' : 'provider-fail', tid: slice.id, provider, reason: providerFail, next: nextProvider, ...(fatal ? { detail: fatal } : {}) });
+          if (fatal) emit(cwd, { event: 'fatal-config', tid: slice.id, provider, model, detail: fatal });
+          return { tid: slice.id, gateOk: false, providerFail, limitHit: limit.limitHit, provider, nextProvider, fatalConfig: fatal || null };
         }
         // T027: STOP убил implement-spawn — НЕ продолжаем в heal/judge (это был бы новый
         // spawn ПОСЛЕ запроса на остановку). Слайс переделается со следующего run() —
@@ -425,16 +482,6 @@ async function run(opts = {}) {
           emit(cwd, { event: 'stopped-mid-slice', tid: slice.id });
           return { tid: slice.id, gateOk: false, stoppedMidSlice: true };
         }
-        // Фатальная конфигурация (протухшее имя модели, неизвестный флаг, нет логина):
-        // воркер не отработал ВООБЩЕ, дифф пуст, повтор даст ту же ошибку. Раньше падали
-        // сюда как в обычный fail → полный оракул + судья на пустом диффе + ретрай
-        // (live-fire 007: минуты и лишние LLM-вызовы на опечатку в конфиге). Валим сразу.
-        const fatal = router.detectFatalConfig(res);
-        if (fatal) {
-          emit(cwd, { event: 'fatal-config', tid: slice.id, provider, model, detail: fatal });
-          return { tid: slice.id, gateOk: false, fatalConfig: fatal, provider };
-        }
-
         // 009 T009: заявка воркера против реального диффа worktree — ДО оракула и судьи.
         // Проверка безусловна: воркер без транскрипта (res.stdout пуст) — это ровно
         // случай no-attestation, а не повод пропустить контроль.
@@ -489,14 +536,25 @@ async function run(opts = {}) {
           if (afterHeal) return afterHeal;
         }
 
-        // Судья всегда claude (gate.gate/runJudge) — cap проверяем под провайдером 'claude'.
+        // 009 T010: судья слайса не может быть тем же провайдером, что его воркер (ни первичный,
+        // ни verify) — «сам себя проверил» не проверка. Cap считаем под ФАКТИЧЕСКИМ судьёй.
         claims.setState(slice.id, { state: 'judge_pending' }, { cwd });
         phase = 'judge'; phaseStart = Date.now();
-        const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
+        const jp = judgeAwayFrom(cwd, provider, { provider: judgeProvider, model: judgeModel }, policy);
+        if (!jp) { // разводить не с кем — паркуем, а не судим воркером самого себя
+          emit(cwd, { event: 'judge-unavailable-park', tid: slice.id, reason: 'judge-same-as-worker' });
+          logSpawn(cwd, {
+            tid: slice.id, phase: 'judge', provider, model: null, durationSec: 0,
+            exit: null, failoverFrom: null, limitHit: false, verdict: 'judge-unavailable',
+          });
+          return { tid: slice.id, gateOk: false, parked: true };
+        }
+        const jv = verifyAwayFrom(cwd, provider, jp.provider, policy);
+        const judgeCap = router.tryBeginCall(callTracker, policy, jp.provider);
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
-        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider, judgeModel, prevBlockReason: blockReasons.get(slice.id) || '', integration }); }
-        finally { router.endCall(callTracker, 'claude'); }
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], prevBlockReason: blockReasons.get(slice.id) || '', integration }); }
+        finally { router.endCall(callTracker, jp.provider); }
         const judgeDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
         // T021: судья НЕ отработал (timeout/spawn-error) — паркуем worktree на judge_pending,
@@ -505,7 +563,7 @@ async function run(opts = {}) {
         if (g.stage === 'judge-unavailable') {
           emit(cwd, { event: 'judge-unavailable-park', tid: slice.id });
           logSpawn(cwd, {
-            tid: slice.id, phase: 'judge', provider: judgeProvider, model: judgeModel, durationSec: judgeDurationSec,
+            tid: slice.id, phase: 'judge', provider: jp.provider, model: jp.model, durationSec: judgeDurationSec,
             exit: null, failoverFrom: null, limitHit: false, verdict: 'judge-unavailable',
           });
           return { tid: slice.id, gateOk: false, parked: true };
@@ -519,7 +577,7 @@ async function run(opts = {}) {
         if (g.ok) claims.setState(slice.id, { state: 'merge_pending' }, { cwd });
 
         logSpawn(cwd, {
-          tid: slice.id, phase: 'judge', provider: judgeProvider, model: judgeModel, durationSec: judgeDurationSec,
+          tid: slice.id, phase: 'judge', provider: jp.provider, model: jp.model, durationSec: judgeDurationSec,
           exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
           verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
         });
@@ -553,15 +611,24 @@ async function run(opts = {}) {
         if (r.capped) {
           summary.failed.push(r.tid); // terminal-failed, не транзиент — без retry
           stopHit = true; stopReason = 'cap-exceeded';
+        } else if (r.providerFail && r.nextProvider) {
+          // 009 T010: провайдер не дал работы (лимит/таймаут/фатальный конфиг), но в цепочке
+          // есть здоровый — перевыдаём ему явно, а не надеемся на приоритет следующего прохода.
+          // recordFail: перевыдачи ограничены maxAttempts, иначе слайс, который валят ВСЕ,
+          // крутился бы по цепочке вечно.
+          emit(cwd, { event: 'failover-reissue', tid: r.tid, from: r.provider, to: r.nextProvider, reason: r.providerFail });
+          reissueTo.set(r.tid, r.nextProvider);
+          summary.requeued.push(r.tid);
+          recordFail(r.tid);
         } else if (r.fatalConfig) {
-          // Не транзиент и не про этот слайс: провайдер сконфигурирован неверно, у остальных
-          // слайсов будет ровно та же ошибка. Валим прогон с сообщением САМОГО CLI, иначе
-          // юзер видит «failed» и идёт искать проблему в коде слайса, а не в конфиге.
+          // Заменить некем (цепочка кончилась): протухшая модель/флаг/логин не лечатся повтором,
+          // у остальных слайсов будет ровно та же ошибка. Валим прогон с сообщением САМОГО CLI,
+          // иначе юзер видит «failed» и идёт искать проблему в коде слайса, а не в конфиге.
           summary.failed.push(r.tid);
           stopHit = true;
           stopReason = `fatal-config (${r.provider}): ${r.fatalConfig}`;
-        } else if (r.limitHit) {
-          summary.requeued.push(r.tid);
+        } else if (r.providerFail) {
+          summary.requeued.push(r.tid); // лимит/таймаут без альтернативы — ждём остывания цепочки
         } else if (r.attestFail) {
           // Работа воркера не соответствует его отчёту: судья её не видел, переделываем
           // другим провайдером. recordFail — чтобы слайс, который врут ВСЕ, не крутился вечно.
@@ -674,14 +741,23 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
       cleanupSlice(cwd, slice.id);
       return { ok: false, attestFail: at.code, nextProvider: next };
     }
+    // 009 T010: тот же инвариант, что на основном пути — судья не равен воркеру слайса,
+    // иначе serial-передел был бы дырой в обход разведения (как это было с attest в T009).
     phase = 'judge'; phaseStart = Date.now();
-    const judgeCap = router.tryBeginCall(callTracker, policy, 'claude');
+    const jp = judgeAwayFrom(cwd, provider, { provider: judgeProvider, model: judgeModel }, policy);
+    if (!jp) { // тот же инвариант на serial-переделе: некем судить ⇒ не судим вовсе
+      emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: 'judge-unavailable' });
+      cleanupSlice(cwd, slice.id);
+      return { ok: false };
+    }
+    const jv = verifyAwayFrom(cwd, provider, jp.provider, policy);
+    const judgeCap = router.tryBeginCall(callTracker, policy, jp.provider);
     if (!judgeCap.ok) return capBlock(judgeCap.reason);
     let g;
-    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider, judgeModel, integration }); }
-    finally { router.endCall(callTracker, 'claude'); }
+    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], integration }); }
+    finally { router.endCall(callTracker, jp.provider); }
     logSpawn(cwd, {
-      tid: slice.id, phase: 'judge', provider: judgeProvider, model: judgeModel, durationSec: Math.round((Date.now() - phaseStart) / 1000),
+      tid: slice.id, phase: 'judge', provider: jp.provider, model: jp.model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
       exit: g.ok ? 0 : 1, failoverFrom: null, limitHit: false,
       verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
     });
@@ -775,7 +851,7 @@ function exitCodeFor(summary) {
   return (summary.stoppedReason || summary.failed.length || summary.abandoned.length) ? 1 : 0;
 }
 
-module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor, applyWatchdog };
+module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor, applyWatchdog, judgeAwayFrom, verifyAwayFrom };
 
 // --- CLI (для обёртки tools/elt-fleet.ps1) ---
 if (require.main === module) {

@@ -11,10 +11,17 @@ const path = require('node:path');
 const providers = require('./providers');
 const exec = require('./exec');
 const plan = require('./plan');
+const router = require('./router');
 const { verifySettings } = require('../elt-config');
+const { redProof } = require('../red-proof');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
-const JUDGE_TIMEOUT_MS = 5 * 60 * 1000;
+// 009 T010 (четыре замера на живом слайсе, причины у CLI РАЗНЫЕ — одной формулой не лечатся):
+// codex/gpt-5.6 на крупном промпте (~60K дифф) висит — 301/301/540/300с, временем не лечится
+// (для него ответ — перевыдача ниже, а не лимит). claude/sonnet на том же диффе отвечает за
+// 265с: в 5 минут упирается ВПРИТЫК и на чуть большем диффе уже не успевает (302с → таймаут).
+// 8 минут: живому судье хватает с запасом, зависший всё равно упрётся и уйдёт в перевыдачу.
+const JUDGE_TIMEOUT_MS = 8 * 60 * 1000;
 
 // Схема для --json-schema: судья зовётся через structured output (T016 live-fire —
 // prose-парсер регулярно мимо: модель пишет "принято"/"зачёт" вместо литерального pass/block,
@@ -213,13 +220,18 @@ function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd(), omi
   // знает про контракт (легаси-стаб/старая схема), сверять нечего.
   if (filesReviewed === null) return null;
   const diffSet = new Set(diffFileList(status));
-  const reviewed = filesReviewed.map((f) => String(f).replace(/\\/g, '/'));
+  // 009 T014: файлы ВНЕШНЕГО репо судья видит отдельной секцией промпта, а diffSet — только
+  // текущий репо. Живой block 2026-07-29: судья честно назвал `~/.claude/bin/elt.js (external
+  // repo)` и получил безусловный phantom-file. Срезаем пояснительный суффикс в скобках и
+  // разворачиваем `~` перед проверкой существования. Фантом остаётся фантомом.
+  const reviewed = filesReviewed.map((f) => String(f).replace(/\\/g, '/').replace(/\s*\([^)]*\)\s*$/, ''));
   // Фантом = путь, которого НЕ существует: только это галлюцинация. «Не в диффе» — не
   // критерий: судье целиком показывают рубрику (spec.md/constitution.md), он читает
   // tasks.md, и честное упоминание этих файлов в filesReviewed — не выдумка. Живой блок
   // T001 2026-07-22: судья дал pass, перечислил 3 файла диффа + spec.md/tasks.md рубрики
   // и получил phantom-file — ложное срабатывание на добросовестном ответе.
-  for (const f of reviewed) if (!diffSet.has(f) && !fs.existsSync(path.resolve(cwd, f))) return 'grounding:phantom-file';
+  const resolveHome = (f) => (f.startsWith('~/') ? path.join(os.homedir(), f.slice(2)) : path.resolve(cwd, f));
+  for (const f of reviewed) if (!diffSet.has(f) && !fs.existsSync(resolveHome(f))) return 'grounding:phantom-file';
   const reviewedSet = new Set(reviewed);
   const notShown = new Set(omitted.map((f) => String(f).replace(/\\/g, '/')));
   for (const f of diffSet) if (!reviewedSet.has(f) && !notShown.has(f)) return 'grounding:unreviewed-file';
@@ -253,7 +265,11 @@ function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric =
       `«ВНЕШНИЙ РЕПО» выше — реальная работа слайса, суди по НИМ ТОЖЕ, не только по диффу текущего репо;\n` +
       `пустой дифф текущего репо при непустом внешнем — это НЕ повод для block.\n`
     : '';
-  return `Ты — судья слайса в харнесс-петле. Стойка REJECT-default: одобряй ТОЛЬКО если слайс строго в границах задачи. Ищи scope creep, ослабленные/удалённые тесты, side-effects вне задачи, скрытые зависимости.
+  return `Ты — судья слайса в харнесс-петле. НЕ запускай тесты, оракул и любые команды: оракул уже
+зелёный (это предусловие гейта), а твоя работа — прочитать дифф ниже и вынести вердикт. Прогон
+тестов судьёй — не усердие, а провал: он не укладывается в таймаут, и слайс уходит в judge-dead.
+
+Стойка REJECT-default: одобряй ТОЛЬКО если слайс строго в границах задачи. Ищи scope creep, ослабленные/удалённые тесты, side-effects вне задачи, скрытые зависимости.
 
 Отдельно проверь ДОКАЗАТЕЛЬНОСТЬ тестов слайса (2026-07-22: оракул зелёный ровно настолько,
 насколько честны его тесты). Тест не считается доказательством, если он мокает/подменяет
@@ -309,13 +325,23 @@ function prioritize(sections, zoneFiles = []) {
   return [...sections].sort((a, b) => rank(a) - rank(b) || a.text.length - b.text.length);
 }
 const MIN_FILE_BUDGET = 400; // меньше — показывать бессмысленно, честнее объявить «не показан»
-function budgetDiff(sections, cap = 12000, zoneFiles = []) {
+// 12000 на 15 файлов = 800 симв/файл: живой гейт T010 2026-07-29 получил block от verify-судьи
+// с формулировкой «диффы обрезаны, проверить нечего» — бюджет резал не хвосты, а суть слайса.
+// 60K символов (~15-20K токенов) современный судья читает целиком.
+const DIFF_CAP = Number(process.env.JUDGE_DIFF_CAP) || 60000;
+function budgetDiff(sections, cap = DIFF_CAP, zoneFiles = []) {
   const ordered = prioritize(sections, zoneFiles);
-  const perFile = Math.max(MIN_FILE_BUDGET, Math.floor(cap / Math.max(1, ordered.length)));
+  // Доля считается по ОСТАВШИМСЯ файлам, а не по всем сразу: мелкие файлы, влезающие целиком,
+  // не тратят свою долю впустую — неиспользованный остаток достаётся крупным. Раньше `cap/N`
+  // делил поровну, и крупный production-дифф резался, даже когда бюджет в целом не выбран
+  // (живой block 2026-07-29: «диффы fleet.js/gate.js обрезаны, проверить нечего»).
   const shown = [];
   const omitted = [];
   let left = cap;
+  let rest = ordered.length;
   for (const s of ordered) {
+    const perFile = Math.max(MIN_FILE_BUDGET, Math.floor(left / Math.max(1, rest)));
+    rest -= 1;
     const allow = Math.min(perFile, left);
     if (allow < MIN_FILE_BUDGET && s.text.length > allow) { omitted.push(s.file); continue; }
     if (s.text.length > allow) {
@@ -331,7 +357,7 @@ function budgetDiff(sections, cap = 12000, zoneFiles = []) {
 // pathspec (009 T014): ограничить дифф перечисленными путями. Нужен для ВНЕШНЕГО репо:
 // `~/.claude` — общий репо пользователя, и показывать судье его целиком значит вменять слайсу
 // чужие правки (живой ложный block T003 2026-07-24: settings.json/plans/**/projects-registry).
-function slurpDiff(cwd, cap = 12000, zoneFiles = [], pathspec = null) {
+function slurpDiff(cwd, cap = DIFF_CAP, zoneFiles = [], pathspec = null) {
   const scope = pathspec && pathspec.length ? ['--', ...pathspec] : [];
   const tracked = execFileSync('git', ['diff', 'HEAD', ...scope], { cwd, encoding: 'utf8' });
   const sections = splitDiffSections(tracked);
@@ -383,7 +409,7 @@ function externalRepoRoots(cwd, files) {
   return externalRepoScopes(cwd, files).map((s) => s.root);
 }
 function slurpExternalDiffs(cwd, files) {
-  return externalRepoScopes(cwd, files).map(({ root, paths }) => ({ root, ...slurpDiff(root, 12000, paths, paths) }));
+  return externalRepoScopes(cwd, files).map(({ root, paths }) => ({ root, ...slurpDiff(root, DIFF_CAP, paths, paths) }));
 }
 
 // Судья по ГОТОВОМУ диффу (без git-чтения) — общий путь для runJudge и judge-bench:
@@ -397,7 +423,9 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
   const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs, omitted)
     + (structured ? '' : JSON_TAIL_INSTRUCTION);
   const started = Date.now();
-  const r = await providers.run({ provider, prompt, cwd, model, timeoutMs, jsonSchema: structured ? VERDICT_SCHEMA : null });
+  // readOnly: судья читает дифф и выносит вердикт — прогонять тесты ему нечего (оракул зелёный
+  // ДО судьи, это предусловие гейта), а право записи превращает агентный CLI в исполнителя.
+  const r = await providers.run({ provider, prompt, cwd, model, timeoutMs, jsonSchema: structured ? VERDICT_SCHEMA : null, readOnly: true });
   const durationSec = (Date.now() - started) / 1000;
   if (!r.ok) return { verdict: null, reasons: [], judgeLog: r.logPath, runOk: false, durationSec, reason: r.reason };
   // Чистый stdout (без stderr-примеси) — нужен для строгого JSON.parse структурированного
@@ -434,7 +462,16 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
 // runOk=false — итоговый runOk=false тоже (переиспользуем существующий judge-dead/парковка
 // путь для мёртвого первичного, T021 — downstream (gate/judge-invoke) уже умеет его парковать
 // без изменений). judges[] — оба вердикта/модели/время, для будущей proof-проводки (T004).
-async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null }) {
+// 009 T010: `verify` — явный override пары verify-судьи (fleet резолвит её так, чтобы она не
+// совпала ни с воркером слайса, ни с первичным судьёй). undefined → читаем harness.json (старое
+// поведение solo-пути); null → второго судьи нет (некем заменить совпадение).
+// 009 T010: те же три CLI, что умеет providers.js; порядок = приоритет замены судьи.
+const JUDGE_ALTS = ['claude', 'codex', 'agy'];
+function judgeEntry({ provider, model }, r) {
+  return { provider, model, verdict: r.verdict, reasons: r.reasons, durationSec: r.durationSec, runOk: r.runOk };
+}
+
+async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, verify: verifyOverride, judgeExclude = [] }) {
   const zoneFiles = scopeFilesFromTask(taskText);
   const { diff, status, omitted } = slurpDiff(cwd, undefined, zoneFiles);
   const rubric = loadRubric(cwd, tid, specFile);
@@ -442,15 +479,28 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted };
 
   const primary = await judgeDiff({ ...commonArgs, provider, model });
-  const verify = verifySettings(cwd);
+  const verify = verifyOverride !== undefined ? verifyOverride : verifySettings(cwd);
   if (!verify) return primary;
 
-  const primaryEntry = { provider, model, verdict: primary.verdict, reasons: primary.reasons, durationSec: primary.durationSec, runOk: primary.runOk };
+  const primaryEntry = judgeEntry({ provider, model }, primary);
   if (!primary.runOk || primary.verdict !== 'pass') return { ...primary, judges: [primaryEntry] };
 
-  const secondary = await judgeDiff({ ...commonArgs, provider: verify.provider, model: verify.model });
-  const secondaryEntry = { provider: verify.provider, model: verify.model, verdict: secondary.verdict, reasons: secondary.reasons, durationSec: secondary.durationSec, runOk: secondary.runOk };
-  const judges = [primaryEntry, secondaryEntry];
+  let secondary = await judgeDiff({ ...commonArgs, provider: verify.provider, model: verify.model });
+  const judges = [primaryEntry, judgeEntry(verify, secondary)];
+  // 009 T010 (замер живьём): мёртвый verify-судья валил весь гейт в judge-dead — второй слой
+  // контура молча выключался, и слайс было нечем закрыть, хотя на машине есть другой живой
+  // CLI. Тот же failover, что у implement-вызовов: перевыдаём следующему ДОСТУПНОМУ CLI, не
+  // совпадающему ни с первичным судьёй, ни с мёртвым verify, ни с воркером слайса
+  // (judgeExclude — fleet знает провайдера воркера, solo-путь его не имеет). Мёртвая попытка
+  // ОСТАЁТСЯ в judges[]: в proof виден и отказ, и кем он перевыдан, а не тихая подмена.
+  if (!secondary.runOk) {
+    const alt = JUDGE_ALTS.find((p) => p !== provider && p !== verify.provider && !judgeExclude.includes(p) && providers.available(p));
+    if (alt) {
+      const altPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
+      secondary = await judgeDiff({ ...commonArgs, ...altPair });
+      judges.push(judgeEntry(altPair, secondary));
+    }
+  }
   if (!secondary.runOk) return { verdict: null, reasons: [], filesReviewed: primary.filesReviewed, judgeLog: secondary.judgeLog, runOk: false, judges };
 
   const verdict = secondary.verdict === 'pass' ? 'pass' : 'block';
@@ -524,7 +574,19 @@ function normalizeWorktree(cwd, base, files) {
 // НЕ reject) | 'judge' (легитимный block) | 'commit' (git-фейл).
 // integration — интеграционная ветка (база слайса): включает T028-нормализацию. Без неё
 // (тесты/ручной вызов) нормализация = no-op, поведение как раньше.
-async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null }) {
+// 009 T010: контур усиленного судьи (тот же признак, что в elt.js/judge-invoke.js) — verify
+// задан ИЛИ harness.json.redProof не "off"/пуст. Включён → red-proof обязателен и здесь, и
+// proof обязан нести judges[]/grounding/redProof, иначе `elt commit` его законно отвергнет.
+function circuitEnabled(cwd) {
+  let mode = '';
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'));
+    mode = typeof j.redProof === 'string' ? j.redProof.trim() : '';
+  } catch { /* нет harness.json / битый — считаем только по verify */ }
+  return !!verifySettings(cwd) || (mode !== '' && mode !== 'off');
+}
+
+async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null, judgeVerify, judgeExclude = [] }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
 
@@ -540,12 +602,36 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
 
   // 2. судья (обязателен, REJECT-default). T022: prevBlockReason — причина прошлого block
   // этого же слайса (caller хранит между попытками) прокидывается в prompt.
-  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason });
+  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason, verify: judgeVerify, judgeExclude });
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
   if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
 
-  // 3. Persist the same proof schema as solo, then commit without changing tasks.md.
-  const proof = await exec.run('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', 'pass', '--model', judgeModel, '--reasons-json', JSON.stringify(j.reasons)], { cwd });
+  // 2.5. red-proof (009 T010): в solo-пути он идёт через judge-invoke.js, а fleet-гейт его не
+  //      знал вовсе — новый тест, зелёный на базе слайса, проезжал на одном pass судей. HEAD в
+  //      worktree = база слайса (normalizeWorktree выше сделал reset --soft), правки не закоммичены.
+  let redProofResult;
+  if (circuitEnabled(cwd)) {
+    redProofResult = redProof({ cwd, baseHead: 'HEAD' });
+    if (redProofResult.status === 'green') {
+      return { ok: false, stage: 'red-proof', verdict: 'block', reasons: [...(j.reasons || []), 'red-proof:green'], tid, judgeLog: j.judgeLog };
+    }
+  }
+
+  // 3. Тот же proof-контракт, что у solo (008 T004): judges[]/grounding/redProof — файлом, не
+  //    argv (свободный текст обоснований в argv бьётся о квотинг). attested-by: вердикт здесь
+  //    вынес КОД (runJudge), а не агент, писавший слайс — иначе judge.attest=true отверг бы proof.
+  const judges = Array.isArray(j.judges) && j.judges.length
+    ? j.judges
+    : [{ provider: judgeProvider, model: judgeModel, verdict: j.verdict, reasons: j.reasons || [], durationSec: j.durationSec, runOk: j.runOk }];
+  // Дескриптор — в tmp, НЕ в worktree: любой файл в дереве меняет treeHash и делает
+  // оракул-пруф stale ровно в тот момент, когда мы на него ссылаемся.
+  const extraPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-proof-')), 'extra.json');
+  fs.writeFileSync(extraPath, JSON.stringify({
+    judges, grounding: { filesReviewed: j.filesReviewed || [] }, reasons: j.reasons || [],
+    ...(redProofResult ? { redProof: redProofResult } : {}),
+  }));
+  const proof = await exec.run('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', 'pass', '--model', judgeModel, '--extra-file', extraPath, '--attested-by', 'fleet-gate'], { cwd });
+  try { fs.rmSync(path.dirname(extraPath), { recursive: true, force: true }); } catch { /* tmp, не критично */ }
   if (proof.status !== 0) return { ok: false, stage: 'judge-proof', tid, err: (proof.stderr || proof.stdout || '').trim() };
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
   const c = await exec.run('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
@@ -553,4 +639,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, judgeDiff, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };
+module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };

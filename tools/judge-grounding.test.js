@@ -235,3 +235,83 @@ test('checkGrounding: существующий файл вне диффа (ру�
     'несуществующий путь остаётся галлюцинацией',
   );
 });
+
+// 009 T014 — часть 2: пути ВНЕШНЕГО репо. Судья видит их отдельной секцией промпта
+// («ВНЕШНИЙ РЕПО ~/.claude»), а diffSet собран только по текущему репо; живой block
+// 2026-07-29 — судья назвал `~/.claude/bin/elt.js (external repo)` и получил phantom-file.
+test('checkGrounding: путь внешнего репо (~ и пояснение в скобках) — не фантом, выдуманный внешний — фантом', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grounding-external-'));
+  fs.writeFileSync(path.join(root, 'a.js'), '// в диффе\n');
+  const probe = `.judge-grounding-probe-${process.pid}.js`;
+  fs.writeFileSync(path.join(os.homedir(), probe), '// внешний репо\n');
+  try {
+    assert.equal(
+      gate.checkGrounding(STATUS_ONE_FILE, ['a.js', 'a.js (external repo)'], ['ok'], root),
+      null,
+      'пояснительный суффикс в скобках не делает путь фантомом',
+    );
+    assert.equal(
+      gate.checkGrounding(STATUS_ONE_FILE, ['a.js', `~/${probe} (external repo)`], ['ok'], root),
+      null,
+      '~ разворачивается — реально существующий внешний файл принят',
+    );
+    assert.equal(
+      gate.checkGrounding(STATUS_ONE_FILE, ['a.js', '~/.claude/выдумка-которой-нет.js'], ['ok'], root),
+      'grounding:phantom-file',
+      'несуществующий внешний путь остаётся галлюцинацией',
+    );
+  } finally {
+    try { fs.rmSync(path.join(os.homedir(), probe), { force: true }); } catch { /* noop */ }
+    try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* noop */ }
+  }
+});
+
+// 009 T014 — часть 1: бюджет. При cap 12000 на 15 файлов судья получал по 800 символов
+// на файл и блокировал слайс формулировкой «диффы обрезаны, проверить нечего» (живой
+// verify-вердикт codex 2026-07-29). Дефолт 60000 — тот же дифф доезжает целиком.
+test('slurpDiff: дефолтный DIFF_CAP показывает 60K-дифф без обрезки, JUDGE_DIFF_CAP переопределяет', () => {
+  const { root, files } = repo60K();
+  const wide = gate.slurpDiff(root);
+  const narrow = gate.slurpDiff(root, 12000);
+  assert.equal(wide.omitted.length, 0, 'при дефолтном бюджете ни один файл не выпадает');
+  for (const f of files) assert.ok(wide.diff.includes(f), `${f} представлен в диффе`);
+  // Суть задачи — не «ноль обрезки» (бюджет делится на файлы поровну, самый крупный может
+  // не добрать сотню символов), а объём на файл: было 800 — стало тысячи.
+  const shownShare = (r) => {
+    const m = r.diff.match(/показано (\d+) из (\d+)/);
+    return m ? Number(m[1]) / Number(m[2]) : 1;
+  };
+  assert.ok(shownShare(narrow) < 0.3, `старый cap показывал лишь ${(shownShare(narrow) * 100).toFixed(0)}% файла — голову, не содержание`);
+  assert.ok(shownShare(wide) > 0.9, `дефолтный cap показывает ${(shownShare(wide) * 100).toFixed(0)}% крупнейшего файла`);
+  assert.ok(wide.diff.length > narrow.diff.length * 4, `дефолтный бюджет кратно шире старого (${wide.diff.length} против ${narrow.diff.length})`);
+
+  // Override читается из env при загрузке модуля — проверяем в отдельном процессе.
+  const out = execFileSync(process.execPath, ['-e',
+    `const g=require(${JSON.stringify(path.resolve('tools/fleet/gate.js'))});` +
+    `const r=g.slurpDiff(${JSON.stringify(root)});` +
+    `console.log(JSON.stringify({len:r.diff.length,cut:/файл обрезан/.test(r.diff)}));`],
+  { encoding: 'utf8', env: { ...process.env, JUDGE_DIFF_CAP: '3000' } });
+  const tight = JSON.parse(out.trim().split(/\r?\n/).pop());
+  assert.ok(tight.cut, 'JUDGE_DIFF_CAP=3000 действительно ужимает дифф (override живой, не декоративный)');
+  assert.ok(tight.len < wide.diff.length, `узкий бюджет короче дефолтного (${tight.len} < ${wide.diff.length})`);
+});
+
+// 009 T014: бюджет раздаётся по остатку, а не поровну. Мелкие файлы, влезающие целиком,
+// больше не резервируют свою долю впустую — крупный production-дифф получает остаток.
+test('budgetDiff: неиспользованный остаток достаётся крупным файлам, а не пропадает', () => {
+  const big = 'diff --git a/src/big.js b/src/big.js\n' + '+строка кода\n'.repeat(3000); // заведомо больше cap
+  const smalls = Array.from({ length: 6 }, (_, i) =>
+    `diff --git a/src/tiny${i}.js b/src/tiny${i}.js\n+одна строка\n`);
+  const sections = gate.splitDiffSections([...smalls, big].join(''));
+  assert.equal(sections.length, 7, 'секции распознаны');
+
+  const cap = 12000;
+  const { diff, omitted } = gate.budgetDiff(sections, cap);
+  assert.equal(omitted.length, 0, 'при этом бюджете ничего не выпадает');
+  const m = diff.match(/показано (\d+) из (\d+)/);
+  assert.ok(m, 'файл больше бюджета обрезан и помечен');
+  const evenShare = Math.floor(cap / sections.length); // как делил старый алгоритм
+  assert.ok(Number(m[1]) > evenShare * 5,
+    `крупному файлу досталось ${m[1]} символов вместо равной доли ${evenShare} — остаток мелких не пропал`);
+  for (let i = 0; i < 6; i += 1) assert.ok(diff.includes(`tiny${i}.js`), `tiny${i}.js на месте`);
+});

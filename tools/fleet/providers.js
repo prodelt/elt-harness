@@ -41,8 +41,13 @@ const PROVIDERS = {
     '-p', '--dangerously-skip-permissions', ...(model ? ['--model', model] : []),
     ...(lean ? ['--safe-mode'] : []),
   ],
-  codex: (model, prompt, cwd, lean) => [
-    'exec', '--sandbox', 'workspace-write', ...(model ? ['--model', model] : []),
+  // 009 T010 (разбор живого лога, 567KB): судья-codex с правом записи ведёт себя как
+  // ИСПОЛНИТЕЛЬ — уходит гонять `node tools/elt-oracle-runner.js` внутри судейского вызова
+  // (оракул уже зелёный, это предусловие гейта!), пишет артефакты в дерево и не укладывается
+  // ни в какой таймаут: 300/301/301/481/540с, DEAD 5 из 5. Роль судьи read-only не по вкусу,
+  // а структурно: читать дифф он может, менять дерево — нет (это ещё и источник stale-tree).
+  codex: (model, prompt, cwd, lean, timeoutMs, readOnly) => [
+    'exec', '--sandbox', readOnly ? 'read-only' : 'workspace-write', ...(model ? ['--model', model] : []),
     ...(lean ? ['--ignore-user-config'] : []),
   ],
   // agy: --print-timeout ПРОИЗВОДЕН от нашего timeoutMs, а не литерал. Живой прогон 007
@@ -86,6 +91,20 @@ function resolveBin(provider) {
   return [provider];
 }
 
+// CLI реально установлен? Стаб-override (FLEET_BIN_*) считается доступностью и проверяется
+// первым — тесты и live-стабы не должны зависеть от того, что стоит на машине. Результат
+// `where` кешируется на процесс. 009 T010: живёт здесь (а не в fleet.js), потому что нужен
+// обоим — и роутеру ролей судьи, и gate.js при перевыдаче мёртвого verify-судьи.
+const _availCache = new Map();
+function available(provider) {
+  if (process.env['FLEET_BIN_' + provider.toUpperCase()]) return true;
+  if (!_availCache.has(provider)) {
+    try { execFileSync(IS_WIN ? 'where' : 'which', [provider], { stdio: 'ignore' }); _availCache.set(provider, true); }
+    catch { _availCache.set(provider, false); }
+  }
+  return _availCache.get(provider);
+}
+
 function logDirFor(cwd) {
   const d = path.join(cwd, '.harness', 'fleet', 'logs');
   fs.mkdirSync(d, { recursive: true });
@@ -117,15 +136,18 @@ function hardKill(child) {
 // tree-kill (taskkill /T /F на Windows) — не хватало только быстрого триггера.
 const STOP_POLL_MS_DEFAULT = 1000;
 
-function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, effort = null, sessionId = null, resume = false, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT } = {}) {
+function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeoutMs = DEFAULT_TIMEOUT_MS, jsonSchema = null, lean, effort = null, sessionId = null, resume = false, stopFile = null, stopPollMs = STOP_POLL_MS_DEFAULT, readOnly = false } = {}) {
   return new Promise((resolve) => {
     if (!PROVIDERS[provider]) {
       return resolve({ exit: null, ok: false, reason: 'unknown-provider', logPath: null, lastMsg: '' });
     }
     // T019: caller не передал model → берём явный дефолт из router (не ambient CLI/аккаунт).
     const resolvedModel = model || router.modelFor(provider, router.loadPolicy(cwd));
-    // lean по умолчанию ВКЛЮЧЁН для fleet-воркеров; FLEET_LEAN=0 — явный откат (отладка).
-    const leanFlag = lean === undefined ? process.env.FLEET_LEAN !== '0' : !!lean;
+    // 009 T010: lean по умолчанию ВЫКЛЮЧЕН. Он снимал с воркера не только токен-налог
+    // (~25k профиль-догруза), но и проектную дисциплину — CLAUDE.md, скилы, хуки-зубы:
+    // воркер работал вслепую и потом ловил block судьи за то, чего не мог знать. Экономия
+    // токенов дешевле, чем переделанный слайс. FLEET_LEAN=1 — явный откат (отладка/бюджет).
+    const leanFlag = lean === undefined ? process.env.FLEET_LEAN === '1' : !!lean;
     const bin = resolveBin(provider);
     const cmd = bin[0];
     // jsonSchema: только для вызовов, которым нужен структурированный ответ (судья) — НЕ
@@ -133,7 +155,7 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
     // поддерживает --json-schema/--output-format (claude поддерживает, T016 live-fire).
     const argv = [
       ...bin.slice(1),
-      ...PROVIDERS[provider](resolvedModel, prompt, cwd, leanFlag, timeoutMs),
+      ...PROVIDERS[provider](resolvedModel, prompt, cwd, leanFlag, timeoutMs, readOnly),
       // T003 (004-elt-selfdrive): адаптивный эффорт. `claude --effort <level>` — headless-флаг
       // (подтв. `claude --help`, 2.1.207). Только claude: codex/agy своего эквивалента не имеют.
       // Проброс на месте (не в PROVIDERS.claude) — argv-строитель провайдера остаётся про модель/lean.
@@ -198,4 +220,4 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
   });
 }
 
-module.exports = { run, PROVIDERS, DEFAULT_TIMEOUT_MS, resolveBin, claudeExe, needsShell };
+module.exports = { run, PROVIDERS, DEFAULT_TIMEOUT_MS, resolveBin, claudeExe, needsShell, available };
