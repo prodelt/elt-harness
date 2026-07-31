@@ -442,12 +442,12 @@ function validateJudgeProof({ taskId } = {}) {
     // критерий 5), даже если оба судьи дали pass.
     if (p.redProof.status === 'green') return invalidJudgeProof('red-proof-green');
   }
-  // 009 T002: при attest:true проводится только proof машинного происхождения (`judge run`)
-  // либо явно помеченный аварийный обход — оба оставляют след в самом proof.
-  if (attestEnabled() && p.attested !== true && p.attestSkipped !== true) return invalidJudgeProof('missing-attestation');
+  // 011 T011: пометки происхождения в proof больше нет и не нужно — при attest:true записать
+  // его иначе как через `elt judge run` физически нельзя (ручной `judge-proof write` отвергнут
+  // безусловно). Раньше здесь проверялся флаг, который сам же и ставился по флагу из argv.
   return { ok: true, proof: p };
 }
-function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof, attested, attestSkipped }) {
+function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof }) {
   const binding = findTaskBinding(taskId);
   if (!binding) die(`judge proof: task ${taskId} not found`);
   if (!PROOF_VERDICTS.includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
@@ -465,8 +465,6 @@ function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, r
     ...(judges !== undefined ? { judges } : {}),
     ...(grounding !== undefined ? { grounding } : {}),
     ...(redProof !== undefined ? { redProof } : {}),
-    ...(attested ? { attested: true } : {}),
-    ...(attestSkipped ? { attestSkipped: true } : {}),
   };
   fs.mkdirSync(path.dirname(judgeProofPath()), { recursive: true });
   fs.writeFileSync(judgeProofPath(), JSON.stringify(proof, null, 2) + '\n');
@@ -693,7 +691,10 @@ if (cmd === 'judge' && sub === 'run') {
   }
   // Дескриптор — в .git/elt/, НЕ в рабочее дерево: любой файл в дереве меняет treeHash и
   // мгновенно делает оракул-пруф stale (proof привязан к дереву — тем и ценен).
-  const descPath = path.join(cwd, '.git', 'elt', 'judge-desc.json');
+  // 011 T011: путь берём у git, а не литералом `.git`. В worktree (fleet) `.git` — ФАЙЛ-указатель,
+  // и `mkdirSync` по нему падал ENOTDIR. Раньше это не всплывало: fleet в `judge run` не заходил.
+  const gitDir = git(['rev-parse', '--git-dir']).out || '.git';
+  const descPath = path.join(path.isAbsolute(gitDir) ? gitDir : path.join(cwd, gitDir), 'elt', 'judge-desc.json');
   fs.mkdirSync(path.dirname(descPath), { recursive: true });
   fs.writeFileSync(descPath, JSON.stringify({
     cwd, tid: taskId, taskText: texts.join('\n'), specFile: binding.specPath,
@@ -714,7 +715,6 @@ if (cmd === 'judge' && sub === 'run') {
   const proof = writeJudgeProof({
     taskId, verdict, reasons, model,
     judges: out.judges, grounding: out.grounding, redProof: out.redProof || undefined,
-    attested: true,
   });
   // 011 T003 (AC3): чистый слайс закрывается БЕЗ судьи — и это обязано быть видно в run-log
   // отдельным статусом, а не неотличимым `judge-pass`. Триггеры пишем всегда: на `l0-clean`
@@ -745,19 +745,14 @@ if (cmd === 'judge-proof') {
     let reasons;
     try { reasons = JSON.parse(opt('--reasons-json', '[]')); } catch { die('judge proof: --reasons-json must be JSON array'); }
     if (!taskId || !verdict || !model) die(`elt judge-proof write --task Txxx --verdict ${PROOF_VERDICTS.join('|')} --model <model> [--reasons-json "[]"] [--extra-file <path>]`);
-    // 009 T002: при attest:true ручной вердикт не проводится — вызови `elt judge run`.
-    // --skip-attest остаётся аварийным люком, но оставляет громкий след и в run-log, и в proof.
-    const skipAttest = flag('--skip-attest');
-    // 009 T010: у fleet-гейта вердикт тоже машинный (tools/fleet/gate.runJudge), но пройти через
-    // `judge run` он не может — тот заново спавнил бы судью, которого гейт уже отработал. Явный
-    // маркер источника вместо аварийного люка: proof помечается attested (правда), а не
-    // attestSkipped (ложь про пропуск контроля). След остаётся: строка в run-log на каждый вызов.
-    const attestedBy = opt('--attested-by') === 'fleet-gate' ? 'fleet-gate' : null;
-    if (attestEnabled() && !skipAttest && !attestedBy) {
-      die('judge proof: judge.attest=true — вердикт пишет только `elt judge run --task Txxx` (аварийно: --skip-attest)', 4);
+    // 011 T011: люк самозаверения удалён ЦЕЛИКОМ. Были два: `--skip-attest` («аварийно») и
+    // `--attested-by fleet-gate` («машинный источник») — оба сводились к строке, которую агент
+    // с доступом к шеллу набирает сам, то есть к разрешению заверить свой код собственной
+    // подписью. При attest:true ручная запись отвергается БЕЗУСЛОВНО, исключений нет;
+    // fleet идёт тем же путём, что интерактив (`elt judge run`, мост judge-replay.js).
+    if (attestEnabled()) {
+      die('judge proof: judge.attest=true — вердикт пишет только `elt judge run --task Txxx`', 4);
     }
-    if (attestEnabled() && skipAttest) appendRunLog({ task: taskId, status: 'attest-skipped', verdict });
-    if (attestedBy) appendRunLog({ task: taskId, status: `attested-by-${attestedBy}`, verdict });
     // --extra-file (008 T004): judges[]/grounding/redProof приходят файлом, не argv — JSON
     // с embedded-кавычками бьётся о PS5.1 native-marshalling баг (см. elt-loop.ps1 comment).
     let extra = {};
@@ -771,7 +766,7 @@ if (cmd === 'judge-proof') {
     // и переводами строк, в argv PS5.1 они не доезжают (ровно поэтому драйвер годами слал
     // литерал `[]` и пруф был содержательно пуст). argv-форма остаётся для ручных вызовов.
     if (Array.isArray(extra.reasons) && extra.reasons.length) reasons = extra.reasons.map(String);
-    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof, attested: !!attestedBy, attestSkipped: attestEnabled() && skipAttest }), null, 2));
+    console.log(JSON.stringify(writeJudgeProof({ taskId, verdict, reasons, model, judges: extra.judges, grounding: extra.grounding, redProof: extra.redProof }), null, 2));
     process.exit(0);
   }
   if (sub === 'validate') {

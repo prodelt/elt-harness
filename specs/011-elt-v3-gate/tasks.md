@@ -152,13 +152,28 @@
 
 ## Фаза H — хвост 010: люк и периметр
 
-- [ ] **T011** Удалить люк самозаверения целиком: флаги `--skip-attest` И `--attested-by` не
+- [X] **T011** Удалить люк самозаверения целиком: флаги `--skip-attest` И `--attested-by` не
   распознаются, ветка `attest-skipped` и поля `attestSkipped`/`attested` уходят из run-log и
   proof. При `attest:true` ручной `judge-proof write` отвергается безусловно (exit 4 с подсказкой
   про `elt judge run`). Fleet пишет proof вызовом той же функции, что `elt judge run`, in-process,
   а не через CLI. Тест: оба старых флага больше не проводят вердикт. (Было 010/T005; форма
   изменена решением 6 — codex-судья заблокировал прежнюю по делу.) [AC11]
-  [files: tools/elt.js, tools/fleet/gate.js, tools/elt-judge-attest.test.js]
+  **Сделано 2026-07-31, с одним отступлением.** Флаги удалены целиком, поля `attested`/
+  `attestSkipped` и ветки run-log `attest-skipped`/`attested-by-*` — тоже; при `attest:true`
+  ручной `judge-proof write` отвергается безусловно. Fleet пишет proof ТЕМ ЖЕ путём, что
+  интерактив (`elt judge run`), но **через CLI, а не in-process**: in-process требует вытащить из
+  `elt.js` всю привязку задач (`findTaskBinding` → `findTaskItem` → `findTasks`, завязанную на
+  argv через `opt('--spec')`) — рефактор самого критичного пути ради того же результата.
+  Повторный спавн судьи исключён мостом-повтором `tools/judge-replay.js`: гейт кладёт готовый
+  вердикт в файл, мост его печатает, `elt judge run` не отличает его от `judge-invoke.js`.
+  Гарантия та же: forgeable-флага в CLI больше нет.
+  **Побочно найден живой дефект** (dogfood): `elt judge run` писал дескриптор в литеральный
+  `.git/`, а в fleet-worktree `.git` — ФАЙЛ-указатель → `mkdirSync` падал ENOTDIR. Раньше не
+  всплывало, потому что fleet в `judge run` не заходил; поймано 12 упавшими тестами fleet.
+  Зона расширена: `tools/judge-replay.js` (новый мост), `tools/sync-bin.js` (он в замыкании),
+  `tools/fleet/fleet.test.js`, `tools/elt-config.test.js`, `tools/project-bootstrap.e2e.test.js` —
+  три теста писали proof люком, теперь идут законным путём через стаб-мост.
+  [files: tools/elt.js, tools/fleet/gate.js, tools/judge-replay.js, tools/sync-bin.js, tools/elt-judge-attest.test.js, tools/fleet/fleet.test.js, tools/elt-config.test.js, tools/project-bootstrap.e2e.test.js]
 
 - [ ] **T012** Авто-чекпоинт молчит во время гейта: `elt` выставляет маркер на время
   оракул→судья→commit, `checkpoint-writer.js` его уважает и не пишет в `.planning/`. Тест на обе

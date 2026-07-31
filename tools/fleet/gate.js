@@ -714,21 +714,31 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
     }
   }
 
-  // 3. Тот же proof-контракт, что у solo (008 T004): judges[]/grounding/redProof — файлом, не
-  //    argv (свободный текст обоснований в argv бьётся о квотинг). attested-by: вердикт здесь
-  //    вынес КОД (runJudge), а не агент, писавший слайс — иначе judge.attest=true отверг бы proof.
+  // 3. Proof пишет ТОТ ЖЕ путь, что у интерактива — `elt judge run` (011 T011). Раньше здесь
+  //    была своя команда с флагом `--attested-by fleet-gate`, то есть в CLI жил способ провести
+  //    вердикт мимо судьи; агент с шеллом набирал его сам. Флага больше нет.
+  //    Судью повторно не спавним: он уже отработал выше (runJudge), и второй прогон стоил бы
+  //    190 c и дал бы ДРУГОЙ вердикт. Готовый результат отдаёт мост-повтор judge-replay.js —
+  //    для `elt judge run` он неотличим от judge-invoke.js, поэтому и proof, и запись в run-log
+  //    делает одна и та же функция на обоих путях.
   const judges = Array.isArray(j.judges) && j.judges.length
     ? j.judges
     : [{ provider: judgeProvider, model: judgeModel, verdict: j.verdict, reasons: j.reasons || [], durationSec: j.durationSec, runOk: j.runOk }];
-  // Дескриптор — в tmp, НЕ в worktree: любой файл в дереве меняет treeHash и делает
-  // оракул-пруф stale ровно в тот момент, когда мы на него ссылаемся.
-  const extraPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-proof-')), 'extra.json');
-  fs.writeFileSync(extraPath, JSON.stringify({
-    judges, grounding: { filesReviewed: j.filesReviewed || [] }, reasons: j.reasons || [],
+  // Файл — в tmp, НЕ в worktree: любой файл в дереве меняет treeHash и делает оракул-пруф
+  // stale ровно в тот момент, когда мы на него ссылаемся.
+  const replayDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-proof-'));
+  const replayPath = path.join(replayDir, 'judge-result.json');
+  fs.writeFileSync(replayPath, JSON.stringify({
+    runOk: true, verdict: j.verdict, reasons: j.reasons || [],
+    judgeLog: j.judgeLog || null, judges, grounding: { filesReviewed: j.filesReviewed || [] },
     ...(redProofResult ? { redProof: redProofResult } : {}),
+    ...(j.l0 ? { l0: j.l0 } : {}),
   }));
-  const proof = await exec.run('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', j.verdict, '--model', judgeModel, '--extra-file', extraPath, '--attested-by', 'fleet-gate'], { cwd });
-  try { fs.rmSync(path.dirname(extraPath), { recursive: true, force: true }); } catch { /* tmp, не критично */ }
+  const replayBridge = path.join(__dirname, '..', 'judge-replay.js');
+  const proof = await exec.run('node', [elt, 'judge', 'run', '--task', tid, '--invoke', replayBridge], {
+    cwd, env: { ...process.env, ELT_JUDGE_REPLAY: replayPath },
+  });
+  try { fs.rmSync(replayDir, { recursive: true, force: true }); } catch { /* tmp, не критично */ }
   if (proof.status !== 0) return { ok: false, stage: 'judge-proof', tid, err: (proof.stderr || proof.stdout || '').trim() };
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
   const c = await exec.run('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
