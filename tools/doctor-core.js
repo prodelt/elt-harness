@@ -697,6 +697,25 @@ function checkHarnessConfig(root) {
   return result('pass', 'harness:config', 'Harness config valid', `kind=${harness.config.kind}`, '', { file: harness.file });
 }
 
+// 011 T005 (R4): очередь `inconclusive` неблокирующая по решению пользователя — значит
+// единственное, что мешает ей стать свалкой, это видимость. Доктор её ПОКАЗЫВАЕТ, но никогда
+// не роняет прогон: накопление — сигнал, а не отказ.
+// ponytail: порог константой, а не полем конфига — цифру никто ещё не подбирал; станет
+// поводом для спора — переедет в harness.json.
+const REVIEW_QUEUE_WARN = 10;
+function checkReviewQueue(root) {
+  const file = path.join(root, '.harness', 'review-queue.jsonl');
+  const text = readText(file);
+  if (!text.ok) return []; // очереди нет — проекту нечего показывать, а не «всё плохо»
+  const open = text.value.split(/\r?\n/).filter(Boolean).reduce((acc, line) => {
+    try { return JSON.parse(line).closedAt ? acc : acc + 1; } catch { return acc; }
+  }, 0);
+  const detail = `${open} на разборе (порог ${REVIEW_QUEUE_WARN})`;
+  return [open > REVIEW_QUEUE_WARN
+    ? result('warn', 'elt:review-queue', 'Очередь ревью растёт', detail, 'Разбери пачкой: elt review, затем elt review close --task Txxx.', { open, file })
+    : result('pass', 'elt:review-queue', 'Очередь ревью', detail, '', { open, file })];
+}
+
 // R1 (спека 010): глобальная копия моста судьи — вторая копия кода, она разъезжается с репо
 // молча, как `tools/elt.js` ≡ `~/.claude/bin/elt.js`. Механический сигнал: при judge.enabled
 // нет копии → WARN (`elt judge run` в чужом проекте упадёт), копия ≠ репо → WARN с именами.
@@ -1013,6 +1032,7 @@ function runDoctor(options) {
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
     checkHarnessConfig(root),
+    ...checkReviewQueue(root),
     ...checkJudgeBridge(root, home),
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
@@ -1066,6 +1086,7 @@ module.exports = {
   checkDocsGate,
   checkHarnessChecklist,
   checkHarnessConfig,
+  checkReviewQueue,
   checkJudgeBridge,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
