@@ -790,13 +790,16 @@ test('T010: fleet-гейт под контуром пишет полный proof
   assert.equal(r.ok, true, 'гейт под judge.attest=true обязан доходить до коммита: ' + JSON.stringify(r));
   assert.equal(Number(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()), before + 1);
   const proof = JSON.parse(fs.readFileSync(path.join(repo, '.git', 'elt', 'judge-proof.json'), 'utf8'));
-  assert.equal(proof.attested, true, 'вердикт вынес код гейта — proof это несёт');
-  assert.notEqual(proof.attestSkipped, true, 'это не аварийный люк');
+  // 011 T011: пометок происхождения (`attested`/`attestSkipped`) больше нет — при attest:true
+  // proof физически пишется только через `elt judge run`, и fleet идёт тем же путём
+  // (мост-повтор judge-replay.js). Содержательный контракт пруфа не изменился.
+  assert.equal(proof.attested, undefined, 'поле-пометка удалено вместе с люком');
   assert.ok(Array.isArray(proof.judges) && proof.judges.length, 'judges[] в proof');
   assert.ok(Array.isArray(proof.grounding.filesReviewed), 'grounding в proof');
   assert.equal(proof.redProof.status, 'red', 'red-proof проведён в proof, а не потерян');
   const runlog = fs.readFileSync(path.join(repo, '.git', 'elt', 'run-log.jsonl'), 'utf8');
-  assert.match(runlog, /attested-by-fleet-gate/, 'происхождение вердикта оставляет след в run-log');
+  assert.doesNotMatch(runlog, /attested-by-fleet-gate/, 'ветки люка в журнале больше нет');
+  assert.match(runlog, /"status":"judge-pass"|"status":"l0-clean"/, 'fleet пишет тот же журнал, что интерактив');
   fs.rmSync(repo, { recursive: true, force: true });
 });
 

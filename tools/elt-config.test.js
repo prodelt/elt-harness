@@ -131,8 +131,10 @@ function testBootstrapPatchesCircuit() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-// Прогоняет проект через настоящий elt CLI: оракул → урезанный proof (аварийным люком, т.к.
-// attest уже включён) → validate. Причина отказа и есть ответ живой circuitEnabled().
+// Прогоняет проект через настоящий elt CLI: оракул → урезанный proof → validate. Причина
+// отказа и есть ответ живой circuitEnabled().
+// 011 T011: аварийного люка (`--skip-attest`) больше нет — при attest:true записать proof можно
+// ТОЛЬКО через `elt judge run`. Урезанность отдаём стаб-мостом (без judges[]), а не флагом.
 function circuitVerdictFor(root) {
   const elt = (...args) => spawnSync(process.execPath, [path.join(__dirname, 'elt.js'), ...args], { cwd: root, encoding: 'utf8' });
   const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -142,8 +144,13 @@ function circuitVerdictFor(root) {
   git('add', '-A'); git('commit', '-qm', 'seed');
   fs.writeFileSync(path.join(root, 'slice.txt'), 'работа\n');
   assert.equal(elt('oracle').status, 0, 'оракул фикстуры обязан быть зелёным');
-  const write = elt('judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'stub', '--reasons-json', '["ok"]', '--skip-attest');
+  // Мост живёт ВНЕ дерева: файл в нём сдвинул бы treeHash и сделал оракул-пруф stale.
+  const bridgeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-config-bridge-'));
+  const bridge = path.join(bridgeDir, 'stub-invoke.js');
+  fs.writeFileSync(bridge, `process.stdout.write(${JSON.stringify(JSON.stringify({ runOk: true, verdict: 'pass', reasons: ['ok'] }))});\n`);
+  const write = elt('judge', 'run', '--task', 'T001', '--invoke', bridge);
   assert.equal(write.status, 0, write.stderr);
+  fs.rmSync(bridgeDir, { recursive: true, force: true });
   const v = elt('judge-proof', 'validate', '--task', 'T001');
   return JSON.parse(v.stdout).reason;
 }

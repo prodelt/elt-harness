@@ -55,7 +55,7 @@ function runLogTail(root) {
 }
 after(() => { for (const r of roots) try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* windows lock */ } });
 
-test('judge run: happy path — proof пишется кодом, с attested/judges/grounding, validate ok', () => {
+test('judge run: happy path — proof пишется кодом, с judges/grounding, validate ok', () => {
   const root = fixture();
   const invoke = stubInvoke(root, {
     runOk: true, verdict: 'pass', reasons: ['в границах задачи'], judgeLog: 'log.txt',
@@ -66,11 +66,10 @@ test('judge run: happy path — proof пишется кодом, с attested/jud
   assert.equal(r.status, 0, r.stderr);
   const p = proof(root);
   assert.equal(p.verdict, 'pass');
-  assert.equal(p.attested, true, 'машинное происхождение помечено в самом proof');
   assert.deepEqual(p.reasons, ['в границах задачи'], 'обоснования судьи доезжают, а не теряются');
   assert.deepEqual(p.grounding.filesReviewed, ['slice.txt']);
   assert.equal(p.judges.length, 1);
-  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'гейт проводит attested proof');
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'гейт проводит машинный proof');
 });
 
 test('judge run: block судьи — exit 4, proof block, гейт не проводит', () => {
@@ -130,27 +129,46 @@ test('judge run: сработали триггеры → статус прежн
   assert.deepEqual(tail.l0.triggers.map((t) => t.name), ['hot-path'], 'видно, ЧЕМ судья был разбужен');
 });
 
-test('--skip-attest: аварийный люк проходит, но оставляет след в run-log и в proof', () => {
+// 011 T011 (AC11) — люк самозаверения удалён ЦЕЛИКОМ. Были два флага: `--skip-attest`
+// («аварийно») и `--attested-by fleet-gate` («машинный источник»). Оба сводились к строке,
+// которую агент с доступом к шеллу набирает сам — то есть к праву заверить собственный код
+// своей же подписью. Тесты ниже фиксируют, что СТАРЫЕ ВЫЗОВЫ больше не проводят вердикт.
+test('--skip-attest больше не проводит вердикт: отказ и НИКАКОГО proof', () => {
   const root = fixture();
   const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'ручной', '--skip-attest']);
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(proof(root).attestSkipped, true);
-  assert.equal(runLogTail(root).status, 'attest-skipped', 'громкий след в run-log, а не тихий обход');
-  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'люк реально проводит слайс');
+  assert.equal(r.status, 4, 'флаг не распознан — это обычная ручная запись при attest:true');
+  assert.match(r.stderr, /elt judge run/, 'отказ показывает единственный законный путь');
+  assert.ok(!fs.existsSync(path.join(root, '.git', 'elt', 'judge-proof.json')), 'proof не написан вовсе');
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 4, 'проводить нечего');
 });
 
-// 009 T010: fleet-гейт — тоже машинный судья, но идёт не через `judge run` (тот заново спавнил
-// бы судью). Маркер источника проводит его proof и оставляет собственный след в run-log —
-// в отличие от --skip-attest, который врал бы, что контроль пропущен.
-test('--attested-by fleet-gate: машинный вердикт гейта проводится и помечается attested', () => {
+test('--attested-by fleet-gate больше не проводит вердикт: тот же отказ', () => {
   const root = fixture();
   const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'gemini', '--attested-by', 'fleet-gate']);
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, 4);
+  assert.ok(!fs.existsSync(path.join(root, '.git', 'elt', 'judge-proof.json')));
+});
+
+test('в run-log не остаётся веток люка (attest-skipped / attested-by-*)', () => {
+  const root = fixture();
+  run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'x', '--skip-attest']);
+  run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'x', '--attested-by', 'fleet-gate']);
+  const log = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8');
+  assert.doesNotMatch(log, /attest-skipped|attested-by-/, 'статусов люка больше не существует');
+});
+
+test('proof, написанный `judge run`, проводится БЕЗ поля-пометки происхождения', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, {
+    runOk: true, verdict: 'pass', reasons: ['в границах'],
+    judges: [{ provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true }],
+    grounding: { filesReviewed: ['slice.txt'] }, redProof: null,
+  });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 0);
   const p = proof(root);
-  assert.equal(p.attested, true);
-  assert.equal(p.attestSkipped, undefined, 'это не аварийный люк');
-  assert.equal(runLogTail(root).status, 'attested-by-fleet-gate', 'происхождение видно в run-log');
-  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0);
+  assert.equal(p.attested, undefined, 'пометка не нужна: иначе proof при attest:true не написать');
+  assert.equal(p.attestSkipped, undefined);
+  assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0, 'и он проводит слайс');
 });
 
 test('--attested-by с чужим значением не открывает обход attest:true', () => {
@@ -160,29 +178,14 @@ test('--attested-by с чужим значением не открывает о�
   assert.ok(!fs.existsSync(path.join(root, '.git', 'elt', 'judge-proof.json')), 'proof не написан');
 });
 
-test('attest:false — старое поведение: ручной write проходит без пометок', () => {
+test('attest:false — старое поведение: ручной write проходит (обратная совместимость)', () => {
   const root = fixture({ attest: false });
   const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'codex']);
   assert.equal(r.status, 0, r.stderr);
   const p = proof(root);
-  assert.equal(p.attested, undefined);
+  assert.equal(p.attested, undefined, 'поля-пометки больше не существует ни в одной ветке');
   assert.equal(p.attestSkipped, undefined);
   assert.equal(run(root, ['judge-proof', 'validate', '--task', 'T001']).status, 0);
-});
-
-// Proof без пометки происхождения = дописан мимо `judge run` (или остался от старой версии
-// CLI). При attest:true он не проводится, даже будучи во всём остальном валидным.
-test('attest:true — proof без пометки происхождения не проводится (missing-attestation)', () => {
-  const root = fixture();
-  const invoke = stubInvoke(root, { runOk: true, verdict: 'pass', reasons: ['ok'], judges: [{ provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true }], grounding: { filesReviewed: ['slice.txt'] } });
-  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 0);
-  const pp = path.join(root, '.git', 'elt', 'judge-proof.json');
-  const p = JSON.parse(fs.readFileSync(pp, 'utf8'));
-  delete p.attested;                                  // .git/ вне дерева — treeHash не трогаем
-  fs.writeFileSync(pp, JSON.stringify(p));
-  const v = run(root, ['judge-proof', 'validate', '--task', 'T001']);
-  assert.equal(v.status, 4);
-  assert.equal(JSON.parse(v.stdout).reason, 'missing-attestation');
 });
 
 test('judge run: мост не найден — явный отказ, а не тихий пропуск судьи', () => {
