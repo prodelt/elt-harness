@@ -11,6 +11,7 @@
     "attest": true
   },
   "redProof": "on",
+  "oracleSelect": "impact",
   "testCmd": "node",
   "redProofTimeoutMs": 120000,
   "batch": 3,
