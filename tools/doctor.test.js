@@ -21,6 +21,7 @@ const {
   checkAgentSkillsWrapper,
   checkHarnessChecklist,
   checkHarnessGlobal,
+  checkJudgeBridge,
   checkFleet,
   checkFleetWorkers,
   checkSelfDriveInvariants,
@@ -28,6 +29,7 @@ const {
   runFleet,
 } = require('./doctor-core');
 const { CORE_SECTIONS } = require('./project-docs-core');
+const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 
 function write(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -584,6 +586,42 @@ function testHarnessGlobalCheck() {
   const pathWarn = checkHarnessGlobal(root, home, () => ({ status: 1, output: 'not found' }));
   assert.equal(pathWarn[0].status, 'warn');
   assert.match(pathWarn[0].title, /PATH/);
+}
+
+// T004 (спека 010): дрейф/отсутствие глобальной копии моста судьи — R1, ловится механически.
+function testJudgeBridgeCheck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-judge-bridge-'));
+  const home = path.join(dir, 'home');
+  const root = path.join(dir, 'project');
+  const globalDir = path.join(home, '.claude', 'bin', 'judge');
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node -e ""', judge: { enabled: true, model: 'sonnet' },
+  }));
+
+  const missing = checkJudgeBridge(root, home);
+  assert.equal(missing[0].status, 'warn', 'моста нет — WARN');
+  assert.equal(missing[0].id, 'judge:bridge');
+  assert.match(missing[0].repair, /sync-bin\.js/);
+
+  for (const rel of JUDGE_BRIDGE_CLOSURE) write(path.join(globalDir, rel), `// ${rel}\n`);
+  const noLocalSource = checkJudgeBridge(root, home);
+  assert.equal(noLocalSource[0].status, 'pass', 'чужой проект: сравнивать не с чем, замыкание на месте');
+
+  // репо-разработчик: локальный источник есть → дрейф меряется
+  for (const rel of JUDGE_BRIDGE_CLOSURE) write(path.join(root, 'tools', rel), `// ${rel}\n`);
+  assert.equal(checkJudgeBridge(root, home)[0].status, 'pass', 'копия идентична репо');
+
+  write(path.join(root, 'tools', 'fleet', 'gate.js'), '// gate.js изменился в репо\n');
+  const drifted = checkJudgeBridge(root, home);
+  assert.equal(drifted[0].status, 'warn', 'копия отстала от репо — WARN');
+  assert.match(drifted[0].detail, /gate\.js/, 'в детали видно, какой файл разъехался');
+
+  // judge выключен — доктор не шумит про мост вовсе
+  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node -e ""', judge: { enabled: false },
+  }));
+  assert.deepEqual(checkJudgeBridge(root, home), [], 'judge.enabled=false — проверки нет');
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function nineSectionDoc() {
@@ -1161,6 +1199,7 @@ function main() {
   testAgentSkillsWrapperCheck();
   testHarnessChecklistCheck();
   testHarnessGlobalCheck();
+  testJudgeBridgeCheck();
   testFleetCheck();
   testFleetWorkersCheck();
   testSelfDriveInvariantsCheck();
