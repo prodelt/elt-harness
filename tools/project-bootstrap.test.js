@@ -10,6 +10,7 @@ const { spawnSync } = require('node:child_process');
 const {
   applyPlan,
   applySafeActions,
+  checkOracleVerifierContract,
   classifyKind,
   detectStack,
   inspectProject,
@@ -461,6 +462,70 @@ function testVerifyJudgeBridgeContractBothOutcomes() {
   assert.equal(verifyProject(root, { supplyChain: false, home: emptyHome }).contracts.judgeBridge.skipped, true);
 }
 
+// 010 T007 (AC6): непустая строка — не контракт. Раннер подменяется, чтобы тест проверял
+// проводку (резолв vs исполнение), а не наличие npm на машине.
+function testOracleVerifierContractResolvesAndRunsDeep() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'just test', shell: 'bash', judge: { enabled: false },
+  }), 'utf8');
+  const inspected = inspectProject(root);
+
+  const calls = [];
+  const record = (result) => (file, args, opts) => { calls.push({ file, args, opts }); return result; };
+
+  const unresolvable = checkOracleVerifierContract(inspected, { commandRunner: record({ status: 1, stdout: '' }) });
+  assert.equal(unresolvable.ok, false, 'команда не резолвится — контракт красный');
+  assert.equal(unresolvable.binary, 'just', 'проверяется исполняемый файл, а не вся строка');
+  assert.match(unresolvable.reason, /does not resolve on PATH/);
+
+  const resolvable = checkOracleVerifierContract(inspected, { commandRunner: record({ status: 0, stdout: 'C:\\bin\\just.exe' }) });
+  assert.equal(resolvable.ok, true);
+  assert.equal(resolvable.deep, false, 'без --deep оракул не запускается');
+
+  calls.length = 0;
+  const deepGreen = checkOracleVerifierContract(inspected, { deep: true, commandRunner: record({ status: 0, stdout: 'ok' }) });
+  assert.equal(deepGreen.deep, true);
+  assert.equal(deepGreen.exit, 0, 'код возврата попадает в отчёт');
+  assert.equal(deepGreen.ok, true);
+  assert.equal(calls[0].file, 'bash', 'команда идёт через shell из harness.json');
+  assert.deepEqual(calls[0].args, ['-c', 'just test']);
+  assert.ok(calls[0].opts.timeout > 0, 'R5: у deep-прогона есть таймаут');
+
+  const deepRed = checkOracleVerifierContract(inspected, { deep: true, commandRunner: record({ status: 2, stdout: '' }) });
+  assert.equal(deepRed.ok, false);
+  assert.equal(deepRed.exit, 2, 'красный оракул виден числом, а не «непустой строкой»');
+}
+
+// Судья 010 (codex) заблокировал первую редакцию T007 по делу: с подменённым раннером тест
+// проверял собственный мок. Здесь раннер НЕ подменяется — реальный spawn настоящей оболочки,
+// команда детерминированная (node -e), проверяется, что её код возврата доезжает до отчёта.
+function testOracleVerifierDeepActuallySpawnsShell() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  const shell = process.platform === 'win32' ? 'powershell' : 'bash';
+  const harness = (oracle) => fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle, shell, judge: { enabled: false },
+  }), 'utf8');
+
+  harness('node -e "process.exit(0)"');
+  const green = checkOracleVerifierContract(inspectProject(root), { deep: true });
+  assert.equal(green.deep, true);
+  assert.equal(green.exit, 0, 'зелёный оракул реально запущен через живой shell');
+  assert.equal(green.ok, true);
+
+  harness('node -e "process.exit(3)"');
+  const red = checkOracleVerifierContract(inspectProject(root), { deep: true });
+  assert.equal(red.exit, 3, 'код возврата живого прогона доезжает в отчёт как есть');
+  assert.equal(red.ok, false);
+
+  // Несуществующая команда: контракт красный и без --deep (резолв), и с --deep (запуск).
+  harness('заведомо-нет-такой-команды-010 --run');
+  assert.equal(checkOracleVerifierContract(inspectProject(root)).ok, false, 'резолв бинаря красный');
+  assert.equal(checkOracleVerifierContract(inspectProject(root), { deep: true }).ok, false, 'живой запуск тоже красный');
+}
+
 function testVerifySpecReadinessReportsExplicitIdleNotFailure() {
   const root = tempProject();
   const report = verifyProject(root, { supplyChain: false });
@@ -624,6 +689,8 @@ function main() {
   testVerifyHarnessNegativeFixtureMalformedJson();
   testVerifySkillAvailabilityNegativeFixtureReportsDrift();
   testVerifyJudgeBridgeContractBothOutcomes();
+  testOracleVerifierContractResolvesAndRunsDeep();
+  testOracleVerifierDeepActuallySpawnsShell();
   testVerifySpecReadinessReportsExplicitIdleNotFailure();
   testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate();
   testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult();
