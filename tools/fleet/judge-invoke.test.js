@@ -28,6 +28,9 @@ before(() => {
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'),
     JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
   PASS_STUB = stub('judge-pass.js', `console.log('{"verdict":"pass","reasons":["ok"]}');`);
+  // 011 T017: EMPTY_STUB вешается на ВСЕ ТРИ CLI. Мёртвый первичный судья теперь перевыдаётся
+  // следующему живому по JUDGE_ALTS — застабить только claude значит увести тест на РЕАЛЬНЫЙ
+  // codex/agy с машины (26 c спавна и чужой вердикт). Премиса тестов — «живого судьи нет вовсе».
   EMPTY_STUB = stub('judge-empty.js', 'process.exit(0);'); // пустой stdout → providers ok:false
   fs.writeFileSync(path.join(REPO, 'slice.txt'), 'work\n'); // есть что судить (непустой дифф)
 });
@@ -35,16 +38,20 @@ after(() => { try { fs.rmSync(REPO, { recursive: true, force: true }); } catch {
 
 test('runJudge: мёртвый судья (пустой вывод) → runOk:false, verdict null — НЕ block', async () => {
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', EMPTY_STUB]);
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', EMPTY_STUB]);
+  process.env.FLEET_BIN_AGY = JSON.stringify(['node', EMPTY_STUB]);
   const r = await gate.runJudge({ cwd: REPO, tid: 'T1', taskText: 'демо', model: 'sonnet' });
-  delete process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; delete process.env.FLEET_BIN_AGY;
   assert.equal(r.runOk, false, 'пустой вывод судьи = НЕ отработал');
   assert.equal(r.verdict, null, 'liveness-сбой не даёт вердикт (иначе REJECT-default замаскирует под block)');
 });
 
 test('gate: мёртвый судья → stage judge-unavailable (парковка, НЕ judge/reject)', async () => {
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', EMPTY_STUB]);
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', EMPTY_STUB]);
+  process.env.FLEET_BIN_AGY = JSON.stringify(['node', EMPTY_STUB]);
   const r = await gate.gate({ tid: 'T1', taskText: 'демо', cwd: REPO });
-  delete process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; delete process.env.FLEET_BIN_AGY;
   assert.equal(r.ok, false);
   assert.equal(r.stage, 'judge-unavailable', 'dead-judge ≠ legitimate block');
 });
@@ -59,15 +66,17 @@ function runBridge() {
 
 test('judge-invoke мост: мёртвый судья → JSON runOk:false', () => {
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', EMPTY_STUB]);
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', EMPTY_STUB]);
+  process.env.FLEET_BIN_AGY = JSON.stringify(['node', EMPTY_STUB]);
   const j = runBridge();
-  delete process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; delete process.env.FLEET_BIN_AGY;
   assert.equal(j.runOk, false, 'мост доносит liveness-сбой до PS-драйвера как runOk:false');
 });
 
 test('judge-invoke мост: живой судья pass → JSON runOk:true, verdict pass', () => {
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', PASS_STUB]);
   const j = runBridge();
-  delete process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; delete process.env.FLEET_BIN_AGY;
   assert.equal(j.runOk, true);
   assert.equal(j.verdict, 'pass');
 });

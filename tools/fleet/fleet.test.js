@@ -343,10 +343,14 @@ test('T021: судья недоступен (краш/timeout) → слайс п
   const tasksPath = path.join(repo, 'specs', 'tasks.md');
 
   // судья "недоступен": процесс падает без валидного вывода — nonzero-exit, НЕ легитимный block.
+  // 011 T017: стабятся ВСЕ ТРИ CLI. Раньше хватало двух — до третьего было не дойти; теперь
+  // мёртвый первичный перевыдаётся дальше по JUDGE_ALTS, и незастабленный agy утащил бы тест на
+  // РЕАЛЬНЫЙ бинарник с машины. Условие теста — «живого судьи нет вовсе», его и выражаем.
   const crashStub = path.join(repo, 'judge-crash.js');
   fs.writeFileSync(crashStub, 'process.exit(1);');
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', crashStub]);
   process.env.FLEET_BIN_CODEX = JSON.stringify(['node', crashStub]);
+  process.env.FLEET_BIN_AGY = JSON.stringify(['node', crashStub]);
 
   let workerCalls = 0;
   const worker = async (_slice, wt) => { workerCalls++; fs.writeFileSync(path.join(wt, 'a.txt'), 'impl\n'); return { ok: true, stdout: said('a.txt') }; };
@@ -354,6 +358,7 @@ test('T021: судья недоступен (краш/timeout) → слайс п
   const s = await fleet.run({ cwd: repo, tasksPath, integration: 'main', workers: 1, worker, maxLoops: 3 });
   delete process.env.FLEET_BIN_CLAUDE;
   delete process.env.FLEET_BIN_CODEX;
+  delete process.env.FLEET_BIN_AGY;
 
   assert.equal(workerCalls, 1, 'воркер вызван ровно раз — реализация не переделывается из-за недоступного судьи');
   assert.deepEqual(s.merged, []);

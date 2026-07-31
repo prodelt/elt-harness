@@ -319,6 +319,38 @@ function runSmoke(cfg) {
   console.error(`elt smoke: exit ${code}`);
   return { ran: true, code, out, cmd };
 }
+// 011 T017 (в) — L0 ПЕРЕД оракулом. Схема гейта (spec.md 011) — `S → L0 → L1`, но evaluate
+// звалась только внутри runJudge, т.е. ПОСЛЕ оракула: триггер, выносящий вердикт сам
+// (`external-import-no-ctx7` — «API не подтверждён», судья тут ничего не добавит), успевал
+// стоить полного прогона в 150 c ровно перед тем, как его отменить.
+// Здесь ловим ТОЛЬКО вердикт-несущие триггеры. `judgeNeeded` (риск-развилка) остаётся в
+// runJudge: он решает, звать ли судью ПОСЛЕ зелёного оракула, и оракул не отменяет — L1
+// гоняется всегда, чистый слайс тоже.
+// Резолв как у моста судьи (T003): `elt.js` живёт не только в репо, но и деплоем в
+// `~/.claude/bin/`, где соседей-модулей всего два (elt-config, run-log). Замыкание L0 уже
+// разложено рядом — в `~/.claude/bin/judge/` (sync-bin), оттуда и берём. Поймано оракулом:
+// прямой `require('./elt-gate-l0')` убивал `elt oracle` MODULE_NOT_FOUND во ВСЕХ проектах.
+function requireL0() {
+  try { return require('./elt-gate-l0'); } catch (e) {
+    if (e.code !== 'MODULE_NOT_FOUND') throw e;
+    return require(path.join(os.homedir(), '.claude', 'bin', 'judge', 'elt-gate-l0.js'));
+  }
+}
+function preOracleL0(cfg) {
+  const { evaluate, loadConfig } = requireL0();
+  const l0 = evaluate({
+    diff: git(['diff', 'HEAD']).out,
+    status: git(['status', '--porcelain']).out,
+    config: loadConfig(cwd),
+    cwd,
+  });
+  // Только `block`. `inconclusive` (ctx7 недоступен, R5) — НЕблокирующий исход: его маршрут в
+  // очередь ревью живёт на судейском пути, и остановка цепочки здесь превратила бы «не смогли
+  // проверить» в «запрещено», ровно против R5.
+  if (l0.verdict !== 'block') return null;
+  for (const t of l0.triggers) console.error(`elt L0 block: ${t.name} — ${t.reason}`);
+  return l0;
+}
 function runOracle(cfg) {
   console.error(`elt oracle: ${cfg.oracle}`);
   const started = Date.now();
@@ -681,6 +713,11 @@ if (cmd === 'oracle') {
   const cfg = loadConfig();
   runLog.runtimeRunLog(cwd);
   markGateActive(null); // с оракула начинается цепочка гейта — с него и молчание чекпоинта
+  const l0Block = preOracleL0(cfg);
+  if (l0Block) {
+    appendRunLog({ task: null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
+    die('L0 заблокировал ДО оракула — чинить причину выше, прогон не нужен', 1);
+  }
   const exit = runOracle(cfg);
   // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
   // красные прогоны редки и систематически медленнее (падение после self-heal).
@@ -924,6 +961,12 @@ if (cmd === 'commit') {
     }
   }
   if (!flag('--skip-oracle') || !skipTrusted) {
+    // 011 T017: тот же L0 перед прогоном — commit без `--skip-oracle` это вторая дверь к оракулу.
+    const l0Block = preOracleL0(cfg);
+    if (l0Block) {
+      appendRunLog({ task: taskId || null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
+      die('L0 заблокировал ДО оракула — НЕ коммичу', 1);
+    }
     oracleExit = runOracle(cfg);
     if (oracleExit !== 0) {
       appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit, durationSec: lastOracleSec } });
