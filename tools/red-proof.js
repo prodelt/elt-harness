@@ -33,8 +33,21 @@ function diffFileList(cwd) {
   return files;
 }
 
+// ВСЕ тест-файлы диффа, а не только новые: `git status --porcelain` несёт и `M`, и `A`, и `??`,
+// поэтому правка существующего теста слой НЕ проскакивает (011 T007 — проверено тестом ниже
+// и живыми прогонами T003/T006, где red-proof гонял изменённые `*.test.js`).
 function testFilesFromDiff(cwd) {
   return diffFileList(cwd).filter((f) => TEST_FILE_RE.test(f));
+}
+// 011 T007: удалённый тест-файл в порcelain есть, а на диске его нет — `copyFileSync` кидал
+// ENOENT и ронял ВЕСЬ слой исключением. Самый прямой способ ослабить проверку (снести тест)
+// обваливал механизм, который эту проверку и стережёт. Удалённые отделяем: гонять их на base
+// нечем, но исчезнуть молча они не должны — уезжают в отчёт отдельным списком.
+function splitDeleted(cwd, files) {
+  const alive = [];
+  const deleted = [];
+  for (const f of files) (fs.existsSync(path.join(cwd, f)) ? alive : deleted).push(f);
+  return { alive, deleted };
 }
 
 // harness.json.testCmd явный → берём как есть. Не задан → детект: node-проект (package.json
@@ -68,11 +81,18 @@ function tailOf(text, maxLines = 40) {
 }
 
 function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
-  const files = testFilesFromDiff(cwd);
-  if (!files.length) return { status: 'skipped', reason: 'no-new-tests', files: [], tail: '' };
+  const inDiff = testFilesFromDiff(cwd);
+  // `no-test-files`, а не прежнее `no-new-tests`: слой смотрит на ВСЕ тест-файлы диффа, и
+  // старое имя врало про причину — читалось как «изменённые не считаются».
+  if (!inDiff.length) return { status: 'skipped', reason: 'no-test-files', files: [], tail: '' };
+  const { alive: files, deleted } = splitDeleted(cwd, inDiff);
+  const withDeleted = (r) => (deleted.length ? { ...r, deletedTests: deleted } : r);
+  if (!files.length) {
+    return withDeleted({ status: 'skipped', reason: 'only-deleted-tests', files: inDiff, tail: '' });
+  }
 
   const testCmd = resolveTestCmd(cwd, files);
-  if (!testCmd) return { status: 'skipped', reason: 'no-test-cmd', files, tail: '' };
+  if (!testCmd) return withDeleted({ status: 'skipped', reason: 'no-test-cmd', files, tail: '' });
 
   const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'red-proof-'));
   try {
@@ -101,11 +121,11 @@ function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
         const code = result.error.code || result.error.message;
         // spawnSync при превышении timeout убивает процесс и кладёт сюда ETIMEDOUT.
         const reason = code === 'ETIMEDOUT' ? `test-cmd-timeout:${f}` : `test-cmd-error:${code}`;
-        return { status: 'skipped', reason, files, tail };
+        return withDeleted({ status: 'skipped', reason, files, tail });
       }
-      if (result.status !== 0) return { status: 'red', reason: 'fails-on-base', files, tail };
+      if (result.status !== 0) return withDeleted({ status: 'red', reason: 'fails-on-base', files, tail });
     }
-    return { status: 'green', reason: 'passes-on-base', files, tail };
+    return withDeleted({ status: 'green', reason: 'passes-on-base', files, tail });
   } finally {
     if (!gitOk(['worktree', 'remove', '--force', wt], cwd)) {
       try { fs.rmSync(wt, { recursive: true, force: true }); } catch { /* best-effort */ }
@@ -114,4 +134,4 @@ function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
   }
 }
 
-module.exports = { redProof, testFilesFromDiff, diffFileList, resolveTestCmd };
+module.exports = { redProof, testFilesFromDiff, diffFileList, resolveTestCmd, splitDeleted };

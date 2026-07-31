@@ -63,13 +63,88 @@ test('зелёный тест (ничего не ловит): проходит �
   assert.deepEqual(r.files, ['trivial.test.js']);
 });
 
-test('отсутствие тестовых файлов в диффе → skipped:no-new-tests', () => {
+test('отсутствие тестовых файлов в диффе → skipped:no-test-files', () => {
   const repo = makeRepo();
   fs.writeFileSync(path.join(repo, 'notes.txt'), 'просто правка, без теста\n');
   const r = redProof({ cwd: repo, baseHead: 'HEAD' });
   assert.equal(r.status, 'skipped');
-  assert.equal(r.reason, 'no-new-tests');
+  assert.equal(r.reason, 'no-test-files', 'причина про отсутствие файлов, а не про их «новизну»');
   assert.deepEqual(r.files, []);
+});
+
+// 011 T007 (AC7). Премиса задачи не подтвердилась: `testFilesFromDiff` читает
+// `git status --porcelain`, где `M` стоит рядом с `A`/`??` — изменённый тест слой НИКОГДА не
+// проскакивал. Тест ниже это фиксирует, чтобы утверждение перестало быть словом и стало
+// проверкой: правка существующего теста обязана прогоняться на baseHead.
+test('ИЗМЕНЁННЫЙ существующий тест гоняется на baseHead, а не пропускается', () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, 'lib.js'), 'module.exports = { add: (a, b) => a + b };\n');
+  fs.writeFileSync(path.join(repo, 'lib.test.js'),
+    "const { test } = require('node:test');\n" +
+    "const assert = require('node:assert/strict');\n" +
+    "test('сложение', () => { assert.equal(require('./lib').add(1, 2), 3); });\n");
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-q', '-m', 'baseline с тестом'], { cwd: repo, stdio: 'pipe' });
+
+  // Слайс: новое поведение в коде + УСИЛЕНИЕ существующего теста под него (ни одного нового файла).
+  fs.writeFileSync(path.join(repo, 'lib.js'), 'module.exports = { add: (a, b) => a + b, mul: (a, b) => a * b };\n');
+  fs.appendFileSync(path.join(repo, 'lib.test.js'),
+    "test('умножение', () => { assert.equal(require('./lib').mul(2, 3), 6); });\n");
+
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'red', 'изменённый тест падает на коде ДО слайса — слайс доказан');
+  assert.equal(r.reason, 'fails-on-base');
+  assert.deepEqual(r.files, ['lib.test.js'], 'файл попал в прогон, хотя он не новый');
+});
+
+test('ОСЛАБЛЕНИЕ существующего теста ловится: он проходит на baseHead → green (не доказан)', () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, 'lib.js'), 'module.exports = { add: (a, b) => a + b };\n');
+  fs.writeFileSync(path.join(repo, 'lib.test.js'),
+    "const { test } = require('node:test');\n" +
+    "const assert = require('node:assert/strict');\n" +
+    "test('сложение', () => { assert.equal(require('./lib').add(1, 2), 3); });\n");
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-q', '-m', 'baseline'], { cwd: repo, stdio: 'pipe' });
+
+  // Проверка выхолощена под код — ровно то, ради чего слой существует.
+  fs.writeFileSync(path.join(repo, 'lib.test.js'),
+    "const { test } = require('node:test');\n" +
+    "const assert = require('node:assert/strict');\n" +
+    "test('сложение', () => { assert.ok(require('./lib').add); });\n");
+
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'green', 'ослабленный тест зелен и на старом коде — доказательства нет');
+});
+
+// Самый прямой способ ослабить проверку — снести тест. До 011 T007 это роняло ВЕСЬ слой
+// исключением ENOENT (copyFileSync по файлу, которого уже нет), т.е. страж падал раньше того,
+// что он стережёт.
+test('УДАЛЁННЫЙ тест не роняет слой исключением и виден в отчёте', () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, 'gone.test.js'), "require('node:assert').ok(true);\n");
+  fs.writeFileSync(path.join(repo, 'stays.test.js'), "require('node:assert').ok(true);\n");
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-q', '-m', 'baseline'], { cwd: repo, stdio: 'pipe' });
+  fs.rmSync(path.join(repo, 'gone.test.js'));
+  fs.appendFileSync(path.join(repo, 'stays.test.js'), "require('node:assert').ok(1 === 1);\n");
+
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.deepEqual(r.deletedTests, ['gone.test.js'], 'удаление не исчезает молча — оно в пруфе');
+  assert.deepEqual(r.files, ['stays.test.js'], 'живые файлы прогоняются как обычно');
+});
+
+test('в диффе ТОЛЬКО удалённые тесты → skipped:only-deleted-tests, без падения', () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, 'gone.test.js'), "require('node:assert').ok(true);\n");
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-q', '-m', 'baseline'], { cwd: repo, stdio: 'pipe' });
+  fs.rmSync(path.join(repo, 'gone.test.js'));
+
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'skipped');
+  assert.equal(r.reason, 'only-deleted-tests');
+  assert.deepEqual(r.deletedTests, ['gone.test.js']);
 });
 
 test('тестовый файл без прогонной команды (не-node, нет harness.testCmd) → skipped:no-test-cmd', () => {
