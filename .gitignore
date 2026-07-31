@@ -67,6 +67,10 @@ audit/S11_pipeline_top1/PLAN\ (1).md
 vendor/
 
 
+# Очередь ревью (011 T004): рантайм-состояние прогонов, как run-log — не исходник. В дереве
+# она бы попадала в дифф следующего слайса и двигала treeHash под оракул-пруфом.
+.harness/review-queue.jsonl
+
 # judge-bench: отчёты прогонов = артефакт замера, не исходник
 .harness/judge-bench/
 .harness/fleet/

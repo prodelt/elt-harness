@@ -33,13 +33,17 @@ const JUDGE_TIMEOUT_MS = 8 * 60 * 1000;
 const VERDICT_SCHEMA = JSON.stringify({
   type: 'object',
   properties: {
-    verdict: { type: 'string', enum: ['pass', 'block'] },
+    // 011 T004: третий исход. Раньше судья, не уверенный в слайсе, был вынужден выбрать между
+    // block (и осцилляцией: имплементатор переделывает то, что не сломано) и pass (и молчанием).
+    verdict: { type: 'string', enum: ['pass', 'block', 'inconclusive'] },
     reasons: { type: 'array', items: { type: 'string' } },
     filesReviewed: { type: 'array', items: { type: 'string' } },
   },
   required: ['verdict', 'reasons', 'filesReviewed'],
 });
 
+// 011 T004: список исходов — один источник для схемы, парсеров и проводки.
+const VERDICTS = ['pass', 'block', 'inconclusive'];
 // Структурированный путь: последний элемент JSON-массива --output-format json → structured_output.
 // filesReviewed: null, если поле в ответе вообще отсутствует (старый провайдер/стаб без
 // схемы) — отличаем от намеренно пустого массива, чтобы граундинг-чек мог не сработать
@@ -50,7 +54,7 @@ function parseStructuredOutput(text) {
     const last = Array.isArray(arr) ? arr[arr.length - 1] : arr;
     const so = last && last.structured_output;
     const v = so && so.verdict;
-    if (v !== 'pass' && v !== 'block') return null;
+    if (!VERDICTS.includes(v)) return null;
     return {
       verdict: v,
       reasons: Array.isArray(so.reasons) ? so.reasons.map(String) : [],
@@ -129,9 +133,9 @@ function parseVerdict(text) {
   if (!text) return 'block';
   const structured = parseStructuredVerdict(text);
   if (structured) return structured;
-  const mJson = lastMatch(text, /"verdict"\s*:\s*"(pass|block)"/i);
+  const mJson = lastMatch(text, /"verdict"\s*:\s*"(pass|block|inconclusive)"/i);
   if (mJson) return mJson[1].toLowerCase();
-  const mProse = lastMatch(text, /(?:verdict|вердикт)\W{0,5}(pass|block)/i);
+  const mProse = lastMatch(text, /(?:verdict|вердикт)\W{0,5}(pass|block|inconclusive)/i);
   if (mProse) return mProse[1].toLowerCase();
   return 'block';
 }
@@ -312,7 +316,15 @@ ${omittedSection}${externalSection}
 ни одного — это сверяется кодом, не читается на веру. reasons не может быть пустым ни при
 каком вердикте.
 
-Дай вердикт pass или block с обоснованием — формат ответа проверяется автоматически (structured output).`;
+Есть ТРЕТИЙ исход — inconclusive. Он для одного случая: слайс не нарушает границ, но чего-то
+не хватает ИМЕННО ТЕБЕ, чтобы ручаться (внешний сервис недоступен, дифф обрезан по сути,
+поведение проверяемо только рантаймом, которого у тебя нет). Слайс тогда коммитится с меткой,
+а причина уходит в очередь ревью человеку — второго раунда судейства НЕ будет.
+inconclusive — НЕ «мягкий block» и НЕ способ не выбирать: нашёл нарушение — block, не нашёл —
+pass. Каждый лишний inconclusive превращает гейт в лог, который никто не читает.
+
+Дай вердикт pass, block или inconclusive с обоснованием — формат ответа проверяется
+автоматически (structured output).`;
 }
 
 // 009 T001: слепая обрезка `diff.slice(0, cap)` рубила хвост файлов целиком и молча —
@@ -431,7 +443,7 @@ function slurpExternalDiffs(cwd, files) {
 // provider: только claude умеет --json-schema (структурированный вывод, T016). codex/agy
 // эквивалента не имеют → требуем JSON последней строкой и читаем prose-парсером; стойка
 // REJECT-default та же (нет явного pass → block), так что кривой ответ безопасен.
-const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"],"filesReviewed":["path/a.js"]}  или  {"verdict":"block","reasons":["…"],"filesReviewed":["path/a.js"]}';
+const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"],"filesReviewed":["path/a.js"]}  или  {"verdict":"block",…}  или  {"verdict":"inconclusive",…}';
 async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = [], l0Triggers = [] }) {
   const structured = provider === 'claude';
   const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs, omitted, l0Triggers)
@@ -448,7 +460,10 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
   if (!parseStructuredVerdict(output)) {
     try { if (r.logPath && fs.existsSync(r.logPath)) output = fs.readFileSync(r.logPath, 'utf8'); } catch { /* лог не читается */ }
   }
-  const verdict = parseVerdict(output) === 'pass' ? 'pass' : 'block';
+  // 011 T004: pass/inconclusive проходят как есть, всё прочее — block (REJECT-default цел:
+  // неразобранный ответ по-прежнему блок, а не «ну не знаю»).
+  const parsed = parseVerdict(output);
+  const verdict = parsed === 'pass' || parsed === 'inconclusive' ? parsed : 'block';
   const reasons = parseReasons(output);
   const filesReviewed = parseFilesReviewed(output);
   // 008 T001: grounding — механическая сверка filesReviewed с реальным списком файлов диффа.
@@ -656,7 +671,11 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   // этого же слайса (caller хранит между попытками) прокидывается в prompt.
   const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason, verify: judgeVerify, judgeExclude });
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
-  if (j.verdict !== 'pass') return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
+  // 011 T004: inconclusive идёт дальше как pass — коммит с меткой + строка в очередь ревью
+  // (её пишет `elt commit`, там есть sha). Второго раунда судейства нет: caller видит ok:true.
+  if (j.verdict !== 'pass' && j.verdict !== 'inconclusive') {
+    return { ok: false, stage: 'judge', verdict: j.verdict, reasons: j.reasons, tid, judgeLog: j.judgeLog };
+  }
 
   // 2.5. red-proof (009 T010): в solo-пути он идёт через judge-invoke.js, а fleet-гейт его не
   //      знал вовсе — новый тест, зелёный на базе слайса, проезжал на одном pass судей. HEAD в
@@ -682,13 +701,13 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
     judges, grounding: { filesReviewed: j.filesReviewed || [] }, reasons: j.reasons || [],
     ...(redProofResult ? { redProof: redProofResult } : {}),
   }));
-  const proof = await exec.run('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', 'pass', '--model', judgeModel, '--extra-file', extraPath, '--attested-by', 'fleet-gate'], { cwd });
+  const proof = await exec.run('node', [elt, 'judge-proof', 'write', '--task', tid, '--verdict', j.verdict, '--model', judgeModel, '--extra-file', extraPath, '--attested-by', 'fleet-gate'], { cwd });
   try { fs.rmSync(path.dirname(extraPath), { recursive: true, force: true }); } catch { /* tmp, не критично */ }
   if (proof.status !== 0) return { ok: false, stage: 'judge-proof', tid, err: (proof.stderr || proof.stdout || '').trim() };
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
   const c = await exec.run('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
   if (c.status !== 0) return { ok: false, stage: 'commit', tid, err: (c.stderr || c.stdout || '').trim() };
-  return { ok: true, tid, verdict: 'pass', judgeLog: j.judgeLog };
+  return { ok: true, tid, verdict: j.verdict, judgeLog: j.judgeLog };
 }
 
 module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };

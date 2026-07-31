@@ -345,6 +345,13 @@ function findTaskBinding(taskId) {
 function invalidJudgeProof(reason, detail = '') {
   return { ok: false, reason, detail };
 }
+// 011 T004: `inconclusive` — судья не нашёл нарушения, но не может ручаться. Слайс проходит
+// с меткой, причина уходит в очередь ревью человеку. `dead` здесь не исход судьи, а отметка
+// «судья не отработал» (009 T002) — она гейт не проводит, как и раньше.
+const PROOF_VERDICTS = ['pass', 'block', 'dead', 'inconclusive'];
+// Очередь ревью — рантайм-состояние проекта, как run-log: в .gitignore, чтобы строка не
+// попадала в дифф следующего слайса и не двигала treeHash под оракул-пруфом.
+const REVIEW_QUEUE = path.join('.harness', 'review-queue.jsonl');
 // 008 T004: включённый контур усиленного судьи — judges[]/grounding/redProof обязательны в
 // proof только когда хотя бы один слой сверх базового активен (judge.verify задан ИЛИ
 // harness.json.redProof не "off"/пуст). Без этого — старое однопроходное поведение (крит. 7
@@ -375,7 +382,7 @@ function validateJudgeProof({ taskId } = {}) {
   const requiredStrings = ['taskId', 'specPath', 'baseHead', 'treeHash', 'oracleProofHash', 'verdict', 'model', 'createdAt'];
   if (!p || Array.isArray(p) || requiredStrings.some((key) => typeof p[key] !== 'string' || !p[key].trim()) ||
       !Array.isArray(p.reasons) || !p.reasons.every((reason) => typeof reason === 'string') ||
-      !['pass', 'block', 'dead'].includes(p.verdict) || Number.isNaN(Date.parse(p.createdAt))) {
+      !PROOF_VERDICTS.includes(p.verdict) || Number.isNaN(Date.parse(p.createdAt))) {
     return invalidJudgeProof('malformed');
   }
   if (taskId && p.taskId !== normalizeTaskArg(taskId)) return invalidJudgeProof('task-mismatch');
@@ -402,7 +409,7 @@ function validateJudgeProof({ taskId } = {}) {
     const answered = Array.isArray(p.judges) ? p.judges.filter((j) => j && typeof j === 'object' && j.runOk !== false) : [];
     if (!Array.isArray(p.judges) || !p.judges.length || !answered.length ||
         p.judges.some((j) => !j || typeof j !== 'object' || !j.provider || !j.model) ||
-        answered.some((j) => !['pass', 'block'].includes(j.verdict))) {
+        answered.some((j) => !['pass', 'block', 'inconclusive'].includes(j.verdict))) {
       return invalidJudgeProof('missing-judges');
     }
     if (!p.grounding || typeof p.grounding !== 'object' || Array.isArray(p.grounding) || !Array.isArray(p.grounding.filesReviewed)) {
@@ -423,7 +430,7 @@ function validateJudgeProof({ taskId } = {}) {
 function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof, attested, attestSkipped }) {
   const binding = findTaskBinding(taskId);
   if (!binding) die(`judge proof: task ${taskId} not found`);
-  if (!['pass', 'block', 'dead'].includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
+  if (!PROOF_VERDICTS.includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
     die('judge proof: invalid verdict, reasons, or model');
   }
   let oracleRaw;
@@ -638,7 +645,9 @@ if (cmd === 'judge' && sub === 'run') {
   if (!out) die(`elt judge run: судья не вернул JSON (exit ${r.status})\n${(r.stderr || '').slice(-2000)}`, 4);
   // runOk:false — судья НЕ отработал (timeout/spawn/limit). Это не вердикт: пишем `dead`,
   // чтобы гейт отказал явной причиной judge-dead, а не молчаливым отсутствием proof.
-  const verdict = out.runOk ? (out.verdict === 'pass' ? 'pass' : 'block') : 'dead';
+  // 011 T004: `inconclusive` доезжает до proof как самостоятельный исход. Всё, что не pass и
+  // не inconclusive, по-прежнему block — REJECT-default не размывается третьим значением.
+  const verdict = out.runOk ? (['pass', 'inconclusive'].includes(out.verdict) ? out.verdict : 'block') : 'dead';
   const model = (out.judges && out.judges[0] && out.judges[0].model) || opt('--model', 'unknown');
   const reasons = (out.reasons && out.reasons.length ? out.reasons : [`judge ${verdict}`]).map(String);
   const proof = writeJudgeProof({
@@ -656,7 +665,9 @@ if (cmd === 'judge' && sub === 'run') {
     judges: out.judges, judgeLog: out.judgeLog || null,
   });
   console.log(JSON.stringify(proof, null, 2));
-  process.exit(verdict === 'pass' ? 0 : 4);
+  // inconclusive = exit 0: слайс коммитится (с меткой), и это ЕДИНСТВЕННЫЙ прогон судьи по
+  // нему — драйвер/человек не должны запускать второй раунд по коду возврата.
+  process.exit(['pass', 'inconclusive'].includes(verdict) ? 0 : 4);
 }
 
 if (cmd === 'judge-proof') {
@@ -888,7 +899,11 @@ if (cmd === 'commit') {
   });
   const taskText = texts[0] + (texts.length > 1 ? ` (+${texts.length - 1})` : '');
 
-  const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice');
+  // 011 T004: метка ставится ПОСЛЕ обрезки до 90 — иначе длинный заголовок съедал бы её
+  // ровно на тех слайсах, где она и нужна.
+  const inconclusive = judge.proof.verdict === 'inconclusive';
+  const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice')
+    + (inconclusive ? ' [inconclusive]' : '');
   if (git(['add', '-A']).code !== 0) die('git add failed');
   const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8', env: { ...process.env, ELT_GATE_TRUST: gateTrust } });
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
@@ -897,6 +912,17 @@ if (cmd === 'commit') {
   // Задача закрылась — снимаем её с парковки (009 T004), иначе status/slice next
   // продолжали бы считать её припаркованной после успешной перезакрытия.
   unpark(taskId);
+
+  // Очередь ревью пишется ПОСЛЕ коммита: в строке обязан быть его sha, иначе разбирать нечего.
+  // Неблокирующая по решению 2 спеки (R4): накопление видно в doctor, работу не стопорит.
+  if (inconclusive) {
+    const queue = path.join(cwd, REVIEW_QUEUE);
+    fs.mkdirSync(path.dirname(queue), { recursive: true });
+    fs.appendFileSync(queue, JSON.stringify({
+      task: taskId, commit: sha, reason: (judge.proof.reasons || []).join('; '), ts: new Date().toISOString(),
+    }) + '\n');
+    console.error(`elt commit: вердикт inconclusive — строка в ${REVIEW_QUEUE} (разбор: elt review)`);
+  }
 
   appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted, durationSec: lastOracleSec }, commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}) });
 
