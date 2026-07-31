@@ -97,6 +97,39 @@ test('attest:true — ручной judge-proof write отвергается exit
   assert.ok(!fs.existsSync(path.join(root, '.git', 'elt', 'judge-proof.json')), 'proof не написан');
 });
 
+// 011 T003 (AC3): чистый слайс закрывается БЕЗ судьи, и в run-log это отдельный статус со
+// списком триггеров. Стаб-мост отдаёт ровно то, что отдаёт настоящий judge-invoke.js при
+// l0-clean; проверяется проводка elt.js — что решение механики доезжает до журнала, а не
+// теряется и не выглядит в нём как обычный judge-pass.
+test('judge run: l0-clean → в run-log отдельный статус и пустой список триггеров', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, {
+    runOk: true, verdict: 'pass', reasons: ['l0-clean: риск-триггеров нет, судья не звался'], judgeLog: null,
+    judges: [{ provider: 'l0', model: 'triggers', verdict: 'pass', runOk: true }],
+    grounding: { filesReviewed: [] }, redProof: null,
+    l0: { triggers: [], judgeNeeded: false },
+  });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 0);
+  const tail = runLogTail(root);
+  assert.equal(tail.status, 'l0-clean', 'не judge-pass: судья не звался, и журнал обязан это различать');
+  assert.deepEqual(tail.l0, { triggers: [], judgeNeeded: false }, 'пустой список — пруф «проверено и чисто»');
+  assert.equal(proof(root).verdict, 'pass', 'слайс при этом реально закрывается');
+});
+
+test('judge run: сработали триггеры → статус прежний judge-pass, но триггеры в журнале', () => {
+  const root = fixture();
+  const invoke = stubInvoke(root, {
+    runOk: true, verdict: 'pass', reasons: ['в границах'], judgeLog: 'log.txt',
+    judges: [{ provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true }],
+    grounding: { filesReviewed: ['slice.txt'] }, redProof: null,
+    l0: { triggers: [{ name: 'hot-path', files: ['tools/fleet/gate.js'], reason: 'тронут горячий путь' }], judgeNeeded: true },
+  });
+  assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 0);
+  const tail = runLogTail(root);
+  assert.equal(tail.status, 'judge-pass', 'путь к судье не изменился');
+  assert.deepEqual(tail.l0.triggers.map((t) => t.name), ['hot-path'], 'видно, ЧЕМ судья был разбужен');
+});
+
 test('--skip-attest: аварийный люк проходит, но оставляет след в run-log и в proof', () => {
   const root = fixture();
   const r = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'ручной', '--skip-attest']);

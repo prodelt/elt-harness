@@ -5,7 +5,7 @@
 // резолвит их фолбэком, T003) могли запускать судью через `elt judge run`.
 //
 // Замыкание фиксировано вручную (не auto-discovery require-графа): tasks.md T002 перечисляет
-// ровно эти 8 файлов, и relative require() внутри них (`./fleet/gate`, `../elt-config`, ...)
+// ровно эти файлы, и relative require() внутри них (`./fleet/gate`, `../elt-config`, ...)
 // резолвятся корректно, только если структура папок сохранена 1:1 при копировании.
 
 const fs = require('node:fs');
@@ -16,6 +16,8 @@ const CLOSURE = [
   'judge-invoke.js',
   'red-proof.js',
   'elt-config.js',
+  'elt-gate-l0.js', // 011 T003: gate.js требует его ДО судьи — без него мост мёртв в проектах
+
   path.join('fleet', 'gate.js'),
   path.join('fleet', 'providers.js'),
   path.join('fleet', 'exec.js'),

@@ -14,6 +14,7 @@ const plan = require('./plan');
 const router = require('./router');
 const { verifySettings } = require('../elt-config');
 const { redProof } = require('../red-proof');
+const { evaluate: evaluateL0 } = require('../elt-gate-l0');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 // 009 T010 (четыре замера на живом слайсе, причины у CLI РАЗНЫЕ — одной формулой не лечатся):
@@ -238,7 +239,7 @@ function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd(), omi
   return null;
 }
 
-function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = []) {
+function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = [], l0Triggers = []) {
   const files = diffFileList(status);
   const filesSection = files.length ? files.join('\n') : '(нет изменённых файлов)';
   // 009 T001: честная пометка «не показано» вместо молчаливой обрезки. Судья бежит в cwd
@@ -255,6 +256,16 @@ function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric =
     ? `\n--- РУБРИКА scope (меряй scope creep против неё, не только против однострочной ЗАДАЧИ ниже) ---\n` +
       (rubric.spec ? `spec.md (${rubric.spec.path}):\n${rubric.spec.text}\n` : '') +
       (rubric.constitution ? `constitution.md (${rubric.constitution.path}):\n${rubric.constitution.text}\n` : '')
+    : '';
+  // 011 T003: механика L0 уже посмотрела дифф и назвала места, где риск структурно возможен —
+  // именно поэтому судья и позван. Это КОНТЕКСТ, не обвинение и не половина вердикта: список
+  // без формулировки «суди дифф целиком» превращает судью в подтверждателя чужой гипотезы.
+  const l0Section = l0Triggers.length
+    ? `\n--- ПОЧЕМУ ТЕБЯ ПОЗВАЛИ (риск-триггеры L0, механические) ---\n` +
+      l0Triggers.map((t) => `- ${t.name}: ${t.reason}${t.files && t.files.length ? ` [${t.files.join(', ')}]` : ''}`).join('\n') +
+      `\nЭто не вердикт: механика лишь отметила места, где риск ВОЗМОЖЕН, и не проверяла, есть ли он.\n` +
+      `Суди дифф целиком как обычно; по перечисленным местам — внимательнее. Отсутствие проблемы\n` +
+      `в них — законный pass, а не повод искать, к чему придраться.\n`
     : '';
   const externalSection = externalDiffs.length
     ? externalDiffs.map((e) =>
@@ -286,7 +297,7 @@ spec-папках того же проекта. НЕ ищи историю/др�
 gh run view и т.п.) — суди ИСКЛЮЧИТЕЛЬНО дифф текущего рабочего дерева ниже. Пустой или
 нерелевантный дифф — повод для block, а не повод искать подтверждение где-то ещё.
 
-ЗАДАЧА (${tid}): ${taskText}${prevBlock}${rubricSection}
+ЗАДАЧА (${tid}): ${taskText}${prevBlock}${rubricSection}${l0Section}
 --- git status --porcelain ---
 ${status}
 
@@ -367,7 +378,10 @@ function slurpDiff(cwd, cap = DIFF_CAP, zoneFiles = [], pathspec = null) {
     for (const file of untracked) {
       const full = path.join(cwd, file);
       if (fs.statSync(full).isFile()) {
-        sections.push({ file: file.replace(/\\/g, '/'), text: `diff --git a/${file} b/${file}\n--- /dev/null\n+++ b/${file}\n${fs.readFileSync(full, 'utf8')}` });
+        // `new file mode` (011 T003): untracked-файл — это НОВЫЙ файл, и синтетическая секция
+        // обязана говорить это тем же признаком, что настоящий `git diff`. Без него L0 читает
+        // новый прод-код как правку существующего и слепнет на триггере `new-code-no-check`.
+        sections.push({ file: file.replace(/\\/g, '/'), text: `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n${fs.readFileSync(full, 'utf8')}` });
       }
     }
   } catch { /* unreadable untracked files remain visible in status */ }
@@ -418,9 +432,9 @@ function slurpExternalDiffs(cwd, files) {
 // эквивалента не имеют → требуем JSON последней строкой и читаем prose-парсером; стойка
 // REJECT-default та же (нет явного pass → block), так что кривой ответ безопасен.
 const JSON_TAIL_INSTRUCTION = '\n\nОТВЕТ: последней строкой выведи РОВНО один JSON без обрамления:\n{"verdict":"pass","reasons":["…"],"filesReviewed":["path/a.js"]}  или  {"verdict":"block","reasons":["…"],"filesReviewed":["path/a.js"]}';
-async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = [] }) {
+async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', rubric = null, externalDiffs = [], omitted = [], l0Triggers = [] }) {
   const structured = provider === 'claude';
-  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs, omitted)
+  const prompt = judgePrompt(tid, taskText, diff, status, prevBlockReason, rubric, externalDiffs, omitted, l0Triggers)
     + (structured ? '' : JSON_TAIL_INSTRUCTION);
   const started = Date.now();
   // readOnly: судья читает дифф и выносит вердикт — прогонять тесты ему нечего (оракул зелёный
@@ -471,19 +485,57 @@ function judgeEntry({ provider, model }, r) {
   return { provider, model, verdict: r.verdict, reasons: r.reasons, durationSec: r.durationSec, runOk: r.runOk };
 }
 
+// 011 T003: конфиг L0 (`harness.json.l0` — hotPaths/diffSizeThreshold). Отсутствует/битый →
+// пустой объект: у evaluate свои дефолты, и проект без конфига обязан получить L0 как есть
+// (AC12 — живой блок в чужом репо БЕЗ правок в нём).
+function l0Config(cwd) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8')).l0;
+    return j && typeof j === 'object' && !Array.isArray(j) ? j : {};
+  } catch { return {}; }
+}
+
 async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, verify: verifyOverride, judgeExclude = [] }) {
   const zoneFiles = scopeFilesFromTask(taskText);
   const { diff, status, omitted } = slurpDiff(cwd, undefined, zoneFiles);
   const rubric = loadRubric(cwd, tid, specFile);
   const externalDiffs = slurpExternalDiffs(cwd, zoneFiles);
-  const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted };
+
+  // 011 T003: L0 — механический фильтр ПЕРЕД судьёй. Нет ни одного риск-триггера → LLM не
+  // будится вовсе, вердикт выносит код. Есть триггеры → путь прежний, но судья получает их
+  // как контекст «почему тебя позвали». Внешние репо считаются вместе с текущим: слайс,
+  // вся работа которого лежит вне cwd (009 T014), иначе выглядел бы для L0 пустым.
+  // ponytail: дифф здесь уже обрезан бюджетом, поэтому `diff-size` считает ПОКАЗАННЫЕ строки.
+  // Файловые триггеры это не задевает — полный список файлов приходит из status, не из диффа.
+  const l0Diff = [diff, ...externalDiffs.map((e) => e.diff)].join('\n');
+  const l0Status = [status, ...externalDiffs.map((e) => e.status)].join('\n');
+  const l0 = evaluateL0({ diff: l0Diff, status: l0Status, config: l0Config(cwd), cwd });
+  // Пустой дифф — не «чистый слайс», а слайс, в котором ничего не сделано: триггеров в нём нет
+  // по определению, и молчаливый `l0-clean` пропустил бы пустышку как выполненную работу.
+  // Такое отдаём судье, как раньше: REJECT-default по пустому диффу — его штатная работа.
+  if (!l0.judgeNeeded && (l0Diff.trim() || l0Status.trim())) {
+    return {
+      verdict: 'pass',
+      reasons: ['l0-clean: риск-триггеров нет, судья не звался'],
+      filesReviewed: [],
+      judgeLog: null,
+      runOk: true,
+      durationSec: 0,
+      l0: { triggers: [], judgeNeeded: false },
+      // judges[] — контракт proof (elt.js validateJudgeProof). Пишем честно, КТО вынес вердикт:
+      // механика L0, а не LLM. Подставить сюда имя судьи значило бы соврать в пруфе.
+      judges: [{ provider: 'l0', model: 'triggers', verdict: 'pass', reasons: ['l0-clean'], durationSec: 0, runOk: true }],
+    };
+  }
+  const withL0 = (result) => ({ ...result, l0: { triggers: l0.triggers, judgeNeeded: true } });
+  const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted, l0Triggers: l0.triggers };
 
   const primary = await judgeDiff({ ...commonArgs, provider, model });
   const verify = verifyOverride !== undefined ? verifyOverride : verifySettings(cwd);
-  if (!verify) return primary;
+  if (!verify) return withL0(primary);
 
   const primaryEntry = judgeEntry({ provider, model }, primary);
-  if (!primary.runOk || primary.verdict !== 'pass') return { ...primary, judges: [primaryEntry] };
+  if (!primary.runOk || primary.verdict !== 'pass') return withL0({ ...primary, judges: [primaryEntry] });
 
   let secondary = await judgeDiff({ ...commonArgs, provider: verify.provider, model: verify.model });
   const judges = [primaryEntry, judgeEntry(verify, secondary)];
@@ -501,10 +553,10 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
       judges.push(judgeEntry(altPair, secondary));
     }
   }
-  if (!secondary.runOk) return { verdict: null, reasons: [], filesReviewed: primary.filesReviewed, judgeLog: secondary.judgeLog, runOk: false, judges };
+  if (!secondary.runOk) return withL0({ verdict: null, reasons: [], filesReviewed: primary.filesReviewed, judgeLog: secondary.judgeLog, runOk: false, judges });
 
   const verdict = secondary.verdict === 'pass' ? 'pass' : 'block';
-  return {
+  return withL0({
     verdict,
     reasons: verdict === 'pass' ? primary.reasons : [...primary.reasons, ...secondary.reasons],
     filesReviewed: primary.filesReviewed,
@@ -512,7 +564,7 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
     runOk: true,
     durationSec: primary.durationSec + secondary.durationSec,
     judges,
-  };
+  });
 }
 
 // --- T028: нормализация worktree ПЕРЕД гейтом ------------------------------------

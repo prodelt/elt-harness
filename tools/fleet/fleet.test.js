@@ -330,8 +330,10 @@ function seedT021Repo(prefix) {
   fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** слайс [P] [files:a*]\n');
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  // l0.hotPaths:['**'] (011 T003) — эти тесты про парковку МЁРТВОГО судьи, а не про решение
+  // L0 звать ли его: на фикстуре `a.txt` риск-триггеров нет и судья бы не запускался вовсе.
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'),
-    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
+    JSON.stringify({ kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, l0: { hotPaths: ['**'] } }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
   return repo;
 }
@@ -610,9 +612,14 @@ function seedChainRepo(prefix, { chain = ['agy', 'claude'], harness = {} } = {})
   fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T90** слайс [P] [S] [files:s*]\n');
   fs.mkdirSync(path.join(repo, '.harness', 'fleet'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'fleet', 'fleet.json'), JSON.stringify({ policy: { S: chain }, cooldownSec: 60 }));
+  // 011 T003: `l0.hotPaths:['**']` — тесты ниже про МАРШРУТИЗАЦИЮ судьи (кто судит, куда
+  // паркуется мёртвый). Фикстура-слайс пишет `s.txt`: риск-триггеров в нём нет, L0 закрыл бы
+  // слайс без судьи вовсе, и маршрутизировать стало бы нечего. Решение L0 меряется отдельно —
+  // tools/elt-gate-l0.test.js.
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
     kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash',
-    branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, ...harness,
+    branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' },
+    l0: { hotPaths: ['**'] }, ...harness,
   }));
   g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
   return repo;

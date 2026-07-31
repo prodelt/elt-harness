@@ -65,9 +65,11 @@ async function main() {
     }
   }
 
+  // l0 (011 T003) — решение механики «звать ли судью» и список триггеров. Едет наружу as-is:
+  // без него `elt judge run` не отличит `l0-clean` от обычного pass и run-log потеряет причину.
   process.stdout.write(JSON.stringify({
     runOk: !!r.runOk, verdict: r.runOk ? verdict : null, reasons, judgeLog: r.judgeLog || null,
-    judges, grounding, redProof: redProofResult,
+    judges, grounding, redProof: redProofResult, l0: r.l0 || null,
   }));
   process.exit(0);
 }

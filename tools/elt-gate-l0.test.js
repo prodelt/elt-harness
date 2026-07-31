@@ -7,11 +7,15 @@
 // Код-пути verify не тронуты — ими пользуется fleet и чужие проекты.
 
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const { verifySettings, readHarnessConfig } = require('./elt-config');
 const { evaluate, DEFAULT_DIFF_SIZE } = require('./elt-gate-l0');
+const providers = require('./fleet/providers');
+const { runJudge } = require('./fleet/gate');
 
 const ROOT = path.join(__dirname, '..');
 const BENCH = path.join(ROOT, '.planning', 'JUDGE-BENCH-011-T001.json');
@@ -122,7 +126,88 @@ function testDiffSize() {
   assert.deepEqual(names(evaluate({ diff: diffFor('docs/notes.md', { added: 11 }), config: { diffSizeThreshold: 10 } })), ['diff-size']);
 }
 
-function main() {
+// --- 011 T003: проводка L0 в гейт (AC3) ----------------------------------------------
+// Здесь тест уже не чистый: `runJudge` читает настоящий `git diff` — значит нужен настоящий
+// репозиторий. Зато он меряет ровно то, что заявлено критерием: сколько РАЗ позван судья.
+// Подменяется единственный шов, за которым живёт LLM (`providers.run`), — не сам runJudge:
+// мок на runJudge доказывал бы работу мока, а не то, что судья не запустился.
+
+const tmpDirs = [];
+function makeRepo(baseFiles) {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-l0-gate-'));
+  tmpDirs.push(repo);
+  const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  git(['init', '-q']);
+  git(['config', 'user.email', 't@t']);
+  git(['config', 'user.name', 't']);
+  for (const [file, body] of Object.entries(baseFiles)) fs.writeFileSync(path.join(repo, file), body);
+  git(['add', '-A']);
+  git(['commit', '-q', '-m', 'base']);
+  return repo;
+}
+function cleanupRepos() {
+  for (const dir of tmpDirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* windows lock */ } }
+}
+
+// filesReviewed в ответе НЕ отдаём: `null` = провайдер не знает про поле, и граундинг-чек по
+// файлам не срабатывает. Стабу нечего «разбирать» — он меряется числом вызовов, не вердиктом.
+async function withJudgeStub(fn) {
+  const calls = [];
+  const original = providers.run;
+  providers.run = async (opts) => {
+    calls.push(opts);
+    return { ok: true, stdout: JSON.stringify([{ type: 'result', structured_output: { verdict: 'pass', reasons: ['стаб'] } }]), logPath: null };
+  };
+  try { return { result: await fn(), calls }; } finally { providers.run = original; }
+}
+
+async function testJudgeNotCalledOnCleanSlice() {
+  const repo = makeRepo({ 'seed.txt': 'seed\n' });
+  // Слайс: новый прод-модуль вместе со своим тестом — ни одного риск-триггера.
+  fs.writeFileSync(path.join(repo, 'widget.js'), 'module.exports = { size: () => 42 };\n');
+  fs.writeFileSync(path.join(repo, 'widget.test.js'), "require('node:assert').equal(require('./widget').size(), 42);\n");
+
+  const { result, calls } = await withJudgeStub(() => runJudge({ cwd: repo, tid: 'T003', taskText: 'новый виджет' }));
+  assert.equal(calls.length, 0, 'на чистом слайсе судья не зовётся ВОВСЕ — ни разу');
+  assert.equal(result.runOk, true);
+  assert.equal(result.verdict, 'pass', 'вердикт выносит механика, слайс закрывается');
+  assert.match(result.reasons.join(' '), /l0-clean/, 'причина названа явно, а не пустая');
+  assert.deepEqual(result.l0, { triggers: [], judgeNeeded: false }, 'список проверенных триггеров пуст — это и есть пруф');
+  // proof-контракт (elt.js validateJudgeProof) требует judges[]; писать туда имя LLM-судьи,
+  // который не запускался, было бы ложью в пруфе — там стоит тот, кто реально решил.
+  assert.equal(result.judges.length, 1);
+  assert.equal(result.judges[0].provider, 'l0');
+  assert.equal(result.judges[0].verdict, 'pass');
+}
+
+async function testJudgeCalledOnceOnRiskySlice() {
+  const repo = makeRepo({
+    'widget.js': 'module.exports = { size: () => 42 };\n',
+    'widget.test.js': "require('node:assert').equal(require('./widget').size(), 42);\n",
+  });
+  // Слайс правит СУЩЕСТВОВАВШИЙ тест — ровно тот случай, ради которого судья и нужен.
+  fs.writeFileSync(path.join(repo, 'widget.test.js'), "require('node:assert').ok(require('./widget').size());\n");
+
+  const { result, calls } = await withJudgeStub(() => runJudge({ cwd: repo, tid: 'T003', taskText: 'ослабить проверку' }));
+  assert.equal(calls.length, 1, 'на рисковом слайсе судья зовётся РОВНО один раз (verify снят)');
+  assert.deepEqual(result.l0.triggers.map((t) => t.name), ['existing-test-modified']);
+  assert.equal(result.l0.judgeNeeded, true);
+  // Триггеры доезжают до судьи как контекст «почему тебя позвали», а не теряются по дороге.
+  const prompt = calls[0].prompt;
+  assert.match(prompt, /ПОЧЕМУ ТЕБЯ ПОЗВАЛИ/);
+  assert.match(prompt, /existing-test-modified/);
+  assert.match(prompt, /widget\.test\.js/);
+}
+
+// Дыра, которую L0 открыл бы сам по себе: в пустом диффе триггеров нет ПО ОПРЕДЕЛЕНИЮ, и
+// «чистый слайс» стал бы способом закрыть задачу, не сделав ничего. Пустое отдаём судье.
+async function testEmptyDiffStillReachesJudge() {
+  const repo = makeRepo({ 'seed.txt': 'seed\n' });
+  const { calls } = await withJudgeStub(() => runJudge({ cwd: repo, tid: 'T003', taskText: 'ничего не сделано' }));
+  assert.equal(calls.length, 1, 'пустой дифф — не l0-clean, его судит судья (REJECT-default)');
+}
+
+async function main() {
   testVerifyOffForThisRepo();
   testBenchBaselineParses();
   testNoTriggersOnCleanSlice();
@@ -130,7 +215,12 @@ function main() {
   testNewCodeWithoutCheck();
   testHotPath();
   testDiffSize();
+  try {
+    await testJudgeNotCalledOnCleanSlice();
+    await testJudgeCalledOnceOnRiskySlice();
+    await testEmptyDiffStillReachesJudge();
+  } finally { cleanupRepos(); }
   process.stdout.write('elt gate L0 tests: PASS\n');
 }
 
-main();
+main().catch((error) => { process.stderr.write(`${error.stack || error}\n`); process.exit(1); });
