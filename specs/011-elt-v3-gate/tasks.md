@@ -62,11 +62,13 @@
 
 ## Фаза C — третий исход вместо осцилляции
 
-- [ ] **T004** Вердикт `inconclusive` в парсере и гейте: коммит проходит с меткой в сообщении,
+- [X] **T004** Вердикт `inconclusive` в парсере и гейте: коммит проходит с меткой в сообщении,
   строка в `.harness/review-queue.jsonl` (`task`, `commit`, `reason`, `ts`), повторный прогон
   судьи на том же слайсе НЕ запускается. Тест на все три исхода (`pass`/`block`/`inconclusive`)
   и на отсутствие второго раунда. [AC4]
-  [files: tools/fleet/gate.js, tools/elt.js, tools/elt-inconclusive.test.js]
+  Зона расширена: `.gitignore` — очередь это рантайм-состояние (как run-log); в дереве её строка
+  попадала бы в дифф следующего слайса и двигала `treeHash` под оракул-пруфом.
+  [files: tools/fleet/gate.js, tools/elt.js, .gitignore, tools/elt-inconclusive.test.js]
 
 - [ ] **T005** `elt review`: печатает очередь (`--json` машиночитаемо) и закрывает записи
   (`elt review close --task Txxx`); закрытая не возвращается. `doctor` показывает длину очереди
