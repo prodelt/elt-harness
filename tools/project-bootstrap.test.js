@@ -47,6 +47,16 @@ function hashTree(root) {
   return hash.digest('hex');
 }
 
+// 010 T006: verify теперь требует резолвимый мост судьи при judge.enabled — фикстуры,
+// которые ждут зелёный verify, кладут мост в свой временный HOME, а не полагаются на машину.
+function homeWithBridge() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const bridge = path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js');
+  fs.mkdirSync(path.dirname(bridge), { recursive: true });
+  fs.writeFileSync(bridge, '// stub bridge\n', 'utf8');
+  return home;
+}
+
 function tempProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-'));
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"demo"}\n', 'utf8');
@@ -319,17 +329,17 @@ function testApplyPlanNeverOverridesExplicitApprovalChoice() {
 
 function testVerifyReportsApprovalGateSignalWithoutGatingOverallResult() {
   const root = tempProject();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const home = homeWithBridge();
   applyPlan(root, { home });
   validHarness(root); // still no specApproval/ctx7Gate
-  const report = verifyProject(root, { supplyChain: false });
+  const report = verifyProject(root, { supplyChain: false, home });
   assert.equal(report.signals.approvalGate.ok, false);
   assert.equal(report.signals.approvalGate.specApproval, false);
   assert.equal(report.signals.approvalGate.ctx7Gate, null);
   assert.equal(report.ok, true, 'approvalGate is a signal, not a gating contract');
 
   applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) }); // now patches defaults in
-  const after = verifyProject(root, { supplyChain: false });
+  const after = verifyProject(root, { supplyChain: false, home });
   assert.equal(after.signals.approvalGate.ok, true);
   assert.equal(after.signals.approvalGate.ctx7Gate, 'warn');
 }
@@ -370,11 +380,12 @@ function testVerifyFailsClosedOnMissingDocsHarnessGateForFreshCodeProject() {
 
 function testVerifyPassesAllContractsAfterApplyAndValidHarness() {
   const root = tempProject();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const home = homeWithBridge();
   applyPlan(root, { home });
   validHarness(root);
-  const report = verifyProject(root, { supplyChain: false });
+  const report = verifyProject(root, { supplyChain: false, home });
   assert.equal(report.contracts.docs.ok, true);
+  assert.equal(report.contracts.judgeBridge.ok, true);
   assert.equal(report.contracts.harnessConfig.ok, true);
   assert.equal(report.contracts.oracleVerifier.ok, true);
   assert.equal(report.contracts.oracleVerifier.command, 'npm test');
@@ -421,6 +432,35 @@ function testVerifySkillAvailabilityNegativeFixtureReportsDrift() {
   assert.equal(report.ok, false);
 }
 
+// 010 T006 (AC4): контур объявлен в harness.json, но мост физически не резолвится — это
+// красный С ПРИЧИНОЙ, а не тихий pass, которым в 9 проектах жил судья-самозаверитель.
+function testVerifyJudgeBridgeContractBothOutcomes() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root);
+
+  const missing = verifyProject(root, { supplyChain: false, home });
+  assert.equal(missing.contracts.judgeBridge.ok, false);
+  assert.equal(missing.contracts.judgeBridge.reason, 'judge bridge is not resolvable');
+  assert.equal(missing.contracts.judgeBridge.looked.length, 2, 'в отчёте видно, где искали');
+  assert.equal(missing.ok, false, 'недоступный мост рубит verify целиком');
+
+  const bridge = path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js');
+  fs.mkdirSync(path.dirname(bridge), { recursive: true });
+  fs.writeFileSync(bridge, '// stub bridge\n', 'utf8');
+  const resolved = verifyProject(root, { supplyChain: false, home });
+  assert.equal(resolved.contracts.judgeBridge.ok, true);
+  assert.equal(resolved.ok, true);
+
+  // judge выключен — контракта нет вовсе (проект без контура не обязан иметь мост)
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'npm test', judge: { enabled: false },
+  }), 'utf8');
+  const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  assert.equal(verifyProject(root, { supplyChain: false, home: emptyHome }).contracts.judgeBridge.skipped, true);
+}
+
 function testVerifySpecReadinessReportsExplicitIdleNotFailure() {
   const root = tempProject();
   const report = verifyProject(root, { supplyChain: false });
@@ -432,10 +472,10 @@ function testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate() {
   const root = tempProject();
   fs.mkdirSync(path.join(root, 'specs', '001-demo'), { recursive: true });
   fs.writeFileSync(path.join(root, 'specs', '001-demo', 'tasks.md'), '- [ ] **T001** demo\n- [X] **T002** done\n', 'utf8');
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const home = homeWithBridge();
   applyPlan(root, { home });
   validHarness(root);
-  const report = verifyProject(root, { supplyChain: false });
+  const report = verifyProject(root, { supplyChain: false, home });
   assert.equal(report.signals.specReadiness.status, 'active');
   assert.equal(report.signals.specReadiness.open, 1);
   assert.equal(report.signals.specReadiness.done, 1);
@@ -444,7 +484,7 @@ function testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate() {
 
 function testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult() {
   const root = tempProject();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const home = homeWithBridge();
   applyPlan(root, { home });
   validHarness(root);
   assert.equal(spawnSync('git', ['init'], { cwd: root, encoding: 'utf8' }).status, 0);
@@ -454,7 +494,7 @@ function testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult() {
   spawnSync('git', ['commit', '-m', 'init'], { cwd: root });
   fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const x = 2;\n', 'utf8');
 
-  const report = verifyProject(root, { supplyChain: false });
+  const report = verifyProject(root, { supplyChain: false, home });
   assert.equal(report.signals.cleanTree.ok, false);
   assert.equal(report.signals.cleanTree.dirty, true);
   assert.equal(report.ok, true);
@@ -475,11 +515,11 @@ function testVerifyCliJsonAndTextExitCodesMatch() {
   assert.equal(jsonFail.status, 1);
 
   const rootPass = tempProject();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  const home = homeWithBridge();
   applyPlan(rootPass, { home });
   validHarness(rootPass);
-  const textPass = runCli(['verify', '--root', rootPass, '--no-supply-chain']);
-  const jsonPass = runCli(['verify', '--root', rootPass, '--no-supply-chain', '--json']);
+  const textPass = runCli(['verify', '--root', rootPass, '--no-supply-chain', '--home', home]);
+  const jsonPass = runCli(['verify', '--root', rootPass, '--no-supply-chain', '--home', home, '--json']);
   assert.equal(textPass.status, 0);
   assert.equal(jsonPass.status, 0);
   assert.deepEqual(JSON.parse(jsonPass.stdout).ok, true);
@@ -583,6 +623,7 @@ function main() {
   testVerifySkipsCodeOnlyContractsForUnknownKind();
   testVerifyHarnessNegativeFixtureMalformedJson();
   testVerifySkillAvailabilityNegativeFixtureReportsDrift();
+  testVerifyJudgeBridgeContractBothOutcomes();
   testVerifySpecReadinessReportsExplicitIdleNotFailure();
   testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate();
   testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult();
