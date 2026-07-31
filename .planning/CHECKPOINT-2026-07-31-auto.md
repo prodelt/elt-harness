@@ -1,16 +1,16 @@
 # Checkpoint (auto) — 2026-07-31
 
-Автозаписан `checkpoint-writer.js` на пороге ~149k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~138k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
-- dirty files: 8
+- dirty files: 0
 
 ## Last Run
-- commit: `(none)`
-- verdict: (none)
+- commit: `0377f07`
+- verdict: pass
 - oracle exit: 0
-- msg: 
+- msg: feat: T004 `doctor`: WARN, если глобальная копия моста расходится с репо или отсутствует
 
 ## Next Slice
 - plan file: `specs\005-elt-control-plane-convergence\tasks.md`
