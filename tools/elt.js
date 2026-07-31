@@ -539,6 +539,43 @@ if (cmd === 'status') {
   process.exit(0);
 }
 
+// 011 T005: очередь ревью — разбор `inconclusive` пачкой, раз в сессию. Неблокирующая
+// (решение 2 спеки, R4): накопление видно, работу не стопорит.
+function readReviewQueue() {
+  let raw;
+  try { raw = fs.readFileSync(path.join(cwd, REVIEW_QUEUE), 'utf8'); } catch { return []; }
+  return raw.split(/\r?\n/).filter(Boolean).map((line) => {
+    try { return JSON.parse(line); } catch { return null; } // битая строка не хоронит очередь
+  }).filter(Boolean);
+}
+if (cmd === 'review') {
+  const rows = readReviewQueue();
+  if (sub === 'close') {
+    const taskId = normalizeTaskArg(opt('--task'));
+    if (!taskId) die('elt review close --task Txxx[,Tyyy]', 4);
+    const ids = new Set(parseTaskIds(taskId));
+    const now = new Date().toISOString();
+    let closed = 0;
+    const next = rows.map((row) => {
+      // Батч-запись несёт "T001,T002" — закрываем её, если названа ЛЮБАЯ из её задач.
+      const hit = !row.closedAt && parseTaskIds(row.task).some((id) => ids.has(id));
+      if (!hit) return row;
+      closed += 1;
+      return { ...row, closedAt: now };
+    });
+    // Закрытая запись остаётся в файле с меткой, а не удаляется: история разбора — тоже пруф.
+    if (closed) fs.writeFileSync(path.join(cwd, REVIEW_QUEUE), next.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    console.log(`elt review close: закрыто ${closed} (${taskId})`);
+    process.exit(0); // идемпотентно: повторный вызов закрывает 0 и это не ошибка
+  }
+  const open = rows.filter((row) => !row.closedAt);
+  if (flag('--json')) { console.log(JSON.stringify(open)); process.exit(0); }
+  if (!open.length) { console.log('elt review: очередь пуста'); process.exit(0); }
+  console.log(`elt review: ${open.length} на разборе`);
+  for (const row of open) console.log(`  ${row.task}  ${row.commit}  ${row.ts}\n    ${row.reason}`);
+  process.exit(0);
+}
+
 // 009 T004: парковка слайса (вызывает драйвер вместо `break`). Формат записи —
 // {tid, reason, ts, logPath, attempts}; повторная парковка той же задачи растит attempts.
 if (cmd === 'park') {
@@ -683,7 +720,7 @@ if (cmd === 'judge-proof') {
     const model = opt('--model');
     let reasons;
     try { reasons = JSON.parse(opt('--reasons-json', '[]')); } catch { die('judge proof: --reasons-json must be JSON array'); }
-    if (!taskId || !verdict || !model) die('elt judge-proof write --task Txxx --verdict pass|block|dead --model <model> [--reasons-json "[]"] [--extra-file <path>]');
+    if (!taskId || !verdict || !model) die(`elt judge-proof write --task Txxx --verdict ${PROOF_VERDICTS.join('|')} --model <model> [--reasons-json "[]"] [--extra-file <path>]`);
     // 009 T002: при attest:true ручной вердикт не проводится — вызови `elt judge run`.
     // --skip-attest остаётся аварийным люком, но оставляет громкий след и в run-log, и в proof.
     const skipAttest = flag('--skip-attest');
@@ -943,6 +980,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
+  elt review [--json] | elt review close --task Txxx        очередь вердиктов inconclusive (неблокирующая); close — снять с разбора
   elt oracle                                                прогнать оракул, exit-код = истина
   elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]  запустить судью КОДОМ и записать proof (exit 0 = pass)
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
