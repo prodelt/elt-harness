@@ -14,7 +14,7 @@ const plan = require('./plan');
 const router = require('./router');
 const { verifySettings } = require('../elt-config');
 const { redProof } = require('../red-proof');
-const { evaluate: evaluateL0 } = require('../elt-gate-l0');
+const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('../elt-gate-l0');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 // 009 T010 (четыре замера на живом слайсе, причины у CLI РАЗНЫЕ — одной формулой не лечатся):
@@ -502,24 +502,11 @@ function judgeEntry({ provider, model }, r) {
 
 // 011 T003: конфиг L0 (`harness.json.l0` — hotPaths/diffSizeThreshold). Отсутствует/битый →
 // пустой объект: у evaluate свои дефолты, и проект без конфига обязан получить L0 как есть
-// (AC12 — живой блок в чужом репо БЕЗ правок в нём).
-function l0Config(cwd) {
-  let cfg = {};
-  try {
-    const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8')).l0;
-    if (j && typeof j === 'object' && !Array.isArray(j)) cfg = { ...j };
-  } catch { /* нет конфига — дефолты evaluate */ }
-  // 011 T009: пруфы ctx7 читает ГЕЙТ и передаёт в evaluate данными — сама evaluate обязана
-  // остаться чистой (AC2), иначе её тест начнёт требовать репозиторий, а она — уметь подвиснуть.
-  let proofs = [];
-  try {
-    proofs = fs.readFileSync(path.join(cwd, '.harness', 'ctx7-proof.jsonl'), 'utf8')
-      .split(/\r?\n/).filter(Boolean)
-      .map((line) => { try { return JSON.parse(line); } catch { return null; } })
-      .filter(Boolean);
-  } catch { /* файла нет — пруфов нет, и это значимо: новый внешний импорт даст block */ }
-  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs } };
-}
+// (AC12 — живой блок в чужом репо БЕЗ правок в нём). Пруфы ctx7 читает ГЕЙТ и передаёт в
+// evaluate данными — сама evaluate обязана остаться чистой (AC2).
+// 011 T017: тело переехало в `elt-gate-l0.js` — его же зовёт `elt.js` перед оракулом, и два
+// чтения одного конфига разными кусками кода уже однажды разъехались бы.
+const l0Config = loadL0Config;
 
 async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, verify: verifyOverride, judgeExclude = [] }) {
   const zoneFiles = scopeFilesFromTask(taskText);
@@ -571,15 +558,38 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   const withL0 = (result) => ({ ...result, l0: { triggers: l0.triggers, judgeNeeded: true } });
   const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted, l0Triggers: l0.triggers };
 
-  const primary = await judgeDiff({ ...commonArgs, provider, model });
+  // 011 T017 (б): перевыдача МЁРТВОГО судьи следующему живому CLI. Была написана (T010 009)
+  // только для verify — пока судей было двое, смерть первичного покрывалась вторым слоем.
+  // T001 снял verify, и первичный остался единственным: его смерть (agy → ENAMETOOLONG за
+  // 0.006 c, run-log T003) валит весь гейт, хотя на машине есть другой живой CLI.
+  // Мёртвая попытка ОСТАЁТСЯ в judges[]: в proof виден и отказ, и кем он перевыдан, а не тихая
+  // подмена. Ниже judges[] пересобирается — поэтому и провайдер, и история едут явно.
+  let primaryPair = { provider, model };
+  let primary = await judgeDiff({ ...commonArgs, ...primaryPair });
   const verify = verifyOverride !== undefined ? verifyOverride : verifySettings(cwd);
-  if (!verify) return withL0(primary);
+  const deadAttempts = [];
+  if (!primary.runOk) {
+    deadAttempts.push(judgeEntry(primaryPair, primary));
+    const alt = JUDGE_ALTS.find((p) => p !== provider && p !== (verify && verify.provider)
+      && !judgeExclude.includes(p) && providers.available(p));
+    if (alt) {
+      primaryPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
+      primary = await judgeDiff({ ...commonArgs, ...primaryPair });
+    }
+    // Перевыдача не помогла (или заменить некем) — вердикта нет, слайс уходит в парковку как
+    // раньше. Помогла — дальше идём с ЖИВЫМ вердиктом от ДРУГОГО судьи.
+    if (!primary.runOk) {
+      return withL0({ ...primary, judges: alt ? [...deadAttempts, judgeEntry(primaryPair, primary)] : deadAttempts });
+    }
+  }
 
-  const primaryEntry = judgeEntry({ provider, model }, primary);
-  if (!primary.runOk || primary.verdict !== 'pass') return withL0({ ...primary, judges: [primaryEntry] });
+  const primaryEntry = judgeEntry(primaryPair, primary);
+  if (!verify) return withL0(deadAttempts.length ? { ...primary, judges: [...deadAttempts, primaryEntry] } : primary);
+
+  if (primary.verdict !== 'pass') return withL0({ ...primary, judges: [...deadAttempts, primaryEntry] });
 
   let secondary = await judgeDiff({ ...commonArgs, provider: verify.provider, model: verify.model });
-  const judges = [primaryEntry, judgeEntry(verify, secondary)];
+  const judges = [...deadAttempts, primaryEntry, judgeEntry(verify, secondary)];
   // 009 T010 (замер живьём): мёртвый verify-судья валил весь гейт в judge-dead — второй слой
   // контура молча выключался, и слайс было нечем закрыть, хотя на машине есть другой живой
   // CLI. Тот же failover, что у implement-вызовов: перевыдаём следующему ДОСТУПНОМУ CLI, не
@@ -587,7 +597,9 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   // (judgeExclude — fleet знает провайдера воркера, solo-путь его не имеет). Мёртвая попытка
   // ОСТАЁТСЯ в judges[]: в proof виден и отказ, и кем он перевыдан, а не тихая подмена.
   if (!secondary.runOk) {
-    const alt = JUDGE_ALTS.find((p) => p !== provider && p !== verify.provider && !judgeExclude.includes(p) && providers.available(p));
+    // 011 T017: исключаем ФАКТИЧЕСКОГО первичного (primaryPair), а не изначально запрошенного —
+    // после перевыдачи мёртвого это разные CLI, и verify мог бы совпасть с судьёй = самозаверение.
+    const alt = JUDGE_ALTS.find((p) => p !== primaryPair.provider && p !== verify.provider && !judgeExclude.includes(p) && providers.available(p));
     if (alt) {
       const altPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
       secondary = await judgeDiff({ ...commonArgs, ...altPair });

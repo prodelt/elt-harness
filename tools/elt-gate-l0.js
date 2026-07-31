@@ -185,4 +185,26 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '' } = {}) {
   return { triggers, judgeNeeded: triggers.length > 0 };
 }
 
-module.exports = { evaluate, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS };
+// 011 T017 (в): конфиг L0 читают ДВА вызывающих — `fleet/gate.js` перед судьёй и `elt.js` перед
+// оракулом. Живёт он здесь, а не в gate.js, потому что elt.js не может тянуть fleet-путь
+// (providers/router/замыкание sync-bin) ради чтения одного json'а. `evaluate` остаётся ЧИСТОЙ
+// (AC2) — ввод-вывод в отдельной функции, её и зовут снаружи.
+function loadConfig(cwd) {
+  const fs = require('fs');
+  const path = require('path');
+  let cfg = {};
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8')).l0;
+    if (j && typeof j === 'object' && !Array.isArray(j)) cfg = { ...j };
+  } catch { /* нет конфига — дефолты evaluate */ }
+  let proofs = [];
+  try {
+    proofs = fs.readFileSync(path.join(cwd, '.harness', 'ctx7-proof.jsonl'), 'utf8')
+      .split(/\r?\n/).filter(Boolean)
+      .map((line) => { try { return JSON.parse(line); } catch { return null; } })
+      .filter(Boolean);
+  } catch { /* файла нет — пруфов нет, и это значимо: новый внешний импорт даст block */ }
+  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs } };
+}
+
+module.exports = { evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS };

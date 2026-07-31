@@ -207,8 +207,83 @@ async function testEmptyDiffStillReachesJudge() {
   assert.equal(calls.length, 1, 'пустой дифф — не l0-clean, его судит судья (REJECT-default)');
 }
 
+// --- 011 T017 (а)(б): судья, которого можно позвать, и перевыдача мёртвого ------------------
+
+// (а) Конфиг репо обязан называть ЖИВОГО судью. `agy` падает spawn ENAMETOOLONG на любом
+// реальном диффе (промпт идёт через argv) — все 11 слайсов 011 прошли ручным `--provider
+// claude`, т.е. дефолтный путь был сломан, а тесты этого не видели.
+function testRepoJudgeProviderIsAlive() {
+  const { config: cfg } = readHarnessConfig(ROOT);
+  assert.notEqual(cfg.judge.provider, 'agy',
+    'agy как первичный судья этого репо: spawn ENAMETOOLONG на диффе больше пары килобайт');
+  assert.ok(providers.available(cfg.judge.provider), `судья ${cfg.judge.provider} из harness.json не установлен`);
+}
+
+// Стаб с разным поведением по провайдерам: мёртвый первичный, живая замена.
+async function withJudgeStubByProvider(behaviour, fn) {
+  const calls = [];
+  const original = providers.run;
+  providers.run = async (opts) => {
+    calls.push(opts);
+    if (behaviour[opts.provider] === 'dead') return { ok: false, stdout: '', logPath: '/tmp/dead.log', reason: 'stub-dead' };
+    return { ok: true, stdout: JSON.stringify([{ type: 'result', structured_output: { verdict: 'pass', reasons: ['стаб'] } }]), logPath: null };
+  };
+  try { return { result: await fn(), calls }; } finally { providers.run = original; }
+}
+
+function riskyRepo() {
+  const repo = makeRepo({
+    'widget.js': 'module.exports = { size: () => 42 };\n',
+    'widget.test.js': "require('node:assert').equal(require('./widget').size(), 42);\n",
+  });
+  fs.writeFileSync(path.join(repo, 'widget.test.js'), "require('node:assert').ok(require('./widget').size());\n");
+  return repo;
+}
+
+// (б) Регресс, введённый T001: перевыдача мёртвого судьи была написана ТОЛЬКО для verify.
+// Пока судей было двое, смерть первичного покрывалась вторым слоем; после снятия verify
+// первичный остался единственным, и его смерть валила весь гейт при живом CLI на машине.
+async function testDeadPrimaryIsReissued() {
+  const repo = riskyRepo();
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', '--version']); // codex «установлен»
+  try {
+    const { result, calls } = await withJudgeStubByProvider({ claude: 'dead' },
+      () => runJudge({ cwd: repo, tid: 'T017', taskText: 'ослабить проверку', verify: null }));
+    assert.deepEqual(calls.map((c) => c.provider), ['claude', 'codex'], 'мёртвый первичный перевыдан следующему живому CLI');
+    assert.equal(result.runOk, true, 'вердикт есть — гейт не умер вместе с первичным судьёй');
+    assert.equal(result.verdict, 'pass');
+    // Пруф не имеет права соврать, КТО судил: мёртвая попытка остаётся, живая названа своим именем.
+    assert.equal(result.judges.length, 2);
+    assert.equal(result.judges[0].provider, 'claude');
+    assert.equal(result.judges[0].runOk, false);
+    assert.equal(result.judges[1].provider, 'codex');
+    assert.equal(result.judges[1].verdict, 'pass');
+  } finally { delete process.env.FLEET_BIN_CODEX; }
+}
+
+// Обратная сторона: живого судьи никто не перевыдаёт — иначе один block стоил бы второго
+// мнения молча, и REJECT-default превратился бы в «спроси, пока не разрешат».
+async function testLivePrimaryIsNotReissued() {
+  const repo = riskyRepo();
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', '--version']);
+  try {
+    const { calls } = await withJudgeStubByProvider({}, () => runJudge({ cwd: repo, tid: 'T017', taskText: 'ослабить проверку', verify: null }));
+    assert.deepEqual(calls.map((c) => c.provider), ['claude'], 'живой первичный судит один раз и один');
+  } finally { delete process.env.FLEET_BIN_CODEX; }
+}
+
+// Заменить некем — по-прежнему парковка (judge-dead), а не тихий pass.
+async function testDeadPrimaryWithoutAltStaysDead() {
+  const repo = riskyRepo();
+  const { result } = await withJudgeStubByProvider({ claude: 'dead', codex: 'dead', agy: 'dead' },
+    () => runJudge({ cwd: repo, tid: 'T017', taskText: 'ослабить проверку', verify: null }));
+  assert.equal(result.runOk, false, 'нет живого судьи → нет вердикта; слайс паркуется, а не проходит');
+  assert.notEqual(result.verdict, 'pass');
+}
+
 async function main() {
   testVerifyOffForThisRepo();
+  testRepoJudgeProviderIsAlive();
   testBenchBaselineParses();
   testNoTriggersOnCleanSlice();
   testExistingTestModified();
@@ -219,6 +294,9 @@ async function main() {
     await testJudgeNotCalledOnCleanSlice();
     await testJudgeCalledOnceOnRiskySlice();
     await testEmptyDiffStillReachesJudge();
+    await testDeadPrimaryIsReissued();
+    await testLivePrimaryIsNotReissued();
+    await testDeadPrimaryWithoutAltStaysDead();
   } finally { cleanupRepos(); }
   process.stdout.write('elt gate L0 tests: PASS\n');
 }
