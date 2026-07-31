@@ -9,7 +9,7 @@
 
 ## Фаза A — снять шум (первым, иначе всё остальное едет через block-rate 77%)
 
-- [ ] **T001** Убрать `judge.verify` из `.harness/harness.json` этого репо (конъюнкция двух
+- [X] **T001** Убрать `judge.verify` из `.harness/harness.json` этого репо (конъюнкция двух
   REJECT-default судей исчезает; код-путь не трогаем — им пользуется fleet). Прогнать
   `node tools/judge-bench.js --out .planning/JUDGE-BENCH-011-T001.json` одиночным первичным
   (`agy`/`gemini-3.6-flash-high`) на 14 кейсах — число ДО того, как на нём поедут слайсы.

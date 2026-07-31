@@ -8,11 +8,7 @@
     "enabled": true,
     "provider": "agy",
     "model": "gemini-3.6-flash-high",
-    "attest": true,
-    "verify": {
-      "provider": "codex",
-      "model": "gpt-5.6-sol"
-    }
+    "attest": true
   },
   "redProof": "on",
   "batch": 3,
