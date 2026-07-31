@@ -526,6 +526,55 @@ function testOracleVerifierDeepActuallySpawnsShell() {
   assert.equal(checkOracleVerifierContract(inspectProject(root), { deep: true }).ok, false, 'живой запуск тоже красный');
 }
 
+// 010 T008 (AC5): шум вон из красного — verify на Route_API_1C-подобном проекте (своя секция
+// в AGENTS.md + deprecated `pipeline` без зеркал) обязан быть зелёным, а причина — видимой.
+function testVerifyDowngradesUnknownSectionsAndIgnoresDeprecatedSkill() {
+  const root = tempProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+  applyPlan(root, { home });
+  validHarness(root);
+  const bridge = path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js');
+  fs.mkdirSync(path.dirname(bridge), { recursive: true });
+  fs.writeFileSync(bridge, '// stub bridge\n', 'utf8');
+  for (const rel of ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')]) {
+    fs.appendFileSync(path.join(root, rel), '\n## Свої нотатки проєкту\nживий текст\n', 'utf8');
+  }
+
+  const report = verifyProject(root, {
+    home,
+    supplyChainAudit: {
+      kind: 'agent-skill-supply-chain',
+      validation: { ok: true, errors: [] },
+      clients: { claude: { exists: true } },
+      skills: [
+        { name: 'pipeline', clients: { claude: { installed: true, matchesSource: false } } },
+        { name: 'elt', clients: { claude: { installed: true, matchesSource: true } } },
+      ],
+      projects: [],
+    },
+  });
+  assert.deepEqual(report.contracts.skillAvailability.drifted_installs, [], 'deprecated route не считается дрейфом');
+  assert.equal(report.contracts.skillAvailability.ok, true);
+
+  // Исключение узкое: НЕустановленный deprecated-скилл всё ещё виден (это не дрейф копии,
+  // а отсутствие установки — задача просила снять только дрейф).
+  const notInstalled = verifyProject(root, {
+    home,
+    supplyChainAudit: {
+      kind: 'agent-skill-supply-chain',
+      validation: { ok: true, errors: [] },
+      clients: { claude: { exists: true } },
+      skills: [{ name: 'pipeline', clients: { claude: { installed: false, matchesSource: false } } }],
+      projects: [],
+    },
+  });
+  assert.deepEqual(notInstalled.contracts.skillAvailability.missing_installs, ['claude/pipeline'], 'отсутствие установки не прячем');
+  assert.equal(report.contracts.docs.ok, true, 'своя секция — не поломка контура');
+  assert.ok(report.contracts.docs.unknownSections.length > 0, 'но причина видна снаружи');
+  assert.match(report.contracts.docs.warnings[0], /unknownSections/);
+  assert.equal(report.ok, true, 'красный на шуме снят целиком');
+}
+
 function testVerifySpecReadinessReportsExplicitIdleNotFailure() {
   const root = tempProject();
   const report = verifyProject(root, { supplyChain: false });
@@ -691,6 +740,7 @@ function main() {
   testVerifyJudgeBridgeContractBothOutcomes();
   testOracleVerifierContractResolvesAndRunsDeep();
   testOracleVerifierDeepActuallySpawnsShell();
+  testVerifyDowngradesUnknownSectionsAndIgnoresDeprecatedSkill();
   testVerifySpecReadinessReportsExplicitIdleNotFailure();
   testVerifySpecReadinessReportsActiveOpenSlicesAsSignalNotGate();
   testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult();

@@ -84,7 +84,8 @@ function testUpgradePreservesProtectedBlocks() {
 function testSyncMakesCoreSectionsIdentical() {
   const root = tempProject('project-docs-sync');
   // Локальный контент оформлен как protected-блок (governed local) — sync его сохраняет,
-  // verify остаётся зелёным (в отличие от bare non-core секции, см. testVerifyFailsOnUnknownNonCoreSection).
+  // verify остаётся зелёным без warn (bare non-core секция тоже зелёная, но с warn —
+  // см. testVerifyWarnsButPassesOnUnknownNonCoreSection).
   const local = '<!-- project-docs:protected:start codex -->\nKeep me.\n<!-- project-docs:protected:end codex -->';
   write(path.join(root, 'AGENTS.md'), coreDoc(`\n${local}\n`));
   write(path.join(root, 'CLAUDE.md'), coreDoc().replace('Stack content.', 'Wrong stack.'));
@@ -117,14 +118,17 @@ function testVerifyFailsOnDrift() {
   assert.equal(verification.ok, false);
 }
 
-function testVerifyFailsOnUnknownNonCoreSection() {
+// 010 T008 (AC5): своя секция в AGENTS.md проекта — это warn, а не fail (было fail-closed,
+// 005 AC10). Красный на ней делал verify шумом, в котором тонули настоящие красные. Сигнал
+// не теряется: секция остаётся в unknownSections и пробрасывается наружу в отчёт bootstrap.
+function testVerifyWarnsButPassesOnUnknownNonCoreSection() {
   const root = tempProject('project-docs-verify-unknown');
   DOC_FILES.forEach((relative) => write(path.join(root, relative), coreDoc()));
   const agents = path.join(root, 'AGENTS.md');
   write(agents, read(agents) + '\n## Random Notes\nUngoverned content.\n');
   const verification = verifyProjectDocs(root);
-  assert.equal(verification.ok, false);
-  assert.ok(verification.unknownSections.some((item) => /Random Notes/.test(item)));
+  assert.equal(verification.ok, true, 'своя секция не рубит verify');
+  assert.ok(verification.unknownSections.some((item) => /Random Notes/.test(item)), 'но остаётся видимой');
   // Guard: sync НЕ удаляет неизвестный user-контент молча.
   initOrSyncProjectDocs({ root, home: path.join(root, 'home'), mode: 'sync' });
   assert.match(read(agents), /Ungoverned content\./);
@@ -206,7 +210,7 @@ function main() {
   testSyncMakesCoreSectionsIdentical();
   testVerifyFailsOnMissingSection();
   testVerifyFailsOnDrift();
-  testVerifyFailsOnUnknownNonCoreSection();
+  testVerifyWarnsButPassesOnUnknownNonCoreSection();
   testProtectedLocalSurvivesAndVerifies();
   testSyncIsIdempotent();
   testAgentsMdWinsWhenSectionCoverageTies();

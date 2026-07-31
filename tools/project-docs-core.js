@@ -236,10 +236,13 @@ function verifyProjectDocs(root) {
   const unknownSections = rawDocs.flatMap((doc) => doc.exists
     ? unknownSectionTitles(doc.text).map((title) => `${doc.relative}:${title}`)
     : []);
-  // Fail-closed: verify зелёный ТОЛЬКО когда все 9 секций есть, core идентичен по 3 файлам,
-  // и нет unprotected non-core секций (spec 005 AC10).
+  // Fail-closed по СУТИ: зелёный только когда все 9 секций есть и core идентичен по 3 файлам.
+  // 010 T008 (AC5): unknownSections понижены из fail в warn — своя секция в AGENTS.md проекта
+  // это не поломка контура, а обычная жизнь проекта; красный на ней делал verify шумом, из-за
+  // которого не читали настоящие красные (Route_API_1C: мост судьи отсутствовал и это тонуло).
+  // Сигнал не теряется: поле остаётся в отчёте и пробрасывается наружу как warning (005 AC10).
   return {
-    ok: missing.length === 0 && coreIdentical && unknownSections.length === 0,
+    ok: missing.length === 0 && coreIdentical,
     missing,
     coreIdentical,
     unknownSections,
