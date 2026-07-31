@@ -10,6 +10,7 @@ const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
 const { readHarnessConfig } = require('./elt-config');
+const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const { inspectProject } = require('./project-bootstrap');
 const fleetClaims = require('./fleet/claims');
@@ -696,6 +697,34 @@ function checkHarnessConfig(root) {
   return result('pass', 'harness:config', 'Harness config valid', `kind=${harness.config.kind}`, '', { file: harness.file });
 }
 
+// R1 (спека 010): глобальная копия моста судьи — вторая копия кода, она разъезжается с репо
+// молча, как `tools/elt.js` ≡ `~/.claude/bin/elt.js`. Механический сигнал: при judge.enabled
+// нет копии → WARN (`elt judge run` в чужом проекте упадёт), копия ≠ репо → WARN с именами.
+function checkJudgeBridge(root, home) {
+  const harness = readHarnessConfig(root);
+  if (!harness.ok || !harness.config.judge || !harness.config.judge.enabled) return [];
+  const globalDir = path.join(home, '.claude', 'bin', 'judge');
+  const toolsDir = path.join(root, 'tools');
+  const missing = JUDGE_BRIDGE_CLOSURE.filter((rel) => !fs.existsSync(path.join(globalDir, rel)));
+  if (missing.length) {
+    return [result('warn', 'judge:bridge', 'Global judge bridge missing', `${globalDir}: ${missing.join(', ')}`, 'Run node tools\\sync-bin.js to install the judge bridge in ~/.claude/bin/judge.', { dest: globalDir, missing })];
+  }
+  // Дрейф меряется только там, где есть источник — в репо-разработчике. В чужом проекте
+  // сравнивать не с чем, и присутствие замыкания это всё, что доктор может утверждать.
+  if (!fs.existsSync(path.join(toolsDir, 'judge-invoke.js'))) {
+    return [result('pass', 'judge:bridge', 'Global judge bridge installed', globalDir, '', { dest: globalDir })];
+  }
+  const drift = JUDGE_BRIDGE_CLOSURE.filter((rel) => {
+    const src = sha256File(path.join(toolsDir, rel));
+    const copy = sha256File(path.join(globalDir, rel));
+    return !src.ok || !copy.ok || src.value !== copy.value;
+  });
+  if (drift.length) {
+    return [result('warn', 'judge:bridge', 'Global judge bridge drifted from repo', drift.join(', '), 'Run node tools\\sync-bin.js to refresh the global copy.', { dest: globalDir, drift })];
+  }
+  return [result('pass', 'judge:bridge', 'Global judge bridge in sync', `${JUDGE_BRIDGE_CLOSURE.length} files match ${globalDir}`, '', { dest: globalDir })];
+}
+
 function pipelineDirFromRegistry(home, fallbackRoot) {
   const parsed = readJson(path.join(home, '.claude', 'projects-registry.json'));
   if (parsed.ok && parsed.value && typeof parsed.value.pipelineDir === 'string' && parsed.value.pipelineDir.trim()) {
@@ -984,6 +1013,7 @@ function runDoctor(options) {
     ...checkDocsGate(root),
     ...checkHarnessChecklist(root),
     checkHarnessConfig(root),
+    ...checkJudgeBridge(root, home),
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
@@ -1036,6 +1066,7 @@ module.exports = {
   checkDocsGate,
   checkHarnessChecklist,
   checkHarnessConfig,
+  checkJudgeBridge,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
   checkFleet,

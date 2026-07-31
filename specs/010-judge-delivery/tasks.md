@@ -25,7 +25,7 @@
   Явный `--invoke` перебивает оба. Тест на все три ветки. Синхронить `~/.claude/bin/elt.js`. [AC1]
   [files: tools/elt.js, tools/elt-judge-contract.test.js]
 
-- [ ] **T004** `doctor`: WARN, если глобальная копия моста расходится с репо или отсутствует
+- [X] **T004** `doctor`: WARN, если глобальная копия моста расходится с репо или отсутствует
   при `judge.enabled`. Тест. [R1]
   [files: tools/doctor-core.js, tools/doctor.test.js]
 
