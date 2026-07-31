@@ -16,7 +16,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
+const { selectTests } = require('./elt-oracle-select');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -73,13 +74,38 @@ async function runAll(files, jobs, root = ROOT, onDone = () => {}) {
   return results;
 }
 
+// 011 T006: что тронул слайс. Untracked отдельно — в `git diff` их нет вовсе, а новый файл
+// это самый частый случай слайса. Не git-репо / git недоступен → пустой список, и выборка
+// сама уйдёт в «гнать все».
+function changedFiles(root = ROOT) {
+  const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  try {
+    return [
+      ...git(['diff', '--name-only', 'HEAD']).split(/\r?\n/),
+      ...git(['ls-files', '--others', '--exclude-standard']).split(/\r?\n/),
+    ].filter(Boolean);
+  } catch { return []; }
+}
+function oracleSelectMode(root = ROOT) {
+  try {
+    const mode = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).oracleSelect;
+    return mode === 'impact' ? 'impact' : 'all'; // дефолт `all` — обратная совместимость (AC6)
+  } catch { return 'all'; }
+}
+
 async function main() {
   const files = discover(path.join(ROOT, 'tools'))
     .map((f) => path.relative(ROOT, f).split(path.sep).join('/'))
     .sort();
-  const run = files.filter((f) => !SKIP.has(f));
+  const all = files.filter((f) => !SKIP.has(f));
   const skipped = files.filter((f) => SKIP.has(f));
   const jobs = jobsFrom(process.argv.slice(2));
+
+  // Выборка НИКОГДА не молчит: и режим, и причина печатаются — иначе «оракул зелёный» стало бы
+  // невозможно отличить от «оракул ничего не гонял».
+  const pick = selectTests({ cwd: ROOT, changedFiles: changedFiles(), allTests: all, mode: oracleSelectMode() });
+  const run = pick.files;
+  console.error(`elt-oracle-runner: выборка ${pick.mode} — ${pick.selected}/${pick.total} файлов (${pick.reason})`);
 
   console.error(`elt-oracle-runner: ${run.length} test files, jobs=${jobs} (${skipped.length} skipped: ${skipped.join(', ') || 'none'})`);
   const started = Date.now();
@@ -101,4 +127,4 @@ async function main() {
 
 if (require.main === module) main();
 
-module.exports = { discover, SKIP, jobsFrom, runFile, runAll };
+module.exports = { discover, SKIP, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode };
