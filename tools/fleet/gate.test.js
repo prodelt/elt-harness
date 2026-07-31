@@ -123,10 +123,14 @@ const commits = () => Number(git(['rev-list', '--count', 'HEAD']).trim());
 const stub = (name, verdict) =>
   writeStub(name, `console.log('{"verdict":"${verdict}","reasons":["stub"]}');`);
 function writeStub(name, body) { const p = path.join(REPO, name); fs.writeFileSync(p, body); return p; }
+// 011 T003: `l0.hotPaths: ['**']` — здесь меряется путь ЧЕРЕЗ судью (вердикт, промпт,
+// нормализация), а не решение L0 звать ли его. Без этого фикстуры вроде `slice2.txt` не дают
+// ни одного риск-триггера, судья не зовётся вовсе, и тесты меряли бы уже не то, что заявляют.
+// Само решение L0 покрыто отдельно — tools/elt-gate-l0.test.js (счётчик вызовов стаба).
 function writeHarness(oracle) {
   fs.mkdirSync(path.join(REPO, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(REPO, '.harness', 'harness.json'),
-    JSON.stringify({ kind: 'code', oracle, shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
+    JSON.stringify({ kind: 'code', oracle, shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, l0: { hotPaths: ['**'] } }));
 }
 
 let PASS_STUB, BLOCK_STUB;
@@ -371,7 +375,7 @@ test('gate: self-commit воркера + правка вне [files:] → нор
     fs.mkdirSync(path.join(R, '.harness'), { recursive: true });
     const baseShell = process.platform === 'win32' ? 'powershell' : 'bash';
     fs.writeFileSync(path.join(R, '.harness', 'harness.json'),
-      JSON.stringify({ kind: 'code', oracle: 'node --version', shell: baseShell, branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
+      JSON.stringify({ kind: 'code', oracle: 'node --version', shell: baseShell, branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, l0: { hotPaths: ['**'] } }));
     // capture-стаб судьи кладём в base (не часть слайса, чужой дифф не создаёт)
     const cap = path.join(os.tmpdir(), `fleet-gate-cap-${Date.now()}.txt`);
     fs.writeFileSync(path.join(R, 'judge.js'),
@@ -388,7 +392,7 @@ test('gate: self-commit воркера + правка вне [files:] → нор
     fs.writeFileSync(path.join(R, 'out', 'alpha.txt'), 'ALPHA\n');
     fs.writeFileSync(path.join(R, 'tasks.md'), '- [X] **T1** демо [files:out/alpha.txt]\n');
     fs.writeFileSync(path.join(R, '.harness', 'harness.json'),
-      JSON.stringify({ kind: 'code', oracle: 'node --version', shell: 'zsh', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' } }));
+      JSON.stringify({ kind: 'code', oracle: 'node --version', shell: 'zsh', branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, l0: { hotPaths: ['**'] } }));
     g2(['add', '-A']); g2(['commit', '-q', '-m', 'feat: add alpha output']);
     assert.equal(g2(['diff', 'HEAD']).trim(), '', 'до нормализации git diff HEAD ПУСТ (self-commit спрятал работу)');
 

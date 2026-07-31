@@ -646,7 +646,15 @@ if (cmd === 'judge' && sub === 'run') {
     judges: out.judges, grounding: out.grounding, redProof: out.redProof || undefined,
     attested: true,
   });
-  appendRunLog({ task: taskId, status: `judge-${verdict}`, verdict, judges: out.judges, judgeLog: out.judgeLog || null });
+  // 011 T003 (AC3): чистый слайс закрывается БЕЗ судьи — и это обязано быть видно в run-log
+  // отдельным статусом, а не неотличимым `judge-pass`. Триггеры пишем всегда: на `l0-clean`
+  // пустой список и есть доказательство «проверено и чисто», а не «проверка не запускалась».
+  const l0 = out.l0 && typeof out.l0 === 'object' ? out.l0 : null;
+  appendRunLog({
+    task: taskId, status: l0 && l0.judgeNeeded === false ? 'l0-clean' : `judge-${verdict}`, verdict,
+    ...(l0 ? { l0: { triggers: l0.triggers || [], judgeNeeded: !!l0.judgeNeeded } } : {}),
+    judges: out.judges, judgeLog: out.judgeLog || null,
+  });
   console.log(JSON.stringify(proof, null, 2));
   process.exit(verdict === 'pass' ? 0 : 4);
 }

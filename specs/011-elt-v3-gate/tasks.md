@@ -44,11 +44,21 @@
   триггер по отдельности и на пустой набор. [AC2]
   [files: tools/elt-gate-l0.js, tools/elt-gate-l0.test.js]
 
-- [ ] **T003** Проводка L0 в гейт: нет триггеров → судья НЕ зовётся, вердикт `pass`, запись
+- [X] **T003** Проводка L0 в гейт: нет триггеров → судья НЕ зовётся, вердикт `pass`, запись
   `l0-clean` в run-log с пустым списком триггеров; есть триггеры → путь к судье как раньше, но
   список триггеров едет в run-log и в промпт судьи как контекст «почему тебя позвали».
   Тест: судья-стаб не вызван ни разу на чистом слайсе, вызван ровно один раз на рисковом. [AC3]
-  [files: tools/elt.js, tools/fleet/gate.js, tools/elt-gate-l0.test.js]
+  Зона расширена при реализации: `tools/judge-invoke.js` — мост solo-пути, без проброса `l0`
+  через него `elt judge run` физически не может отличить `l0-clean` от обычного `judge-pass`;
+  `tools/fleet/gate.test.js` — механическое следствие проводки: его фикстуры (`slice2.txt`,
+  `out/alpha.txt`) не дают ни одного риск-триггера, судья на них перестал зваться, и два теста
+  стали мерить не то, что заявляют. Фикстурам добавлен `l0.hotPaths:['**']` (тесты про путь
+  ЧЕРЕЗ судью), поведение самих тестов не ослаблено; `tools/sync-bin.js` — `elt-gate-l0.js`
+  входит в замыкание моста, иначе `elt judge run` падает MODULE_NOT_FOUND во всех проектах
+  (поймано контракт-тестом `sync-bin.test.js`, не рассуждением); `tools/fleet/fleet.test.js` —
+  та же причина, что у `gate.test.js`; `tools/elt-judge-attest.test.js` — запись `l0-clean` в
+  run-log проверяется на готовой фикстуре `elt judge run` вместо её дубля в третьем файле.
+  [files: tools/elt.js, tools/fleet/gate.js, tools/judge-invoke.js, tools/sync-bin.js, tools/fleet/gate.test.js, tools/fleet/fleet.test.js, tools/elt-judge-attest.test.js, tools/elt-gate-l0.test.js]
 
 ## Фаза C — третий исход вместо осцилляции
 
