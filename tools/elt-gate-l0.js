@@ -22,6 +22,38 @@ const DEFAULT_DIFF_SIZE = 400;
 const TEST_PATH = /(^|\/)[^/]*\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(tests?|__tests__)\//i;
 const CODE_PATH = /\.(js|cjs|mjs|jsx|ts|tsx|py|go|rs|rb|java|cs|php|sh|ps1)$/i;
 
+// 011 T009: новый ВНЕШНИЙ импорт в диффе. Мотив (§3.3 спеки): API чужой либы — ровно то место,
+// где модель уверенно пишет несуществующий метод, а оракул этого не ловит (тест пишет тот же,
+// кто выдумал API). Пруф свежего обращения к ctx7 — механическая замена «я помню эту либу».
+const BUILTINS = new Set(require('node:module').builtinModules);
+const IMPORT_RE = /(?:require\s*\(\s*|from\s+|import\s+)['"]([^'"]+)['"]/g;
+const CTX7_FRESH_DAYS = 30;
+function externalImports(diff) {
+  const names = new Set();
+  for (const line of String(diff || '').split(/\r?\n/)) {
+    if (!line.startsWith('+') || line.startsWith('+++')) continue; // только ДОБАВЛЕННЫЕ строки
+    for (const m of line.matchAll(IMPORT_RE)) {
+      const spec = m[1];
+      if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) continue;
+      // Пакет, а не подпуть внутри него: `lodash/fp` — та же либа.
+      const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+      if (!BUILTINS.has(pkg)) names.add(pkg);
+    }
+  }
+  return [...names];
+}
+// Пруф читает ВЫЗЫВАЮЩИЙ и передаёт сюда: evaluate обязана остаться чистой (AC2) — иначе её
+// тест начнёт требовать репозиторий, а сама она сможет подвиснуть в гейте на вводе-выводе.
+function ctx7Covered(pkg, proofs, freshDays) {
+  const cutoff = Date.now() - freshDays * 24 * 60 * 60 * 1000;
+  const needle = pkg.toLowerCase();
+  return proofs.some((p) => {
+    const ts = Date.parse(p && p.ts);
+    if (!Number.isFinite(ts) || ts < cutoff) return false;
+    return [p.library, p.query, p.libraryId].filter(Boolean).some((v) => String(v).toLowerCase().includes(needle));
+  });
+}
+
 // ponytail: минимальный glob — `**`, `*`, `?`. Хватает на список путей в конфиге.
 // Апгрейд до полноценного matcher'а — когда понадобятся `{a,b}` или классы символов.
 const GLOB_TOKENS = { '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]' };
@@ -127,7 +159,30 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '' } = {}) {
     triggers.push({ name: 'diff-size', files: [], reason: `дифф ${lines} строк при пороге ${threshold}` });
   }
 
+  // 011 T009: единственный триггер, который сам выносит вердикт, а не будит судью. Новый
+  // внешний импорт без свежего обращения к ctx7 — это не «подозрительно», это неподтверждённый
+  // API, и спорить тут не о чем. R5: если мёртв САМ ctx7 (а не пруф отсутствует) — это
+  // `inconclusive` с причиной: внешний сервис не должен останавливать работу.
+  const ctx7 = (config.ctx7 && typeof config.ctx7 === 'object') ? config.ctx7 : {};
+  const imports = externalImports(diff);
+  if (imports.length) {
+    const proofs = Array.isArray(ctx7.proofs) ? ctx7.proofs : [];
+    const freshDays = Number.isFinite(ctx7.freshDays) && ctx7.freshDays > 0 ? ctx7.freshDays : CTX7_FRESH_DAYS;
+    const uncovered = imports.filter((pkg) => !ctx7Covered(pkg, proofs, freshDays));
+    if (uncovered.length) {
+      const available = ctx7.available !== false; // не заявили обратного — считаем живым
+      triggers.push({
+        name: 'external-import-no-ctx7',
+        files: uncovered,
+        reason: available
+          ? `новый внешний импорт без свежего пруфа ctx7 (${freshDays} дн.): ${uncovered.join(', ')}`
+          : `ctx7 недоступен (${ctx7.reason || 'причина не названа'}) — API импортов ${uncovered.join(', ')} нечем подтвердить`,
+      });
+      return { triggers, judgeNeeded: true, verdict: available ? 'block' : 'inconclusive' };
+    }
+  }
+
   return { triggers, judgeNeeded: triggers.length > 0 };
 }
 
-module.exports = { evaluate, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE };
+module.exports = { evaluate, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS };

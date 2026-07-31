@@ -6,10 +6,25 @@
 // because ctx7 is already resolved in PATH and npx adds unnecessary overhead.
 
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const STDOUT_LIMIT = 2000;
 const STDERR_LIMIT = 500;
 const DEFAULT_TIMEOUT_MS = 12000;
+// 011 T009: след УСПЕШНОГО обращения к ctx7. По нему L0 отличает «сверился с документацией»
+// от «вспомнил API» — без записи новый внешний импорт в диффе даёт block. Файл рантайм-ный
+// (как run-log): его пишет инструмент, а не человек, и в дифф слайса он попадать не должен.
+const CTX7_PROOF = path.join('.harness', 'ctx7-proof.jsonl');
+function appendCtx7Proof(subcommand, subargs, cwd = process.cwd()) {
+  try {
+    const file = path.join(cwd, CTX7_PROOF);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({
+      subcommand, library: subargs[0] || '', query: subargs.slice(1).join(' '), ts: new Date().toISOString(),
+    }) + '\n');
+  } catch { /* пруф — не цель вызова: не пишется, значит L0 позовёт судью, а не упадёт CLI */ }
+}
 
 // ctx7 --help exits 255; actual subcommands exit 0 on success
 function stripAnsi(str) {
@@ -45,6 +60,9 @@ function runCtx7(subcommand, subargs, options = {}) {
       skipReason = stderrExcerpt || stdoutExcerpt || 'ctx7 unavailable';
     }
   }
+
+  // Пишем ТОЛЬКО на успех: пруф означает «документация реально получена», а не «попытались».
+  if (ok && options.proofCwd !== false) appendCtx7Proof(subcommand, subargs, options.proofCwd || process.cwd());
 
   return { ok, attemptedCommand, stdoutExcerpt, stderrExcerpt, exitCode, skipReason, timedOut };
 }
@@ -121,4 +139,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { resolveLibrary, queryDocs, interactiveSkillsSearch, runCtx7, buildCommand };
+module.exports = { resolveLibrary, queryDocs, interactiveSkillsSearch, runCtx7, buildCommand, appendCtx7Proof, CTX7_PROOF };
