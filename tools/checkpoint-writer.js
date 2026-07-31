@@ -132,8 +132,24 @@ function shouldTrigger(tok, prof, st) {
   return (tok - st.lastTok) >= prof.repeat;
 }
 
+// 011 T012: пока идёт цепочка гейта (оракул → судья → commit), писать в `.planning/` нельзя.
+// Любой новый файл в дереве двигает treeHash — оракул-пруф становится stale и `--skip-oracle`
+// отказывает; а сам `CHECKPOINT-*-auto.md` попадает в дифф слайса, где судья законно ловит его
+// как scope creep. Оба случая — живые, из прогонов 2026-07. Маркер пишет `elt` (см. elt.js,
+// markGateActive): файл в git-dir, с TTL — оборванная цепочка не глушит чекпоинты навсегда.
+function gateActive(projectDir) {
+  try {
+    const raw = fs.readFileSync(path.join(projectDir, '.git', 'elt', 'gate-active.json'), 'utf8');
+    const marker = JSON.parse(raw);
+    const started = Date.parse(marker.ts);
+    const ttl = Number.isFinite(marker.ttlMs) && marker.ttlMs > 0 ? marker.ttlMs : 30 * 60 * 1000;
+    return Number.isFinite(started) && Date.now() - started < ttl;
+  } catch { return false; } // маркера нет / битый — гейт не идёт
+}
+
 function runCheckpointWriter({ sessionId, transcriptPath, projectDir, stateFile }) {
   if (!sessionId || !transcriptPath) return { wrote: false, reason: 'no-session-or-transcript' };
+  if (gateActive(projectDir)) return { wrote: false, reason: 'gate-active' };
   const { tok, model } = lastContext(transcriptPath);
   const prof = profileFor(model);
 
@@ -225,5 +241,5 @@ if (require.main === module && process.argv[2] === '--selftest') {
 try { main(); } catch (_) {}
 
 module.exports = {
-  profileFor, lastContext, renderCheckpoint, shouldTrigger, runCheckpointWriter, eltStatus, findEltJs,
+  profileFor, lastContext, renderCheckpoint, shouldTrigger, runCheckpointWriter, eltStatus, findEltJs, gateActive,
 };

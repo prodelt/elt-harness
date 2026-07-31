@@ -471,6 +471,28 @@ function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, r
   return proof;
 }
 
+// 011 T012: маркер «идёт гейт». Авто-чекпоинт (hook checkpoint-writer.js) пишет
+// `.planning/CHECKPOINT-*-auto.md` по расходу токенов — и если он попадает между оракулом и
+// коммитом, то (а) двигает treeHash, из-за чего `--skip-oracle` отказывает stale-пруфом, и
+// (б) появляется в диффе слайса, где судья законно ловит его как scope creep. Оба случая
+// живые. Маркер лежит в git-dir (не в дереве — сам бы двигал treeHash) и живёт TTL: оборванная
+// цепочка не должна глушить чекпоинты навсегда. Читатель — checkpoint-writer.js.
+const GATE_MARKER_TTL_MS = 30 * 60 * 1000;
+function gateMarkerPath() {
+  const gd = git(['rev-parse', '--git-dir']).out || '.git';
+  return path.join(path.isAbsolute(gd) ? gd : path.join(cwd, gd), 'elt', 'gate-active.json');
+}
+function markGateActive(task) {
+  try {
+    const file = gateMarkerPath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ pid: process.pid, task: task || null, ts: new Date().toISOString(), ttlMs: GATE_MARKER_TTL_MS }));
+  } catch { /* маркер — удобство, а не инвариант: не записался, значит гейт просто шумнее */ }
+}
+function clearGateMarker() {
+  try { fs.rmSync(gateMarkerPath(), { force: true }); } catch { /* уже нет */ }
+}
+
 function appendRunLog(entry) {
   runLog.appendRunLog(cwd, entry);
 }
@@ -658,6 +680,7 @@ if (cmd === 'slice' && sub === 'next') {
 if (cmd === 'oracle') {
   const cfg = loadConfig();
   runLog.runtimeRunLog(cwd);
+  markGateActive(null); // с оракула начинается цепочка гейта — с него и молчание чекпоинта
   const exit = runOracle(cfg);
   // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
   // красные прогоны редки и систематически медленнее (падение после self-heal).
@@ -728,7 +751,11 @@ if (cmd === 'judge' && sub === 'run') {
   console.log(JSON.stringify(proof, null, 2));
   // inconclusive = exit 0: слайс коммитится (с меткой), и это ЕДИНСТВЕННЫЙ прогон судьи по
   // нему — драйвер/человек не должны запускать второй раунд по коду возврата.
-  process.exit(['pass', 'inconclusive'].includes(verdict) ? 0 : 4);
+  const ok = ['pass', 'inconclusive'].includes(verdict);
+  // Дальше либо коммит (он маркер и снимет), либо конец попытки — тогда снимаем здесь, чтобы
+  // блок судьи не оставлял чекпоинты выключенными до истечения TTL.
+  if (ok) markGateActive(taskId); else clearGateMarker();
+  process.exit(ok ? 0 : 4);
 }
 
 if (cmd === 'judge-proof') {
@@ -987,6 +1014,7 @@ if (cmd === 'commit') {
     const p = git(['push', '-u', 'origin', branch]);
     console.error(p.code === 0 ? 'elt commit: pushed' : 'elt commit: push FAILED — ' + p.err);
   }
+  clearGateMarker(); // цепочка гейта закончилась — авто-чекпоинту снова можно писать
   console.log(`elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`);
   process.exit(0);
 }

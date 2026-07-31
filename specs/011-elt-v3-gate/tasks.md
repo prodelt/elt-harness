@@ -175,7 +175,7 @@
   три теста писали proof люком, теперь идут законным путём через стаб-мост.
   [files: tools/elt.js, tools/fleet/gate.js, tools/judge-replay.js, tools/sync-bin.js, tools/elt-judge-attest.test.js, tools/fleet/fleet.test.js, tools/elt-config.test.js, tools/project-bootstrap.e2e.test.js]
 
-- [ ] **T012** Авто-чекпоинт молчит во время гейта: `elt` выставляет маркер на время
+- [X] **T012** Авто-чекпоинт молчит во время гейта: `elt` выставляет маркер на время
   оракул→судья→commit, `checkpoint-writer.js` его уважает и не пишет в `.planning/`. Тест на обе
   стороны (маркер есть → не пишет; снят → пишет). (Было 010/T009.)
   [files: tools/elt.js, tools/checkpoint-writer.js, tools/elt-checkpoint.test.js]
