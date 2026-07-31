@@ -134,6 +134,29 @@ test('УДАЛЁННЫЙ тест не роняет слой исключени�
   assert.deepEqual(r.files, ['stays.test.js'], 'живые файлы прогоняются как обычно');
 });
 
+// 011 T013 (живой блок): слайс, чей продукт лежит ВНЕ репо (контракт-тест на
+// `~/.claude/skills/**` — отдельный git), физически не может покраснеть на baseHead: откат
+// не откатывает предмет проверки. Выдавать это за `green` = блокировать по невозможности.
+test('тест с предметом ВНЕ репо: зелёный на base → skipped:external-subject, не green', () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, 'skill-contract.test.js'),
+    "const os = require('node:os');\n" +
+    "const fs = require('node:fs');\n" +
+    "require('node:assert').ok(typeof os.homedir() === 'string');\n");
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'skipped', 'слой неприменим — это не «не доказано»');
+  assert.match(r.reason, /^external-subject:skill-contract\.test\.js$/, 'причина называет файл');
+});
+
+test('смешанный набор: есть тест внутри репо → зелень остаётся green (слой применим)', () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, 'skill-contract.test.js'),
+    "require('node:assert').ok(typeof require('node:os').homedir() === 'string');\n");
+  fs.writeFileSync(path.join(repo, 'trivial.test.js'), "require('node:assert').equal(1, 1);\n");
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'green', 'внутренний тест судим на базе — его пустота обязана блокировать');
+});
+
 test('в диффе ТОЛЬКО удалённые тесты → skipped:only-deleted-tests, без падения', () => {
   const repo = makeRepo();
   fs.writeFileSync(path.join(repo, 'gone.test.js'), "require('node:assert').ok(true);\n");
