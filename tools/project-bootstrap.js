@@ -245,6 +245,26 @@ function checkApprovalContract(inspected) {
   };
 }
 
+// 010 T006 (AC4): judge.enabled без физически резолвимого моста = контур объявлен, но не
+// установлен — ровно та дыра, из-за которой в 9 живых проектах судья деградировал в
+// самозаверение. Порядок резолва тот же, что у `elt judge run` (elt.js resolveJudgeInvoke).
+function checkJudgeBridgeContract(inspected, options = {}) {
+  const cfg = inspected.harness.ok ? inspected.harness.config : null;
+  if (!cfg || !cfg.judge || cfg.judge.enabled !== true) {
+    return { ok: true, skipped: true, reason: 'judge is not enabled — bridge not required' };
+  }
+  const home = path.resolve(options.home || require('node:os').homedir());
+  const candidates = [
+    path.join(inspected.root, 'tools', 'judge-invoke.js'),
+    path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js'),
+  ];
+  const resolved = candidates.find((file) => fs.existsSync(file));
+  if (!resolved) {
+    return { ok: false, reason: 'judge bridge is not resolvable', looked: candidates.map(normalizePath), repair: 'node tools/sync-bin.js' };
+  }
+  return { ok: true, reason: 'judge bridge is resolvable', bridge: normalizePath(resolved) };
+}
+
 function checkGateContract(inspected) {
   if (inspected.classification.kind !== 'code') {
     return { ok: true, skipped: true, reason: `kind is ${inspected.classification.kind} — git gate not required` };
@@ -298,6 +318,7 @@ function verifyProject(root, options = {}) {
     docs: checkDocsContract(inspected),
     harnessConfig: checkHarnessContract(inspected),
     oracleVerifier: checkOracleVerifierContract(inspected),
+    judgeBridge: checkJudgeBridgeContract(inspected, options),
     gate: checkGateContract(inspected),
     skillAvailability: supplyChainStatus(resolved, options),
   };
@@ -580,6 +601,7 @@ if (require.main === module) main();
 module.exports = {
   applyPlan,
   applySafeActions,
+  checkJudgeBridgeContract,
   classifyKind,
   controlPlaneStatus,
   detectStack,

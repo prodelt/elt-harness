@@ -39,7 +39,7 @@
 
 ## Фаза D — D4: bootstrap проверяет то, что важно, и молчит про шум
 
-- [ ] **T006** Контракт `judgeBridge` в `project-bootstrap verify`: при `judge.enabled:true`
+- [X] **T006** Контракт `judgeBridge` в `project-bootstrap verify`: при `judge.enabled:true`
   мост обязан резолвиться (локально или глобально), иначе `ok:false` с причиной
   `judge bridge is not resolvable`. Тест на оба исхода. [AC4]
   [files: tools/project-bootstrap.js, tools/project-bootstrap.test.js]
