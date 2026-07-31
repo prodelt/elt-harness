@@ -206,25 +206,60 @@ function checkHarnessContract(inspected) {
   return { ok: true, reason: 'harness.json is schema-valid' };
 }
 
-function checkOracleVerifierContract(inspected) {
+// Первое слово команды = исполняемый файл. Кавычки снимаем, `--flag`-хвост не трогаем:
+// нужно ровно то, что shell пойдёт искать в PATH.
+function commandBinary(command) {
+  const first = command.trim().split(/\s+/)[0] || '';
+  return first.replace(/^["']|["']$/g, '');
+}
+
+// 010 T007 (AC6): «непустая строка» — не контракт. Строка `just test` в проекте без just
+// проходила проверку и падала только в первом слайсе. Без --deep проверяем, что команда
+// вообще резолвится; с --deep оракул реально запускается и его код возврата идёт в отчёт.
+function checkOracleVerifierContract(inspected, options = {}) {
   if (inspected.classification.kind === 'unknown') {
     return { ok: true, skipped: true, reason: 'kind is unknown — oracle/verifier contract not evaluated' };
   }
   if (!inspected.harness.ok || !inspected.harness.config) {
     return { ok: false, reason: 'no valid harness config to read an oracle/verifier from' };
   }
-  const cfgKind = inspected.harness.config.kind;
+  const cfg = inspected.harness.config;
+  const cfgKind = cfg.kind;
   const label = cfgKind === 'code' ? 'oracle' : 'artifactVerifier';
-  const value = cfgKind === 'code' ? inspected.harness.config.oracle : inspected.harness.config.artifactVerifier;
+  const value = cfgKind === 'code' ? cfg.oracle : cfg.artifactVerifier;
   if (typeof value !== 'string' || value.trim() === '') {
     return { ok: false, reason: `harness.json kind=${cfgKind} requires a non-empty ${label}` };
   }
-  return { ok: true, kind: cfgKind, command: value };
+  const runner = options.commandRunner || ((file, args, opts) => spawnSync(file, args, opts));
+  const base = { kind: cfgKind, command: value };
+  if (options.deep === true) {
+    // R5: чужие тесты могут писать в БД/сеть — поэтому только по явному флагу и с таймаутом.
+    const shell = cfg.shell === 'powershell' ? 'powershell' : 'bash';
+    // PowerShell сам по себе возвращает 0/1 по успеху пайплайна, а не код нативной команды:
+    // без `exit $LASTEXITCODE` красный оракул с exit 3 приезжал бы в отчёт как 1, а
+    // несуществующая команда — как 0 ($LASTEXITCODE не выставлен → голый `exit`). Оба случая
+    // поймал живой прогон (тест без подменённого раннера); мок их скрывал.
+    const argv = shell === 'powershell'
+      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `$ErrorActionPreference='Stop'; ${value}; exit $LASTEXITCODE`]
+      : ['-c', value];
+    const timeout = Number(options.deepTimeoutMs) > 0 ? Number(options.deepTimeoutMs) : 600000;
+    const completed = runner(shell, argv, { cwd: inspected.root, encoding: 'utf8', timeout, windowsHide: true });
+    const exit = completed.status === null || completed.status === undefined ? null : completed.status;
+    const timedOut = completed.error && completed.error.code === 'ETIMEDOUT';
+    return {
+      ...base, deep: true, exit, timedOut: Boolean(timedOut),
+      ok: exit === 0,
+      reason: exit === 0 ? `${label} ran green (exit 0)` : `${label} did not pass: exit ${exit === null ? 'null' : exit}${timedOut ? ' (timeout)' : ''}`,
+    };
+  }
+  const binary = commandBinary(value);
+  const probe = runner(process.platform === 'win32' ? 'where' : 'which', [binary], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+  if (probe.status !== 0) {
+    return { ...base, deep: false, binary, ok: false, reason: `${label} command "${binary}" does not resolve on PATH` };
+  }
+  return { ...base, deep: false, binary, ok: true, reason: `${label} command resolves ("${binary}")` };
 }
 
-// 006 T005: reported as a signal, not a gating contract — specApproval is an
-// opt-in gate (see elt.js specApprovalGateFor), so a project without it isn't
-// "broken", just not opted in yet. Doesn't affect verifyProject's overall `ok`.
 function checkApprovalContract(inspected) {
   if (inspected.classification.kind !== 'code') {
     return { ok: true, skipped: true, reason: 'kind is not code — specApproval/ctx7Gate not evaluated' };
@@ -317,7 +352,7 @@ function verifyProject(root, options = {}) {
   const contracts = {
     docs: checkDocsContract(inspected),
     harnessConfig: checkHarnessContract(inspected),
-    oracleVerifier: checkOracleVerifierContract(inspected),
+    oracleVerifier: checkOracleVerifierContract(inspected, options),
     judgeBridge: checkJudgeBridgeContract(inspected, options),
     gate: checkGateContract(inspected),
     skillAvailability: supplyChainStatus(resolved, options),
@@ -548,13 +583,14 @@ function applySafeActions(root, options = {}) {
 
 function parseArgs(argv) {
   const command = ['inspect', 'plan', 'apply', 'verify', 'migration-plan'].includes(argv[2]) ? argv[2] : null;
-  const defaults = { command, root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true, codegraph: false };
+  const defaults = { command, root: process.cwd(), apply: false, json: false, home: undefined, supplyChain: true, codegraph: false, deep: false };
   const parseNext = (index, state) => {
     if (index >= argv.length) return state;
     const arg = argv[index];
     if (arg === '--apply') return parseNext(index + 1, { ...state, apply: true });
     if (arg === '--json') return parseNext(index + 1, { ...state, json: true });
     if (arg === '--codegraph') return parseNext(index + 1, { ...state, codegraph: true });
+    if (arg === '--deep') return parseNext(index + 1, { ...state, deep: true });
     if (arg === '--no-supply-chain') return parseNext(index + 1, { ...state, supplyChain: false });
     if (arg === '--root') return parseNext(index + 2, { ...state, root: argv[index + 1] || state.root });
     if (arg === '--home') return parseNext(index + 2, { ...state, home: argv[index + 1] || state.home });
@@ -602,6 +638,7 @@ module.exports = {
   applyPlan,
   applySafeActions,
   checkJudgeBridgeContract,
+  checkOracleVerifierContract,
   classifyKind,
   controlPlaneStatus,
   detectStack,

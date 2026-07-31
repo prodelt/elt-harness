@@ -44,7 +44,7 @@
   `judge bridge is not resolvable`. Тест на оба исхода. [AC4]
   [files: tools/project-bootstrap.js, tools/project-bootstrap.test.js]
 
-- [ ] **T007** `checkOracleVerifierContract` исполняемый: при `--deep` оракул реально
+- [X] **T007** `checkOracleVerifierContract` исполняемый: при `--deep` оракул реально
   запускается (таймаут, код возврата в отчёт), без `--deep` — проверяется резолв команды,
   а не только непустота строки. Тест на обе ветки. [AC6]
   [files: tools/project-bootstrap.js, tools/project-bootstrap.test.js]
