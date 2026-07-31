@@ -130,11 +130,17 @@
 
 ## Фаза F — внешние либы без галлюцинаций (§3.3)
 
-- [ ] **T009** `.harness/ctx7-proof.jsonl` пишет `tools/context7-cli.js` при каждом успешном
+- [X] **T009** `.harness/ctx7-proof.jsonl` пишет `tools/context7-cli.js` при каждом успешном
   вызове (library-id, запрос, ts). L0-триггер `external-import-no-ctx7`: новый внешний
   импорт/зависимость в диффе без свежей записи → `block`. Недоступность самого ctx7 (а не
   отсутствие пруфа) → `inconclusive` с причиной, не `block` (R5). Тест на все три ветки. [AC9]
-  [files: tools/context7-cli.js, tools/elt-gate-l0.js, tools/elt-ctx7-proof.test.js]
+  **Сделано 2026-07-31.** `evaluate` осталась ЧИСТОЙ (AC2): пруфы читает гейт и передаёт данными
+  в `config.ctx7` — иначе тест L0 начал бы требовать репозиторий, а сама функция смогла бы
+  подвиснуть на вводе-выводе внутри гейта. Триггер — единственный, который выносит вердикт сам
+  (судья ничего не добавит к «API не подтверждён», а стоит 190 c). Зона расширена:
+  `tools/fleet/gate.js` — чтение `.harness/ctx7-proof.jsonl` и проводка вердикта L0 мимо судьи;
+  `.gitignore` — пруф рантайм-ный, как run-log.
+  [files: tools/context7-cli.js, tools/elt-gate-l0.js, tools/fleet/gate.js, .gitignore, tools/elt-ctx7-proof.test.js]
 
 ## Фаза G — L2 smoke: то, чем пользуется человек (D0)
 

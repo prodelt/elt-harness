@@ -504,10 +504,21 @@ function judgeEntry({ provider, model }, r) {
 // пустой объект: у evaluate свои дефолты, и проект без конфига обязан получить L0 как есть
 // (AC12 — живой блок в чужом репо БЕЗ правок в нём).
 function l0Config(cwd) {
+  let cfg = {};
   try {
     const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8')).l0;
-    return j && typeof j === 'object' && !Array.isArray(j) ? j : {};
-  } catch { return {}; }
+    if (j && typeof j === 'object' && !Array.isArray(j)) cfg = { ...j };
+  } catch { /* нет конфига — дефолты evaluate */ }
+  // 011 T009: пруфы ctx7 читает ГЕЙТ и передаёт в evaluate данными — сама evaluate обязана
+  // остаться чистой (AC2), иначе её тест начнёт требовать репозиторий, а она — уметь подвиснуть.
+  let proofs = [];
+  try {
+    proofs = fs.readFileSync(path.join(cwd, '.harness', 'ctx7-proof.jsonl'), 'utf8')
+      .split(/\r?\n/).filter(Boolean)
+      .map((line) => { try { return JSON.parse(line); } catch { return null; } })
+      .filter(Boolean);
+  } catch { /* файла нет — пруфов нет, и это значимо: новый внешний импорт даст block */ }
+  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs } };
 }
 
 async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, verify: verifyOverride, judgeExclude = [] }) {
@@ -540,6 +551,21 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
       // judges[] — контракт proof (elt.js validateJudgeProof). Пишем честно, КТО вынес вердикт:
       // механика L0, а не LLM. Подставить сюда имя судьи значило бы соврать в пруфе.
       judges: [{ provider: 'l0', model: 'triggers', verdict: 'pass', reasons: ['l0-clean'], durationSec: 0, runOk: true }],
+    };
+  }
+  // 011 T009: L0 умеет вынести вердикт САМ — новый внешний импорт без пруфа ctx7 это не повод
+  // спрашивать модель, а механический факт. Судью не зовём: он ничего не добавит к «API не
+  // подтверждён», а стоит 190 c.
+  if (l0.verdict) {
+    return {
+      verdict: l0.verdict,
+      reasons: l0.triggers.map((t) => `${t.name}: ${t.reason}`),
+      filesReviewed: [],
+      judgeLog: null,
+      runOk: true,
+      durationSec: 0,
+      l0: { triggers: l0.triggers, judgeNeeded: true, verdict: l0.verdict },
+      judges: [{ provider: 'l0', model: 'triggers', verdict: l0.verdict, reasons: l0.triggers.map((t) => t.reason), durationSec: 0, runOk: true }],
     };
   }
   const withL0 = (result) => ({ ...result, l0: { triggers: l0.triggers, judgeNeeded: true } });
