@@ -49,7 +49,7 @@
   а не только непустота строки. Тест на обе ветки. [AC6]
   [files: tools/project-bootstrap.js, tools/project-bootstrap.test.js]
 
-- [ ] **T008** Шум вон из красного: причина `unknownSections` пробрасывается наружу
+- [X] **T008** Шум вон из красного: причина `unknownSections` пробрасывается наружу
   (`project-bootstrap.js:197`) и понижается до warn (`project-docs-core.js:242` fail-closed →
   warn), deprecated-инсталлы (`pipeline`) исключаются из drift. Тест на `Route_API_1C`-подобном
   фикстуре: `ok:true`, причина видна. [AC5]

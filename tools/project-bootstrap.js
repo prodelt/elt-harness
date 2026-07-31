@@ -9,6 +9,8 @@ const { run: runAgentSkillSupplyChain } = require('./agent-skill-supply-chain');
 const { readHarnessConfig } = require('./elt-config');
 
 const DEFAULT_MANIFEST = path.resolve(__dirname, '..', 'config', 'agent-skill-sources.json');
+// Скилы deprecated-маршрутов: зеркала намеренно не обновляются (см. CLAUDE.md «Deprecated»).
+const DEPRECATED_SKILLS = new Set(['pipeline']);
 
 function fileCount(root) {
   const completed = spawnSync('rg', ['--files'], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
@@ -63,7 +65,7 @@ function inspectProject(root, options = {}) {
     kind: 'project-bootstrap-inspect',
     root: resolved,
     classification,
-    docs: { ok: docs.ok, coreIdentical: Boolean(docs.coreIdentical), missing: docs.missing || [] },
+    docs: { ok: docs.ok, coreIdentical: Boolean(docs.coreIdentical), missing: docs.missing || [], unknownSections: docs.unknownSections || [] },
     harness: { exists: fs.existsSync(path.join(resolved, '.harness', 'harness.json')), ok: harness.ok, errors: harness.errors || [], config: harness.config || null },
     codegraph: { indexed: exists(resolved, path.join('.codegraph', 'codegraph.db')) },
     gitGate: { managedHookInstalled: exists(resolved, path.join('.githooks', 'pre-commit')) },
@@ -193,8 +195,22 @@ function checkDocsContract(inspected) {
   if (inspected.classification.kind === 'unknown') {
     return { ok: true, skipped: true, reason: 'kind is unknown — docs contract not evaluated' };
   }
+  // 010 T008 (AC5): красный без объяснения — хуже, чем жёлтый с причиной. `unknownSections`
+  // (свои секции в AGENTS.md) больше не рубят контракт, но ВИДНЫ снаружи: раньше они делали
+  // verify красным, а причина не доезжала до отчёта вовсе.
   const ok = inspected.docs.ok && inspected.docs.coreIdentical;
-  return { ok, coreIdentical: inspected.docs.coreIdentical, missing: inspected.docs.missing, reason: ok ? 'project docs match managed template' : 'project docs missing or drifted from managed template' };
+  const unknownSections = inspected.docs.unknownSections || [];
+  const warnings = unknownSections.length ? [`unknownSections: ${unknownSections.join(', ')}`] : [];
+  return {
+    ok,
+    coreIdentical: inspected.docs.coreIdentical,
+    missing: inspected.docs.missing,
+    unknownSections,
+    ...(warnings.length ? { warnings } : {}),
+    reason: ok
+      ? `project docs match managed template${unknownSections.length ? ` (warn: ${unknownSections.length} non-core sections)` : ''}`
+      : 'project docs missing or drifted from managed template',
+  };
 }
 
 function checkHarnessContract(inspected) {
@@ -489,7 +505,13 @@ function summarizeSupplyChain(root, audit) {
   const missingInstalls = (audit.skills || []).flatMap((skill) => targetClients
     .filter((client) => skill.clients && skill.clients[client] && !skill.clients[client].installed)
     .map((client) => `${client}/${skill.name}`));
-  const driftedInstalls = (audit.skills || []).flatMap((skill) => targetClients
+  // 010 T008 (AC5): deprecated route не обновляется намеренно (CLAUDE.md: Pipeline v3 снят,
+  // exports живут ради doctor), поэтому его копии расходятся с источником вечно — держать на
+  // этом красный verify = топить в шуме настоящие красные. Исключение узкое, ровно как в AC5:
+  // ТОЛЬКО дрейф. Отсутствие установки остаётся видимым (судья раунда 2 по делу указал, что
+  // исключение из missingInstalls — ослабление сверх заявленного в задаче).
+  const live = (audit.skills || []).filter((skill) => !DEPRECATED_SKILLS.has(skill.name));
+  const driftedInstalls = live.flatMap((skill) => targetClients
     .filter((client) => skill.clients && skill.clients[client] && skill.clients[client].installed && !skill.clients[client].matchesSource)
     .map((client) => `${client}/${skill.name}`));
   const targetProject = (audit.projects || []).find((project) => normalizePath(project.path || '') === normalizePath(root));
