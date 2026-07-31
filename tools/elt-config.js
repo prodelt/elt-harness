@@ -19,6 +19,9 @@ function validateHarnessConfig(config) {
   if ((config.kind === 'docs' || config.kind === 'office') && !nonEmptyString(config.artifactVerifier)) {
     errors.push('docs and office projects require a non-empty artifactVerifier');
   }
+  // 011 T010: smoke опционален (нет поля → слоя нет). Но кривой тип обязан падать на конфиге,
+  // а не молча выключать слой — «пусто» и «я ошибся в формате» это разные вещи.
+  if (config.smoke !== undefined && typeof config.smoke !== 'string') errors.push('smoke must be a string command');
   if (!config.judge || typeof config.judge !== 'object' || Array.isArray(config.judge)) {
     errors.push('judge must be an object');
   } else {

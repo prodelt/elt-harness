@@ -306,15 +306,35 @@ function writeOracleTail(out) {
 // runOracle зовут из четырёх мест, и менять контракт ради одного числа дороже, чем читать
 // его рядом с appendRunLog. ponytail: одно значение на процесс, процесс гоняет оракул раз.
 let lastOracleSec = null;
+// 011 T010 (L2, D0) — smoke: запустить ТО, ЧЕМ ПОЛЬЗУЕТСЯ ЧЕЛОВЕК. Мотив из аудита 2026-07-29:
+// три уехавших регресса были в рантайме собранного приложения, и юнит-оракул не ловит их в
+// принципе — он проверяет функции, а не то, что продукт вообще стартует.
+// Поля нет / пусто → слоя нет (старое поведение, обратная совместимость).
+let lastSmoke = null;
+function runSmoke(cfg) {
+  const cmd = typeof cfg.smoke === 'string' ? cfg.smoke.trim() : '';
+  if (!cmd) return { ran: false, code: 0, out: '' };
+  console.error(`elt smoke: ${cmd}`);
+  const { code, out } = sh(cmd, cfg.shell);
+  console.error(`elt smoke: exit ${code}`);
+  return { ran: true, code, out, cmd };
+}
 function runOracle(cfg) {
   console.error(`elt oracle: ${cfg.oracle}`);
   const started = Date.now();
   const { code, out } = sh(cfg.oracle, cfg.shell);
   lastOracleSec = Math.round((Date.now() - started) / 1000);
   console.error(`elt oracle: exit ${code} (${lastOracleSec}s)`);
-  writeOracleTail(out);
-  writeOracleProof(code, cfg);
-  return code;
+  // Smoke идёт ПОСЛЕ оракула и только по зелёному: гонять приложение, чьи юнит-тесты уже
+  // красные, — тратить минуты на второй способ узнать то же самое.
+  const smoke = code === 0 ? runSmoke(cfg) : { ran: false, code: 0, out: '' };
+  lastSmoke = smoke.ran ? { cmd: smoke.cmd, exit: smoke.code } : null;
+  const exit = code !== 0 ? code : smoke.code;
+  // Хвост smoke — В ТОТ ЖЕ отчёт: красный smoke без вывода это «что-то сломалось», а с ним —
+  // готовая причина. Один файл, потому что читатель у них один.
+  writeOracleTail(out + (smoke.ran ? `\n--- smoke: ${smoke.cmd} (exit ${smoke.code}) ---\n${smoke.out}` : ''));
+  writeOracleProof(exit, cfg);
+  return exit;
 }
 
 function judgeProofPath() {
@@ -643,7 +663,11 @@ if (cmd === 'oracle') {
   const exit = runOracle(cfg);
   // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
   // красные прогоны редки и систематически медленнее (падение после self-heal).
-  appendRunLog({ task: null, status: exit === 0 ? 'oracle-green' : 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec } });
+  appendRunLog({
+    task: null, status: exit === 0 ? 'oracle-green' : 'red-stop',
+    oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec },
+    ...(lastSmoke ? { smoke: lastSmoke } : {}), // 011 T010: слой был — видно в журнале, чем именно красный
+  });
   process.exit(exit);
 }
 
