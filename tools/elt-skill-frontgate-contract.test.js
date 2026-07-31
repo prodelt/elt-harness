@@ -41,6 +41,37 @@ test('elt SKILL.md: судейская рубрика += «спека утвер
   assert.match(text, /[Сс]пека утверждена\?/);
 });
 
+// --- 011 T013: скилл описывает НОВЫЙ гейт, а не прошлый ------------------------------
+// Скилл — единственная инструкция, которую агент читает перед работой. Пока в нём живёт
+// ссылка на удалённый флаг, агент будет его набирать и получать exit 4, а пока в нём нет
+// третьего исхода — будет перезапускать судью по `inconclusive`, которого не должно быть.
+
+test('elt SKILL.md: ссылок на удалённые флаги люка не осталось', () => {
+  const text = read(SOURCE_PATH);
+  assert.doesNotMatch(text, /--skip-attest/, 'флаг удалён из CLI (011 T011) — в инструкции его быть не может');
+  assert.doesNotMatch(text, /--attested-by/, 'то же самое для второго флага люка');
+});
+
+test('elt SKILL.md: описаны ТРИ исхода судьи, включая inconclusive без второго раунда', () => {
+  const text = read(SOURCE_PATH);
+  assert.match(text, /inconclusive/, 'третий исход назван');
+  assert.match(text, /[Вв]торого раунда.{0,20}нет/s, 'сказано, что судью не перезапускают');
+  assert.match(text, /review-queue\.jsonl/, 'названо, куда уходит причина');
+});
+
+test('elt SKILL.md: описаны очередь ревью и её команды', () => {
+  const text = read(SOURCE_PATH);
+  assert.match(text, /elt review\b/);
+  assert.match(text, /elt review close --task/);
+  assert.match(text, /неблокирующ/i, 'очередь не стопорит работу — это часть контракта, не деталь');
+});
+
+test('elt SKILL.md: сказано, что судью могут не позвать вовсе (L0 / l0-clean)', () => {
+  const text = read(SOURCE_PATH);
+  assert.match(text, /l0-clean/);
+  assert.match(text, /триггер/i, 'объяснено, ЧЕМ решается вызов судьи');
+});
+
 test('elt SKILL.md: зеркала codex/gemini побайтово идентичны источнику', () => {
   const source = read(SOURCE_PATH);
   for (const mirror of MIRRORS) {

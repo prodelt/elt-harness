@@ -76,6 +76,14 @@ function resolveTimeoutMs(cwd) {
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_TIMEOUT_MS;
 }
 
+// Тест, чей предмет проверки лежит вне рабочего дерева: он адресует домашний каталог
+// (`os.homedir()`), а не файл репозитория. Признак намеренно узкий — это устоявшийся в проекте
+// приём контракт-тестов на глобальные скилы/конфиги, а не догадка про «внешность» вообще.
+function isExternalSubject(cwd, file) {
+  try { return /os\.homedir\(\)|homedir\(\)/.test(fs.readFileSync(path.join(cwd, file), 'utf8')); }
+  catch { return false; }
+}
+
 function tailOf(text, maxLines = 40) {
   return (text || '').split(/\r?\n/).slice(-maxLines).join('\n');
 }
@@ -125,6 +133,17 @@ function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
       }
       if (result.status !== 0) return withDeleted({ status: 'red', reason: 'fails-on-base', files, tail });
     }
+    // 011 T013 (живой случай): у слайса, чей продукт лежит ВНЕ этого репо (контракт-тест на
+    // `~/.claude/skills/**` — отдельный git), откат к baseHead не откатывает предмет проверки.
+    // Такой тест зелен на базе ВСЕГДА, независимо от того, хорош он или пуст, — слой не «не
+    // доказал», а неприменим, и выдавать это за `green` значит блокировать по невозможности.
+    // Признак узкий и механический: тест адресует домашний каталог (`os.homedir()`), т.е.
+    // заведомо не файл рабочего дерева. Смешанный набор остаётся `green`: если хоть один файл
+    // судим внутри репо, слой применим и его зелень — это отсутствие доказательства.
+    const external = files.filter(isExternalSubject.bind(null, cwd));
+    if (external.length === files.length) {
+      return withDeleted({ status: 'skipped', reason: `external-subject:${external.join(',')}`, files, tail });
+    }
     return withDeleted({ status: 'green', reason: 'passes-on-base', files, tail });
   } finally {
     if (!gitOk(['worktree', 'remove', '--force', wt], cwd)) {
@@ -134,4 +153,4 @@ function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
   }
 }
 
-module.exports = { redProof, testFilesFromDiff, diffFileList, resolveTestCmd, splitDeleted };
+module.exports = { redProof, testFilesFromDiff, diffFileList, resolveTestCmd, splitDeleted, isExternalSubject };
