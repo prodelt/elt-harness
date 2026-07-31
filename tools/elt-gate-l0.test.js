@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { verifySettings, readHarnessConfig } = require('./elt-config');
+const { evaluate, DEFAULT_DIFF_SIZE } = require('./elt-gate-l0');
 
 const ROOT = path.join(__dirname, '..');
 const BENCH = path.join(ROOT, '.planning', 'JUDGE-BENCH-011-T001.json');
@@ -41,10 +42,95 @@ function testBenchBaselineParses() {
   }
 }
 
+// --- 011 T002: риск-триггеры L0 (AC2) ------------------------------------------------
+// Дифф собирается вручную, а не из git: L0 обязан быть чистой функцией, и тест это
+// фиксирует — если в неё заедет fs/spawn, тест начнёт требовать репозиторий и упадёт.
+
+function diffFor(file, { isNew = false, added = 1, removed = 0 } = {}) {
+  return [
+    `diff --git a/${file} b/${file}`,
+    ...(isNew ? [`new file mode 100644`, '--- /dev/null'] : ['--- a/' + file]),
+    `+++ b/${file}`,
+    '@@ -1,1 +1,1 @@',
+    ...Array.from({ length: removed }, (_, i) => `-old ${i}`),
+    ...Array.from({ length: added }, (_, i) => `+new ${i}`),
+  ].join('\n');
+}
+
+const names = (result) => result.triggers.map((t) => t.name);
+
+// Пустой набор: слайс правит прод-код и вместе с ним тест — ровно то, ради чего судью
+// будить не надо. Именно этот случай был 100% вызовов судьи до 011.
+function testNoTriggersOnCleanSlice() {
+  const result = evaluate({
+    diff: [
+      diffFor('tools/some-feature.js', { isNew: true, added: 20 }),
+      diffFor('tools/some-feature.test.js', { isNew: true, added: 15 }),
+    ].join('\n'),
+    config: {},
+  });
+  assert.deepEqual(names(result), [], 'чистый слайс не даёт ни одного триггера');
+  assert.equal(result.judgeNeeded, false, 'судья на чистом слайсе не нужен');
+}
+
+function testExistingTestModified() {
+  const result = evaluate({ diff: diffFor('tools/some-feature.test.js', { removed: 3, added: 1 }), config: {} });
+  assert.deepEqual(names(result), ['existing-test-modified']);
+  assert.deepEqual(result.triggers[0].files, ['tools/some-feature.test.js']);
+  assert.equal(result.judgeNeeded, true);
+  // Граница: НОВЫЙ тест-файл — не этот триггер (ослаблять там нечего).
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/some-feature.test.js', { isNew: true, added: 9 }), config: {} })), []);
+}
+
+function testNewCodeWithoutCheck() {
+  const result = evaluate({ diff: diffFor('tools/some-feature.js', { isNew: true, added: 30 }), config: {} });
+  assert.deepEqual(names(result), ['new-code-no-check']);
+  assert.deepEqual(result.triggers[0].files, ['tools/some-feature.js']);
+  // Untracked файл в дифф не попадает — он виден только через git status, и без этого
+  // триггер был бы слеп ровно на своём случае.
+  const untracked = evaluate({ diff: '', status: '?? tools/brand-new.js', config: {} });
+  assert.deepEqual(names(untracked), ['new-code-no-check']);
+  assert.deepEqual(untracked.triggers[0].files, ['tools/brand-new.js']);
+}
+
+function testHotPath() {
+  // Дефолтный список: гейт/авторизация/секреты.
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/fleet/gate.js', { removed: 1, added: 1 }), config: {} })), ['hot-path']);
+  // Свой список из harness.json вытесняет дефолт целиком.
+  const custom = evaluate({
+    diff: diffFor('src/billing/charge.js', { removed: 1, added: 1 }),
+    config: { hotPaths: ['src/billing/**'] },
+  });
+  assert.deepEqual(names(custom), ['hot-path']);
+  assert.deepEqual(custom.triggers[0].files, ['src/billing/charge.js']);
+  // ...и то, что было горячим по дефолту, при своём списке горячим быть перестаёт.
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/fleet/gate.js', { removed: 1, added: 1 }), config: { hotPaths: ['src/billing/**'] } })), []);
+  // Абсолютный путь вне cwd (009 T014) обязан срезаться до репо-относительного.
+  const external = evaluate({
+    diff: diffFor('C:/repo/tools/fleet/gate.js', { removed: 1, added: 1 }),
+    cwd: 'C:\\repo',
+    config: {},
+  });
+  assert.deepEqual(external.triggers[0].files, ['tools/fleet/gate.js']);
+}
+
+function testDiffSize() {
+  const big = diffFor('docs/notes.md', { added: DEFAULT_DIFF_SIZE + 1 });
+  assert.deepEqual(names(evaluate({ diff: big, config: {} })), ['diff-size']);
+  // Порог из конфига действует вместо дефолта — в обе стороны.
+  assert.deepEqual(names(evaluate({ diff: big, config: { diffSizeThreshold: 10000 } })), []);
+  assert.deepEqual(names(evaluate({ diff: diffFor('docs/notes.md', { added: 11 }), config: { diffSizeThreshold: 10 } })), ['diff-size']);
+}
+
 function main() {
   testVerifyOffForThisRepo();
   testBenchBaselineParses();
-  process.stdout.write('elt gate L0 (T001 verify-off) tests: PASS\n');
+  testNoTriggersOnCleanSlice();
+  testExistingTestModified();
+  testNewCodeWithoutCheck();
+  testHotPath();
+  testDiffSize();
+  process.stdout.write('elt gate L0 tests: PASS\n');
 }
 
 main();

@@ -36,7 +36,7 @@
 
 ## Фаза B — L0: механика вместо LLM (0 вызовов, менее 5 c)
 
-- [ ] **T002** `tools/elt-gate-l0.js`: чистая функция `evaluate({diff, status, config, cwd})` →
+- [X] **T002** `tools/elt-gate-l0.js`: чистая функция `evaluate({diff, status, config, cwd})` →
   `{triggers: [], judgeNeeded: bool}`. Триггеры: `existing-test-modified` (правится тест-файл,
   существовавший на baseHead), `new-code-no-check` (новый прод-код без нового/изменённого
   runnable-чека), `hot-path` (список глобов из `harness.json.hotPaths`, дефолт — гейт/auth/
