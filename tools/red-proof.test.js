@@ -80,6 +80,36 @@ test('тестовый файл без прогонной команды (не-n
   assert.equal(r.reason, 'no-test-cmd');
 });
 
+// 011 T016 ↓ — дефолт `node --test` для этого репо ложен (тесты тут самозапускающиеся
+// `main()`-скрипты), а зависший раннер вешал гейт молча на 25 минут.
+test('testCmd из harness.json подхватывается вместо дефолта `node --test`', () => {
+  const repo = makeRepo({ testCmd: 'node' });
+  // Различимый маркер: `node --test` выставляет детям NODE_TEST_CONTEXT, плоский `node` — нет.
+  // Под дефолтом этот файл дал бы green (тестов нет, ребёнок вышел 0), под `node` — red.
+  fs.writeFileSync(path.join(repo, 'marker.test.js'), 'process.exit(process.env.NODE_TEST_CONTEXT ? 0 : 1);\n');
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'red', 'сработал плоский `node` из конфига, а не дефолтный `node --test`');
+});
+
+test('зависший раннер упирается в потолок → skipped:test-cmd-timeout, а не молчаливое зависание', () => {
+  const repo = makeRepo({ testCmd: 'node', redProofTimeoutMs: 1200 });
+  fs.writeFileSync(path.join(repo, 'hang.test.js'), 'while (true) {}\n');
+  const started = Date.now();
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'skipped');
+  assert.ok(r.reason.startsWith('test-cmd-timeout:'), `ожидалась явная причина таймаута, получено: ${r.reason}`);
+  assert.ok(Date.now() - started < 30000, 'потолок обязан сработать, а не висеть бесконечно');
+});
+
+test('несколько тестовых файлов в диффе: гоняются все, а не только первый', () => {
+  const repo = makeRepo({ testCmd: 'node' });
+  fs.writeFileSync(path.join(repo, 'a.test.js'), 'process.exit(0);\n');
+  fs.writeFileSync(path.join(repo, 'b.test.js'), "console.log('SECOND-FILE-RAN'); process.exit(1);\n");
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'red', 'падение второго файла обязано быть замечено');
+  assert.match(r.tail, /SECOND-FILE-RAN/);
+});
+
 test('worktree удаляется всегда — не остаётся в git worktree list после прогона', () => {
   const repo = makeRepo();
   const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });

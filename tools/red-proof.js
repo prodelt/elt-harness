@@ -40,15 +40,27 @@ function testFilesFromDiff(cwd) {
 // harness.json.testCmd явный → берём как есть. Не задан → детект: node-проект (package.json
 // или тестовые файлы с JS/TS-расширением) → `node --test` (файлы добавляются аргументами
 // ниже). Ни то ни другое → нечем прогнать, скипаем явно, не молчим.
-function resolveTestCmd(cwd, files) {
+function readHarness(cwd) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'));
-    if (typeof cfg.testCmd === 'string' && cfg.testCmd.trim()) return cfg.testCmd.trim();
-  } catch { /* нет harness.json / битый — детект ниже */ }
+    return JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'));
+  } catch { return {}; } // нет harness.json / битый — дефолты
+}
+
+function resolveTestCmd(cwd, files) {
+  const cfg = readHarness(cwd);
+  if (typeof cfg.testCmd === 'string' && cfg.testCmd.trim()) return cfg.testCmd.trim();
   if (fs.existsSync(path.join(cwd, 'package.json')) || files.some((f) => /\.[cm]?[jt]sx?$/i.test(f))) {
     return 'node --test';
   }
   return null;
+}
+
+// 011 T016: без потолка зависший раннер вешал гейт молча и бесконечно (живьём 25 мин на
+// `node --test -- tools/doctor.test.js`). Потолок — НА ФАЙЛ, из harness.json.redProofTimeoutMs.
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+function resolveTimeoutMs(cwd) {
+  const v = readHarness(cwd).redProofTimeoutMs;
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_TIMEOUT_MS;
 }
 
 function tailOf(text, maxLines = 40) {
@@ -77,14 +89,23 @@ function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
     delete env.NODE_TEST_CONTEXT;
     // `--` перед файлами: путь диффа не должен трактоваться раннером как флаг (напр. файл
     // с именем, начинающимся на `-`, попавший в дифф).
-    const result = spawnSync(bin, [...cmdArgs, '--', ...files], { cwd: wt, encoding: 'utf8', env });
-    if (result.error) {
-      return { status: 'skipped', reason: `test-cmd-error:${result.error.code || result.error.message}`, files, tail: '' };
+    // По ОДНОМУ файлу за прогон: `node -- a.js b.js` запустил бы только a.js (остальное ушло бы
+    // в argv скрипта) — молчаливое доказательство лишь первого теста. Первый упавший = слайс
+    // доказан, дальше не гоняем.
+    const timeout = resolveTimeoutMs(cwd);
+    let tail = '';
+    for (const f of files) {
+      const result = spawnSync(bin, [...cmdArgs, '--', f], { cwd: wt, encoding: 'utf8', env, timeout });
+      tail = tailOf((result.stdout || '') + (result.stderr || ''));
+      if (result.error) {
+        const code = result.error.code || result.error.message;
+        // spawnSync при превышении timeout убивает процесс и кладёт сюда ETIMEDOUT.
+        const reason = code === 'ETIMEDOUT' ? `test-cmd-timeout:${f}` : `test-cmd-error:${code}`;
+        return { status: 'skipped', reason, files, tail };
+      }
+      if (result.status !== 0) return { status: 'red', reason: 'fails-on-base', files, tail };
     }
-    const tail = tailOf((result.stdout || '') + (result.stderr || ''));
-    return result.status !== 0
-      ? { status: 'red', reason: 'fails-on-base', files, tail }
-      : { status: 'green', reason: 'passes-on-base', files, tail };
+    return { status: 'green', reason: 'passes-on-base', files, tail };
   } finally {
     if (!gitOk(['worktree', 'remove', '--force', wt], cwd)) {
       try { fs.rmSync(wt, { recursive: true, force: true }); } catch { /* best-effort */ }

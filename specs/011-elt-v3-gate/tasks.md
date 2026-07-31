@@ -17,7 +17,7 @@
   отчёта бенча парсится (кейсы, recall, false-positive). [AC1]
   [files: .harness/harness.json, tools/elt-gate-l0.test.js]
 
-- [ ] **T016** red-proof не виснет и не молчит. Замер 2026-07-31 на живом T004: судья дал `pass`
+- [X] **T016** red-proof не виснет и не молчит. Замер 2026-07-31 на живом T004: судья дал `pass`
   за 15 c, а `red-proof.js:80` повис на `node --test -- tools/doctor.test.js` — >180 c без
   завершения (тот же файл под `node -- <file>` зелёный за 22 c), и `spawnSync` там **без
   `timeout`**, поэтому гейт висел 25 минут молча. Два фикса: (а) `.harness/harness.json` →
