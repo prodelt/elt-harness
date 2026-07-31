@@ -1,16 +1,16 @@
 # Checkpoint (auto) — 2026-07-31
 
-Автозаписан `checkpoint-writer.js` на пороге ~199k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~141k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
 - dirty files: 0
 
 ## Last Run
-- commit: `2f715ab`
+- commit: `19360bd`
 - verdict: pass
 - oracle exit: 0
-- msg: feat: T007 `checkOracleVerifierContract` исполняемый: при `--deep` оракул реально
+- msg: feat: T002 `tools/elt-gate-l0.js`: чистая функция `evaluate({diff, status, config, cwd})` 
 
 ## Next Slice
 - plan file: `specs\005-elt-control-plane-convergence\tasks.md`
