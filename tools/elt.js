@@ -234,7 +234,13 @@ function readSpecHashes(specDir) {
   const { specMd, tasksMd } = specPaths(specDir);
   if (!fs.existsSync(specMd)) return { error: 'spec.md-missing' };
   if (!fs.existsSync(tasksMd)) return { error: 'tasks.md-missing' };
-  return { specHash: sha256(fs.readFileSync(specMd)), tasksHash: sha256(fs.readFileSync(tasksMd)) };
+  // Хеш от НОРМАЛИЗОВАННОГО текста, не от байтов. Живой прогон 011/T019 (01.08): при
+  // core.autocrlf=true git отдаёт CRLF на checkout, поэтому тот же самый файл в fleet-worktree
+  // имеет другие байты, чем в основном дереве, — approval там всегда `stale`, и fleet на
+  // Windows не мог закоммитить НИ ОДИН слайс любой спеки с specApproval:true. Подпись обязана
+  // держаться за содержание спеки, а не за перевод строк, которым её записал чекаут.
+  const norm = (f) => sha256(fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n'));
+  return { specHash: norm(specMd), tasksHash: norm(tasksMd) };
 }
 function readApproval(specDir) {
   try { return JSON.parse(fs.readFileSync(specPaths(specDir).approvalJson, 'utf8')); } catch { return null; }
