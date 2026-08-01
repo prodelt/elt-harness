@@ -691,7 +691,15 @@ function circuitEnabled(cwd) {
   return !!verifySettings(cwd) || (mode !== '' && mode !== 'off');
 }
 
-async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null, judgeVerify, judgeExclude = [] }) {
+// Живой прогон 011/T019 (01.08): fleet ЗНАЕТ tasksPath, но звал `elt` без `--spec` — автодетект
+// по tid ушёл в specs/003 (T019 существует в ПЯТИ спеках, в четырёх закрыт) и уронил стадию
+// commit. Тот же tasksPath, что кормит plan.js, обязан ехать и в elt: id уникальны внутри
+// спеки, не между. Отсюда: файл → рубрика судьи (findSpecDir ждёт файл), папка → флаг `--spec`.
+function specArgsFor(specFile) {
+  return specFile ? ['--spec', path.dirname(specFile)] : [];
+}
+
+async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null, judgeVerify, judgeExclude = [], specFile = null }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
 
@@ -707,7 +715,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
 
   // 2. судья (обязателен, REJECT-default). T022: prevBlockReason — причина прошлого block
   // этого же слайса (caller хранит между попытками) прокидывается в prompt.
-  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason, verify: judgeVerify, judgeExclude });
+  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason, verify: judgeVerify, judgeExclude, specFile });
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
   // 011 T004: inconclusive идёт дальше как pass — коммит с меткой + строка в очередь ревью
   // (её пишет `elt commit`, там есть sha). Второго раунда судейства нет: caller видит ok:true.
@@ -747,15 +755,15 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
     ...(j.l0 ? { l0: j.l0 } : {}),
   }));
   const replayBridge = path.join(__dirname, '..', 'judge-replay.js');
-  const proof = await exec.run('node', [elt, 'judge', 'run', '--task', tid, '--invoke', replayBridge], {
+  const proof = await exec.run('node', [elt, 'judge', 'run', '--task', tid, ...specArgsFor(specFile), '--invoke', replayBridge], {
     cwd, env: { ...process.env, ELT_JUDGE_REPLAY: replayPath },
   });
   try { fs.rmSync(replayDir, { recursive: true, force: true }); } catch { /* tmp, не критично */ }
   if (proof.status !== 0) return { ok: false, stage: 'judge-proof', tid, err: (proof.stderr || proof.stdout || '').trim() };
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
-  const c = await exec.run('node', [elt, 'commit', '--task', tid, '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
+  const c = await exec.run('node', [elt, 'commit', '--task', tid, ...specArgsFor(specFile), '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
   if (c.status !== 0) return { ok: false, stage: 'commit', tid, err: (c.stderr || c.stdout || '').trim() };
   return { ok: true, tid, verdict: j.verdict, judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };
+module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };

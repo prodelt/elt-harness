@@ -244,7 +244,7 @@ async function resumeParked(resumable, { cwd, integration, tasksPath, judgeProvi
 
     if (c.state === 'judge_pending') {
       const judgeStart = Date.now();
-      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeProvider, judgeModel, integration });
+      const g = await gate.gate({ tid: c.tid, taskText: c.taskText || '', cwd: wtPath, judgeProvider, judgeModel, integration, specFile: tasksPath });
       logSpawn(cwd, {
         tid: c.tid, phase: 'judge', provider: judgeProvider, model: judgeModel,
         durationSec: Math.round((Date.now() - judgeStart) / 1000),
@@ -553,7 +553,7 @@ async function run(opts = {}) {
         const judgeCap = router.tryBeginCall(callTracker, policy, jp.provider);
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
-        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], prevBlockReason: blockReasons.get(slice.id) || '', integration }); }
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], prevBlockReason: blockReasons.get(slice.id) || '', integration, specFile: tasksPath }); }
         finally { router.endCall(callTracker, jp.provider); }
         const judgeDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
@@ -573,7 +573,7 @@ async function run(opts = {}) {
         if (g.stage === 'judge' && g.verdict === 'block') blockReasons.set(slice.id, (g.reasons || []).join('; '));
         else if (g.ok) blockReasons.delete(slice.id);
 
-        emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict });
+        emit(cwd, { event: g.ok ? 'gate-pass' : 'gate-reject', tid: slice.id, stage: g.stage, verdict: g.verdict, err: g.err || (g.reasons || []).join('; ') || null });
         if (g.ok) claims.setState(slice.id, { state: 'merge_pending' }, { cwd });
 
         logSpawn(cwd, {
@@ -754,7 +754,7 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
     const judgeCap = router.tryBeginCall(callTracker, policy, jp.provider);
     if (!judgeCap.ok) return capBlock(judgeCap.reason);
     let g;
-    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], integration }); }
+    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], integration, specFile: tasksPath }); }
     finally { router.endCall(callTracker, jp.provider); }
     logSpawn(cwd, {
       tid: slice.id, phase: 'judge', provider: jp.provider, model: jp.model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
