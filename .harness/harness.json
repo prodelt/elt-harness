@@ -1,6 +1,7 @@
 {
   "kind": "code",
   "oracle": "node tools/elt-oracle-runner.js",
+  "smoke": "node tools/smoke-elt-deploy.js",
   "shell": "powershell",
   "branchPolicy": "feature",
   "push": false,
