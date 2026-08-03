@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { readHarnessConfig, verifySettings } = require('./elt-config');
 const runLog = require('./run-log');
+const eltStats = require('./elt-stats');
 
 const cwd = process.cwd();
 const HARNESS_DIR = path.join(cwd, '.harness');
@@ -628,6 +629,22 @@ function readReviewQueue() {
     try { return JSON.parse(line); } catch { return null; } // битая строка не хоронит очередь
   }).filter(Boolean);
 }
+// 011 T022: одна команда вместо ручного разбора run-log.jsonl под каждый замер.
+if (cmd === 'stats') {
+  const file = runLog.runtimeRunLog(cwd);
+  const entries = file && fs.existsSync(file) ? eltStats.parseRunLog(fs.readFileSync(file, 'utf8')) : [];
+  const since = opt('--since') ? new Date(opt('--since')).toISOString() : undefined;
+  const s = eltStats.computeStats(entries, { since });
+  if (flag('--json')) { console.log(JSON.stringify(s, null, 2)); process.exit(0); }
+  const pct = (v) => (v === null ? 'n/a' : `${Math.round(v * 100)}%`);
+  console.log(`elt stats${s.since ? ` (с ${s.since})` : ''}: ${s.gateRuns} прогонов гейта, ${s.commits} коммитов`);
+  console.log(`  block-rate: ${pct(s.blockRate)}  l0-clean: ${pct(s.l0CleanShare)}  inconclusive: ${pct(s.inconclusiveShare)}`);
+  console.log(`  судья/коммит: ${s.judgeRunsPerCommit === null ? 'n/a' : s.judgeRunsPerCommit.toFixed(2)}  через гейт: ${pct(s.gateCoverage)}`);
+  console.log(`  оракул p50/p90: ${s.oracleP50 ?? 'n/a'}s / ${s.oracleP90 ?? 'n/a'}s`);
+  console.log(`  block по источнику: ${JSON.stringify(s.blockBreakdown)}`);
+  process.exit(0);
+}
+
 if (cmd === 'review') {
   const rows = readReviewQueue();
   if (sub === 'close') {
@@ -792,6 +809,9 @@ if (cmd === 'judge' && sub === 'run') {
     task: taskId, status: l0 && l0.judgeNeeded === false ? 'l0-clean' : `judge-${verdict}`, verdict,
     ...(l0 ? { l0: { triggers: l0.triggers || [], judgeNeeded: !!l0.judgeNeeded } } : {}),
     judges: out.judges, judgeLog: out.judgeLog || null,
+    // 011 T022: маркеры red-proof/grounding живут в reasons, не в judges — без них
+    // `elt stats` не может разложить block по источнику задним числом.
+    reasons,
   });
   console.log(JSON.stringify(proof, null, 2));
   // inconclusive = exit 0: слайс коммитится (с меткой), и это ЕДИНСТВЕННЫЙ прогон судьи по
@@ -1079,6 +1099,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
   elt review [--json] | elt review close --task Txxx        очередь вердиктов inconclusive (неблокирующая); close — снять с разбора
+  elt stats [--since <ISO-дата>] [--json]                   block-rate/coverage/p50-p90 из run-log.jsonl (одна команда вместо ручного разбора)
   elt oracle                                                прогнать оракул, exit-код = истина
   elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]  запустить судью КОДОМ и записать proof (exit 0 = pass)
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
