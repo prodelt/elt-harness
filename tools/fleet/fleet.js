@@ -25,6 +25,19 @@ const approvalGuard = require('../approval-guard');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 
+// 011 T020 — merge — единственное место в fleet, где интеграционная ветка сдвигается, и
+// ИМЕННО там impact-выборка слепа: `git diff HEAD` сразу после merge-коммита почти пуст, так
+// что оракул под `oracleSelect:impact` прогнал бы считанные файлы вместо всего дерева. merge.js
+// не меняем (T020 объявляет только fleet.js, doctor-core.js, elt-oracle-runner.js, elt.js) —
+// `ELT_ORACLE_FULL` тот же канал, что и в elt.js, и наследуется дочерним `node elt oracle`
+// (merge.js → exec.run → spawn без явного env = process.env этого процесса на момент спавна).
+// Мерж-очередь СЕРИАЛЬНА (см. шапку файла), поэтому нет риска задеть параллельный вызов.
+async function mergeFullOracle(tid, opts) {
+  process.env.ELT_ORACLE_FULL = '1';
+  try { return await merge.mergeSlice(tid, opts); }
+  finally { delete process.env.ELT_ORACLE_FULL; }
+}
+
 function currentBranch(cwd) {
   try { return execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim(); }
   catch { return 'main'; }
@@ -265,7 +278,7 @@ async function resumeParked(resumable, { cwd, integration, tasksPath, judgeProvi
       claims.setState(c.tid, { state: 'merge_pending' }, { cwd });
     }
 
-    const m = await merge.mergeSlice(c.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
+    const m = await mergeFullOracle(c.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
     if (m.conflict) {
       emit(cwd, { event: 'resume-merge-conflict', tid: c.tid });
       summary.conflicts.push(c.tid); // claim/worktree/branch остаются — следующий resume дожмёт
@@ -641,7 +654,7 @@ async function run(opts = {}) {
         }
         continue;
       }
-      const m = await merge.mergeSlice(r.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
+      const m = await mergeFullOracle(r.tid, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
       if (m.conflict) {
         emit(cwd, { event: 'merge-conflict', tid: r.tid });
         cleanupSlice(cwd, r.tid); // сбросить ветку/worktree
@@ -762,7 +775,7 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
       verdict: g.ok ? 'pass' : (g.stage === 'judge' ? 'block' : g.stage),
     });
     if (!g.ok) { emit(cwd, { event: 'redo-gate-reject', tid: slice.id, stage: g.stage }); cleanupSlice(cwd, slice.id); return { ok: false }; }
-    const m = await merge.mergeSlice(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
+    const m = await mergeFullOracle(slice.id, { cwd, integration, tasksPath, elt: ELT_CLI, oracle: true });
     cleanupSlice(cwd, slice.id);
     if (m.conflict) { emit(cwd, { event: 'redo-conflict', tid: slice.id }); return { ok: false }; }
     if (!m.ok || (m.merged && m.oracleOk === false)) {

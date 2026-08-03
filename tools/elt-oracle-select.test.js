@@ -11,6 +11,7 @@ const path = require('node:path');
 const { after, test } = require('node:test');
 
 const { selectTests, dependents, needlesFor } = require('./elt-oracle-select');
+const { oracleSelectMode, slicesSinceFull } = require('./elt-oracle-runner');
 
 const dirs = [];
 // Мини-репо: тест A трогает only-a.js, тест B — only-b.js, тест C зовёт CLI строкой в конфиге
@@ -118,4 +119,64 @@ test('иглы имени различают файл, а не любое вхо
   assert.ok(n.includes('tools/elt.js'));
   assert.ok(n.includes('elt.js'));
   assert.ok(!n.includes('elt'), 'голое `elt` матчило бы почти каждый файл репо и вырождало выборку');
+});
+
+// ──────────────────────────────────────────────────────────────── 011 T020 ───
+// Сеть безопасности под impact-выборкой: `--full`/ELT_ORACLE_FULL обязаны игнорировать
+// `oracleSelect:impact` целиком, а не просто расширять выборку.
+function fixtureWithConfig(oracleSelect) {
+  const root = fixture();
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'x', oracleSelect }));
+  return root;
+}
+
+test('oracleSelectMode: forceFull=true гонит all даже при oracleSelect:impact в конфиге', () => {
+  const root = fixtureWithConfig('impact');
+  assert.equal(oracleSelectMode(root, false), 'impact', 'без force — конфиг уважается');
+  assert.equal(oracleSelectMode(root, true), 'all', '--full перекрывает конфиг целиком');
+});
+
+test('oracleSelectMode: без oracleSelect:impact в конфиге всегда all, force не нужен', () => {
+  const root = fixtureWithConfig(undefined);
+  assert.equal(oracleSelectMode(root, false), 'all');
+});
+
+test('slicesSinceFull: растёт на impact-прогонах, сбрасывается на full', () => {
+  const entries = [
+    { oracle: { full: true } },
+    { oracle: { full: false } },
+    { oracle: { full: false } },
+    { oracle: { full: false } },
+  ];
+  assert.equal(slicesSinceFull(entries), 3);
+});
+
+test('slicesSinceFull: full сбрасывает счётчик в 0, начиная с ХВОСТА', () => {
+  const entries = [
+    { oracle: { full: false } },
+    { oracle: { full: false } },
+    { oracle: { full: true } },   // сброс здесь
+    { oracle: { full: false } },
+  ];
+  assert.equal(slicesSinceFull(entries), 1, 'считаем только после последнего full, не всю историю');
+});
+
+test('slicesSinceFull: записи без oracle.full (не-оракульные события) пропускаются, не хоронят счёт', () => {
+  const entries = [
+    { oracle: { full: true } },
+    { status: 'judge-pass', verdict: 'pass' },     // нет oracle-поля вовсе
+    { oracle: { exit: 0 } },                        // oracle есть, full отсутствует (до T020)
+    { oracle: { full: false } },
+  ];
+  assert.equal(slicesSinceFull(entries), 1, 'посторонние записи не считаются impact-прогонами');
+});
+
+test('slicesSinceFull: ни одного full в истории — считает от начала, не бросает', () => {
+  const entries = [{ oracle: { full: false } }, { oracle: { full: false } }];
+  assert.equal(slicesSinceFull(entries), 2);
+});
+
+test('slicesSinceFull: пустая история — 0', () => {
+  assert.equal(slicesSinceFull([]), 0);
 });

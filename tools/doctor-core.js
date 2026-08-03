@@ -10,6 +10,8 @@ const { checkArtifact: checkGitArtifact } = require('./git-workflow-audit');
 const { checkArtifact: checkDocsGateArtifact } = require('./docs-gate');
 const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-checklist');
 const { readHarnessConfig } = require('./elt-config');
+const runLog = require('./run-log');
+const { slicesSinceFull } = require('./elt-oracle-runner');
 const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const { inspectProject } = require('./project-bootstrap');
@@ -716,6 +718,29 @@ function checkReviewQueue(root) {
     : result('pass', 'elt:review-queue', 'Очередь ревью', detail, '', { open, file })];
 }
 
+// 011 T020 (R4): impact-выборка (`oracleSelect:impact`) экономит время на КАЖДОМ слайсе, но
+// платит за это слепотой к дефектам вне 2-хопового обратного скана диффа — единственная сеть
+// под ней (fleet-merge всегда full, T020) не покрывает соло-путь без fleet вовсе. Счётчик —
+// не стоп: накопление сигнализирует, а не роняет прогон (то же решение R4, что и review-queue).
+// ponytail: порог константой — цифру никто ещё не подбирал.
+const ORACLE_FULL_STALE_WARN = 15;
+function checkOracleFullStale(root) {
+  const harness = readHarnessConfig(root);
+  if (!harness.ok || harness.config.oracleSelect !== 'impact') return []; // impact не включён — концепция не применима
+  const file = runLog.runtimeRunLog(root);
+  if (!file) return [];
+  const text = readText(file);
+  if (!text.ok) return [];
+  const entries = text.value.split(/\r?\n/).filter(Boolean).map((line) => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
+  const count = slicesSinceFull(entries);
+  const detail = `${count} слайсов с последнего полного прогона (порог ${ORACLE_FULL_STALE_WARN})`;
+  return [count > ORACLE_FULL_STALE_WARN
+    ? result('warn', 'elt:oracle-full-stale', 'Полный оракул давно не гонялся', detail, 'elt oracle --full (или дождись merge через fleet — там он идёт всегда).', { count, file })
+    : result('pass', 'elt:oracle-full-stale', 'Полный оракул', detail, '', { count, file })];
+}
+
 // R1 (спека 010): глобальная копия моста судьи — вторая копия кода, она разъезжается с репо
 // молча, как `tools/elt.js` ≡ `~/.claude/bin/elt.js`. Механический сигнал: при judge.enabled
 // нет копии → WARN (`elt judge run` в чужом проекте упадёт), копия ≠ репо → WARN с именами.
@@ -1033,6 +1058,7 @@ function runDoctor(options) {
     ...checkHarnessChecklist(root),
     checkHarnessConfig(root),
     ...checkReviewQueue(root),
+    ...checkOracleFullStale(root),
     ...checkJudgeBridge(root, home),
     ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
@@ -1087,6 +1113,7 @@ module.exports = {
   checkHarnessChecklist,
   checkHarnessConfig,
   checkReviewQueue,
+  checkOracleFullStale,
   checkJudgeBridge,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
