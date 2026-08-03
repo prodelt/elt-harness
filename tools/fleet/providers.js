@@ -20,6 +20,7 @@
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const router = require('./router');
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -55,8 +56,28 @@ const PROVIDERS = {
   // лимитами — воркеры T001/T003 дописали код за 2.5 мин, но упали на «Error: timeout
   // waiting for response», потому что agy сдавался по СВОЕМУ лимиту раньше, чем наш
   // caller успевал что-то решить. Один источник правды: сколько дали мы, столько и agy.
-  agy: (model, prompt, cwd, lean, timeoutMs) => ['-p', prompt, '--add-dir', cwd, '--dangerously-skip-permissions', '--print-timeout', `${Math.max(1, Math.round(timeoutMs / 60000))}m`, ...(model ? ['--model', model] : [])],
+  //
+  // 011 T028 (практика waggle, §06 артефакта): промпт судьи/воркера — В ФАЙЛ, argv несёт
+  // только путь. agy — единственный провайдер, у которого промпт вообще идёт в argv (не
+  // stdin, см. шапку файла), и на реальном диффе (DIFF_CAP 60K) это упирается в лимит длины
+  // командной строки Windows раньше, чем в сам DIFF_CAP — `spawn ENAMETOOLONG` живьём
+  // (T017б лечила симптом failover'ом на другого судью, причина оставалась). Файл ложится
+  // в `.harness/fleet/prompts/` — та же директория, что уже покрыта `--add-dir cwd`, значит
+  // agy достаёт его без ДОПОЛНИТЕЛЬНОГО --add-dir. Ссылка вместо копии — argv короткий
+  // независимо от размера промпта, класс ошибки снят, а не подловлен порогом.
+  agy: (model, prompt, cwd, lean, timeoutMs) => [
+    '-p', promptRefForAgy(cwd, prompt), '--add-dir', cwd, '--dangerously-skip-permissions',
+    '--print-timeout', `${Math.max(1, Math.round(timeoutMs / 60000))}m`, ...(model ? ['--model', model] : []),
+  ],
 };
+
+function promptRefForAgy(cwd, prompt) {
+  const dir = path.join(cwd, '.harness', 'fleet', 'prompts');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `agy-${Date.now()}-${process.pid}-${crypto.randomUUID()}.txt`);
+  fs.writeFileSync(file, prompt, 'utf8');
+  return `Полная инструкция и содержимое (включая дифф) лежат в файле ${file} — прочитай его целиком и ответь по формату, описанному внутри.`;
+}
 
 // Баг #10 (T016 live-fire): судья зовётся с inline `--json-schema {…}` (JSON с кавычками).
 // `claude` на PATH — это claude.cmd-шим → node спавнит через cmd.exe (shell:true, .cmd иначе

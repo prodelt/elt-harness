@@ -211,6 +211,35 @@ test('agy: --print-timeout производен от timeoutMs, а не лите
   assert.equal(short.argv[short.argv.indexOf('--print-timeout') + 1], '3m', 'лимит меняется вместе с timeoutMs');
 });
 
+// --- 011 T028 (waggle): промпт agy — файлом, не argv. Живой дефект: диф на DIFF_CAP 60K
+// упирался в лимит длины командной строки Windows раньше, чем в сам DIFF_CAP —
+// `spawn ENAMETOOLONG`. Проверяем, что argv остаётся коротким НЕЗАВИСИМО от размера промпта
+// (класс ошибки снят, а не подловлен порогом) и что файл реально несёт полный текст. ---
+test('T028: agy — argv короткий на промпте >200K, файл несёт полный текст', async () => {
+  const huge = 'ДИФФ '.repeat(50000); // > 200K символов
+  assert.ok(huge.length > 200000, 'фикстура правда огромная');
+  const { r, argv } = await spawnArgs('agy', { prompt: huge });
+  assert.equal(r.ok, true, 'спавн не падает на огромном промпте');
+  const totalArgvLen = argv.join(' ').length;
+  assert.ok(totalArgvLen < 2000, `argv обязан быть коротким независимо от промпта (был ${totalArgvLen})`);
+  const pIdx = argv.indexOf('-p');
+  assert.ok(pIdx >= 0 && !argv[pIdx + 1].includes(huge), '-p несёт ссылку на файл, не сам промпт');
+  const m = argv[pIdx + 1].match(/файле (\S+\.txt)/);
+  assert.ok(m, '-p называет путь к файлу');
+  assert.equal(fs.readFileSync(m[1], 'utf8'), huge, 'файл несёт ПОЛНЫЙ промпт байт в байт');
+  assert.ok(m[1].startsWith(path.join(TMP, '.harness', 'fleet', 'prompts')), 'файл лежит там, куда уже смотрит --add-dir cwd');
+});
+
+test('T028: два вызова agy подряд не перетирают файл друг друга (уникальные имена)', async () => {
+  const a = await spawnArgs('agy', { prompt: 'первый' });
+  const b = await spawnArgs('agy', { prompt: 'второй' });
+  const fileOf = (argv) => argv[argv.indexOf('-p') + 1].match(/файле (\S+\.txt)/)[1];
+  const fa = fileOf(a.argv); const fb = fileOf(b.argv);
+  assert.notEqual(fa, fb);
+  assert.equal(fs.readFileSync(fa, 'utf8'), 'первый');
+  assert.equal(fs.readFileSync(fb, 'utf8'), 'второй');
+});
+
 // --- T007 (004-elt-selfdrive): session-rotation (elt-drive.ps1) ---
 test('T007: sessionId → argv несёт --session-id <id> (claude); без sessionId флага нет', async () => {
   const withId = await spawnArgs('claude', { sessionId: 'abc-123' });
