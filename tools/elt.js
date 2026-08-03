@@ -347,6 +347,14 @@ function requireL0() {
     return require(path.join(os.homedir(), '.claude', 'bin', 'judge', 'elt-gate-l0.js'));
   }
 }
+// Тот же деплой-фолбэк, что у L0 (T017): `elt.js` живёт и деплоем в `~/.claude/bin/`, где
+// harness-watch.js — ещё один ручной сосед (как elt-stats.js/elt-config.js/run-log.js).
+function requireHarnessWatch() {
+  try { return require('./harness-watch'); } catch (e) {
+    if (e.code !== 'MODULE_NOT_FOUND') throw e;
+    return require(path.join(os.homedir(), '.claude', 'bin', 'harness-watch.js'));
+  }
+}
 function preOracleL0(cfg) {
   const { evaluate, loadConfig } = requireL0();
   const l0 = evaluate({
@@ -1103,6 +1111,11 @@ if (cmd === 'commit') {
     },
     commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}),
   });
+
+  // 011 T026: watchdog зовётся сам между слайсами, СРАЗУ после записи run-log (там его
+  // сырьё). Не гейт — тихий сбой (в т.ч. деплой без ~/.claude/bin/harness-watch.js) не
+  // валит коммит, только теряет это одно наблюдение.
+  try { requireHarnessWatch().runOnce(cwd); } catch { /* watchdog не гейт */ }
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {

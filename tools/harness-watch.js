@@ -18,8 +18,9 @@ const fs = require('fs');
 const path = require('path');
 const { runtimeRunLog } = require('./run-log');
 const { verifySettings } = require('./elt-config');
+const { classifyBlockSource } = require('./elt-stats');
 
-const DEFAULTS = { window: 50, staleParkHours: 24, pollMs: 5000, oracleSlowFactor: 3, minOracleSamples: 5 };
+const DEFAULTS = { window: 50, staleParkHours: 24, pollMs: 5000, oracleSlowFactor: 3, minOracleSamples: 5, blockPatternMin: 3 };
 
 function readJsonl(file) {
   let raw;
@@ -148,6 +149,34 @@ function detectOracleSlow(entries, opts) {
   }));
 }
 
+// Схема C, звено EV: одна и та же причина блока N раз в окне — эволюция без этого
+// самообман (52 блока за 011, ни одного разобранного watchdog'ом). Группа — тот же
+// разбор источника, что T022 уже даёт числами (`red-proof`/`grounding`/`судья`); L0
+// группируется по имени триггера (`hot-path`, `out-of-scope`, …), не по тексту причины —
+// текст несёт файлы/строки и у одного триггера никогда не повторяется дословно.
+function blockReasonKey(e) {
+  if (e.status === 'judge-block') return `judge:${classifyBlockSource(e.reasons)}`;
+  if (e.status === 'l0-block' && e.l0 && Array.isArray(e.l0.triggers) && e.l0.triggers.length) {
+    return `l0:${[...new Set(e.l0.triggers.map((t) => t.name))].sort().join('+')}`;
+  }
+  return null;
+}
+
+function detectBlockPattern(entries, opts) {
+  const by = groupBy(entries, blockReasonKey);
+  const out = [];
+  for (const [key, hits] of by) {
+    if (hits.length < opts.blockPatternMin) continue;
+    const last = hits[hits.length - 1];
+    out.push({
+      kind: 'block-pattern', key: `block-pattern:${key}:${last.ts}`, reasonKey: key, count: hits.length,
+      examples: hits.slice(-3).map((h) => h.task || h.commit || h.ts),
+      detail: `${hits.length}× блок с причиной "${key}" в окне`,
+    });
+  }
+  return out;
+}
+
 function detectStalePark(parked, opts, now) {
   const limitMs = opts.staleParkHours * 3600 * 1000;
   return parked.filter((p) => {
@@ -273,6 +302,7 @@ function detect(root, options = {}) {
     ...detectLimitStreak(entries),
     ...detectRedRepeat(entries),
     ...detectJudgeDeadStreak(entries),
+    ...detectBlockPattern(entries, opts),
     ...detectOracleSlow(entries, opts),
     ...detectStalePark(readParked(root), opts, now),
     ...detectCircuitOff(root, readConfig(root)),
