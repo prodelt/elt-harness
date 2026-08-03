@@ -78,3 +78,6 @@ vendor/
 
 # ctx7-пруф (011 T009): рантайм-след обращений к документации, как run-log
 .harness/ctx7-proof.jsonl
+
+# learnings (011 T027): решения elt harness propose (accepted/rejected) — рантайм-след, не исходник
+.harness/learnings.jsonl

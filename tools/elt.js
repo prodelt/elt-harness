@@ -1127,6 +1127,33 @@ if (cmd === 'commit') {
   process.exit(0);
 }
 
+// 011 T027 — правило 4 схемы C: правка харнесса (gate.js/промпт/пороги) обязана нести
+// evidence+root-cause+predicted-impact и пройти judge-bench против baseline ДО коммита,
+// иначе эволюция контура — самообман (пороги правились вручную, ни разу не проверены).
+// НАМЕРЕННО последний блок файла: единственная async-ветка в плоском синхронном скрипте —
+// раньше по порядку она проиграла бы гонку с безусловным `process.exit()` в самом низу.
+if (cmd === 'harness' && sub === 'propose') {
+  let harnessPropose;
+  try { harnessPropose = require('./elt-harness-propose'); }
+  catch { die('elt harness propose: доступно только в репо-разработчике (tools/elt-harness-propose.js не найден)', 4); }
+  const evidence = opt('--evidence');
+  const rootCause = opt('--root-cause');
+  const predictedImpact = opt('--predicted-impact');
+  const baselinePath = opt('--baseline');
+  const baseline = baselinePath ? JSON.parse(fs.readFileSync(path.isAbsolute(baselinePath) ? baselinePath : path.join(cwd, baselinePath), 'utf8')) : undefined;
+  const provider = opt('--provider', 'claude');
+  const model = opt('--model', null);
+  const runBench = async () => {
+    const { cases } = require('./judge-bench/cases');
+    const { runAll, score } = require('./judge-bench');
+    const results = await runAll(cases, { cwd, provider, model, concurrency: 2, timeoutMs: 5 * 60 * 1000 });
+    return score(results);
+  };
+  harnessPropose.propose({ root: cwd, evidence, rootCause, predictedImpact, baseline, runBench }).then((r) => {
+    console.log(JSON.stringify(r, null, 2));
+    process.exit(r.ok ? 0 : 4);
+  });
+} else {
 console.log(`elt — ядро ELT v2 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt status                                                git + план + последний прогон
@@ -1135,6 +1162,8 @@ console.log(`elt — ядро ELT v2 харнесса
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
+  elt harness propose --evidence <e> --root-cause <r> --predicted-impact <i> [--baseline <path>] [--provider p] [--model m]
+      правка судьи/гейта против baseline judge-bench (T023): не улучшила — отказ в learnings.jsonl
   elt review [--json] | elt review close --task Txxx        очередь вердиктов inconclusive (неблокирующая); close — снять с разбора
   elt stats [--since <ISO-дата>] [--json]                   block-rate/coverage/p50-p90 из run-log.jsonl (одна команда вместо ручного разбора)
   elt oracle [--full]                                       прогнать оракул, exit-код = истина; --full игнорирует oracleSelect:impact
@@ -1145,3 +1174,4 @@ console.log(`elt — ядро ELT v2 харнесса
       БАТЧ: --task T001,T002,T003 — один оракул + один судья + один коммит на N задач
             (judge-proof write --task тем же списком; все задачи должны быть открыты и в одном tasks.md)`);
 process.exit(cmd ? 1 : 0);
+}
