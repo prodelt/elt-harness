@@ -412,3 +412,133 @@ test('gate: self-commit воркера + правка вне [files:] → нор
     try { fs.rmSync(R, { recursive: true, force: true }); } catch { /* noop */ }
   }
 });
+
+// --- 011 T019(б): grounding:no-reasons — транспорт, а не качество ---
+// Провайдер без structured output (codex/agy отвечают JSON-хвостом) регулярно теряет reasons;
+// по замеру артефакта это 10% ВСЕХ блоков — блокировался формат ответа, а не работа.
+// Стаб считает СВОИ запуски: «ровно одна перевыдача» проверяется счётчиком, а не последствиями.
+function stubCounting(name, body, counterPath) {
+  return writeStub(name, `require('fs').appendFileSync(${JSON.stringify(counterPath)},'x');\n${body}`);
+}
+test('T019: no-reasons → ровно одна перевыдача, повтор даёт inconclusive и коммит проходит', async () => {
+  const counter = path.join(os.tmpdir(), `fleet-noreasons-${Date.now()}.txt`);
+  fs.writeFileSync(path.join(REPO, 'slice-nr.txt'), 'work-nr\n');
+  fs.writeFileSync(path.join(REPO, 'specs', 'tasks.md'), '- [ ] **T5** демо5\n');
+  const stubJs = stubCounting('judge-noreasons.js',
+    `console.log(JSON.stringify({verdict:'pass',reasons:[],filesReviewed:['slice-nr.txt']}));`, counter);
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubJs]);
+  const n = commits();
+  const r = await gate.gate({ tid: 'T5', taskText: 'демо5', cwd: REPO });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.equal(fs.readFileSync(counter, 'utf8').length, 2, 'ровно два прогона: исходный + ОДНА перевыдача');
+  assert.equal(r.ok, true, 'повторный no-reasons больше не блокирует — слайс идёт дальше с меткой');
+  assert.equal(r.verdict, 'inconclusive');
+  assert.equal(commits(), n + 1, 'коммит состоялся');
+  fs.rmSync(counter, { force: true });
+});
+
+test('T019: перевыдача помогла (reasons появились) → обычный pass, без метки', async () => {
+  const counter = path.join(os.tmpdir(), `fleet-nr-heal-${Date.now()}.txt`);
+  const flag = path.join(os.tmpdir(), `fleet-nr-flag-${Date.now()}.txt`);
+  fs.writeFileSync(path.join(REPO, 'slice-nr2.txt'), 'work-nr2\n');
+  fs.writeFileSync(path.join(REPO, 'specs', 'tasks.md'), '- [ ] **T6** демо6\n');
+  // Первый прогон отдаёт пустой reasons, второй — нормальный: ровно транспортный сбой.
+  const stubJs = stubCounting('judge-nr-heal.js',
+    `const fs=require('fs');const f=${JSON.stringify(flag)};` +
+    `const first=!fs.existsSync(f);if(first)fs.writeFileSync(f,'1');` +
+    // filesReviewed не шлём: файловые проверки здесь не предмет теста (тест-фикстура двигает
+    // ещё и tasks.md, полный список судье пришлось бы поддерживать вручную), а no-reasons
+    // срабатывает безусловно — независимо от того, знает провайдер про поле или нет.
+    `console.log(JSON.stringify({verdict:'pass',reasons:first?[]:['в границах']}));`, counter);
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubJs]);
+  const r = await gate.gate({ tid: 'T6', taskText: 'демо6', cwd: REPO });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.equal(fs.readFileSync(counter, 'utf8').length, 2, 'перевыдача была ровно одна');
+  assert.equal(r.ok, true);
+  assert.equal(r.verdict, 'pass', 'ответ со второго раза разобран — сомнение не записывается человеку зря');
+  fs.rmSync(counter, { force: true });
+  fs.rmSync(flag, { force: true });
+});
+
+test('T019: phantom-file НЕ ретраится и остаётся block — это враньё судьи, а не транспорт', async () => {
+  const counter = path.join(os.tmpdir(), `fleet-phantom-${Date.now()}.txt`);
+  fs.writeFileSync(path.join(REPO, 'slice-ph.txt'), 'work-ph\n');
+  fs.writeFileSync(path.join(REPO, 'specs', 'tasks.md'), '- [ ] **T7** демо7\n');
+  const stubJs = stubCounting('judge-phantom.js',
+    `console.log(JSON.stringify({verdict:'pass',reasons:['всё разобрал'],filesReviewed:['нет-такого-файла.js']}));`, counter);
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stubJs]);
+  const n = commits();
+  const r = await gate.gate({ tid: 'T7', taskText: 'демо7', cwd: REPO });
+  delete process.env.FLEET_BIN_CLAUDE;
+
+  assert.equal(fs.readFileSync(counter, 'utf8').length, 1, 'ретрая нет: враньё о прочитанном не лечится повтором');
+  assert.equal(r.ok, false);
+  assert.equal(r.stage, 'judge');
+  assert.equal(r.verdict, 'block');
+  assert.ok((r.reasons || []).includes('grounding:phantom-file'));
+  assert.equal(commits(), n, 'дерево не закоммичено');
+  fs.rmSync(counter, { force: true });
+});
+
+// 011 T019: двухсудейский путь — свёртка вердиктов знает про ТРИ исхода.
+// Поймано судьёй на самом слайсе T019: `secondary.verdict === 'pass' ? 'pass' : 'block'`
+// возвращало `inconclusive` verify-судьи обратно в block — то есть ровно в сценарии, который
+// спека 011 называет главным источником 77% block-rate («verify заблокировал при pass
+// первичного 36 из 48»), заявленное «grounding больше не блокирует» не выполнялось.
+// Тесты выше этот путь не задевали: их фикстура без `judge.verify`, второй слой не включался.
+const providers = require('./providers');
+async function withVerdicts(byProvider, fn) {
+  const calls = [];
+  const original = providers.run;
+  providers.run = async (opts) => {
+    calls.push(opts.provider);
+    const v = byProvider[opts.provider] || { verdict: 'pass', reasons: ['стаб'] };
+    return { ok: true, stdout: JSON.stringify([{ type: 'result', structured_output: { ...v } }]), logPath: null };
+  };
+  try { return { result: await fn(), calls }; } finally { providers.run = original; }
+}
+function verifyRepo() {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-verify-'));
+  const g = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash',
+    branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' }, l0: { hotPaths: ['**'] },
+  }));
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  g(['add', '-A']); g(['commit', '-q', '-m', 'seed']);
+  fs.writeFileSync(path.join(repo, 'work.js'), 'module.exports = 1;\n');
+  return repo;
+}
+const VERIFY = { provider: 'codex', model: 'gpt-5.6' };
+
+test('T019: verify дал inconclusive → итог inconclusive, а не block', async () => {
+  const repo = verifyRepo();
+  const { result, calls } = await withVerdicts(
+    { codex: { verdict: 'inconclusive', reasons: ['не могу ручаться за внешний вызов'] } },
+    () => gate.runJudge({ cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet', verify: VERIFY }));
+  assert.deepEqual(calls, ['claude', 'codex'], 'оба слоя отработали');
+  assert.equal(result.verdict, 'inconclusive', 'сомнение второго слоя — сомнение, а не отказ');
+  assert.ok(result.reasons.some((r) => /не могу ручаться/.test(r)), 'причина verify доезжает до человека');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('T019: verify дал block → итог block (второй слой не ослаблен третьим исходом)', async () => {
+  const repo = verifyRepo();
+  const { result } = await withVerdicts({ codex: { verdict: 'block', reasons: ['scope creep'] } },
+    () => gate.runJudge({ cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet', verify: VERIFY }));
+  assert.equal(result.verdict, 'block');
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('T019: verify потерял reasons дважды → inconclusive, а не block (транспорт не блокирует)', async () => {
+  const repo = verifyRepo();
+  const { result, calls } = await withVerdicts({ codex: { verdict: 'pass', reasons: [] } },
+    () => gate.runJudge({ cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet', verify: VERIFY }));
+  assert.deepEqual(calls, ['claude', 'codex', 'codex'], 'ровно одна перевыдача verify-судье');
+  assert.equal(result.verdict, 'inconclusive');
+  fs.rmSync(repo, { recursive: true, force: true });
+});

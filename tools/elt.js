@@ -477,8 +477,10 @@ function validateJudgeProof({ taskId } = {}) {
       return invalidJudgeProof('missing-redProof');
     }
     // Зелёный red-proof = тест ничего не ловит на baseHead — слайс НЕ доказан (спека 008,
-    // критерий 5), даже если оба судьи дали pass.
-    if (p.redProof.status === 'green') return invalidJudgeProof('red-proof-green');
+    // критерий 5). 011 T019(а): это больше не block, а `inconclusive` — вердикт с меткой и
+    // строкой в очередь ревью. Пруф с verdict:'pass' И green по-прежнему отвергаем: такой
+    // сочетание может прийти только от пути, который не прогнал T019-логику (старый/ручной).
+    if (p.redProof.status === 'green' && p.verdict !== 'inconclusive') return invalidJudgeProof('red-proof-green');
   }
   // 011 T011: пометки происхождения в proof больше нет и не нужно — при attest:true записать
   // его иначе как через `elt judge run` физически нельзя (ручной `judge-proof write` отвергнут
