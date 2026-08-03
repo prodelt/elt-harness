@@ -12,6 +12,7 @@ const path = require('node:path');
 const { after, test } = require('node:test');
 
 const WATCH = path.join(__dirname, 'harness-watch.js');
+const ELT = path.join(__dirname, 'elt.js');
 const { detect, runOnce } = require('./harness-watch');
 const roots = [];
 
@@ -137,6 +138,77 @@ test('oracle-slow: выброс выше медианы ×3; ровный ряд
   const flat = fixture();
   runlog(flat, [10, 10, 12, 10, 11, 14].map((d) => ({ task: 'T00x', oracle: { exit: 0, durationSec: d } })));
   assert.deepEqual(kinds(flat).filter((k) => k === 'oracle-slow'), []);
+});
+
+test('block-pattern: 3 judge-block с одним источником — инцидент, 2 — нет; разные источники не склеиваются', () => {
+  const root = fixture();
+  runlog(root, [
+    { task: 'T001', status: 'judge-block', reasons: ['red-proof: green'] },
+    { task: 'T002', status: 'judge-block', reasons: ['red-proof green на новом тесте'] },
+    { task: 'T003', status: 'judge-block', reasons: ['grounding no-reasons'] },
+    { task: 'T004', status: 'judge-block', reasons: ['red-proof: green'] },
+  ]);
+  const hits = detect(root).filter((i) => i.kind === 'block-pattern');
+  assert.equal(hits.length, 1, 'red-proof×3 — инцидент; grounding×1 ниже порога — молчит');
+  assert.equal(hits[0].reasonKey, 'judge:red-proof');
+  assert.equal(hits[0].count, 3);
+  assert.deepEqual(hits[0].examples, ['T001', 'T002', 'T004']);
+});
+
+test('block-pattern: l0-block группируется по имени триггера, а не по тексту причины', () => {
+  const root = fixture();
+  const trig = (name) => ({ triggers: [{ name, reason: `${name} у файла x${Math.random()}` }], judgeNeeded: true, verdict: 'block' });
+  runlog(root, [
+    { task: 'T001', status: 'l0-block', l0: trig('hot-path') },
+    { task: 'T002', status: 'l0-block', l0: trig('hot-path') },
+    { task: 'T003', status: 'l0-block', l0: trig('out-of-scope') },
+    { task: 'T004', status: 'l0-block', l0: trig('hot-path') },
+  ]);
+  const hits = detect(root).filter((i) => i.kind === 'block-pattern');
+  assert.equal(hits.length, 1, 'hot-path×3 — инцидент; out-of-scope×1 — нет');
+  assert.equal(hits[0].reasonKey, 'l0:hot-path');
+});
+
+test('T026: elt commit реально зовёт watchdog — 3 judge-block той же причины дают block-pattern в health.jsonl', () => {
+  const root = fixture({ oracle: 'node -e "process.exit(0)"', shell: process.platform === 'win32' ? 'powershell' : 'bash', branchPolicy: 'none', redProof: 'off' });
+  execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'T'], { cwd: root });
+  fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** слайс\n');
+  fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'seed'], { cwd: root });
+  fs.writeFileSync(path.join(root, 'slice.txt'), 'работа слайса\n');
+  assert.equal(spawnSync(process.execPath, [ELT, 'oracle'], { cwd: root, encoding: 'utf8' }).status, 0);
+
+  const stubInvoke = (out) => {
+    const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'harness-watch-stub-')), 'stub-invoke.js');
+    fs.writeFileSync(p, `process.stdout.write(${JSON.stringify(JSON.stringify(out))});\n`);
+    return p;
+  };
+  const judgeOut = (verdict, reasons) => ({
+    runOk: true, verdict, reasons, judgeLog: 'log.txt',
+    judges: [{ provider: 'agy', model: 'gemini', verdict, reasons, runOk: true }],
+    grounding: { filesReviewed: ['slice.txt'] }, redProof: { status: 'skipped' },
+    l0: { triggers: [{ name: 'hot-path', files: ['slice.txt'], reason: 'горячий путь' }], judgeNeeded: true },
+  });
+  const runElt = (args) => spawnSync(process.execPath, [ELT, ...args], { cwd: root, encoding: 'utf8' });
+
+  for (let i = 0; i < 3; i++) {
+    const r = runElt(['judge', 'run', '--task', 'T001', '--invoke', stubInvoke(judgeOut('block', ['scope creep']))]);
+    assert.equal(r.status, 4, r.stderr);
+  }
+  assert.equal(runElt(['judge', 'run', '--task', 'T001', '--invoke', stubInvoke(judgeOut('pass', ['в границах']))]).status, 0);
+  const c = runElt(['commit', '--task', 'T001', '--skip-oracle']);
+  assert.equal(c.status, 0, c.stderr);
+
+  const health = path.join(root, '.harness', 'health.jsonl');
+  assert.ok(fs.existsSync(health), 'commit обязан вызвать watchdog хотя бы раз');
+  const rows = fs.readFileSync(health, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const bp = rows.find((r) => r.kind === 'block-pattern');
+  assert.ok(bp, 'три judge-block с одной причиной обязаны дать block-pattern');
+  assert.equal(bp.reasonKey, 'judge:судья');
+  assert.equal(bp.count, 3);
 });
 
 test('stale-park: парковка старше окна — инцидент, свежая — нет', () => {
