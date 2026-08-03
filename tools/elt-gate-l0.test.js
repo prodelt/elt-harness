@@ -126,6 +126,74 @@ function testDiffSize() {
   assert.deepEqual(names(evaluate({ diff: diffFor('docs/notes.md', { added: 11 }), config: { diffSizeThreshold: 10 } })), ['diff-size']);
 }
 
+// --- 011 T024: scope-триггер (артефакт: «выход ловится механически, не судьёй») ------
+
+function testOutOfScopeNotTriggeredInsideZone() {
+  const result = evaluate({
+    diff: diffFor('tools/widget.js', { removed: 1, added: 1 }),
+    config: {},
+    taskText: 'починить виджет [files: tools/widget.js]',
+  });
+  assert.deepEqual(names(result), [], 'дифф строго в зоне [files:] — триггера нет');
+}
+
+function testOutOfScopeFiresOnFileOutsideZone() {
+  const result = evaluate({
+    diff: [
+      diffFor('tools/widget.js', { removed: 1, added: 1 }),
+      diffFor('tools/fleet/router.js', { removed: 1, added: 1 }),
+    ].join('\n'),
+    config: {},
+    taskText: 'починить виджет [files: tools/widget.js]',
+  });
+  assert.deepEqual(names(result), ['out-of-scope']);
+  assert.deepEqual(result.triggers[0].files, ['tools/fleet/router.js']);
+  assert.equal(result.judgeNeeded, true);
+}
+
+function testOutOfScopeSilentWithoutFilesTagAtAll() {
+  // Задача без [files:] не объявила зону — нарушить нечего, слой не включается вовсе
+  // (тот же принцип, что у ctx7 при нуле импортов).
+  const result = evaluate({
+    diff: diffFor('tools/anything.js', { removed: 1, added: 1 }),
+    config: {},
+    taskText: 'сделать что-нибудь полезное, без тега зоны',
+  });
+  assert.deepEqual(names(result), []);
+}
+
+function testOutOfScopeIgnoresHarnessOwnedFiles() {
+  // .harness/** и tasks.md — владения оркестратора, не работы слайса; барьерный триггер
+  // не должен ругаться на то, что оркестратор правит сам (см. gate.js:isHarnessOwned).
+  const result = evaluate({
+    diff: [
+      diffFor('tools/widget.js', { removed: 1, added: 1 }),
+      diffFor('.harness/harness.json', { removed: 1, added: 1 }),
+      diffFor('specs/011-elt-v3-gate/tasks.md', { removed: 1, added: 1 }),
+    ].join('\n'),
+    config: {},
+    taskText: 'починить виджет [files: tools/widget.js]',
+  });
+  assert.deepEqual(names(result), [], 'харнесс-владения не считаются выходом за зону');
+}
+
+function testOutOfScopeGlobPrefixMatchesSubpath() {
+  // [files: tools/widgets*] — префикс-глоб, как и остальная зона в этом харнессе; поддиректория
+  // внутри префикса — В зоне, соседняя директория с похожим именем — уже нет.
+  const inside = evaluate({
+    diff: diffFor('tools/widgets/core.js', { removed: 1, added: 1 }),
+    config: {},
+    taskText: 'слайс [files: tools/widgets*]',
+  });
+  assert.deepEqual(names(inside), []);
+  const outside = evaluate({
+    diff: diffFor('tools/widgetsview/x.js', { removed: 1, added: 1 }),
+    config: {},
+    taskText: 'слайс [files: tools/widgets/*]',
+  });
+  assert.deepEqual(names(outside), ['out-of-scope']);
+}
+
 // --- 011 T003: проводка L0 в гейт (AC3) ----------------------------------------------
 // Здесь тест уже не чистый: `runJudge` читает настоящий `git diff` — значит нужен настоящий
 // репозиторий. Зато он меряет ровно то, что заявлено критерием: сколько РАЗ позван судья.
@@ -197,6 +265,23 @@ async function testJudgeCalledOnceOnRiskySlice() {
   assert.match(prompt, /ПОЧЕМУ ТЕБЯ ПОЗВАЛИ/);
   assert.match(prompt, /existing-test-modified/);
   assert.match(prompt, /widget\.test\.js/);
+}
+
+// 011 T024: scope-триггер проведён в runJudge (taskText несёт [files:]) — файл вне
+// объявленной зоны обязан позвать судью с причиной out-of-scope, а не пройти как l0-clean.
+async function testOutOfScopeReachesJudge() {
+  const repo = makeRepo({ 'seed.txt': 'seed\n' });
+  // widget.js несёт свой тест — new-code-no-check не срабатывает, изолируем именно out-of-scope.
+  fs.writeFileSync(path.join(repo, 'widget.js'), 'module.exports = { size: () => 42 };\n');
+  fs.writeFileSync(path.join(repo, 'widget.test.js'), "require('node:assert').equal(require('./widget').size(), 42);\n");
+  fs.writeFileSync(path.join(repo, 'router.js'), 'module.exports = { route: () => 1 };\n'); // вне [files:]
+
+  const { result, calls } = await withJudgeStub(() =>
+    runJudge({ cwd: repo, tid: 'T024', taskText: 'починить виджет [files: widget.js, widget.test.js]' }));
+  assert.equal(calls.length, 1, 'файл вне зоны — судья зовётся');
+  assert.deepEqual(result.l0.triggers.map((t) => t.name), ['out-of-scope']);
+  assert.match(calls[0].prompt, /out-of-scope/);
+  assert.match(calls[0].prompt, /router\.js/);
 }
 
 // Дыра, которую L0 открыл бы сам по себе: в пустом диффе триггеров нет ПО ОПРЕДЕЛЕНИЮ, и
@@ -290,9 +375,15 @@ async function main() {
   testNewCodeWithoutCheck();
   testHotPath();
   testDiffSize();
+  testOutOfScopeNotTriggeredInsideZone();
+  testOutOfScopeFiresOnFileOutsideZone();
+  testOutOfScopeSilentWithoutFilesTagAtAll();
+  testOutOfScopeIgnoresHarnessOwnedFiles();
+  testOutOfScopeGlobPrefixMatchesSubpath();
   try {
     await testJudgeNotCalledOnCleanSlice();
     await testJudgeCalledOnceOnRiskySlice();
+    await testOutOfScopeReachesJudge();
     await testEmptyDiffStillReachesJudge();
     await testDeadPrimaryIsReissued();
     await testLivePrimaryIsNotReissued();
