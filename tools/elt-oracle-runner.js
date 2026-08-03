@@ -11,7 +11,14 @@
 // 41 файл, и он платится КАЖДЫМ слайсом — это была самая дорогая часть гейта).
 // Файлы изолированы друг от друга (каждый работает в своём mkdtemp), поэтому
 // параллелить их безопасно; `--serial` оставлен для отладки флейка.
-//   node tools/elt-oracle-runner.js [--jobs N | --serial]   (env: ELT_ORACLE_JOBS)
+//   node tools/elt-oracle-runner.js [--jobs N | --serial] [--full]   (env: ELT_ORACLE_JOBS, ELT_ORACLE_FULL)
+//
+// 011 T020 — `--full`/ELT_ORACLE_FULL игнорирует `oracleSelect: impact` и гонит всё. Схема A
+// артефакта требует сеть безопасности ПОД impact-выборкой (`L1 -.полный сьют.-> M`): impact
+// строится обратным текстовым сканом глубины 2 — единственная сеть под ним раньше отсутствовала
+// вовсе. env, а не только argv: `elt.js` вызывает этот файл как shell-строку из
+// `harness.json.oracle`, а не с явными argv, поэтому единственный канал донести флаг через
+// границу процесса — переменная окружения (тот же приём, что уже есть у ELT_ORACLE_JOBS).
 
 const fs = require('fs');
 const os = require('os');
@@ -86,11 +93,27 @@ function changedFiles(root = ROOT) {
     ].filter(Boolean);
   } catch { return []; }
 }
-function oracleSelectMode(root = ROOT) {
+function oracleSelectMode(root = ROOT, forceFull = false) {
+  if (forceFull) return 'all'; // 011 T020: --full/ELT_ORACLE_FULL перекрывает конфиг целиком
   try {
     const mode = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).oracleSelect;
     return mode === 'impact' ? 'impact' : 'all'; // дефолт `all` — обратная совместимость (AC6)
   } catch { return 'all'; }
+}
+
+// 011 T020 — «слайсов с последнего полного прогона» читается из ХВОСТА run-log: каждая запись
+// оракула несёт `oracle.full` (elt.js пишет её). Считаем impact-прогоны НАЗАД от конца до
+// ближайшего full (full сбрасывает счётчик); записи без поля `full` (не-оракульные события,
+// или прогоны до T020) пропускаются, а не хоронят счёт.
+function slicesSinceFull(entries) {
+  let count = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const o = entries[i] && entries[i].oracle;
+    if (!o || typeof o.full !== 'boolean') continue;
+    if (o.full) return count;
+    count++;
+  }
+  return count;
 }
 
 async function main() {
@@ -100,10 +123,11 @@ async function main() {
   const all = files.filter((f) => !SKIP.has(f));
   const skipped = files.filter((f) => SKIP.has(f));
   const jobs = jobsFrom(process.argv.slice(2));
+  const forceFull = process.argv.slice(2).includes('--full') || process.env.ELT_ORACLE_FULL === '1';
 
   // Выборка НИКОГДА не молчит: и режим, и причина печатаются — иначе «оракул зелёный» стало бы
   // невозможно отличить от «оракул ничего не гонял».
-  const pick = selectTests({ cwd: ROOT, changedFiles: changedFiles(), allTests: all, mode: oracleSelectMode() });
+  const pick = selectTests({ cwd: ROOT, changedFiles: changedFiles(), allTests: all, mode: oracleSelectMode(ROOT, forceFull) });
   const run = pick.files;
   console.error(`elt-oracle-runner: выборка ${pick.mode} — ${pick.selected}/${pick.total} файлов (${pick.reason})`);
 
@@ -127,4 +151,4 @@ async function main() {
 
 if (require.main === module) main();
 
-module.exports = { discover, SKIP, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode };
+module.exports = { discover, SKIP, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode, slicesSinceFull };

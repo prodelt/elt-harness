@@ -899,3 +899,53 @@ test('T018: красный smoke валит fleet-гейт на стадии ora
     assert.notEqual(r.oracleExit, 0);
   } finally { fs.writeFileSync(hp, saved); }
 });
+
+// 011 T020 — сеть безопасности под impact-выборкой: merge-путь fleet обязан гонять ПОЛНЫЙ
+// оракул, а не impact (сразу после merge-коммита `git diff HEAD` почти пуст — impact-выборка
+// там слепа). Оракул проекта не блокирует (всегда exit 0), а ПИШЕТ, каким он видел
+// ELT_ORACLE_FULL при каждом своём вызове — так тест различает gate-оракул слайса (impact,
+// без env, до merge) от merge-оракула (mergeFullOracle в fleet.js выставляет env перед
+// merge.mergeSlice) по факту, а не по вере в порядок кода.
+test('T020: merge-путь fleet зовёт полный оракул — ELT_ORACLE_FULL долетает через fleet.js → merge.js → elt oracle', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-t020-full-'));
+  const g = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'specs', 'tasks.md'), '- [ ] **T1** пишет a [P] [files:a*]\n');
+  fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
+
+  const logFile = path.join(repo, 'oracle-full-log.txt');
+  const oracleScript = path.join(repo, 'oracle-check.js');
+  fs.writeFileSync(oracleScript,
+    `require('fs').appendFileSync(${JSON.stringify(logFile)}, (process.env.ELT_ORACLE_FULL || '0') + '\\n');\nprocess.exit(0);\n`);
+  fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: `node ${JSON.stringify(oracleScript)}`, oracleSelect: 'impact',
+    shell: process.platform === 'win32' ? 'powershell' : 'bash',
+    branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' },
+  }));
+  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
+
+  const judgeStub = path.join(repo, 'judge-pass.js');
+  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub: в границах задачи\"]}');");
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
+  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', judgeStub]);
+
+  const worker = async (slice, wtPath) => {
+    fs.writeFileSync(path.join(wtPath, 'a.txt'), 'from-T1\n');
+    return { ok: true, exit: 0, stdout: JSON.stringify({ filesChanged: ['a.txt'], testsAdded: [] }) };
+  };
+
+  try {
+    const s = await fleet.run({ cwd: repo, tasksPath: path.join(repo, 'specs', 'tasks.md'), integration: 'main', workers: 1, worker });
+    assert.deepEqual(s.merged, ['T1'], 'слайс обязан слиться — судья-стаб pass, оракул всегда exit 0');
+
+    const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n');
+    assert.ok(lines.length >= 2, `ожидались минимум 2 вызова оракула (gate + merge), получено: ${lines.length}`);
+    assert.ok(lines.includes('0'), 'gate-оракул слайса (impact, до merge) не должен видеть ELT_ORACLE_FULL — иначе тест ничего не различает');
+    assert.equal(lines[lines.length - 1], '1', 'ПОСЛЕДНИЙ вызов — merge-оракул — обязан видеть ELT_ORACLE_FULL=1');
+  } finally {
+    delete process.env.FLEET_BIN_CLAUDE;
+    delete process.env.FLEET_BIN_CODEX;
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

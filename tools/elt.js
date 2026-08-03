@@ -313,6 +313,10 @@ function writeOracleTail(out) {
 // runOracle зовут из четырёх мест, и менять контракт ради одного числа дороже, чем читать
 // его рядом с appendRunLog. ponytail: одно значение на процесс, процесс гоняет оракул раз.
 let lastOracleSec = null;
+// 011 T020: было ли это полный прогон (--full, ИЛИ проект вообще не сузил выборку до impact —
+// тогда каждый прогон и так полон). Пишется в run-log рядом с durationSec, чтобы
+// elt-oracle-runner.slicesSinceFull могла посчитать хвост без повторного вызова оракула.
+let lastOracleFull = null;
 // 011 T010 (L2, D0) — smoke: запустить ТО, ЧЕМ ПОЛЬЗУЕТСЯ ЧЕЛОВЕК. Мотив из аудита 2026-07-29:
 // три уехавших регресса были в рантайме собранного приложения, и юнит-оракул не ловит их в
 // принципе — он проверяет функции, а не то, что продукт вообще стартует.
@@ -358,10 +362,21 @@ function preOracleL0(cfg) {
   for (const t of l0.triggers) console.error(`elt L0 block: ${t.name} — ${t.reason}`);
   return l0;
 }
-function runOracle(cfg) {
+function runOracle(cfg, { full = false } = {}) {
   console.error(`elt oracle: ${cfg.oracle}`);
   const started = Date.now();
+  // ELT_ORACLE_FULL — единственный канал донести --full через границу процесса: cfg.oracle —
+  // shell-СТРОКА из harness.json (обычно `node tools/elt-oracle-runner.js`), а не argv, которые
+  // можно было бы дописать. sh() наследует process.env без изменений, поэтому переменная
+  // долетает и до fleet-воркеров (merge.js спавнит `node elt oracle` тем же процессным деревом,
+  // fleet.js выставляет её ДО спавна — унаследованный env читаем здесь же, а не только argv,
+  // иначе явный `full=false` этого вызова стёр бы унаследованный сигнал перед sh()).
+  const wantFull = full || process.env.ELT_ORACLE_FULL === '1';
+  const prevEnv = process.env.ELT_ORACLE_FULL;
+  if (wantFull) process.env.ELT_ORACLE_FULL = '1'; else delete process.env.ELT_ORACLE_FULL;
   const { code, out } = sh(cfg.oracle, cfg.shell);
+  if (prevEnv === undefined) delete process.env.ELT_ORACLE_FULL; else process.env.ELT_ORACLE_FULL = prevEnv; // восстановить как было
+  lastOracleFull = wantFull || cfg.oracleSelect !== 'impact';
   lastOracleSec = Math.round((Date.now() - started) / 1000);
   console.error(`elt oracle: exit ${code} (${lastOracleSec}s)`);
   // Smoke идёт ПОСЛЕ оракула и только по зелёному: гонять приложение, чьи юнит-тесты уже
@@ -743,12 +758,12 @@ if (cmd === 'oracle') {
     appendRunLog({ task: null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
     die('L0 заблокировал ДО оракула — чинить причину выше, прогон не нужен', 1);
   }
-  const exit = runOracle(cfg);
+  const exit = runOracle(cfg, { full: flag('--full') });
   // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
   // красные прогоны редки и систематически медленнее (падение после self-heal).
   appendRunLog({
     task: null, status: exit === 0 ? 'oracle-green' : 'red-stop',
-    oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec },
+    oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec, full: lastOracleFull },
     ...(lastSmoke ? { smoke: lastSmoke } : {}), // 011 T010: слой был — видно в журнале, чем именно красный
   });
   process.exit(exit);
@@ -932,9 +947,9 @@ if (cmd === 'gate') {
   if (flag('--ci')) {
     const cfg = loadConfig();
     runLog.runtimeRunLog(cwd);
-    const exit = runOracle(cfg);
+    const exit = runOracle(cfg, { full: flag('--full') });
     if (exit !== 0) {
-      appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec } });
+      appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec, full: lastOracleFull } });
       die(`elt gate --ci: оракул красный (exit ${exit})`, exit);
     }
     console.log('elt gate --ci: oracle green');
@@ -995,9 +1010,9 @@ if (cmd === 'commit') {
       appendRunLog({ task: taskId || null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
       die('L0 заблокировал ДО оракула — НЕ коммичу', 1);
     }
-    oracleExit = runOracle(cfg);
+    oracleExit = runOracle(cfg, { full: flag('--full') });
     if (oracleExit !== 0) {
-      appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit, durationSec: lastOracleSec } });
+      appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit, durationSec: lastOracleSec, full: lastOracleFull } });
       die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit);
     }
   }
@@ -1078,7 +1093,16 @@ if (cmd === 'commit') {
     console.error(`elt commit: вердикт inconclusive — строка в ${REVIEW_QUEUE} (разбор: elt review)`);
   }
 
-  appendRunLog({ task: taskId, oracle: { cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted, durationSec: lastOracleSec }, commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}) });
+  appendRunLog({
+    task: taskId,
+    oracle: {
+      cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted, durationSec: lastOracleSec,
+      // skipTrusted: оракул в ЭТОМ процессе не бегал — full неизвестен, поле не пишем (T020
+      // счётчик пропускает записи без него, а не считает их impact-прогоном).
+      ...(skipTrusted ? {} : { full: lastOracleFull }),
+    },
+    commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}),
+  });
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {
@@ -1100,7 +1124,7 @@ console.log(`elt — ядро ELT v2 харнесса
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
   elt review [--json] | elt review close --task Txxx        очередь вердиктов inconclusive (неблокирующая); close — снять с разбора
   elt stats [--since <ISO-дата>] [--json]                   block-rate/coverage/p50-p90 из run-log.jsonl (одна команда вместо ручного разбора)
-  elt oracle                                                прогнать оракул, exit-код = истина
+  elt oracle [--full]                                       прогнать оракул, exit-код = истина; --full игнорирует oracleSelect:impact
   elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]  запустить судью КОДОМ и записать proof (exit 0 = pass)
   elt gate [--ci]                                           managed git gate: pre-commit (proof) | CI (--ci, mechanical oracle re-run)
   elt commit --task Txxx[,Tyyy,...] [--keep-task-open] [-m msg] [--skip-oracle] [--push]
