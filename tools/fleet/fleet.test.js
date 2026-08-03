@@ -882,3 +882,20 @@ test('judgeAwayFrom/verifyAwayFrom: нет доступной альтернат
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+// 011 T018 — контракт «воркеры проходят слой L2». Чекпоинт 01.08 утверждал, что fleet-путь
+// smoke НЕ проходит и его надо туда доносить. Неверно: гейт спавнит именно CLI
+// (`node <elt> oracle`, gate.js), а runSmoke живёт ВНУТРИ runOracle (elt.js) — значит красный
+// smoke валит гейт воркера ровно как соло-путь, работы там нет. Тест фиксирует это через
+// поведение (реальный elt.js, реальный harness.json), чтобы догадка не вернулась ценой слайса.
+test('T018: красный smoke валит fleet-гейт на стадии oracle — воркер проходит L2', async () => {
+  const hp = path.join(REPO, '.harness', 'harness.json');
+  const saved = fs.readFileSync(hp, 'utf8');
+  fs.writeFileSync(hp, JSON.stringify({ ...JSON.parse(saved), smoke: 'node -e "process.exit(3)"' }));
+  try {
+    const r = await gate.gate({ tid: 'T3', taskText: 'x', cwd: REPO, elt: ELT_CLI });
+    assert.equal(r.ok, false);
+    assert.equal(r.stage, 'oracle', 'зелёный оракул + красный smoke = красный слой для воркера');
+    assert.notEqual(r.oracleExit, 0);
+  } finally { fs.writeFileSync(hp, saved); }
+});
