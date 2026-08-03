@@ -17,6 +17,7 @@ const CLOSURE = [
   'red-proof.js',
   'elt-config.js',
   'elt-gate-l0.js',   // 011 T003: gate.js требует его ДО судьи — без него мост мёртв в проектах
+  'elt-oracle-select.js', // 011 T025: elt-gate-l0.js требует его для фан-ин (walkJs+dependents)
   'judge-replay.js',  // 011 T011: им fleet пишет proof тем же путём, что интерактив
   path.join('fleet', 'gate.js'),
   path.join('fleet', 'providers.js'),

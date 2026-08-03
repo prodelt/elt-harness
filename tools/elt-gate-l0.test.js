@@ -194,6 +194,74 @@ function testOutOfScopeGlobPrefixMatchesSubpath() {
   assert.deepEqual(names(outside), ['out-of-scope']);
 }
 
+// --- 011 T025: риск из связности вместо глобов hotPaths ------------------------------
+// evaluate() принимает config.fanIn как ЧИСТУЮ инъекцию (данные/геттер, не fs) — те же
+// unit-тесты, что у hot-path/diff-size выше, чистая функция без git/fs.
+
+function testHighFaninTriggersOnCentralModule() {
+  const fanIn = (f) => (f === 'tools/central.js' ? 15 : 2);
+  const result = evaluate({ diff: diffFor('tools/central.js', { removed: 1, added: 1 }), config: { fanIn } });
+  assert.deepEqual(names(result), ['high-fanin']);
+  assert.deepEqual(result.triggers[0].files, ['tools/central.js']);
+  assert.equal(result.judgeNeeded, true);
+}
+
+function testHighFaninSilentOnLeafFile() {
+  const fanIn = () => 2; // ниже дефолтного порога 10
+  const result = evaluate({ diff: diffFor('tools/leaf.js', { removed: 1, added: 1 }), config: { fanIn } });
+  assert.deepEqual(names(result), []);
+}
+
+function testHighFaninThresholdFromConfig() {
+  const fanIn = () => 5;
+  // Дефолтный порог 10 — не триггерит; свой порог 3 из harness.json — триггерит то же число.
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/mid.js', { removed: 1, added: 1 }), config: { fanIn } })), []);
+  assert.deepEqual(
+    names(evaluate({ diff: diffFor('tools/mid.js', { removed: 1, added: 1 }), config: { fanIn, fanInThreshold: 3 } })),
+    ['high-fanin'],
+  );
+}
+
+// При недоступном скане — триггера нет, НЕ ложный block: та же дисциплина, что у codegraph
+// в impact-выборке (T006) и у ctx7 при мёртвом сервисе (R5).
+function testHighFaninSilentWhenFanInUnavailable() {
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/central.js', { removed: 1, added: 1 }), config: {} })), []);
+  const nullFanIn = () => null; // файл вне скан-пула — computeFanIn отдаёт null, не 0
+  assert.deepEqual(
+    names(evaluate({ diff: diffFor('tools/outside-pool.js', { removed: 1, added: 1 }), config: { fanIn: nullFanIn } })),
+    [],
+  );
+}
+
+// Интеграционный: РЕАЛЬНЫЙ computeFanIn поверх настоящего дерева файлов — доказывает, что
+// walkJs+dependents (elt-oracle-select.js) реально считают входящую степень, а не то, что мок
+// инъекции сам себя подтверждает.
+function testComputeFanInRealFileTree() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-fanin-'));
+  tmpDirs.push(root);
+  fs.mkdirSync(path.join(root, 'tools'), { recursive: true });
+  const w = (rel, body) => fs.writeFileSync(path.join(root, 'tools', rel), body);
+  // central.js требуется четырьмя разными модулями — leaf.js не требуется никем.
+  w('central.js', 'module.exports = { c: () => 1 };\n');
+  w('leaf.js', 'module.exports = { l: () => 2 };\n');
+  w('a.js', "require('./central');\n");
+  w('b.js', "require('./central');\n");
+  w('c.js', "require('./central');\n");
+  w('d.js', "require('./central');\n");
+
+  const { computeFanIn } = require('./elt-gate-l0');
+  const fanIn = computeFanIn(root);
+  assert.equal(typeof fanIn, 'function', 'сосед elt-oracle-select.js доступен — геттер построен');
+  assert.equal(fanIn('tools/central.js'), 4, 'четыре реальных require() — фан-ин 4');
+  assert.equal(fanIn('tools/leaf.js'), 0, 'листовой файл — фан-ина нет');
+
+  const result = evaluate({
+    diff: diffFor('tools/central.js', { removed: 1, added: 1 }),
+    config: { fanIn, fanInThreshold: 3 },
+  });
+  assert.deepEqual(names(result), ['high-fanin'], 'реальный скан доводит триггер до evaluate()');
+}
+
 // --- 011 T003: проводка L0 в гейт (AC3) ----------------------------------------------
 // Здесь тест уже не чистый: `runJudge` читает настоящий `git diff` — значит нужен настоящий
 // репозиторий. Зато он меряет ровно то, что заявлено критерием: сколько РАЗ позван судья.
@@ -380,7 +448,12 @@ async function main() {
   testOutOfScopeSilentWithoutFilesTagAtAll();
   testOutOfScopeIgnoresHarnessOwnedFiles();
   testOutOfScopeGlobPrefixMatchesSubpath();
+  testHighFaninTriggersOnCentralModule();
+  testHighFaninSilentOnLeafFile();
+  testHighFaninThresholdFromConfig();
+  testHighFaninSilentWhenFanInUnavailable();
   try {
+    testComputeFanInRealFileTree();
     await testJudgeNotCalledOnCleanSlice();
     await testJudgeCalledOnceOnRiskySlice();
     await testOutOfScopeReachesJudge();

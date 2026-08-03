@@ -137,4 +137,4 @@ function selectTests({ cwd, changedFiles = [], allTests = [], mode = 'all', useC
   };
 }
 
-module.exports = { selectTests, dependents, needlesFor, INERT, INERT_PATH, TEST };
+module.exports = { selectTests, dependents, needlesFor, walkJs, INERT, INERT_PATH, TEST };
