@@ -267,7 +267,7 @@
   `inconclusive`; тест — `phantom-file` по-прежнему `block`. **Разблокирует T018.**
   [files: tools/judge-invoke.js, tools/fleet/gate.js, tools/elt.js, tools/elt-inconclusive.test.js, tools/red-proof.test.js]
 
-- [ ] **T018** Включить L2 живьём в одном реальном проекте — `C:/Ametrin projects/Задача фузи музи`
+- [X] **T018** Включить L2 живьём в одном реальном проекте — `C:/Ametrin projects/Задача фузи музи`
   (Ametrin Web: Flask, сопоставление номенклатуры фармпрепаратов). Слой написан T010, но нигде не
   включён: код в репо оправдан гипотезой D0 и ни разу не проверен в бою.
   Разрыв там буквальный, не по аналогии: `tests/test_api_process.py` **мокает `subprocess.Popen`**,
