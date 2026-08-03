@@ -757,7 +757,12 @@ function seedGateRepo(prefix, files) {
   return repo;
 }
 
-test('T010: fleet-гейт гоняет red-proof — зелёный на базе тест режет слайс, судьи pass не спасают', async () => {
+// 011 T019(а) переписал ожидание этого теста: зелёный red-proof больше НЕ режет слайс. Раньше
+// он переворачивал обоснованный pass судьи в block, и два REJECT-default вето перемножались
+// (77% block-rate по замеру артефакта; живьём на этом стоял T018). `green` = «не доказано», а
+// не «дефектно» → `inconclusive`: коммит с меткой + строка человеку в очередь ревью.
+// Что red-proof ПО-ПРЕЖНЕМУ ловит, проверяет соседний тест (красный → полный proof и коммит).
+test('T010+T019: зелёный на базе тест даёт inconclusive (не block) — слайс идёт дальше с меткой', async () => {
   const repo = seedGateRepo('fleet-t010-redgreen-', {
     'lib.js': 'module.exports = { ok: () => true };\n',
     // Тест не трогает новый код: он зелен и на базе слайса → ничего не доказывает.
@@ -771,9 +776,13 @@ test('T010: fleet-гейт гоняет red-proof — зелёный на баз
   delete process.env.FLEET_BIN_CLAUDE;
   delete process.env.FLEET_BIN_CODEX;
 
-  assert.equal(r.ok, false);
-  assert.equal(r.stage, 'red-proof', 'причина названа, а не спрятана в общий block');
-  assert.ok((r.reasons || []).includes('red-proof:green'));
+  assert.equal(r.ok, true, 'работа не блокируется отсутствием доказательства');
+  assert.equal(r.verdict, 'inconclusive');
+  const msg = execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd: repo, encoding: 'utf8' }).trim();
+  assert.match(msg, /\[inconclusive\]$/, 'метка видна в git log — сомнение не растворяется');
+  const queue = path.join(repo, '.harness', 'review-queue.jsonl');
+  assert.ok(fs.existsSync(queue), 'строка ушла человеку в очередь разбора');
+  assert.match(fs.readFileSync(queue, 'utf8'), /red-proof:green/, 'причина названа, а не спрятана');
   fs.rmSync(repo, { recursive: true, force: true });
 });
 

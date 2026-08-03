@@ -128,6 +128,21 @@ test('круг включён + зелёный red-proof → validate отвер
   assert.equal(result(v).reason, 'red-proof-green');
 });
 
+// 011 T019(а): зелёный red-proof больше не переворачивает работу в block — он даёт
+// `inconclusive`. Пара «pass + green» при этом остаётся отказом (тест выше): такое сочетание
+// может прийти только с пути, который правило T019 не прогнал, и молча провести его = вернуть
+// дыру, ради которой контур писался.
+test('011 T019: inconclusive + зелёный red-proof → validate ПРОПУСКАЕТ (сомнение записано, работа не блокируется)', () => {
+  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  const extra = fullExtra();
+  extra.redProof = { status: 'green', reason: 'passes-on-base', files: ['x.test.js'], tail: '' };
+  extra.judges = extra.judges.map((j) => ({ ...j, verdict: 'inconclusive' }));
+  const extraFile = writeExtraFile(extra);
+  run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'inconclusive', '--model', 'codex', '--extra-file', extraFile]);
+  const v = run(root, ['judge-proof', 'validate', '--task', 'T001']);
+  assert.equal(v.status, 0, v.stderr);
+});
+
 test('круг включён + полный proof → elt commit проходит (реальная точка проверки, не только validate)', () => {
   const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
   const extraFile = writeExtraFile(fullExtra());

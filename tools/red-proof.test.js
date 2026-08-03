@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { redProof } = require('./red-proof');
+const { redProof, applyRedProof } = require('./red-proof');
 
 const dirs = [];
 function makeRepo(harnessJson = { testCmd: 'node --test' }) {
@@ -222,4 +222,28 @@ test('worktree удаляется всегда — не остаётся в git 
   redProof({ cwd: repo, baseHead: 'HEAD' });
   const worktrees = git(['worktree', 'list', '--porcelain']).match(/^worktree .+$/gm) || [];
   assert.equal(worktrees.length, 1, 'после прогона должен остаться только основной worktree репо');
+});
+
+// --- 011 T019(а): как зелёный red-proof влияет на вердикт ---
+// Правило вынесено в чистую функцию, потому что жило в ДВУХ местах (solo judge-invoke.js и
+// fleet gate.js) и уже разъезжалось. Тест здесь — единственная точка, где оно закреплено.
+test('T019: pass + green → inconclusive с меткой в reasons (не block)', () => {
+  const r = applyRedProof('pass', ['в границах'], { status: 'green', reason: 'passes-on-base' });
+  assert.equal(r.verdict, 'inconclusive', 'зелёный red-proof = «не доказан», а не «дефектен»');
+  assert.deepEqual(r.reasons, ['в границах', 'red-proof:green'], 'причина судьи сохранена, метка добавлена');
+});
+
+test('T019: red и skipped вердикт не трогают', () => {
+  for (const status of ['red', 'skipped']) {
+    const r = applyRedProof('pass', ['ок'], { status });
+    assert.equal(r.verdict, 'pass', `${status} — доказательство есть или слой неприменим`);
+    assert.deepEqual(r.reasons, ['ок']);
+  }
+  assert.equal(applyRedProof('pass', [], null).verdict, 'pass', 'контур выключен — правило молчит');
+});
+
+test('T019: block НЕ смягчается зелёным red-proof', () => {
+  const r = applyRedProof('block', ['scope creep'], { status: 'green' });
+  assert.equal(r.verdict, 'block', 'REJECT-default цел: третий исход не отменяет отказ судьи');
+  assert.deepEqual(r.reasons, ['scope creep']);
 });

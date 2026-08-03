@@ -153,4 +153,16 @@ function redProof({ cwd = process.cwd(), baseHead = 'HEAD' } = {}) {
   }
 }
 
-module.exports = { redProof, testFilesFromDiff, diffFileList, resolveTestCmd, splitDeleted, isExternalSubject };
+// 011 T019(а): как red-proof влияет на вердикт — ОДНА функция на оба пути (solo
+// `judge-invoke.js` и fleet `gate.js`), потому что раньше это правило жило в двух местах и
+// уже расходилось. `green` = «слайс не ДОКАЗАН», а не «слайс дефектен»: переворот
+// обоснованного pass в block перемножал два REJECT-default вето (77% block-rate по замеру
+// артефакта) и блокировал живую работу — T018 стоял ровно на этом. Теперь `inconclusive`:
+// коммит с меткой + строка в очередь ревью, решение за человеком.
+// `red`/`skipped` вердикт не трогают, block не смягчается никогда.
+function applyRedProof(verdict, reasons, result) {
+  if (verdict !== 'pass' || !result || result.status !== 'green') return { verdict, reasons };
+  return { verdict: 'inconclusive', reasons: [...reasons, 'red-proof:green'] };
+}
+
+module.exports = { redProof, applyRedProof, testFilesFromDiff, diffFileList, resolveTestCmd, splitDeleted, isExternalSubject };

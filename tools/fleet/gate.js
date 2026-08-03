@@ -13,7 +13,7 @@ const exec = require('./exec');
 const plan = require('./plan');
 const router = require('./router');
 const { verifySettings } = require('../elt-config');
-const { redProof } = require('../red-proof');
+const { redProof, applyRedProof } = require('../red-proof');
 const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('../elt-gate-l0');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
@@ -478,6 +478,21 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
   };
 }
 
+// 011 T019(б): `grounding:no-reasons` — транспорт, а не качество. Провайдер без structured
+// output (codex/agy отвечают JSON-хвостом) регулярно теряет `reasons`, и по замеру артефакта
+// это 10% ВСЕХ блоков — блокировалась не работа, а формат ответа. Одна перевыдача тому же
+// судье (тот же дифф, чистый контекст), и если reasons не появились снова — `inconclusive`,
+// а не block: коммит с меткой + строка в очередь ревью. Остальные отказы граундинга
+// (`phantom-file`/`unreviewed-file`) не ретраятся и остаются block — это враньё о прочитанном.
+const NO_REASONS = 'grounding:no-reasons';
+async function judgeDiffRetryNoReasons(args) {
+  const first = await judgeDiff(args);
+  if (!first.runOk || !(first.reasons || []).includes(NO_REASONS)) return first;
+  const second = await judgeDiff(args);
+  if (!second.runOk || !(second.reasons || []).includes(NO_REASONS)) return second;
+  return { ...second, verdict: 'inconclusive' };
+}
+
 // Прогнать судью. runOk=false = судья НЕ смог отработать (timeout/spawn-error/nonzero-exit/
 // пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
 // judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
@@ -565,7 +580,7 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   // Мёртвая попытка ОСТАЁТСЯ в judges[]: в proof виден и отказ, и кем он перевыдан, а не тихая
   // подмена. Ниже judges[] пересобирается — поэтому и провайдер, и история едут явно.
   let primaryPair = { provider, model };
-  let primary = await judgeDiff({ ...commonArgs, ...primaryPair });
+  let primary = await judgeDiffRetryNoReasons({ ...commonArgs, ...primaryPair });
   const verify = verifyOverride !== undefined ? verifyOverride : verifySettings(cwd);
   const deadAttempts = [];
   if (!primary.runOk) {
@@ -574,7 +589,7 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
       && !judgeExclude.includes(p) && providers.available(p));
     if (alt) {
       primaryPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
-      primary = await judgeDiff({ ...commonArgs, ...primaryPair });
+      primary = await judgeDiffRetryNoReasons({ ...commonArgs, ...primaryPair });
     }
     // Перевыдача не помогла (или заменить некем) — вердикта нет, слайс уходит в парковку как
     // раньше. Помогла — дальше идём с ЖИВЫМ вердиктом от ДРУГОГО судьи.
@@ -588,7 +603,7 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
 
   if (primary.verdict !== 'pass') return withL0({ ...primary, judges: [...deadAttempts, primaryEntry] });
 
-  let secondary = await judgeDiff({ ...commonArgs, provider: verify.provider, model: verify.model });
+  let secondary = await judgeDiffRetryNoReasons({ ...commonArgs, provider: verify.provider, model: verify.model });
   const judges = [...deadAttempts, primaryEntry, judgeEntry(verify, secondary)];
   // 009 T010 (замер живьём): мёртвый verify-судья валил весь гейт в judge-dead — второй слой
   // контура молча выключался, и слайс было нечем закрыть, хотя на машине есть другой живой
@@ -602,13 +617,17 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
     const alt = JUDGE_ALTS.find((p) => p !== primaryPair.provider && p !== verify.provider && !judgeExclude.includes(p) && providers.available(p));
     if (alt) {
       const altPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
-      secondary = await judgeDiff({ ...commonArgs, ...altPair });
+      secondary = await judgeDiffRetryNoReasons({ ...commonArgs, ...altPair });
       judges.push(judgeEntry(altPair, secondary));
     }
   }
   if (!secondary.runOk) return withL0({ verdict: null, reasons: [], filesReviewed: primary.filesReviewed, judgeLog: secondary.judgeLog, runOk: false, judges });
 
-  const verdict = secondary.verdict === 'pass' ? 'pass' : 'block';
+  // 011 T019: свёртка знает про ТРИ исхода, а не два. Бинарное `pass ? pass : block` съедало
+  // `inconclusive` verify-судьи — ровно в двухсудейском сценарии, который спека 011 называет
+  // главным источником 77% block-rate (verify заблокировал при pass первичного 36 раз из 48).
+  // Сомнение второго слоя = сомнение, а не отказ: коммит с меткой и строка человеку.
+  const verdict = ['pass', 'inconclusive'].includes(secondary.verdict) ? secondary.verdict : 'block';
   return withL0({
     verdict,
     reasons: verdict === 'pass' ? primary.reasons : [...primary.reasons, ...secondary.reasons],
@@ -727,11 +746,13 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   //      знал вовсе — новый тест, зелёный на базе слайса, проезжал на одном pass судей. HEAD в
   //      worktree = база слайса (normalizeWorktree выше сделал reset --soft), правки не закоммичены.
   let redProofResult;
+  let verdict = j.verdict;
+  let reasons = j.reasons || [];
   if (circuitEnabled(cwd)) {
     redProofResult = redProof({ cwd, baseHead: 'HEAD' });
-    if (redProofResult.status === 'green') {
-      return { ok: false, stage: 'red-proof', verdict: 'block', reasons: [...(j.reasons || []), 'red-proof:green'], tid, judgeLog: j.judgeLog };
-    }
+    // 011 T019(а): green → `inconclusive`, не block. Правило — общее с solo-путём
+    // (`red-proof.js applyRedProof`), чтобы два пути не разъехались снова.
+    ({ verdict, reasons } = applyRedProof(verdict, reasons, redProofResult));
   }
 
   // 3. Proof пишет ТОТ ЖЕ путь, что у интерактива — `elt judge run` (011 T011). Раньше здесь
@@ -749,7 +770,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   const replayDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-proof-'));
   const replayPath = path.join(replayDir, 'judge-result.json');
   fs.writeFileSync(replayPath, JSON.stringify({
-    runOk: true, verdict: j.verdict, reasons: j.reasons || [],
+    runOk: true, verdict, reasons,
     judgeLog: j.judgeLog || null, judges, grounding: { filesReviewed: j.filesReviewed || [] },
     ...(redProofResult ? { redProof: redProofResult } : {}),
     ...(j.l0 ? { l0: j.l0 } : {}),
@@ -763,7 +784,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   const msg = `feat: ${tid} ${taskText}`.slice(0, 90);
   const c = await exec.run('node', [elt, 'commit', '--task', tid, ...specArgsFor(specFile), '--keep-task-open', '--skip-oracle', '-m', msg], { cwd });
   if (c.status !== 0) return { ok: false, stage: 'commit', tid, err: (c.stderr || c.stdout || '').trim() };
-  return { ok: true, tid, verdict: j.verdict, judgeLog: j.judgeLog };
+  return { ok: true, tid, verdict, judgeLog: j.judgeLog };
 }
 
 module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };
