@@ -323,7 +323,7 @@
   полный сьют; тест — счётчик растёт и сбрасывается.
   [files: tools/elt.js, tools/elt-oracle-runner.js, tools/fleet/fleet.js, tools/doctor-core.js, tools/elt-oracle-select.test.js]
 
-- [ ] **T021** L2 smoke в ЭТОМ репо (dogfood §3.1). Слой включён у Ametrin Web (T018), а в
+- [X] **T021** L2 smoke в ЭТОМ репо (dogfood §3.1). Слой включён у Ametrin Web (T018), а в
   собственном `harness.json` поля `smoke` нет — единственный слой v3, который мы не едим сами.
   Smoke харнесса = то, чем пользуется человек: deploy-копия `~/.claude/bin/elt.js` в чистом
   временном проекте резолвит замыкание и отвечает на `oracle`. Это ровно тот класс отказа, что дал
