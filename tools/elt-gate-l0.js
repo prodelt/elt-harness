@@ -120,7 +120,33 @@ function mergeChanged(fromDiff, fromStatus) {
   return [...byPath.values()].filter((file) => !file.isDeleted);
 }
 
-function evaluate({ diff = '', status = '', config = {}, cwd = '' } = {}) {
+// 011 T024 — Scope: файл в диффе вне [files:] И вне харнесс-владений → судья зовётся с явной
+// причиной, а не молчаливо (артефакт: «выход ловится механически — это те самые 15% настоящих
+// блоков судьи»). Форма ФАЙЛОВАЯ, не символьная НАМЕРЕННО: `codegraph affected` в этом репо
+// возвращает пусто (43 import-узла на 288 файлов, require() не проиндексирован) — символьный
+// подграф строить не на чем, слайс на несуществующих данных был бы враньём.
+// Не require() gate.js/plan.js: elt-gate-l0.js — лист замыкания судьи (sync-bin CLOSURE),
+// а fleet/plan.js в него не входит — тривиальные 3 строки дублируются, а не тянут новый файл
+// в деплой каждого проекта.
+function taskScopeFiles(taskText) {
+  const m = String(taskText || '').match(/\[files:([^\]]+)\]/);
+  return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : [];
+}
+function globPrefix(g) {
+  const i = g.search(/[*?[]/);
+  return (i === -1 ? g : g.slice(0, i)).replace(/\\/g, '/');
+}
+function inTaskScope(rel, files) {
+  return files.some((g) => { const pre = globPrefix(g); return rel === g || (pre && rel.startsWith(pre)); });
+}
+// Харнесс/оркестратор-владения — та же граница, что gate.js:isHarnessOwned (tasks.md [X]-марка,
+// .harness/** конфиг/логи): ни один слайс не трогает их легитимно, но и не барьером тоже —
+// оркестратор их правит сам, судить тут нечего.
+function isHarnessOwned(rel) {
+  return rel === 'tasks.md' || rel.endsWith('/tasks.md') || rel === '.harness' || rel.startsWith('.harness/');
+}
+
+function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = '' } = {}) {
   const changed = mergeChanged(parseDiff(diff, cwd), parseStatus(status, cwd));
   const tests = changed.filter((file) => TEST_PATH.test(file.path));
   const prod = changed.filter((file) => !TEST_PATH.test(file.path) && CODE_PATH.test(file.path));
@@ -149,6 +175,21 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '' } = {}) {
   const hot = changed.filter((file) => hotRes.some((re) => re.test(file.path))).map((file) => file.path);
   if (hot.length) {
     triggers.push({ name: 'hot-path', files: hot, reason: 'тронут горячий путь (гейт/авторизация/секреты)' });
+  }
+
+  // Задача без [files:] не объявила зону — нарушить нечего, триггер молчит вовсе (не «всё
+  // подозрительно»), тот же принцип, что у ctx7 при нуле импортов.
+  const scopeFiles = taskScopeFiles(taskText);
+  if (scopeFiles.length) {
+    const outOfScope = changed.map((file) => file.path)
+      .filter((p) => !inTaskScope(p, scopeFiles) && !isHarnessOwned(p));
+    if (outOfScope.length) {
+      triggers.push({
+        name: 'out-of-scope',
+        files: outOfScope,
+        reason: `файл вне объявленной зоны [files:]: ${outOfScope.join(', ')} — барьерный слайс легитимен, судья решает`,
+      });
+    }
   }
 
   const threshold = Number.isFinite(config.diffSizeThreshold) && config.diffSizeThreshold > 0
@@ -207,4 +248,7 @@ function loadConfig(cwd) {
   return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs } };
 }
 
-module.exports = { evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS };
+module.exports = {
+  evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
+  taskScopeFiles, inTaskScope, isHarnessOwned,
+};

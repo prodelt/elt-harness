@@ -537,7 +537,8 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   // Файловые триггеры это не задевает — полный список файлов приходит из status, не из диффа.
   const l0Diff = [diff, ...externalDiffs.map((e) => e.diff)].join('\n');
   const l0Status = [status, ...externalDiffs.map((e) => e.status)].join('\n');
-  const l0 = evaluateL0({ diff: l0Diff, status: l0Status, config: l0Config(cwd), cwd });
+  // 011 T024: taskText несёт [files:] — без него scope-триггер молчит (задача не объявила зону).
+  const l0 = evaluateL0({ diff: l0Diff, status: l0Status, config: l0Config(cwd), cwd, taskText });
   // Пустой дифф — не «чистый слайс», а слайс, в котором ничего не сделано: триггеров в нём нет
   // по определению, и молчаливый `l0-clean` пропустил бы пустышку как выполненную работу.
   // Такое отдаём судье, как раньше: REJECT-default по пустому диффу — его штатная работа.
