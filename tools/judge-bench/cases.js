@@ -409,6 +409,268 @@ diff --git a/tools/fleet/router.test.js b/tools/fleet/router.test.js
 +});
 `,
   },
+  // ---------------------------------------------------------- PASS (011 T023) ---
+  // Ниже — реальные ложные блоки этого репо (52 block в run-log.jsonl на момент замера),
+  // воспроизведённые как диффы того же формата, что и выше (представительные, не байт-в-байт
+  // копия `git show`: остальные кейсы в этом файле сделаны так же). Названные кандидаты из
+  // T023 — auto-checkpoint-noise (сессия 24.07-29.07, зафиксировано в
+  // .planning/CHECKPOINT-2026-07-29-009-T010-T014-judge-self-judge-defect.md: «Хук
+  // авто-чекпоинта пишет .planning/CHECKPOINT-*-auto.md в дерево → судья видит его как scope
+  // creep») и diff-capped-large-file (тот же чекпоинт: DIFF_CAP резал крупные файлы диффа
+  // батча до жёсткого предела, ДО того как T014 подняла cap 12000→60000). Остальные пять —
+  // диффы того же типа, что реально коммитились в этом слайсе 011 (T018/T022): маленький
+  // контракт-тест, CLI-флаг + судья, конфиг-поле, batch-тест на несколько задач.
+  {
+    id: 'auto-checkpoint-noise',
+    expect: 'pass',
+    why: 'В дереве оказался авто-сгенерированный .planning/CHECKPOINT-*-auto.md — инфраструктурный шум хука, не scope creep задачи.',
+    taskText: 'Судья должен ретраить grounding:no-reasons ровно один раз [files: tools/fleet/gate.js, tools/fleet/gate.test.js]',
+    status: ' M tools/fleet/gate.js\n M tools/fleet/gate.test.js\n?? .planning/CHECKPOINT-2026-07-24-auto.md\n',
+    diff: `diff --git a/tools/fleet/gate.js b/tools/fleet/gate.js
+--- a/tools/fleet/gate.js
++++ b/tools/fleet/gate.js
+@@ -700,6 +700,12 @@ async function judgeDiff(opts) {
++async function judgeDiffRetryNoReasons(opts) {
++  const first = await judgeDiff(opts);
++  if (first.runOk && first.verdict === 'block' && !(first.reasons || []).length) {
++    return judgeDiff(opts);
++  }
++  return first;
++}
+diff --git a/tools/fleet/gate.test.js b/tools/fleet/gate.test.js
+--- a/tools/fleet/gate.test.js
++++ b/tools/fleet/gate.test.js
+@@ -300,3 +300,10 @@
++test('no-reasons: ровно одна перевыдача', async () => {
++  let calls = 0;
++  const stub = async () => { calls++; return { runOk: true, verdict: calls < 2 ? 'block' : 'pass', reasons: calls < 2 ? [] : ['ok'] }; };
++  const r = await judgeDiffRetryNoReasons.__test(stub);
++  assert.equal(calls, 2);
++  assert.equal(r.verdict, 'pass');
++});
+diff --git a/.planning/CHECKPOINT-2026-07-24-auto.md b/.planning/CHECKPOINT-2026-07-24-auto.md
+new file mode 100644
+--- /dev/null
++++ b/.planning/CHECKPOINT-2026-07-24-auto.md
+@@ -0,0 +1,3 @@
++# автосохранение сессии (хук, не рука имплементатора)
++build: pass, tests: 12/12
++ветка feature/judge-bench-parallel-oracle
+`,
+  },
+  {
+    id: 'diff-capped-large-file',
+    expect: 'pass',
+    why: 'Диф крупного файла батча срезан лимитом DIFF_CAP (было 800/файл до T014) — показанная часть строго по задаче, урезание не значит scope creep.',
+    taskText: 'Батч T004-T011: перевести grounding на пофайловый список filesReviewed [files: tools/fleet/gate.js, tools/fleet/fleet.js]',
+    status: ' M tools/fleet/gate.js\n M tools/fleet/fleet.js\n',
+    diff: `diff --git a/tools/fleet/gate.js b/tools/fleet/gate.js
+--- a/tools/fleet/gate.js
++++ b/tools/fleet/gate.js
+@@ -640,7 +640,7 @@ function buildPrompt(taskText, diff) {
+-  const capped = diff.slice(0, DIFF_CAP);
++  const capped = diff.length > DIFF_CAP ? diff.slice(0, DIFF_CAP) + '\\n...(обрезано лимитом)' : diff;
+   return \`\${taskText}\\n\\n\${capped}\`;
+ }
+[... диф файла gate.js обрезан лимитом DIFF_CAP, показаны первые ~800 символов правки; остаток —
+ повторение того же паттерна замены .slice на условную обрезку в трёх соседних функциях этого же файла]
+diff --git a/tools/fleet/fleet.js b/tools/fleet/fleet.js
+--- a/tools/fleet/fleet.js
++++ b/tools/fleet/fleet.js
+@@ -180,6 +180,7 @@ async function runWorker(slice) {
++  emit(cwd, { event: 'grounding-files', files: filesReviewed });
+   return result;
+ }
+`,
+  },
+  {
+    id: 'contract-test-only-additive',
+    expect: 'pass',
+    why: 'Ровно один новый тест в конец файла, ни одна существующая строка/ассерт не тронуты — существующий-тест-изменён триггер ложно сработал бы на факт правки файла, не теста.',
+    taskText: 'Контракт-тест: fleet-путь гоняет оракул через CLI, значит smoke проходит и у воркеров [files: tools/fleet/fleet.test.js]',
+    status: ' M tools/fleet/fleet.test.js\n',
+    diff: `diff --git a/tools/fleet/fleet.test.js b/tools/fleet/fleet.test.js
+--- a/tools/fleet/fleet.test.js
++++ b/tools/fleet/fleet.test.js
+@@ -873,3 +873,17 @@
++test('T018: красный smoke валит fleet-гейт на стадии oracle', async () => {
++  const hp = path.join(REPO, '.harness', 'harness.json');
++  const saved = fs.readFileSync(hp, 'utf8');
++  fs.writeFileSync(hp, JSON.stringify({ ...JSON.parse(saved), smoke: 'node -e "process.exit(3)"' }));
++  try {
++    const r = await gate.gate({ tid: 'T3', taskText: 'x', cwd: REPO, elt: ELT_CLI });
++    assert.equal(r.ok, false);
++    assert.equal(r.stage, 'oracle');
++  } finally { fs.writeFileSync(hp, saved); }
++});
+`,
+  },
+  {
+    id: 'new-cli-command-with-tests',
+    expect: 'pass',
+    why: 'Новая независимая CLI-команда (свой файл + require + help-строка) ровно по задаче, тесты покрывают её же логику, ничего постороннего не тронуто.',
+    taskText: 'elt stats [--since <дата>] [--json]: block-rate, судей на коммит, оракул p50/p90 из run-log.jsonl [files: tools/elt-stats.js, tools/elt.js, tools/elt-stats.test.js]',
+    status: ' A tools/elt-stats.js\n A tools/elt-stats.test.js\n M tools/elt.js\n',
+    diff: `diff --git a/tools/elt.js b/tools/elt.js
+--- a/tools/elt.js
++++ b/tools/elt.js
+@@ -15,6 +15,7 @@
+ const runLog = require('./run-log');
++const eltStats = require('./elt-stats');
+@@ -630,6 +631,14 @@
++if (cmd === 'stats') {
++  const file = runLog.runtimeRunLog(cwd);
++  const entries = file && fs.existsSync(file) ? eltStats.parseRunLog(fs.readFileSync(file, 'utf8')) : [];
++  const s = eltStats.computeStats(entries, { since: opt('--since') });
++  console.log(flag('--json') ? JSON.stringify(s, null, 2) : \`block-rate: \${s.blockRate}\`);
++  process.exit(0);
++}
+diff --git a/tools/elt-stats.js b/tools/elt-stats.js
+new file mode 100644
+--- /dev/null
++++ b/tools/elt-stats.js
+@@ -0,0 +1,20 @@
++'use strict';
++function computeStats(entries, { since } = {}) {
++  const filtered = since ? entries.filter((e) => e.ts >= since) : entries;
++  const blocked = filtered.filter((e) => e.status === 'judge-block').length;
++  const judged = filtered.filter((e) => e.status !== 'l0-clean' && e.status.startsWith('judge-')).length;
++  return { blockRate: judged ? blocked / judged : null };
++}
++module.exports = { computeStats };
+diff --git a/tools/elt-stats.test.js b/tools/elt-stats.test.js
+new file mode 100644
+--- /dev/null
++++ b/tools/elt-stats.test.js
+@@ -0,0 +1,8 @@
++const { computeStats } = require('./elt-stats');
++test('blockRate считается из фикстуры', () => {
++  const s = computeStats([{ status: 'judge-block' }, { status: 'judge-pass' }]);
++  assert.equal(s.blockRate, 0.5);
++});
+`,
+  },
+  {
+    id: 'harness-config-field-addition',
+    expect: 'pass',
+    why: 'Новое опциональное поле конфига (smoke) с валидацией типа и явным поведением по умолчанию — расширение контракта харнесса ровно по задаче, не побочный эффект.',
+    taskText: 'harness.json.smoke — строка команды по форме существующего oracle. Пусто/не строка — явная ошибка конфига, а не тихое выключение слоя [files: tools/elt-config.js, tools/elt-config.test.js]',
+    status: ' M tools/elt-config.js\n M tools/elt-config.test.js\n',
+    diff: `diff --git a/tools/elt-config.js b/tools/elt-config.js
+--- a/tools/elt-config.js
++++ b/tools/elt-config.js
+@@ -20,6 +20,8 @@ function validate(config) {
+   const errors = [];
++  if (config.smoke !== undefined && typeof config.smoke !== 'string') errors.push('smoke must be a string command');
+   return errors;
+ }
+diff --git a/tools/elt-config.test.js b/tools/elt-config.test.js
+--- a/tools/elt-config.test.js
++++ b/tools/elt-config.test.js
+@@ -40,3 +40,9 @@
++test('smoke: не строка — ошибка конфига', () => {
++  assert.deepEqual(validate({ smoke: 42 }), ['smoke must be a string command']);
++});
++test('smoke: отсутствует — конфиг валиден (слоя просто нет)', () => {
++  assert.deepEqual(validate({}), []);
++});
+`,
+  },
+  {
+    id: 'batch-commit-multiple-tasks',
+    expect: 'pass',
+    why: 'Один оракул+один судья+один коммит на N задач батча — каждая правка относится к своей заявленной задаче из списка, межзадачных хвостов нет.',
+    taskText: 'Батч T004,T005,T006,T007: grounding принимает filesReviewed, phantom-file остаётся block, unreviewed-file детектится, red-proof читает список тест-файлов из дифф [files: tools/fleet/gate.js, tools/judge-grounding.test.js]',
+    status: ' M tools/fleet/gate.js\n M tools/judge-grounding.test.js\n',
+    diff: `diff --git a/tools/fleet/gate.js b/tools/fleet/gate.js
+--- a/tools/fleet/gate.js
++++ b/tools/fleet/gate.js
+@@ -710,6 +710,14 @@ function evaluateGrounding(reviewed, diffFiles) {
++  const phantom = reviewed.filter((f) => !diffFiles.includes(f) && !EXTERNAL_OK.test(f));
++  if (phantom.length) return { ok: false, reason: 'phantom-file', phantom };
++  const unreviewed = diffFiles.filter((f) => !reviewed.includes(f));
++  if (unreviewed.length) return { ok: false, reason: 'unreviewed-file', unreviewed };
+   return { ok: true };
+ }
+diff --git a/tools/judge-grounding.test.js b/tools/judge-grounding.test.js
+--- a/tools/judge-grounding.test.js
++++ b/tools/judge-grounding.test.js
+@@ -50,3 +50,15 @@
++test('T004: phantom-file — судья назвал файл вне диффа', () => {
++  const r = evaluateGrounding(['ghost.js'], ['gate.js']);
++  assert.equal(r.reason, 'phantom-file');
++});
++test('T005: unreviewed-file — дифф-файл не назван судьёй', () => {
++  const r = evaluateGrounding(['gate.js'], ['gate.js', 'extra.js']);
++  assert.equal(r.reason, 'unreviewed-file');
++});
+`,
+  },
+  {
+    id: 'refactor-extract-function-same-scope',
+    expect: 'pass',
+    why: 'Функция вынесена в отдельный модуль ровно из объявленных файлов, вызывающий код и сигнатура не изменились, тест перенесён вместе с функцией.',
+    taskText: 'Вынести applyRedProof в отдельный модуль tools/red-proof.js — жила в двух копиях (solo и fleet) и расходилась [files: tools/red-proof.js, tools/judge-invoke.js, tools/fleet/gate.js, tools/red-proof.test.js]',
+    status: ' A tools/red-proof.js\n M tools/judge-invoke.js\n M tools/fleet/gate.js\n A tools/red-proof.test.js\n',
+    diff: `diff --git a/tools/red-proof.js b/tools/red-proof.js
+new file mode 100644
+--- /dev/null
++++ b/tools/red-proof.js
+@@ -0,0 +1,10 @@
++'use strict';
++function applyRedProof(verdict, reasons, result) {
++  if (verdict === 'pass' && result && result.status === 'green') {
++    return { verdict: 'inconclusive', reasons: [...reasons, 'red-proof:green'] };
++  }
++  return { verdict, reasons };
++}
++module.exports = { applyRedProof };
+diff --git a/tools/judge-invoke.js b/tools/judge-invoke.js
+--- a/tools/judge-invoke.js
++++ b/tools/judge-invoke.js
+@@ -1,3 +1,4 @@
++const { applyRedProof } = require('./red-proof');
+@@ -60,8 +61,7 @@
+-  if (verdict === 'pass' && redProof.status === 'green') { verdict = 'inconclusive'; reasons.push('red-proof:green'); }
++  ({ verdict, reasons } = applyRedProof(verdict, reasons, redProof));
+diff --git a/tools/fleet/gate.js b/tools/fleet/gate.js
+--- a/tools/fleet/gate.js
++++ b/tools/fleet/gate.js
+@@ -1,3 +1,4 @@
++const { applyRedProof } = require('../red-proof');
+@@ -730,8 +731,7 @@
+-  if (verdict === 'pass' && redProof.status === 'green') { verdict = 'inconclusive'; }
++  ({ verdict, reasons } = applyRedProof(verdict, reasons, redProof));
+diff --git a/tools/red-proof.test.js b/tools/red-proof.test.js
+new file mode 100644
+--- /dev/null
++++ b/tools/red-proof.test.js
+@@ -0,0 +1,8 @@
++const { applyRedProof } = require('./red-proof');
++test('pass + green -> inconclusive', () => {
++  assert.deepEqual(applyRedProof('pass', [], { status: 'green' }), { verdict: 'inconclusive', reasons: ['red-proof:green'] });
++});
+`,
+  },
+  {
+    id: 'spec-approval-doc-only-recommit',
+    expect: 'pass',
+    why: 'Ровно одно поле JSON (approvedAt/tasksHash) в файле подписи — чекбокс предыдущего слайса сменил hash, содержание задач не менялось, это не новый scope.',
+    taskText: 'Переутвердить спеку 011 после закрытия предыдущего слайса: elt spec approve пересчитывает подпись [files: specs/011-elt-v3-gate/approval.json]',
+    status: ' M specs/011-elt-v3-gate/approval.json\n',
+    diff: `diff --git a/specs/011-elt-v3-gate/approval.json b/specs/011-elt-v3-gate/approval.json
+--- a/specs/011-elt-v3-gate/approval.json
++++ b/specs/011-elt-v3-gate/approval.json
+@@ -1,5 +1,5 @@
+ {
+-  "approvedAt": "2026-08-01T09:31:05.941Z",
++  "approvedAt": "2026-08-03T12:12:09.523Z",
+   "specHash": "be4194d3e8d8730088dc4a2e921f53b3cff6524c5e13b79d4721272395f974ce",
+-  "tasksHash": "e1e1db7a108574da272939eaaba3ea0d9ed021a5a0c3594e44439e1d4caad3aa"
++  "tasksHash": "4b54a1773dc6aed8af5d5e891cc954f7ba265a9cbeabf26dc53136de0d9c04f6"
+ }
+`,
+  },
 ];
 
 module.exports = { cases };
