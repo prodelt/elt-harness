@@ -230,6 +230,28 @@ test('T028: agy — argv короткий на промпте >200K, файл н
   assert.ok(m[1].startsWith(path.join(TMP, '.harness', 'fleet', 'prompts')), 'файл лежит там, куда уже смотрит --add-dir cwd');
 });
 
+// --- T014 (011): живой дефект найден при приёмке в чужом проекте. `.harness/fleet/` живёт
+// внутри дерева, и БЕЗ .gitignore/`.git/info/exclude` в целевом проекте (этот репо его
+// гитигнорит, остальные — нет) судья реально ВИДЕЛ prompt-файл agy как «файл диффа»
+// (git status его ловит как untracked) и вписывал рантайм-артефакт гейта в grounding. ---
+test('T014: agy сам регистрирует .harness/fleet/ в .git/info/exclude — git status его не видит', async () => {
+  const { execFileSync } = require('node:child_process');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-prov-gitrepo-'));
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  const prev = process.env.FLEET_BIN_AGY;
+  process.env.FLEET_BIN_AGY = JSON.stringify(['node', STUBS.argv]);
+  try {
+    const r = await run({ provider: 'agy', prompt: 'дифф судье', cwd: repo, timeoutMs: 30000 });
+    assert.equal(r.ok, true, r.reason);
+  } finally {
+    if (prev === undefined) delete process.env.FLEET_BIN_AGY; else process.env.FLEET_BIN_AGY = prev;
+  }
+  const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+  assert.match(exclude, /^\.harness\/fleet\/$/m, '.git/info/exclude несёт строку без ручной правки .gitignore проекта');
+  const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: repo, encoding: 'utf8' });
+  assert.doesNotMatch(status, /\.harness[\\/]fleet/, 'git status НЕ видит prompt-файл — судья не получит его как «файл диффа»');
+});
+
 test('T028: два вызова agy подряд не перетирают файл друг друга (уникальные имена)', async () => {
   const a = await spawnArgs('agy', { prompt: 'первый' });
   const b = await spawnArgs('agy', { prompt: 'второй' });

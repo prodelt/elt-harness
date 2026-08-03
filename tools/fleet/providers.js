@@ -72,6 +72,7 @@ const PROVIDERS = {
 };
 
 function promptRefForAgy(cwd, prompt) {
+  gitExcludeFleet(cwd);
   const dir = path.join(cwd, '.harness', 'fleet', 'prompts');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `agy-${Date.now()}-${process.pid}-${crypto.randomUUID()}.txt`);
@@ -126,7 +127,33 @@ function available(provider) {
   return _availCache.get(provider);
 }
 
+// 011 T014 (живой дефект, найден при приёмке в чужом проекте): `.harness/fleet/` живёт
+// ВНУТРИ дерева (логи — всегда, T028-промпты agy — теперь тоже), и в репо-разработчике он
+// гитигнорен, но НИ ОДИН другой проект (это репо деплоится в ~/.claude/bin/) про это не
+// знает. Живьём судья реально ПОЛУЧАЛ `.harness/fleet/...` как «файл диффа» (untracked,
+// git status его видит) и вписывал его в grounding — рантайм-артефакт гейта вменялся
+// имплементатору. `.git/info/exclude` — тот же приём, что `gitExclude()` в elt.js для
+// `parked.json`: пишется САМИМ гейтом, не зависит от .gitignore целевого проекта.
+let _excludedFleetDir = null; // кеш на процесс: не бить диск на каждый spawn
+function gitExcludeFleet(cwd) {
+  if (_excludedFleetDir === cwd) return;
+  try {
+    const gitDirOut = execFileSync('git', ['rev-parse', '--git-dir'], { cwd, encoding: 'utf8' }).trim();
+    if (!gitDirOut) return;
+    const gitDir = path.isAbsolute(gitDirOut) ? gitDirOut : path.join(cwd, gitDirOut);
+    const exclude = path.join(gitDir, 'info', 'exclude');
+    const body = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
+    const line = '.harness/fleet/';
+    if (!body.split(/\r?\n/).includes(line)) {
+      fs.mkdirSync(path.dirname(exclude), { recursive: true });
+      fs.writeFileSync(exclude, body + (body && !body.endsWith('\n') ? '\n' : '') + line + '\n');
+    }
+    _excludedFleetDir = cwd;
+  } catch { /* не git-репо/read-only — молчим, не работа executor'а */ }
+}
+
 function logDirFor(cwd) {
+  gitExcludeFleet(cwd);
   const d = path.join(cwd, '.harness', 'fleet', 'logs');
   fs.mkdirSync(d, { recursive: true });
   return d;
