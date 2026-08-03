@@ -50,6 +50,29 @@ test('набор кейсов: непустой, у каждого ожидан�
   assert.equal(new Set(cases.map((c) => c.id)).size, cases.length, 'дубли id');
 });
 
+// 011 T023: набор мерил в основном block (10 block / 3 pass) — FPR был неизмерим статистически.
+// Пополнено реальными ложными блоками из run-log.jsonl; инвариант держим тестом, а не памятью.
+test('011 T023: pass-кейсов не меньше, чем block-кейсов — FPR измерим', () => {
+  const blockCount = cases.filter((c) => c.expect === 'block').length;
+  const passCount = cases.filter((c) => c.expect === 'pass').length;
+  assert.ok(passCount >= blockCount, `pass=${passCount} < block=${blockCount} — FPR статистически неизмерим`);
+});
+
+// Отчёт коммитится как артефакт задачи (T023 [files]), а не перегенерируется в оракуле —
+// живой судья стоит денег/времени (см. шапку judge-bench.js). Структуру проверяем без вызова судьи.
+test('011 T023: JUDGE-BENCH-011-T023.json имеет структуру отчёта judge-bench', () => {
+  const reportPath = path.join(__dirname, '..', '.planning', 'JUDGE-BENCH-011-T023.json');
+  const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  assert.ok(report.ts && report.provider, 'нет метаданных прогона (ts/provider)');
+  assert.ok(report.score, 'нет score');
+  for (const key of ['total', 'recall', 'falsePositiveRate', 'blockCases', 'passCases', 'accuracy']) {
+    assert.ok(key in report.score, `score.${key} отсутствует`);
+  }
+  assert.ok(Array.isArray(report.results) && report.results.length === cases.length, 'results не покрывает весь набор');
+  assert.equal(report.score.blockCases, cases.filter((c) => c.expect === 'block').length);
+  assert.equal(report.score.passCases, cases.filter((c) => c.expect === 'pass').length);
+});
+
 test('score: идеальный судья = recall 1, FP 0', () => {
   const s = score(cases.map((c) => ({ expect: c.expect, verdict: c.expect, correct: true, runOk: true, durationSec: 10, costUsd: 0.1 })));
   assert.equal(s.recall, 1);
