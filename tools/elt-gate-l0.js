@@ -18,6 +18,11 @@ const DEFAULT_HOT_PATHS = [
   '**/.env*', '**/*secret*', '**/*credential*',
 ];
 const DEFAULT_DIFF_SIZE = 400;
+// 011 T025 — риск из связности, не из имени файла: «узел с высокой входящей степенью = дорогая
+// ошибка» (артефакт). `hot-path` ловит по подстроке (`*auth*` цепляет `author.js`), а реально
+// центральный модуль без «горячего» слова не ловит никак. Порог — константа-дефолт, читается
+// из harness.json.l0.fanInThreshold как и остальные пороги L0.
+const DEFAULT_FANIN_THRESHOLD = 10;
 
 const TEST_PATH = /(^|\/)[^/]*\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(tests?|__tests__)\//i;
 const CODE_PATH = /\.(js|cjs|mjs|jsx|ts|tsx|py|go|rs|rb|java|cs|php|sh|ps1)$/i;
@@ -177,6 +182,25 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = ''
     triggers.push({ name: 'hot-path', files: hot, reason: 'тронут горячий путь (гейт/авторизация/секреты)' });
   }
 
+  // 011 T025: config.fanIn — геттер (file)=>count|null, построенный loadConfig() (fs-доступ
+  // живёт ТАМ, не здесь — evaluate остаётся чистой, AC2). Недоступен (нет соседа
+  // elt-oracle-select.js в деплое, или скан не разобрался) → триггера нет вовсе, не ложный
+  // block — та же дисциплина, что у codegraph в impact-выборке.
+  if (typeof config.fanIn === 'function') {
+    const fanInThreshold = Number.isFinite(config.fanInThreshold) && config.fanInThreshold > 0
+      ? config.fanInThreshold : DEFAULT_FANIN_THRESHOLD;
+    const highFanin = prod
+      .map((file) => ({ path: file.path, count: config.fanIn(file.path) }))
+      .filter((f) => Number.isFinite(f.count) && f.count > fanInThreshold);
+    if (highFanin.length) {
+      triggers.push({
+        name: 'high-fanin',
+        files: highFanin.map((f) => f.path),
+        reason: `тронут узел с высокой входящей степенью (${highFanin.map((f) => `${f.path}:${f.count}`).join(', ')}, порог ${fanInThreshold})`,
+      });
+    }
+  }
+
   // Задача без [files:] не объявила зону — нарушить нечего, триггер молчит вовсе (не «всё
   // подозрительно»), тот же принцип, что у ctx7 при нуле импортов.
   const scopeFiles = taskScopeFiles(taskText);
@@ -226,6 +250,35 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = ''
   return { triggers, judgeNeeded: triggers.length > 0 };
 }
 
+// 011 T025 — фан-ин: НЕ чистая функция (fs), поэтому живёт рядом с loadConfig, а не внутри
+// evaluate(). Источник — уже существующие `walkJs`+`dependents` из elt-oracle-select.js, тот же
+// обратный скан, что кормит impact-выборку («не заводить нового источника данных»). Возвращает
+// ГЕТТЕР (замыкание, кэш внутри), а не сырую карту всего репо: скан директорий (дёшево) идёт
+// сразу, но чтение содержимого файлов (`dependents`) — лениво, только для реально изменённых
+// файлов слайса (обычно 1-5), а не для всех ~288 при каждом гейте.
+// Сосед недоступен (устаревшая deploy-копия без elt-oracle-select.js в замыкании — тот же
+// класс отказа, что T017) → null, а не исключение: вызывающий evaluate() уже трактует
+// non-function fanIn как «сигнала нет», не как ошибку.
+function computeFanIn(cwd, scanDirs = ['tools']) {
+  const fs = require('fs');
+  const path = require('path');
+  let oracleSelect;
+  try { oracleSelect = require('./elt-oracle-select'); } catch { return null; }
+  const pool = [...new Set(scanDirs.flatMap((d) => oracleSelect.walkJs(path.join(cwd, d), cwd)))];
+  const readFile = (rel) => { try { return fs.readFileSync(path.join(cwd, rel), 'utf8'); } catch { return ''; } };
+  const cache = new Map();
+  return (file) => {
+    if (cache.has(file)) return cache.get(file);
+    // Файл вне скан-пула (тест-файл, внешний путь, конфиг) — фан-ин неизвестен, не ноль:
+    // triggers.filter уже требует Number.isFinite, так что null тут же и отсеется.
+    if (!pool.includes(file)) { cache.set(file, null); return null; }
+    const affected = oracleSelect.dependents([file], pool, readFile);
+    const count = affected.size - 1; // минус сам файл
+    cache.set(file, count);
+    return count;
+  };
+}
+
 // 011 T017 (в): конфиг L0 читают ДВА вызывающих — `fleet/gate.js` перед судьёй и `elt.js` перед
 // оракулом. Живёт он здесь, а не в gate.js, потому что elt.js не может тянуть fleet-путь
 // (providers/router/замыкание sync-bin) ради чтения одного json'а. `evaluate` остаётся ЧИСТОЙ
@@ -245,10 +298,10 @@ function loadConfig(cwd) {
       .map((line) => { try { return JSON.parse(line); } catch { return null; } })
       .filter(Boolean);
   } catch { /* файла нет — пруфов нет, и это значимо: новый внешний импорт даст block */ }
-  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs } };
+  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs }, fanIn: computeFanIn(cwd) };
 }
 
 module.exports = {
   evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
-  taskScopeFiles, inTaskScope, isHarnessOwned,
+  taskScopeFiles, inTaskScope, isHarnessOwned, computeFanIn, DEFAULT_FANIN_THRESHOLD,
 };
