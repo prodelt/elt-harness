@@ -188,7 +188,13 @@ function treeHash() {
   // untracked file content straight off disk instead — zero side effects on the index.
   const runtimeLog = (file) => {
     const normalized = file.replace(/\\/g, '/');
-    return normalized.startsWith('.harness/loop-logs/') || normalized.startsWith('.harness/fleet/logs/');
+    // .harness/fleet/prompts/ — T028: agy-провайдер пишет промпт сюда (снимает ENAMETOOLONG
+    // на argv). В репо-разработчике каталог гитигнорен, но в ЛЮБОМ ДРУГОМ проекте (эта строка
+    // деплоится в ~/.claude/bin/elt.js) его никто не игнорит — живой дефект T014: судья реально
+    // отвечал, но treeHash() между `oracle` и записью proof сдвигался на файл, который создал
+    // САМ гейт, а не имплементатор, и honest прогон получал ложный `stale oracle proof`.
+    return normalized.startsWith('.harness/loop-logs/') || normalized.startsWith('.harness/fleet/logs/')
+      || normalized.startsWith('.harness/fleet/prompts/');
   };
   const status = git(['status', '--porcelain', '-uall']).out.split('\n')
     .filter((line) => !runtimeLog(line.slice(3).trim())).join('\n');

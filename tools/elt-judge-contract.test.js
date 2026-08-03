@@ -230,6 +230,21 @@ test('резолв: ни локального, ни глобального → e
   assert.match(r.stderr.toString(), /sync-bin\.js/);
 });
 
+// --- T014 (011): живой дефект, найден при приёмке в чужом проекте. agy (T028) пишет промпт в
+// `.harness/fleet/prompts/` ВНУТРИ дерева — untracked-файл там сдвигал treeHash() между
+// `oracle` и записью judge proof, и честный судья получал ложный `stale oracle proof`, потому
+// что дерево сдвинул сам гейт, а не имплементатор. ---
+test('T014: файл в .harness/fleet/prompts/ (agy, T028) не делает oracle-proof stale', () => {
+  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  fs.mkdirSync(path.join(root, '.harness', 'fleet', 'prompts'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'fleet', 'prompts', 'agy-probe.txt'), 'дифф судье как текст');
+  const extraFile = writeExtraFile(fullExtra());
+  const write = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'codex', '--extra-file', extraFile]);
+  assert.equal(write.status, 0, write.stderr.toString());
+  const v = run(root, ['judge-proof', 'validate', '--task', 'T001']);
+  assert.equal(v.status, 0, v.stderr.toString());
+});
+
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });
