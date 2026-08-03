@@ -36,7 +36,7 @@ function makeHome() {
   homes.push(home);
   const bin = path.join(home, '.claude', 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js']) {
+  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js']) {
     fs.copyFileSync(path.join(__dirname, name), path.join(bin, name));
   }
   return home;

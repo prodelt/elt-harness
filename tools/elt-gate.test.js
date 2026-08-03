@@ -28,7 +28,7 @@ function installHook(root) {
   fs.chmodSync(target, 0o755);
   const toolsDir = path.join(root, 'tools');
   fs.mkdirSync(toolsDir, { recursive: true });
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js']) {
+  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js']) {
     fs.copyFileSync(path.join(__dirname, name), path.join(toolsDir, name));
   }
 }
