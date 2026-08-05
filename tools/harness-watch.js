@@ -17,7 +17,6 @@
 const fs = require('fs');
 const path = require('path');
 const { runtimeRunLog } = require('./run-log');
-const { verifySettings } = require('./elt-config');
 const { classifyBlockSource } = require('./elt-stats');
 
 const DEFAULTS = { window: 50, staleParkHours: 24, pollMs: 5000, oracleSlowFactor: 3, minOracleSamples: 5, blockPatternMin: 3 };
@@ -191,12 +190,11 @@ function detectStalePark(parked, opts, now) {
 function detectCircuitOff(root, config) {
   if (!config || config.kind !== 'code') return [];
   const redProof = typeof config.redProof === 'string' ? config.redProof.trim() : '';
-  // Та же формула, что у `circuitEnabled()` в elt.js: verify-судья ИЛИ живой red-proof.
-  // verifySettings — общий источник из elt-config, чтобы правило жило в одном месте.
-  if (verifySettings(root) || (redProof && redProof !== 'off')) return [];
+  // Та же формула, что у `circuitEnabled()` в elt.js: в ELT v3 контур означает red-proof.
+  if (redProof && redProof !== 'off') return [];
   return [{
     kind: 'circuit-off', key: 'circuit-off',
-    detail: 'проект с кодом без контура: нет judge.verify и redProof выключен',
+    detail: 'проект с кодом без контура: redProof выключен',
   }];
 }
 
@@ -223,13 +221,10 @@ function hasWorkerAlternative(root, provider) {
 // Провайдер БЕЗ модели — это fatal config, а не фолбэк: codex, запущенный с моделью agy
 // (`gemini-3.6-flash-high`), просто падает. Поэтому решение всегда несёт пару provider+model.
 function fallbackJudge(root, config, current) {
-  const verify = (config && config.judge && config.judge.verify) || null;
-  if (verify && verify.provider && verify.provider !== current) {
-    return { to: verify.provider, toModel: verify.model || modelFor(root, verify.provider) };
-  }
   try {
     const { JUDGE_PROVIDERS } = require('./elt-config'); // Set, не массив
-    const to = [...JUDGE_PROVIDERS].find((p) => p !== current) || null;
+    const { available } = require('./fleet/providers');
+    const to = [...JUDGE_PROVIDERS].find((p) => p !== current && available(p)) || null;
     return to ? { to, toModel: modelFor(root, to) } : null;
   } catch { return null; }
 }
@@ -249,8 +244,8 @@ function actionFor(incident, root, config, judgeProvider) {
   const judge = judgeProvider || (config && config.judge && config.judge.provider) || null;
   if (incident.kind === 'limit-streak') {
     const p = incident.provider;
-    // Судью и воркера роутят РАЗНЫЕ множества: судья — по цепочке судей (judge.verify →
-    // JUDGE_PROVIDERS), воркер — по цепочкам fleet.json. Судья в конфиге один, замену ему
+    // Судью и воркера роутят РАЗНЫЕ множества: судья — по JUDGE_PROVIDERS,
+    // воркер — по цепочкам fleet.json. Судья в конфиге один, замену ему
     // обязан назвать watchdog (сам себя он не переключит), поэтому здесь маршрут реальный —
     // и назван `judgeTo`, чтобы его нельзя было принять за маршрут воркера.
     // `subject` — кого касается решение. Судья один и сам себя не заменит, поэтому у него
@@ -414,4 +409,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { detect, runOnce, ack, DEFAULTS };
+module.exports = { detect, runOnce, ack, fallbackJudge, DEFAULTS };

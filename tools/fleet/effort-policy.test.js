@@ -57,7 +57,7 @@ test('T004 e2e: явный effort в дескрипторе побеждает �
   assert.match(argv.join(' '), /--effort max\b/);
 });
 
-// ── 009 T006: эффорт по тегу сложности + промпт имплементатора v2 ──────────────────
+// ── 009 T006: эффорт по тегу сложности + промпт agy writer v3 ──────────────────────
 
 test('T006: effortFor(impl, size) — [L]→max, [S]/[M]/без тега→high', () => {
   assert.equal(effortFor('impl', 'L'), 'max', 'крупный слайс стартует на max, не ждёт heal');
@@ -69,7 +69,7 @@ test('T006: effortFor(impl, size) — [L]→max, [S]/[M]/без тега→high'
   assert.equal(effortFor('heal', 'S'), 'max', 'heal остаётся max независимо от размера');
 });
 
-test('T006 e2e: драйвер даёт промпт v2 (разведка → решение → запреты) и эффорт по тегу',
+test('T006 e2e: agy-writer получает промпт v3 (разведка → решение → запреты)',
   { skip: process.platform !== 'win32' ? 'PowerShell 5.1 только на Windows' : false }, () => {
   // Исполняемое доказательство: гоняем настоящий elt-loop.ps1 против temp-репо, стаб claude
   // сохраняет полученный промпт и argv. Ассертим латиницу/структуру, не русский текст —
@@ -91,18 +91,21 @@ test('T006 e2e: драйвер даёт промпт v2 (разведка → р
     const capture = path.join(TMP, 'capture-t006.json');
     fs.rmSync(capture, { force: true });
     const stub = path.join(TMP, 'capture-stub.js');
-    fs.writeFileSync(stub, `const fs=require("fs");let s="";
+    fs.writeFileSync(stub, `const fs=require("fs"),path=require("path");let s="";
 process.stdin.on("data",(c)=>{s+=c}).on("end",()=>{
+  const d=path.join(process.cwd(),'.harness','fleet','prompts');
+  if(!s && fs.existsSync(d)){const files=fs.readdirSync(d).sort();if(files.length)s=fs.readFileSync(path.join(d,files[files.length-1]),'utf8');}
   if(!fs.existsSync(${JSON.stringify(capture)})) fs.writeFileSync(${JSON.stringify(capture)},JSON.stringify({argv:process.argv.slice(2),prompt:s}));
   fs.appendFileSync(${JSON.stringify(path.join(repo, 'seed.txt'))},"impl\\n");console.log("stub");process.exit(0);});`);
 
     spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, '..', 'elt-loop.ps1'),
       '-Project', repo, '-Slices', '1', '-Batch', '1'],
-    { cwd: repo, encoding: 'utf8', env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
+    { cwd: repo, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
 
     assert.ok(fs.existsSync(capture), 'драйвер обязан дойти до вызова имплементатора');
     const { argv, prompt } = JSON.parse(fs.readFileSync(capture, 'utf8'));
-    assert.match(argv.join(' '), /--effort max\b/, 'тег [L] обязан поднять impl-эффорт до max');
+    assert.match(argv.join(' '), /--model gemini-3\.6-flash-high\b/, 'writer обязан идти через Antigravity с явной моделью');
+    assert.match(prompt, /\.gemini\\skills\\elt\\SKILL\.md/, 'agy должен явно прочитать ELT skill: сам он его не загружает');
     // Разведка названа полностью: зона через codegraph, рубрика (spec+constitution), тесты зоны.
     assert.match(prompt, /codegraph_context/, 'секция разведки обязана называть codegraph');
     assert.match(prompt, /spec\.md/, 'разведка обязана посылать в спеку — по ней судит судья');

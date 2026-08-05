@@ -13,7 +13,7 @@ const { after, test } = require('node:test');
 
 const WATCH = path.join(__dirname, 'harness-watch.js');
 const ELT = path.join(__dirname, 'elt.js');
-const { detect, runOnce } = require('./harness-watch');
+const { detect, runOnce, fallbackJudge } = require('./harness-watch');
 const roots = [];
 
 function fixture(config) {
@@ -298,8 +298,8 @@ test('действия из закрытого списка: cooldown / park / j
   assert.equal(byAction.park.from, 'T003');
   assert.equal(byAction.park.to, 'parked', 'у парковки `to` — состояние задачи, не провайдер');
   assert.equal(byAction['judge-fallback'].from, 'agy');
-  assert.equal(byAction['judge-fallback'].to, 'codex', 'фолбэк — verify-провайдер конфига');
-  assert.equal(byAction['judge-fallback'].toModel, 'gpt-5.6-sol', 'модель берётся из verify-конфига, а не остаётся чужой');
+  assert.equal(byAction['judge-fallback'].to, 'claude', 'фолбэк берётся из закрытого списка judge-провайдеров');
+  assert.equal(byAction['judge-fallback'].toModel, 'sonnet', 'фолбэк всегда несёт совместимую provider+model пару');
   for (const a of first.actions) assert.ok(a.reason && a.from, '{action, reason, from}');
 
   // Пока применение не подтверждено — действие выдаётся снова: падение потребителя между
@@ -345,7 +345,7 @@ test('cooldown воркера: следующий выбор делает router
 });
 
 // Судья маршрутизируется по цепочке СУДЕЙ, а не воркеров: он в конфиге один и сам себя
-// не заменит, поэтому здесь маршрут обязан быть — и обязан приходить из judge.verify.
+// не заменит, поэтому здесь маршрут обязан быть — из закрытого списка judge-провайдеров.
 test('cooldown судьи: маршрут из цепочки судей, парой provider+model', () => {
   const root = fixture();
   fs.mkdirSync(path.join(root, '.harness', 'fleet'), { recursive: true });
@@ -358,8 +358,22 @@ test('cooldown судьи: маршрут из цепочки судей, пар
   const [action] = runOnce(root).actions;
   assert.equal(action.action, 'cooldown');
   assert.equal(action.subject, 'judge');
-  assert.equal(action.to, 'codex', 'codex — verify-судья конфига, хотя в цепочке воркеров его нет');
-  assert.equal(action.toModel, 'gpt-5.6-sol');
+  assert.equal(action.to, 'claude', 'fallback judge не зависит от legacy verify или worker-цепочки');
+  assert.equal(action.toModel, 'sonnet');
+});
+
+test('fallback судьи пропускает отсутствующий CLI и не выдумывает маршрут', () => {
+  const root = fixture();
+  const providers = require('./fleet/providers');
+  const original = providers.available;
+  try {
+    providers.available = (provider) => provider === 'codex';
+    assert.deepEqual(fallbackJudge(root, null, 'agy'), { to: 'codex', toModel: 'gpt-5.6-sol' });
+    providers.available = () => false;
+    assert.equal(fallbackJudge(root, null, 'agy'), null);
+  } finally {
+    providers.available = original;
+  }
 });
 
 test('классы вне закрытого списка действий не дают — только запись', () => {
@@ -484,7 +498,7 @@ test('драйвер паркует задачу по решению watchdog, �
   ]);
 
   const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1'], { encoding: 'utf8', timeout: 110000 });
+    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'claude'], { encoding: 'utf8', timeout: 110000 });
   const parkedFile = path.join(root, '.harness', 'parked.json');
   assert.ok(fs.existsSync(parkedFile), 'драйвер обязан припарковать задачу по решению watchdog');
   const list = JSON.parse(fs.readFileSync(parkedFile, 'utf8'));
@@ -560,7 +574,7 @@ test('драйвер: cooldown не своего судьи — явный noop 
   const stub = path.join(root, 'impl-stub.js');
   fs.writeFileSync(stub, "console.log('stub worker');");
   const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1'],
+    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'claude'],
     { encoding: 'utf8', timeout: 110000, env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
 
   const log = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8')
@@ -576,8 +590,8 @@ test('драйвер: cooldown не своего судьи — явный noop 
   // Тот же run-log, но прогон запущен с `-JudgeProvider claude`: тот же лимит теперь
   // относится к судье прогона, и драйвер обязан увести его, а не повторить noop.
   const r2 = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-JudgeProvider', 'claude'],
-    { encoding: 'utf8', timeout: 110000, env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
+    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'agy', '-JudgeProvider', 'claude'],
+    { encoding: 'utf8', timeout: 110000, env: { ...process.env, FLEET_BIN_AGY: JSON.stringify(['node', stub]), FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
   const log2 = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8')
     .trim().split('\n').map((l) => JSON.parse(l));
   const cooled = log2.find((e) => e.result === 'watchdog-judge-cooldown');
@@ -605,7 +619,7 @@ test('батч сужается на припаркованную задачу, 
   fs.writeFileSync(stub, "console.log('stub worker');");
   const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
     path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '2', '-Batch', '2'],
-    { encoding: 'utf8', timeout: 170000, env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
+    { encoding: 'utf8', timeout: 170000, env: { ...process.env, FLEET_BIN_AGY: JSON.stringify(['node', stub]), FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
 
   // Ассерт по run-log, а не по loop-logs: последующая парковка делает `git stash -u`,
   // который уносит untracked-логи прогона. Записи run-log лежат в .git и переживают его.

@@ -5,8 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
-const { syncBin, CLOSURE } = require('./sync-bin');
+const { execFileSync, spawnSync } = require('child_process');
+const { syncBin, CLOSURE, ROOT_CLOSURE, DEPRECATED_SHIMS } = require('./sync-bin');
 
 let passed = 0;
 let failed = 0;
@@ -29,10 +29,28 @@ function makeTmpDir(prefix) {
 
 {
   const tmpHome = makeTmpDir('sync-bin-copy-');
-  const { dest, copied } = syncBin({ toolsRoot: __dirname, home: tmpHome });
+  const { rootDest, rootCopied, shimmed, dest, copied } = syncBin({ toolsRoot: __dirname, home: tmpHome });
   assert(copied.length === CLOSURE.length, 'copied.length === CLOSURE.length');
+  assert(rootCopied.length === ROOT_CLOSURE.length, 'rootCopied.length === ROOT_CLOSURE.length');
+  assert(shimmed.length === Object.keys(DEPRECATED_SHIMS).length, 'все deprecated-шлюзы установлены');
+  for (const rel of ROOT_CLOSURE) {
+    assert(fs.existsSync(path.join(rootDest, rel)), `скопирован runtime ${rel}`);
+  }
   for (const rel of CLOSURE) {
     assert(fs.existsSync(path.join(dest, rel)), `скопирован ${rel}`);
+  }
+  for (const [name, content] of Object.entries(DEPRECATED_SHIMS)) {
+    assert(fs.readFileSync(path.join(rootDest, name), 'utf8') === content, `${name} закреплён sync-bin`);
+  }
+  if (process.platform === 'win32') {
+    for (const name of Object.keys(DEPRECATED_SHIMS)) {
+      const file = path.join(rootDest, name);
+      const run = name.endsWith('.cmd')
+        ? spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/c', file], { encoding: 'utf8' })
+        : spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], { encoding: 'utf8' });
+      assert(run.status === 64, `${name} завершает старый маршрут с exit 64`);
+      assert(/DEPRECATED:.*ELT v3/.test(run.stderr) && !/MODULE_NOT_FOUND/.test(run.stderr), `${name} указывает на ELT v3 без старого runtime`);
+    }
   }
 }
 

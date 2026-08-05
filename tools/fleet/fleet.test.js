@@ -686,22 +686,18 @@ test('T010: фатальный конфиг провайдера, но в цеп
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
-test('T010: agy-воркер не получает agy-судью — ни первичного, ни verify', async () => {
-  // Судья и verify в конфиге оба agy — ровно тот случай, где воркер проверял бы сам себя.
+test('T010: agy-воркер не получает agy-судью; legacy verify игнорируется', async () => {
+  // Legacy verify оставлен в fixture специально: ELT v3 не должен его исполнять.
   const repo = seedChainRepo('fleet-t010-judge-', {
     chain: ['agy'],
     harness: { judge: { enabled: true, provider: 'agy', model: 'gemini-3.6-flash-high', verify: { provider: 'agy', model: 'gemini-3.6-flash-high' } } },
   });
-  const mark = path.join(repo, 'verify-called.txt');
   const passStub = path.join(repo, 'judge-pass.js');
   fs.writeFileSync(passStub, 'console.log(' + JSON.stringify(PASS_JSON) + ');');
-  const verifyStub = path.join(repo, 'judge-verify.js');
-  fs.writeFileSync(verifyStub, 'require("fs").appendFileSync(' + JSON.stringify(mark) + ', "x"); console.log(' + JSON.stringify(PASS_JSON) + ');');
   const agyStub = path.join(repo, 'judge-agy.js');
   fs.writeFileSync(agyStub, 'console.log(' + JSON.stringify('{"verdict":"block","reasons":["agy судил сам себя"]}') + ');');
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', passStub]);
   process.env.FLEET_BIN_CODEX = JSON.stringify(['node', passStub]);
-  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', verifyStub]);
   process.env.FLEET_BIN_AGY = JSON.stringify(['node', agyStub]);
 
   const worker = async (slice, wt) => {
@@ -714,7 +710,6 @@ test('T010: agy-воркер не получает agy-судью — ни пе�
   assert.deepEqual(s.merged, ['T90'], 'agy-судья дал бы block — значит судил не он');
   const runlog = fs.readFileSync(path.join(repo, '.git', 'elt', 'run-log.jsonl'), 'utf8');
   assert.match(runlog, /"phase":"judge","provider":"claude"/, 'первичный судья уведён с провайдера воркера');
-  assert.ok(fs.existsSync(mark), 'verify-судья тоже не agy (ушёл на другой провайдер)');
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
@@ -817,39 +812,10 @@ test('T010: fleet-гейт под контуром пишет полный proof
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
-test('T010: мёртвый verify-судья перевыдаётся следующему доступному CLI, а не валит гейт', async () => {
-  // Живой отказ, ради которого это писалось: agy сказал pass, codex-верификатор завис
-  // насмерть — и весь слайс уходил в judge-dead, хотя на машине есть третий живой CLI.
-  const repo = seedChainRepo('fleet-t010-verifydead-', {
-    harness: { judge: { enabled: true, provider: 'claude', model: 'sonnet', verify: { provider: 'codex', model: 'gpt-5.6-sol' } } },
-  });
-  fs.writeFileSync(path.join(repo, 's1.txt'), 'работа слайса\n');
-  const passStub = path.join(repo, 'judge-pass.js');
-  fs.writeFileSync(passStub, 'console.log(' + JSON.stringify(PASS_JSON) + ');');
-  const deadStub = path.join(repo, 'judge-dead.js');
-  fs.writeFileSync(deadStub, 'process.exit(1);'); // CLI не ответил → runOk:false
-  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', passStub]);
-  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', deadStub]);
-  process.env.FLEET_BIN_AGY = JSON.stringify(['node', passStub]);
-
-  const r = await gate.runJudge({ cwd: repo, tid: 'T90', taskText: 'слайс [files:s*]', provider: 'claude', model: 'sonnet' });
-  assert.equal(r.runOk, true, 'мёртвый verify больше не выключает второй слой: ' + JSON.stringify(r.judges));
-  assert.equal(r.verdict, 'pass');
-  assert.deepEqual(r.judges.map((j) => j.provider), ['claude', 'codex', 'agy'], 'мёртвая попытка остаётся в proof, не подменяется молча');
-  assert.equal(r.judges[1].runOk, false, 'codex записан именно как не ответивший');
-
-  // Заменить некем (agy — провайдер воркера слайса) → честный judge-dead, а не судья=воркер.
-  const r2 = await gate.runJudge({ cwd: repo, tid: 'T90', taskText: 'слайс [files:s*]', provider: 'claude', model: 'sonnet', judgeExclude: ['agy'] });
-  delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; delete process.env.FLEET_BIN_AGY;
-  assert.equal(r2.runOk, false, 'воркер не может стать своим же verify-судьёй');
-  assert.deepEqual(r2.judges.map((j) => j.provider), ['claude', 'codex']);
-  fs.rmSync(repo, { recursive: true, force: true });
-});
-
-// 009 T010 (дефект, найденный verify-судьёй 2026-07-29): ветка «заменить судью некем»
+// 009 T010: ветка «заменить судью некем»
 // возвращала судью, СОВПАДАЮЩЕГО с воркером — слайс заверял сам себя, то есть инвариант
 // «судья != воркер» падал ровно там, где он важнее всего. Теперь null ⇒ слайс паркуется.
-test('judgeAwayFrom/verifyAwayFrom: нет доступной альтернативы ⇒ null, а не самозаверение воркером', () => {
+test('judgeAwayFrom: нет доступной альтернативы ⇒ null, а не самозаверение воркером', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-judge-alone-'));
   fs.mkdirSync(path.join(repo, '.harness'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'node --version' }));
@@ -864,19 +830,6 @@ test('judgeAwayFrom/verifyAwayFrom: нет доступной альтернат
       fleet.judgeAwayFrom(repo, 'agy', { provider: 'claude', model: 'sonnet' }, {}, only),
       { provider: 'claude', model: 'sonnet' },
       'судья и так не равен воркеру — остаётся как есть',
-    );
-    assert.equal(
-      fleet.verifyAwayFrom(repo, 'claude', 'claude', {}, only),
-      undefined,
-      'verify не настроен в проекте — второго судьи просто нет (старое поведение)',
-    );
-    fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
-      kind: 'code', oracle: 'node --version', judge: { verify: { provider: 'claude', model: 'sonnet' } },
-    }));
-    assert.equal(
-      fleet.verifyAwayFrom(repo, 'claude', 'claude', {}, only),
-      null,
-      'настроенный verify совпал бы с воркером, заменить некем ⇒ null, а не дубль воркера',
     );
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });

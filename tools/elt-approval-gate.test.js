@@ -190,10 +190,10 @@ test('slice next --spec: targets one spec directly, unaffected by an earlier una
   git(root, ['add', '-A']);
   git(root, ['commit', '-qm', 'add earlier blocked plan']);
 
-  // default (no --spec) auto-selects the earlier plan and gates on IT
+  // default (no --spec) выбирает новейший plan, а не воскрешает старый 000-blocked
   const auto = run(root, ['slice', 'next']);
   assert.equal(auto.status, 4, auto.stderr.toString());
-  assert.match(auto.stderr.toString(), /000-blocked/);
+  assert.match(auto.stderr.toString(), /001-fixture/);
 
   // explicit --spec targets 001-fixture directly — still gated on ITS OWN status
   const targeted = run(root, ['slice', 'next', '--spec', 'specs/001-fixture']);

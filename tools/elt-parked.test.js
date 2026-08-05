@@ -179,7 +179,7 @@ test('полный прогон драйвера: красный оракул п
   fs.writeFileSync(stub, 'process.stdin.resume().on("end", () => { console.log("stub"); process.exit(0); });\n');
   const r = spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, 'elt-loop.ps1'),
     '-Project', root, '-Slices', '2', '-Batch', '1'],
-  { cwd: root, encoding: 'utf8', env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
+  { cwd: root, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
   fs.rmSync(stub, { force: true });
   // Ассерты по состоянию и ASCII: stdout PowerShell приходит в OEM-кодировке, кириллица
   // в нём нечитаема — проверять сообщения драйвера построчно бессмысленно.
@@ -198,12 +198,17 @@ test('драйвер: провал гейта = park + continue, а не break',
   // а -DryRun обрывается до гейта). Ловит ровно ту регрессию, ради которой слайс: возврат
   // `break` в любую из четырёх веток провала снова убьёт весь прогон одной задачей.
   const ps = fs.readFileSync(path.join(__dirname, 'elt-loop.ps1'), 'utf8');
-  for (const reason of ['red-stop', 'empty-diff', 'judge-dead', 'judge-block']) {
+  for (const reason of ['red-stop', 'empty-diff']) {
     const at = ps.indexOf(`-Reason "${reason}"`);
     assert.ok(at > 0, `нет ветки парковки для ${reason}`);
     const tail = ps.slice(at, at + 240);
     assert.match(tail, /continue/, `${reason}: петля обязана продолжать (continue), а не break`);
   }
+  assert.match(ps, /\$reason = if \([^\n]+\) \{ "judge-dead" \} else \{ "judge-block" \}/,
+    'провал одного judge различает недоступный CLI и содержательный block');
+  const judgePark = ps.indexOf('Park-Slice -Ids $id -Reason $reason');
+  assert.ok(judgePark > 0, 'общая ветка judge-dead/judge-block паркует слайс');
+  assert.match(ps.slice(judgePark, judgePark + 240), /continue/, 'провал judge паркуется и продолжает план');
   assert.match(ps, /if \(\$parkedAll\.Count -gt 0\) \{ exit 1 \}/, 'непустая парковка обязана давать ненулевой exit');
 });
 

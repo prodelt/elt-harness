@@ -52,19 +52,11 @@ function judgeSettings(root) {
   } catch { return { ...JUDGE_DEFAULTS }; }
 }
 
-// 008 T002: второй судья (verify-on-pass) — опционален, по умолчанию выключен (обратная
-// совместимость, критерий 7 спеки). Криво заданный verify (провайдер вне списка / пустая
-// модель) не подставляет дефолты — контур молча выключается, а не подставляет неожиданного
-// судью: подставлять дефолт значило бы включить второй судья конфигом, который его не просил.
-function verifySettings(root) {
-  try {
-    const j = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).judge || {};
-    const v = j.verify;
-    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
-    if (!JUDGE_PROVIDERS.has(v.provider) || !nonEmptyString(v.model)) return null;
-    return { provider: v.provider, model: v.model };
-  } catch { return null; }
-}
+// ELT v3: verify-on-pass удалён из живого маршрута. Старое поле принимается при чтении
+// harness.json, чтобы не ломать существующие проекты, но runtime его намеренно игнорирует:
+// один механический oracle + один независимый judge дают меньше ложных блокировок, чем каскад
+// из двух LLM-судей. project-bootstrap apply физически удаляет legacy-поле из проекта.
+function verifySettings(_root) { return null; }
 
 function readHarnessConfig(root) {
   const file = path.join(root, '.harness', 'harness.json');

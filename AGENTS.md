@@ -1,50 +1,63 @@
-# Pipeline Setupper — Command Center
+# Pipeline Setupper — ELT v3 command center
 
-Центральный репо управления инфраструктурой разработки (хуки, скилы, настройки Claude Code / Codex / Gemini). Живое состояние проверять: `settings.json` + `claude plugin list` + `/skills`. Памятка — `CHEATSHEET.html`. История — `.planning/PROJECT-HISTORY.md`.
+## Overview
 
-## Метод работы (точка входа — `PLAYBOOK.md`)
-- **Нет механизма skills у твоего CLI (Antigravity/`agy`, Gemini)? Код-задача → СНАЧАЛА прочитай
-  `C:\Users\espad\.gemini\skills\elt\SKILL.md` и следуй ему.** Проверено живьём 2026-07-22: `agy`
-  папку `~/.gemini/skills` НЕ читает (`agy agents` пуст) и при этом уверенно заявляет, что скилл у
-  него есть — верить его самоотчёту нельзя, файл надо открыть явно. Claude Code грузит скилл сам —
-  этот пункт его не касается.
-- **Карта — `PLAYBOOK.md`** (корень): какой скилл когда, когда команда агентов. Непонятно — сюда.
-- **Задача разработчика → `/elt`** (v2 — **единственный active code route**; `elt-code`/`elt-loop` = алиасы). Слайс закрыт ⇔ `elt commit` (оракул → авто-ветка → `[X]` → commit → run-log); судья sonnet обязателен. Автономно → драйвер `tools/elt-loop.ps1`; параллельно (≥3 [P]-слайсов) → fleet (experimental).
-- **⚠ Deprecated — не активные route.** Pipeline v3 / `/pipeline`, Agent Harness v1 (`harness-runner`/`harness-gates`/`pipeline-state`), `install-harness-teeth` — прямой запуск CLI падает с ошибкой. Миграция: `specs/005-elt-control-plane-convergence/spec.md §9`.
-- **Офисная задача (нетехнарь) → `/elt-work`**: office-скилы (`docx`/`xlsx`/`pptx`/`pdf`/`doc-coauthoring`/`internal-comms`) + бизнес-скилы; оракул = verify-чеклист.
-- **Эталонный/«мусорный» проект → `/project-bootstrap`** (идемпотентно: конституция + харнесс-зубы + codegraph-индекс + память-в-проект).
-- Качество per-project — **`/harness-method`** (guide → sensor → блокирующий gate → live-fire).
-- **Дизайн** — `design-studio` (DESIGN.md) → `frontend-ui-engineering` / `remotion-motion`. Клон URL → `reference-design-adaptation`.
-- **Context7** — `ctx7` (PowerShell, on-demand) перед кодом с внешней либой (MCP-плагин OFF намеренно — токен-налог).
-
-## Memory
-- **Указатель, не журнал.** Живая память/состояние — `.planning/STATE.md` (хребет) + `CHECKPOINT-*.md`; история — `.planning/PROJECT-HISTORY.md`. НЕ в корень ПК, НЕ инлайн сюда.
-- Dogfood: строим систему самой системой — `constitution → spec → tasks → loop (механический оракул) → checkpoint`.
-- Дисциплина (codegraph перед Read, тесты-как-proof, checkpoint) — на пользователе; авто-гейтов нет.
-
-## Активный слой (проверять живьём, не по этому файлу)
-- Хуки — `~/.claude/settings.json` (базово PreCompact + git-guardrails/codegraph-гейты). Плагины — `claude plugin list`. Скилы — `/skills`.
-- **codegraph MCP** — структурный поиск: `codegraph_context` первым, НЕ Read целых файлов. Индекс обновляется САМ (watcher); свежесть — `codegraph status .` (mtime `.db` ≠ свежесть из-за WAL; `.md` не индексируется).
-
-## Commands
-```bash
-node tools/doctor.js       # health: docs/skills/git (+ fleet-воркеры, если проект их юзает)
-codegraph status .         # codegraph-индекс свежий?
-```
-Полный список — `.planning/COMMANDS-REFERENCE.md`.
+Pipeline Setupper керує локальним ELT v3 для Claude Code, Codex і Antigravity. Єдиний активний шлях для коду — `elt`; `elt-code` та `elt-loop` лише аліаси. За замовчуванням `agy` пише код, а поточна поверхня Claude Code або Codex керує роботою: читає diff, запускає перевірки, виправляє за потреби й виступає єдиним суддею. Старий `judge.verify` і старі harness-команди не є частиною виконання.
 
 ## Stack
-Node.js 18+ (хуки .js), Claude Code hooks API (`~/.claude/settings.json`), Codex CLI hooks (`~/.codex/hooks.json`). Скилы зеркалятся в `~/.codex/skills`, `~/.gemini/skills`; нативные агенты — только Claude.
+
+Node.js 18+, PowerShell 5.1+, Git, Claude Code CLI, Codex CLI, Antigravity (`agy`) і локальний `codegraph`.
+
+## Structure
+
+- `tools/elt.js` — єдиний CLI та гейти слайса.
+- `tools/elt-loop.ps1` — послідовний автономний драйвер `agy → oracle → поточний суддя → commit`.
+- `tools/fleet/providers.js` — спільний транспорт до Claude, Codex і `agy`.
+- `.harness/harness.json` — механічний oracle, smoke, impact-вибір і один judge.
+- `specs/*/{spec,tasks}.md` — затверджені плани; без `--spec` береться найновіший план.
+- `.planning/STATE.md` — живий стан; `PLAYBOOK.md` — коротка карта маршрутизації.
+
+## Commands
+
+```powershell
+node tools/doctor.js
+node tools/doctor.js --fleet              # лише коли Fleet явно потрібен
+node tools/sync-bin.js                    # синхронізувати ELT runtime у ~/.claude/bin
+node "$env:USERPROFILE\.claude\bin\elt.js" status
+node tools/elt-oracle-runner.js --full
+
+# agy пише; Claude Code перевіряє та виправляє
+powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider claude -JudgeModel sonnet
+
+# agy пише; Codex перевіряє та виправляє
+powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider codex -JudgeModel gpt-5.6-sol
+
+node tools/sync-agent-surface.js --apply --force --target all --skill elt
+agent-skills.cmd                         # ширший supply-chain audit
+```
+
+## Code style
+
+Спочатку виправляти спільну першопричину, а не окремий виклик. Використовувати наявні helper-и та стандартну бібліотеку, не додавати залежності або абстракції без потреби. На Windows не використовувати `&&`; шляхи будувати через `path.join()`. Перед зміною коду шукати через `codegraph`, якщо є `.codegraph/`; перед зовнішньою бібліотекою отримувати актуальні docs через `ctx7`.
+
+## Testing
+
+Слайс закритий лише коли named oracle має exit 0, один judge дав `pass`/`inconclusive`, а `elt commit` створив commit і run-log. Для нового нетривіального розгалуження залишити найменший runnable regression test. Перед фінальним закриттям цього репо запускати `node tools/elt-oracle-runner.js --full`.
+
+## Commit & PR
+
+Одна задача — одна `feature/<slug>` або `fix/<slug>` гілка. Коміт лише через `elt commit`, повідомлення `<type>: <description>`. PR title до 70 символів; body містить Summary і Test plan. Не force-push у main і не комітити секрети, `.env`, `node_modules`, caches або build artifacts.
 
 ## Gotchas
-- **C:\ — НЕ git-worktree** (2026-05-29): бывший `C:\.git` → `C:\_ARCHIVED-ui-ux-gitdir`.
-- **`graphify` ≠ `codegraph`** — разные продукты/индексы (`graphify-out/graph.json` vs `.codegraph/codegraph.db`). `graphify claude install` = ЗАПРЕЩЕНО.
-- **Codex не поддерживает** FileChanged/Notification (Claude Code only).
-- **cwd в хуках** — из `input.cwd`, не `process.cwd()`. Windows: `path.join()`, не конкатенация.
-- **Stdout хуков** — только silent exit ИЛИ валидный JSON (`hookSpecificOutput`/`decision`). Хуки <4s.
-- **PS5.1 BOM** — `Set-Content -Encoding utf8` при записи файлов для др. тулов.
 
-## Git Workflow
-- Одна задача = одна ветка (`feature/<slug>` / `fix/<slug>`). Commit: `<type>: <description>`.
-- PR title <70 chars; body = Summary + Test plan. No force-push to main.
-- Не коммитить `.env`, секреты, `node_modules`, кэши, артефакты (`target/`, `.turbo/`).
+- `agy` не завантажує skill автоматично: у його prompt треба прямо вимагати прочитати `C:\Users\espad\.gemini\skills\elt\SKILL.md`.
+- `judge.verify` у старих конфігах ігнорується runtime; `project-bootstrap apply` видаляє поле.
+- `harness-runner`, `harness-gates`, `pipeline-state` і `/pipeline` видалені; deprecated shims завершуються з exit 64 та показують маршрут `elt`.
+- Fleet не є дефолтом: запускати лише за явним запитом і перевіряти `doctor --fleet`.
+- Старий план не підхоплюється автоматично; для нього обов'язковий `--spec specs/NNN-name`.
+- `C:\` не є git worktree; `graphify` і `codegraph` — різні продукти.
+- Для PowerShell 5.1 файли `.ps1` із не-ASCII текстом мають бути UTF-8 з BOM.
+
+## Memory
+
+Живий стан — `.planning/STATE.md` і найновіший `CHECKPOINT-*.md`; історія — `.planning/PROJECT-HISTORY.md`. Пам'ять є вказівником, а не журналом: актуальні runtime-факти завжди перевіряти командами вище.

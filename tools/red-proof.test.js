@@ -49,6 +49,20 @@ test('красный тест (ловит поломку): падает на bas
   assert.ok(r.tail.length > 0);
 });
 
+test('новый тест во вложенном untracked-каталоге не сворачивается в test/ и даёт red', () => {
+  const repo = makeRepo();
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'test'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'src', 'name.js'), "module.exports = { name: () => 'ok' };\n");
+  fs.writeFileSync(path.join(repo, 'test', 'name.test.js'),
+    "const test=require('node:test');const assert=require('node:assert/strict');" +
+    "test('name',()=>assert.equal(require('../src/name').name(),'ok'));\n");
+
+  const r = redProof({ cwd: repo, baseHead: 'HEAD' });
+  assert.equal(r.status, 'red');
+  assert.deepEqual(r.files, ['test/name.test.js']);
+});
+
 test('зелёный тест (ничего не ловит): проходит и на baseHead, слайс НЕ доказан', () => {
   const repo = makeRepo();
   fs.writeFileSync(
