@@ -153,91 +153,13 @@ function auditCommandShims(home, root) {
     'doctor.ps1',
     'skill.cmd',
     'skill.ps1',
-    'harness-runner.cmd',
-    'harness-runner.ps1',
-    'harness-gates.cmd',
-    'harness-gates.ps1',
   ];
   return {
     files: files.map((name) => ({ name, path: path.join(bin, name), exists: fs.existsSync(path.join(bin, name)) })),
     commands: [
       commandStatus('cmd.exe', ['/c', 'where', 'doctor.cmd'], root),
       commandStatus('cmd.exe', ['/c', 'where', 'skill.cmd'], root),
-      commandStatus('cmd.exe', ['/c', 'where', 'harness-runner.cmd'], root),
-      commandStatus('cmd.exe', ['/c', 'where', 'harness-gates.cmd'], root),
     ],
-  };
-}
-
-function hasPipelineHarnessSection(clients) {
-  return clients.some((client) => client.skills.some((skill) => {
-    if (skill.name !== 'pipeline' || !skill.file) return false;
-    const text = readText(skill.file);
-    return text.ok && /Agent Harness/i.test(text.value);
-  }));
-}
-
-function clientHasHarnessStopHook(client) {
-  const stop = client.events.find((row) => row.event === 'Stop');
-  return Boolean(stop && stop.commands.some((command) => /harness-run-gate\.js/i.test(command)));
-}
-
-function projectUsesPerProjectHarness(root) {
-  const docs = ['CLAUDE.md', 'AGENTS.md'].map((name) => readText(path.join(root, name)));
-  return docs.some((doc) => doc.ok
-    && /AMOS(?:-|\s)[^\n]*(?:СНЯТ|removed)/i.test(doc.value)
-    && /Per-project,\s*не глобально|per-project,\s*not global/i.test(doc.value));
-}
-
-function auditHarness(home, root, clients) {
-  const bin = path.join(home, '.claude', 'bin');
-  const wrapperNames = ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1'];
-  const wrappers = wrapperNames.map((name) => ({
-    name,
-    path: path.join(bin, name),
-    exists: fs.existsSync(path.join(bin, name)),
-  }));
-  const scripts = ['harness-runner.js', 'harness-gates.js'].map((name) => ({
-    name,
-    path: path.join(root, 'tools', name),
-    exists: fs.existsSync(path.join(root, 'tools', name)),
-  }));
-  const stopHooks = clients.map((client) => ({
-    client: client.client,
-    configured: clientHasHarnessStopHook(client),
-  }));
-  const pipelineHasHarness = hasPipelineHarnessSection(clients);
-  const globalStopHooksRequired = pipelineHasHarness && !projectUsesPerProjectHarness(root);
-  const missingWrappers = wrappers.filter((item) => !item.exists).map((item) => item.name);
-  const missingScripts = scripts.filter((item) => !item.exists).map((item) => item.name);
-  const missingStopHooks = globalStopHooksRequired
-    ? stopHooks.filter((item) => !item.configured).map((item) => item.client)
-    : [];
-  const commands = [
-    commandStatus('cmd.exe', ['/c', 'where', 'harness-runner.cmd'], root),
-    commandStatus('cmd.exe', ['/c', 'where', 'harness-gates.cmd'], root),
-  ];
-  const failedCommands = commands.filter((command) => command.status !== 'available').map((command) => command.command);
-  const status = !pipelineHasHarness || (
-    missingWrappers.length === 0
-    && missingScripts.length === 0
-    && missingStopHooks.length === 0
-    && failedCommands.length === 0
-  )
-    ? 'pass'
-    : 'warn';
-  return {
-    status,
-    pipelineHasHarness,
-    globalStopHooksRequired,
-    wrappers,
-    scripts,
-    stopHooks,
-    missingWrappers,
-    missingScripts,
-    missingStopHooks,
-    failedCommands,
-    commands,
   };
 }
 
@@ -305,21 +227,13 @@ function summarize(report) {
   const missingAuditInputs = report.clients
     .filter((client) => client.settingsStatus !== 'present')
     .map((client) => `${client.client}:settings`);
-  const harnessGaps = report.harness && report.harness.pipelineHasHarness && report.harness.status !== 'pass'
-    ? [
-      ...report.harness.missingWrappers.map((name) => `harness-wrapper:${name}`),
-      ...report.harness.missingScripts.map((name) => `harness-script:${name}`),
-      ...report.harness.missingStopHooks.map((name) => `${name}:harness-run-gate`),
-      ...report.harness.failedCommands.map((command) => `harness-command:${command}`),
-    ]
-    : [];
   const browserGaps = report.browser && report.browser.status !== 'pass'
     ? ['browser:agent-browser']
     : [];
-  const status = unexplained.length || missingAuditInputs.length || harnessGaps.length || browserGaps.length ? 'warn' : 'pass';
+  const status = unexplained.length || missingAuditInputs.length || browserGaps.length ? 'warn' : 'pass';
   return {
     status,
-    unexplainedGaps: [...unexplained, ...missingAuditInputs, ...harnessGaps, ...browserGaps],
+    unexplainedGaps: [...unexplained, ...missingAuditInputs, ...browserGaps],
     generatedAt: report.generatedAt,
   };
 }
@@ -340,7 +254,6 @@ function runAudit(options = {}) {
     memory: auditMemory(home),
     browser: auditBrowser(home, root),
   };
-  report.harness = auditHarness(home, root, clients);
   return { ...report, summary: summarize(report) };
 }
 
@@ -376,7 +289,6 @@ function formatMarkdown(report) {
     '',
     `- Context7 npx: ${report.context7.npx.status} (${report.context7.npx.command})`,
     `- Command shims: ${report.commandShims.files.filter((item) => item.exists).length}/${report.commandShims.files.length} present`,
-    `- Harness CLI: ${report.harness.status} (${report.harness.wrappers.filter((item) => item.exists).length}/${report.harness.wrappers.length} wrappers, Stop hooks: ${report.harness.stopHooks.filter((item) => item.configured).length}/${report.harness.stopHooks.length})`,
     `- Browser tooling: ${report.browser.status}`,
     '',
     '## Fallback Contracts',

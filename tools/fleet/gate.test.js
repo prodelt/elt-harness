@@ -482,12 +482,7 @@ test('T019: phantom-file НЕ ретраится и остаётся block — �
   fs.rmSync(counter, { force: true });
 });
 
-// 011 T019: двухсудейский путь — свёртка вердиктов знает про ТРИ исхода.
-// Поймано судьёй на самом слайсе T019: `secondary.verdict === 'pass' ? 'pass' : 'block'`
-// возвращало `inconclusive` verify-судьи обратно в block — то есть ровно в сценарии, который
-// спека 011 называет главным источником 77% block-rate («verify заблокировал при pass
-// первичного 36 из 48»), заявленное «grounding больше не блокирует» не выполнялось.
-// Тесты выше этот путь не задевали: их фикстура без `judge.verify`, второй слой не включался.
+// ELT v3: навіть явний legacy override не повинен повертати другий суддівський виклик.
 const providers = require('./providers');
 async function withVerdicts(byProvider, fn) {
   const calls = [];
@@ -513,32 +508,26 @@ function verifyRepo() {
   fs.writeFileSync(path.join(repo, 'work.js'), 'module.exports = 1;\n');
   return repo;
 }
-const VERIFY = { provider: 'codex', model: 'gpt-5.6' };
 
-test('T019: verify дал inconclusive → итог inconclusive, а не block', async () => {
+test('slurpDiff раскрывает вложенные untracked-файлы для grounding', () => {
+  const repo = verifyRepo();
+  fs.mkdirSync(path.join(repo, 'test'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'test', 'name.test.js'), 'test\n');
+  const { status } = gate.slurpDiff(repo);
+  assert.match(status, /\?\? test\/name\.test\.js/);
+  assert.doesNotMatch(status, /^\?\? test\/$/m);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+test('ELT v3: legacy verify override ignored — рівно один judge', async () => {
   const repo = verifyRepo();
   const { result, calls } = await withVerdicts(
-    { codex: { verdict: 'inconclusive', reasons: ['не могу ручаться за внешний вызов'] } },
-    () => gate.runJudge({ cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet', verify: VERIFY }));
-  assert.deepEqual(calls, ['claude', 'codex'], 'оба слоя отработали');
-  assert.equal(result.verdict, 'inconclusive', 'сомнение второго слоя — сомнение, а не отказ');
-  assert.ok(result.reasons.some((r) => /не могу ручаться/.test(r)), 'причина verify доезжает до человека');
-  fs.rmSync(repo, { recursive: true, force: true });
-});
-
-test('T019: verify дал block → итог block (второй слой не ослаблен третьим исходом)', async () => {
-  const repo = verifyRepo();
-  const { result } = await withVerdicts({ codex: { verdict: 'block', reasons: ['scope creep'] } },
-    () => gate.runJudge({ cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet', verify: VERIFY }));
-  assert.equal(result.verdict, 'block');
-  fs.rmSync(repo, { recursive: true, force: true });
-});
-
-test('T019: verify потерял reasons дважды → inconclusive, а не block (транспорт не блокирует)', async () => {
-  const repo = verifyRepo();
-  const { result, calls } = await withVerdicts({ codex: { verdict: 'pass', reasons: [] } },
-    () => gate.runJudge({ cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet', verify: VERIFY }));
-  assert.deepEqual(calls, ['claude', 'codex', 'codex'], 'ровно одна перевыдача verify-судье');
-  assert.equal(result.verdict, 'inconclusive');
+    { claude: { verdict: 'pass', reasons: ['ok'] }, codex: { verdict: 'block', reasons: ['не має викликатися'] } },
+    () => gate.runJudge({
+      cwd: repo, tid: 'T1', taskText: 'слайс', provider: 'claude', model: 'sonnet',
+      verify: { provider: 'codex', model: 'legacy' },
+    }));
+  assert.deepEqual(calls, ['claude'], 'другий провайдер не викликаний');
+  assert.equal(result.verdict, 'pass');
+  assert.deepEqual(result.judges.filter((j) => j.runOk).map((j) => j.provider), ['claude']);
   fs.rmSync(repo, { recursive: true, force: true });
 });

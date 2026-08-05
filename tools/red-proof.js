@@ -17,10 +17,12 @@ function gitOk(args, cwd) {
   try { execFileSync('git', args, { cwd, stdio: 'ignore' }); return true; } catch { return false; }
 }
 
-// Тот же разбор `git status --porcelain`, что и grounding-чек судьи (tools/fleet/gate.js
+// Той самий розбір `git status --porcelain --untracked-files=all`, що й grounding-check judge.
 // diffFileList) — единый источник правды "что реально в диффе", не завязан на cap диффа.
 function diffFileList(cwd) {
-  const status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+  // Без -uall Git згортає нові каталоги до `?? test/`: regex не бачить `name.test.js`, і
+  // red-proof брехливо повертає skipped:no-test-files.
+  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd, encoding: 'utf8' });
   const files = [];
   for (const line of status.split(/\r?\n/)) {
     if (line.length < 4) continue;
@@ -33,7 +35,7 @@ function diffFileList(cwd) {
   return files;
 }
 
-// ВСЕ тест-файлы диффа, а не только новые: `git status --porcelain` несёт и `M`, и `A`, и `??`,
+// ВСЕ тест-файлы диффа, а не только новые: porcelain несёт и `M`, и `A`, и `??`,
 // поэтому правка существующего теста слой НЕ проскакивает (011 T007 — проверено тестом ниже
 // и живыми прогонами T003/T006, где red-proof гонял изменённые `*.test.js`).
 function testFilesFromDiff(cwd) {

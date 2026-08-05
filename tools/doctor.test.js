@@ -1146,7 +1146,9 @@ function testEltSelfhealAutoMergeGate() {
   ].join('\n'));
 
   const prevBin = process.env.FLEET_BIN_CLAUDE;
+  const prevAgyBin = process.env.FLEET_BIN_AGY;
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stub]);
+  process.env.FLEET_BIN_AGY = JSON.stringify(['node', stub]);
   let out;
   try {
     out = execFileSync('powershell', [
@@ -1155,6 +1157,7 @@ function testEltSelfhealAutoMergeGate() {
     ], { encoding: 'utf8', timeout: 120000 });
   } finally {
     if (prevBin === undefined) delete process.env.FLEET_BIN_CLAUDE; else process.env.FLEET_BIN_CLAUDE = prevBin;
+    if (prevAgyBin === undefined) delete process.env.FLEET_BIN_AGY; else process.env.FLEET_BIN_AGY = prevAgyBin;
   }
 
   assert.match(out, /оракул харнесса красный/, 'watchdog стартует с красного оракула');

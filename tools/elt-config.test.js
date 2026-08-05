@@ -83,10 +83,8 @@ function testCliFailsClosed() {
   assert.equal(current.status, 0, current.stderr.toString());
 }
 
-// 009 T003: новый проект обязан рождаться с ВКЛЮЧЁННЫМ контуром судьи. До этого контур 008
-// (двойной судья + grounding + red-proof) был кодом, который не отработал ни разу: ни один
-// harness.json его не включал. Проверяем реальный `elt init`, а не намерение.
-function testInitEnablesCircuit() {
+// ELT v3: новый проект получает один judge + red-proof, без второго LLM-вызова.
+function testInitCreatesSingleJudgeCircuit() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-init-circuit-'));
   const init = spawnSync(process.execPath, [path.join(__dirname, 'elt.js'), 'init', '--oracle', 'node --test'], { cwd: root, encoding: 'utf8' });
   assert.equal(init.status, 0, init.stderr);
@@ -94,25 +92,25 @@ function testInitEnablesCircuit() {
   assert.equal(validateHarnessConfig(cfg).ok, true, 'сгенерированный конфиг обязан быть схема-валидным');
   assert.equal(cfg.judge.attest, true, 'вердикт пишет только `elt judge run`');
   assert.equal(cfg.redProof, 'on');
-  assert.equal(verifySettings(root) !== null, true, 'второй судья реально резолвится, а не лежит текстом');
-  assert.notEqual(cfg.judge.verify.provider, cfg.judge.provider || 'claude', 'судья не подтверждает сам себя');
+  assert.equal(Object.hasOwn(cfg.judge, 'verify'), false, 'init не должен создавать legacy verify-on-pass');
+  assert.equal(verifySettings(root), null, 'runtime всегда игнорирует legacy verify');
   fs.rmSync(root, { recursive: true, force: true });
 
-  // Совпадающие провайдеры — не «поправим молча», а отказ: тихая самопроверка выглядела бы
-  // как работающий контур и была бы хуже отсутствия контура.
+  // Удалённые флаги отвергаются явно, а не создают конфиг, который runtime игнорирует.
   const same = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-init-same-'));
   const bad = spawnSync(process.execPath, [path.join(__dirname, 'elt.js'), 'init', '--oracle', 'node --test',
     '--judge-provider', 'codex', '--verify-provider', 'codex'], { cwd: same, encoding: 'utf8' });
-  assert.equal(bad.status, 4, 'init обязан отказать на самоподтверждающемся судье');
+  assert.equal(bad.status, 4, 'init обязан отказать на удалённых verify-флагах');
+  assert.match(bad.stderr, /удалены в ELT v3/);
   assert.equal(fs.existsSync(path.join(same, '.harness', 'harness.json')), false, 'битый конфиг не создаётся');
   fs.rmSync(same, { recursive: true, force: true });
 }
 
-// Второй путь включения контура — `project-bootstrap apply` на УЖЕ существующем валидном
-// конфиге (живые проекты приходят именно так, не через init). Проверяем сам патч-слой, а не
-// намерение: конфиг без контура → после apply контур включён и circuitEnabled()=true.
-function testBootstrapPatchesCircuit() {
-  const root = tempProject({ ...validCodeConfig(), specApproval: true, ctx7Gate: 'warn' });
+// project-bootstrap apply мигрирует живой проект: удаляет старый verify и оставляет red-proof.
+function testBootstrapRemovesLegacyVerify() {
+  const legacy = validCodeConfig();
+  legacy.judge.verify = { provider: 'codex', model: 'gpt-5.6-sol' };
+  const root = tempProject({ ...legacy, specApproval: true, ctx7Gate: 'warn' });
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# fixture\n');
   // Патч контура — только для kind:code, а kind определяется наличием кода, не конфигом.
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }));
@@ -122,8 +120,8 @@ function testBootstrapPatchesCircuit() {
   const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
   assert.equal(cfg.judge.attest, true, JSON.stringify(report.changes));
   assert.equal(cfg.redProof, 'on');
-  assert.notEqual(cfg.judge.verify.provider, cfg.judge.provider || 'claude');
-  assert.equal(verifySettings(root) !== null, true, 'второй судья резолвится');
+  assert.equal(Object.hasOwn(cfg.judge, 'verify'), false, JSON.stringify(report.changes));
+  assert.equal(verifySettings(root), null);
   // circuitEnabled() ЖИВЬЁМ, а не пересказом её логики: при включённом контуре elt требует в
   // proof judges[]/grounding/redProof, и урезанный proof отвергается именно с missing-judges.
   // Поломка circuitEnabled() уронит этот assert, а копия условия — нет.
@@ -157,8 +155,8 @@ function circuitVerdictFor(root) {
 
 function main() {
   testValidatorFailsClosed();
-  testInitEnablesCircuit();
-  testBootstrapPatchesCircuit();
+  testInitCreatesSingleJudgeCircuit();
+  testBootstrapRemovesLegacyVerify();
   testBootstrapReportsInvalidHarness();
   testDoctorFailsInvalidHarness();
   testCliFailsClosed();

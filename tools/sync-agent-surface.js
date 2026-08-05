@@ -9,6 +9,7 @@
  *   node tools/sync-agent-surface.js --apply --target gemini
  *   node tools/sync-agent-surface.js --apply --target codex
  *   node tools/sync-agent-surface.js --apply --target all
+ *   node tools/sync-agent-surface.js --apply --force --target all --skill elt
  */
 
 const fs = require('fs');
@@ -149,6 +150,9 @@ function analyzeTarget(targetName, targetDir, sourceSkills, sourceDir, opts = {}
 function analyzeAll(opts = {}) {
   const sourceDir = CLIENTS.claude;
   const sourceSkills = listSkillDirs(sourceDir);
+  if (opts.skill && !sourceSkills.includes(opts.skill)) {
+    throw new Error(`Unknown source skill: ${opts.skill}`);
+  }
   const sourceHashes = new Map(sourceSkills.map((skill) => [
     skill,
     dirContentsHash(path.join(sourceDir, skill)),
@@ -161,7 +165,14 @@ function analyzeAll(opts = {}) {
 
   for (const t of targets) {
     if (!CLIENTS[t]) continue;
-    results[t] = analyzeTarget(t, CLIENTS[t], sourceSkills, sourceDir, { ...opts, sourceHashes });
+    const result = analyzeTarget(t, CLIENTS[t], sourceSkills, sourceDir, { ...opts, sourceHashes });
+    if (opts.skill) {
+      for (const key of ['missing', 'conflicts', 'upToDate', 'skipped']) {
+        result[key] = result[key].filter((item) =>
+          (typeof item === 'string' ? item : item.skill) === opts.skill);
+      }
+    }
+    results[t] = result;
   }
 
   return { source: 'claude', sourceSkillCount: sourceSkills.length, results };
@@ -260,8 +271,10 @@ function main() {
 
   const targetIdx = args.indexOf('--target');
   const target = targetIdx >= 0 ? args[targetIdx + 1] : 'gemini';
+  const skillIdx = args.indexOf('--skill');
+  const skill = skillIdx >= 0 ? args[skillIdx + 1] : null;
 
-  const opts = { target, force: isForce, includeSensitive };
+  const opts = { target, force: isForce, includeSensitive, skill };
   const analysis = analyzeAll(opts);
 
   let applyResult = null;

@@ -1,6 +1,6 @@
 'use strict';
-// 008 T004: контракт proof — judges[]/grounding/redProof. Круг включён (judge.verify задан
-// ИЛИ harness.json.redProof != "off") → elt commit/judge-proof validate требует все три поля
+// Контракт proof — judges[]/grounding/redProof. Круг включён, когда
+// harness.json.redProof != "off" → elt commit/judge-proof validate требует все три поля
 // и отвергает зелёный red-proof; круг выключен → старое поведение (обратная совместимость).
 
 const assert = require('node:assert/strict');
@@ -32,7 +32,6 @@ function writeExtraFile(extra) {
   return p;
 }
 
-// verify: null → круг выключен; {provider,model} → круг включён через двойного судью.
 // redProofMode: undefined → не задан, 'off' → явно выключен, любая другая строка → включён.
 // stubBridgeSrc(marker) — минимальный судья-мост для тестов резолва (T003): не гоняет
 // реального провайдера, читает дескриптор и печатает pass-JSON с УНИКАЛЬНЫМ по маркеру
@@ -50,7 +49,7 @@ function stubBridgeSrc(marker) {
   ].join('\n');
 }
 
-function fixture({ verify = null, redProofMode, localBridge = false } = {}) {
+function fixture({ redProofMode, localBridge = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-judge-contract-'));
   roots.push(root);
   git(root, ['init', '-q']);
@@ -59,7 +58,6 @@ function fixture({ verify = null, redProofMode, localBridge = false } = {}) {
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# fixture\n');
   fs.mkdirSync(path.join(root, '.harness'));
   const cfg = { kind: 'code', oracle: 'node -e "process.exit(0)"', shell: SHELL, judge: { enabled: true, model: 'codex' } };
-  if (verify) cfg.judge.verify = verify;
   if (redProofMode !== undefined) cfg.redProof = redProofMode;
   fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify(cfg));
   fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
@@ -79,14 +77,14 @@ function fixture({ verify = null, redProofMode, localBridge = false } = {}) {
 }
 function fullExtra() {
   return {
-    judges: [{ provider: 'codex', model: 'codex', verdict: 'pass' }, { provider: 'agy', model: 'agy-model', verdict: 'pass' }],
+    judges: [{ provider: 'codex', model: 'codex', verdict: 'pass' }],
     grounding: { filesReviewed: ['slice.txt'] },
     redProof: { status: 'red', reason: 'fails-on-base', files: ['x.test.js'], tail: '' },
   };
 }
 
-test('круг включён (verify) + полный proof → validate ok', () => {
-  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+test('круг включён (redProof) + полный proof → validate ok', () => {
+  const root = fixture({ redProofMode: 'on' });
   const extraFile = writeExtraFile(fullExtra());
   const write = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'codex', '--extra-file', extraFile]);
   assert.equal(write.status, 0, write.stderr.toString());
@@ -96,7 +94,7 @@ test('круг включён (verify) + полный proof → validate ok', ()
 });
 
 test('круг включён + урезанный proof (без redProof) → validate отвергает missing-redProof', () => {
-  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  const root = fixture({ redProofMode: 'on' });
   const extra = fullExtra();
   delete extra.redProof;
   const extraFile = writeExtraFile(extra);
@@ -118,7 +116,7 @@ test('круг включён + урезанный proof (без judges) → val
 });
 
 test('круг включён + зелёный red-proof → validate отвергает red-proof-green (слайс не доказан)', () => {
-  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  const root = fixture({ redProofMode: 'on' });
   const extra = fullExtra();
   extra.redProof = { status: 'green', reason: 'passes-on-base', files: ['x.test.js'], tail: '' };
   const extraFile = writeExtraFile(extra);
@@ -133,7 +131,7 @@ test('круг включён + зелёный red-proof → validate отвер
 // может прийти только с пути, который правило T019 не прогнал, и молча провести его = вернуть
 // дыру, ради которой контур писался.
 test('011 T019: inconclusive + зелёный red-proof → validate ПРОПУСКАЕТ (сомнение записано, работа не блокируется)', () => {
-  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  const root = fixture({ redProofMode: 'on' });
   const extra = fullExtra();
   extra.redProof = { status: 'green', reason: 'passes-on-base', files: ['x.test.js'], tail: '' };
   extra.judges = extra.judges.map((j) => ({ ...j, verdict: 'inconclusive' }));
@@ -144,7 +142,7 @@ test('011 T019: inconclusive + зелёный red-proof → validate ПРОПУ�
 });
 
 test('круг включён + полный proof → elt commit проходит (реальная точка проверки, не только validate)', () => {
-  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  const root = fixture({ redProofMode: 'on' });
   const extraFile = writeExtraFile(fullExtra());
   run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'codex', '--extra-file', extraFile]);
   const c = run(root, ['commit', '--task', 'T001', '--skip-oracle']);
@@ -235,7 +233,7 @@ test('резолв: ни локального, ни глобального → e
 // `oracle` и записью judge proof, и честный судья получал ложный `stale oracle proof`, потому
 // что дерево сдвинул сам гейт, а не имплементатор. ---
 test('T014: файл в .harness/fleet/prompts/ (agy, T028) не делает oracle-proof stale', () => {
-  const root = fixture({ verify: { provider: 'agy', model: 'agy-model' } });
+  const root = fixture({ redProofMode: 'on' });
   fs.mkdirSync(path.join(root, '.harness', 'fleet', 'prompts'), { recursive: true });
   fs.writeFileSync(path.join(root, '.harness', 'fleet', 'prompts', 'agy-probe.txt'), 'дифф судье как текст');
   const extraFile = writeExtraFile(fullExtra());

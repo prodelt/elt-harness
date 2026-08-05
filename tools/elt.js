@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
-// elt — machine-readable core of the ELT v2 harness. No deps, Node 18+.
+// elt — machine-readable core of the ELT v3 harness. No deps, Node 18+.
 // Commands: init | status | slice next | oracle | commit
 // Config:   .harness/harness.json   State log: .git/elt/run-log.jsonl
-// Design: .planning/ELT-V2-AUDIT-AND-DESIGN-2026-07-08.md (Pipeline setupper repo).
+// Design: ELT v3 — протокол замера и три схемы харнесса.html (Pipeline setupper repo).
 // Invariants live HERE (exit codes), not in skill prose — that is the whole point.
 
 const fs = require('fs');
@@ -11,7 +11,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const { readHarnessConfig, verifySettings } = require('./elt-config');
+const { readHarnessConfig } = require('./elt-config');
 const runLog = require('./run-log');
 const eltStats = require('./elt-stats');
 
@@ -23,7 +23,14 @@ function die(msg, code = 1) { console.error('elt: ' + msg); process.exit(code); 
 function loadConfig() {
   const loaded = readHarnessConfig(cwd);
   if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
-  return loaded.config;
+  // ELT v3 не исполняет старый verify-on-pass. Не показываем неактивное поле и в status,
+  // иначе пользователь видит конфиг, который runtime сознательно не применяет.
+  const config = { ...loaded.config };
+  if (config.judge && typeof config.judge === 'object' && !Array.isArray(config.judge)) {
+    config.judge = { ...config.judge };
+    delete config.judge.verify;
+  }
+  return config;
 }
 // 009 T005: вывод оракула ЗАХВАТЫВАЕТСЯ (pipe), а не только льётся в консоль — self-heal
 // раньше получал в промпт хвост impl-лога (что делал имплементатор), но НЕ текст ошибки,
@@ -46,7 +53,7 @@ function git(args) {
   return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
 }
 
-// ── tasks.md (spec-kit): first specs/*/tasks.md that still has open boxes ──────
+// ── tasks.md (spec-kit): newest plan is the active plan ───────────────────────
 const TASK_LINE_RE = /^(\s*(?:[-*]\s*)?)\[( |X|x)\]\s*(?:\*\*)?(T\d+)?(?:\*\*)?[:.]?\s*(.*)$/;
 function parseTasksFile(f) {
   const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
@@ -58,11 +65,9 @@ function parseTasksFile(f) {
   });
   return { file: f, open, done, lines };
 }
-// explicitSpecDir (006 T019): bypass the alphabetical scan and target one
-// spec's tasks.md directly — needed once more than one specs/*/tasks.md has
-// open boxes at once (e.g. an older spec with unresolved external blockers),
-// otherwise the alphabetically-first one always wins and a later spec that's
-// actually being worked can never be reached by `slice next`/the driver.
+// explicitSpecDir targets one plan exactly. Without it, the newest plan wins even when it is
+// already closed. That is deliberate: an old unfinished backlog must never silently resurrect
+// after a newer plan has shipped. Work on an older plan requires an explicit `--spec`.
 function findTasks(explicitSpecDir) {
   if (explicitSpecDir) {
     const f = path.join(explicitSpecDir, 'tasks.md');
@@ -83,19 +88,14 @@ function findTasks(explicitSpecDir) {
     }
   }
   const plans = [];
-  let fallback = null;
-  let firstOpen = null;
   for (const f of files) {
-    // Приоритет — файл, где ещё остались открытые боксы (комментарий выше это и обещает).
-    // Если открытых нигде нет, `status`/`commit` всё равно должны на что-то опереться —
-    // fallback запоминает последний файл с любыми боксами (open или done).
     const plan = parseTasksFile(f);
     plans.push(plan);
-    if (plan.open.length && !firstOpen) firstOpen = plan;
-    if (plan.open.length || plan.done.length) fallback = plan;
   }
-  const selected = firstOpen || fallback;
-  return selected ? { ...selected, all: plans } : null;
+  const selected = [...plans].reverse().find((plan) => plan.open.length || plan.done.length) || null;
+  // Task ids are unique only inside one plan. Default lookup is therefore scoped to the active
+  // newest plan; callers that need history must say `--spec` instead of relying on scan order.
+  return selected ? { ...selected, all: [selected] } : null;
 }
 
 // ── батч (2026-07-22) ─────────────────────────────────────────────────────────
@@ -440,17 +440,14 @@ const PROOF_VERDICTS = ['pass', 'block', 'dead', 'inconclusive'];
 // Очередь ревью — рантайм-состояние проекта, как run-log: в .gitignore, чтобы строка не
 // попадала в дифф следующего слайса и не двигала treeHash под оракул-пруфом.
 const REVIEW_QUEUE = path.join('.harness', 'review-queue.jsonl');
-// 008 T004: включённый контур усиленного судьи — judges[]/grounding/redProof обязательны в
-// proof только когда хотя бы один слой сверх базового активен (judge.verify задан ИЛИ
-// harness.json.redProof не "off"/пуст). Без этого — старое однопроходное поведение (крит. 7
-// спеки 008, обратная совместимость). redProof — простое строковое поле, elt-config.js его
-// не валидирует (нет схемы под T005 testCmd/redProof-режимы), читаем напрямую.
+// В ELT v3 усиленный proof включается только живым redProof. Legacy judge.verify игнорируется:
+// второй LLM-судья был главным источником ложных блокировок и больше не является частью схемы.
 function redProofMode() {
   const loaded = readHarnessConfig(cwd);
   return loaded.ok && typeof loaded.config.redProof === 'string' ? loaded.config.redProof.trim() : '';
 }
 function circuitEnabled() {
-  return !!verifySettings(cwd) || (redProofMode() !== '' && redProofMode() !== 'off');
+  return redProofMode() !== '' && redProofMode() !== 'off';
 }
 // 009 T002: attest — вердикт проводится ТОЛЬКО машинным вызовом судьи (`elt judge run`).
 // Мотив (аудит 24.07): в интерактиве вердикт был самозаверением — тот же агент, что писал
@@ -599,29 +596,23 @@ if (cmd === 'init') {
   if (!oracle) die('elt init --oracle "<cmd>" [--shell powershell] [--push] [--force]');
   if (fs.existsSync(CONFIG) && !flag('--force')) die('harness.json уже есть (перезапись: --force)');
   fs.mkdirSync(HARNESS_DIR, { recursive: true });
-  const VERIFY_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.6-flash-high' };
+  if (flag('--verify-provider') || flag('--verify-model')) {
+    die('elt init: --verify-provider/--verify-model удалены в ELT v3; используется один независимый judge', 4);
+  }
+  const JUDGE_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.6-flash-high' };
   const judgeProvider = opt('--judge-provider', 'claude');
-  // Второй судья — первый не-совпадающий провайдер: контур обязан быть межмодельным.
-  const verifyProvider = opt('--verify-provider', judgeProvider === 'codex' ? 'claude' : 'codex');
-  // Инвариант, а не дефолт: судья, подтверждающий сам себя, подтверждает и свою галлюцинацию.
-  // Явный `--judge-provider X --verify-provider X` обязан падать, а не тихо создавать самопроверку.
-  if (verifyProvider === judgeProvider) die(`elt init: verify-судья обязан отличаться от основного (оба ${judgeProvider})`, 4);
   const cfg = {
     kind: 'code',
     oracle,
     shell: opt('--shell', 'bash'),
     branchPolicy: opt('--branch-policy', 'feature'),
     push: flag('--push'),
-    // 009 T003: новый проект рождается с ВКЛЮЧЁННЫМ контуром судьи. До этого контур 008
-    // (двойной судья + grounding + red-proof) не был включён ни в одном проекте — код был,
-    // а работал он ноль раз. Verify — обязательно ДРУГОЙ провайдер: судья, подтверждающий
-    // сам себя, подтверждает и собственную галлюцинацию.
+    // ELT v3: один независимый judge + grounding/red-proof. Повторный verify-on-pass снят.
     judge: {
       enabled: true,
       provider: judgeProvider,
-      model: opt('--judge-model', VERIFY_MODELS[judgeProvider] || 'sonnet'),
+      model: opt('--judge-model', JUDGE_MODELS[judgeProvider] || 'sonnet'),
       attest: true,
-      verify: { provider: verifyProvider, model: opt('--verify-model', VERIFY_MODELS[verifyProvider]) },
     },
     redProof: 'on',
   };
@@ -635,7 +626,9 @@ if (cmd === 'status') {
   const branch = git(['branch', '--show-current']);
   const dirty = git(['status', '--porcelain']);
   const dirtyN = dirty.out ? dirty.out.split('\n').length : 0;
-  const t = findTasks();
+  const specArg = opt('--spec');
+  const explicitSpecDir = specArg ? (path.isAbsolute(specArg) ? specArg : path.join(cwd, specArg)) : null;
+  const t = findTasks(explicitSpecDir);
   const cfgExists = fs.existsSync(CONFIG);
   const lastRun = runLog.lastRun(cwd);
   const out = {
@@ -784,7 +777,7 @@ if (cmd === 'oracle') {
 }
 
 // 009 T002: судья как ШАГ КОДА в интерактиве. Тот же путь, что у драйвера
-// (tools/judge-invoke.js → fleet/gate.runJudge: рубрика, двойной судья, red-proof) —
+// (tools/judge-invoke.js → fleet/gate.runJudge: рубрика, один judge, red-proof) —
 // один источник истины, а не второй промпт в прозе скилла.
 if (cmd === 'judge' && sub === 'run') {
   const taskId = normalizeTaskArg(opt('--task'));
@@ -1160,9 +1153,9 @@ if (cmd === 'harness' && sub === 'propose') {
     process.exit(r.ok ? 0 : 4);
   });
 } else {
-console.log(`elt — ядро ELT v2 харнесса
+console.log(`elt — ядро ELT v3 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
-  elt status                                                git + план + последний прогон
+  elt status [--spec specs/NNN-slug]                        git + план + последний прогон
   elt slice next [--json] [--count N] [--spec specs/NNN-slug]  следующая [ ] задача (--count N → N первых; exit 3 = план закрыт)
   elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error

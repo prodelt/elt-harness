@@ -93,7 +93,7 @@ process.stdin.resume().on("end", () => {
 `);
   const r = spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, 'elt-loop.ps1'),
     '-Project', root, '-Slices', '1', '-Batch', '1'],
-  { cwd: root, encoding: 'utf8', env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
+  { cwd: root, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
   fs.rmSync(stub, { force: true });
 
   const log = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);

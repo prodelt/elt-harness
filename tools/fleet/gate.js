@@ -12,7 +12,6 @@ const providers = require('./providers');
 const exec = require('./exec');
 const plan = require('./plan');
 const router = require('./router');
-const { verifySettings } = require('../elt-config');
 const { redProof, applyRedProof } = require('../red-proof');
 const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('../elt-gate-l0');
 
@@ -348,7 +347,7 @@ function prioritize(sections, zoneFiles = []) {
   return [...sections].sort((a, b) => rank(a) - rank(b) || a.text.length - b.text.length);
 }
 const MIN_FILE_BUDGET = 400; // меньше — показывать бессмысленно, честнее объявить «не показан»
-// 12000 на 15 файлов = 800 симв/файл: живой гейт T010 2026-07-29 получил block от verify-судьи
+// 12000 на 15 файлов = 800 симв/файл: живой гейт T010 2026-07-29 получил block от судьи
 // с формулировкой «диффы обрезаны, проверить нечего» — бюджет резал не хвосты, а суть слайса.
 // 60K символов (~15-20K токенов) современный судья читает целиком.
 const DIFF_CAP = Number(process.env.JUDGE_DIFF_CAP) || 60000;
@@ -397,7 +396,9 @@ function slurpDiff(cwd, cap = DIFF_CAP, zoneFiles = [], pathspec = null) {
       }
     }
   } catch { /* unreadable untracked files remain visible in status */ }
-  const status = execFileSync('git', ['status', '--porcelain', ...scope], { cwd, encoding: 'utf8' });
+  // -uall не дає Git згорнути нові `src/`/`test/` до каталогів: grounding має перелічувати
+  // фактичні файли, а red-proof — бачити вкладений *.test.js.
+  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', ...scope], { cwd, encoding: 'utf8' });
   return { ...budgetDiff(sections, cap, zoneFiles), status };
 }
 
@@ -497,19 +498,8 @@ async function judgeDiffRetryNoReasons(args) {
 // пустой вывод) — инфраструктурный сбой, НЕ вердикт. T021: caller паркует слайс на
 // judge_pending вместо REJECT — сама реализация не виновата, передел не нужен.
 // runOk=true → verdict читается из вывода, REJECT-default (нет явного pass → block).
-//
-// 008 T002: двойной судья (verify-on-pass). `harness.json.judge.verify = {provider, model}`
-// (elt-config.verifySettings) — второй судья, подтверждающий `pass` первого тем же диффом
-// (чистый контекст: свежий judgeDiff-вызов, не разговор с первым). Не задан — старое
-// однопроходное поведение (крит. 7, обратная совместимость). block первого второго НЕ зовёт
-// (крит. 4 — цена платится только на pass). Итог: block, если любой block; если второй
-// runOk=false — итоговый runOk=false тоже (переиспользуем существующий judge-dead/парковка
-// путь для мёртвого первичного, T021 — downstream (gate/judge-invoke) уже умеет его парковать
-// без изменений). judges[] — оба вердикта/модели/время, для будущей proof-проводки (T004).
-// 009 T010: `verify` — явный override пары verify-судьи (fleet резолвит её так, чтобы она не
-// совпала ни с воркером слайса, ни с первичным судьёй). undefined → читаем harness.json (старое
-// поведение solo-пути); null → второго судьи нет (некем заменить совпадение).
-// 009 T010: те же три CLI, что умеет providers.js; порядок = приоритет замены судьи.
+// ELT v3: один содержательный судья. JUDGE_ALTS нужны только для failover, если выбранный CLI
+// не смог запуститься; мёртвые попытки остаются в judges[] как инфраструктурный evidence.
 const JUDGE_ALTS = ['claude', 'codex', 'agy'];
 function judgeEntry({ provider, model }, r) {
   return { provider, model, verdict: r.verdict, reasons: r.reasons, durationSec: r.durationSec, runOk: r.runOk };
@@ -523,7 +513,7 @@ function judgeEntry({ provider, model }, r) {
 // чтения одного конфига разными кусками кода уже однажды разъехались бы.
 const l0Config = loadL0Config;
 
-async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, verify: verifyOverride, judgeExclude = [] }) {
+async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, judgeExclude = [] }) {
   const zoneFiles = scopeFilesFromTask(taskText);
   const { diff, status, omitted } = slurpDiff(cwd, undefined, zoneFiles);
   const rubric = loadRubric(cwd, tid, specFile);
@@ -574,20 +564,17 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   const withL0 = (result) => ({ ...result, l0: { triggers: l0.triggers, judgeNeeded: true } });
   const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted, l0Triggers: l0.triggers };
 
-  // 011 T017 (б): перевыдача МЁРТВОГО судьи следующему живому CLI. Была написана (T010 009)
-  // только для verify — пока судей было двое, смерть первичного покрывалась вторым слоем.
-  // T001 снял verify, и первичный остался единственным: его смерть (agy → ENAMETOOLONG за
+  // 011 T017 (б): перевыдача МЁРТВОГО судьи следующему живому CLI. После перехода на одного
+  // судью его инфраструктурная смерть (agy → ENAMETOOLONG за
   // 0.006 c, run-log T003) валит весь гейт, хотя на машине есть другой живой CLI.
   // Мёртвая попытка ОСТАЁТСЯ в judges[]: в proof виден и отказ, и кем он перевыдан, а не тихая
   // подмена. Ниже judges[] пересобирается — поэтому и провайдер, и история едут явно.
   let primaryPair = { provider, model };
   let primary = await judgeDiffRetryNoReasons({ ...commonArgs, ...primaryPair });
-  const verify = verifyOverride !== undefined ? verifyOverride : verifySettings(cwd);
   const deadAttempts = [];
   if (!primary.runOk) {
     deadAttempts.push(judgeEntry(primaryPair, primary));
-    const alt = JUDGE_ALTS.find((p) => p !== provider && p !== (verify && verify.provider)
-      && !judgeExclude.includes(p) && providers.available(p));
+    const alt = JUDGE_ALTS.find((p) => p !== provider && !judgeExclude.includes(p) && providers.available(p));
     if (alt) {
       primaryPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
       primary = await judgeDiffRetryNoReasons({ ...commonArgs, ...primaryPair });
@@ -600,44 +587,7 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
   }
 
   const primaryEntry = judgeEntry(primaryPair, primary);
-  if (!verify) return withL0(deadAttempts.length ? { ...primary, judges: [...deadAttempts, primaryEntry] } : primary);
-
-  if (primary.verdict !== 'pass') return withL0({ ...primary, judges: [...deadAttempts, primaryEntry] });
-
-  let secondary = await judgeDiffRetryNoReasons({ ...commonArgs, provider: verify.provider, model: verify.model });
-  const judges = [...deadAttempts, primaryEntry, judgeEntry(verify, secondary)];
-  // 009 T010 (замер живьём): мёртвый verify-судья валил весь гейт в judge-dead — второй слой
-  // контура молча выключался, и слайс было нечем закрыть, хотя на машине есть другой живой
-  // CLI. Тот же failover, что у implement-вызовов: перевыдаём следующему ДОСТУПНОМУ CLI, не
-  // совпадающему ни с первичным судьёй, ни с мёртвым verify, ни с воркером слайса
-  // (judgeExclude — fleet знает провайдера воркера, solo-путь его не имеет). Мёртвая попытка
-  // ОСТАЁТСЯ в judges[]: в proof виден и отказ, и кем он перевыдан, а не тихая подмена.
-  if (!secondary.runOk) {
-    // 011 T017: исключаем ФАКТИЧЕСКОГО первичного (primaryPair), а не изначально запрошенного —
-    // после перевыдачи мёртвого это разные CLI, и verify мог бы совпасть с судьёй = самозаверение.
-    const alt = JUDGE_ALTS.find((p) => p !== primaryPair.provider && p !== verify.provider && !judgeExclude.includes(p) && providers.available(p));
-    if (alt) {
-      const altPair = { provider: alt, model: router.modelFor(alt, router.loadPolicy(cwd)) };
-      secondary = await judgeDiffRetryNoReasons({ ...commonArgs, ...altPair });
-      judges.push(judgeEntry(altPair, secondary));
-    }
-  }
-  if (!secondary.runOk) return withL0({ verdict: null, reasons: [], filesReviewed: primary.filesReviewed, judgeLog: secondary.judgeLog, runOk: false, judges });
-
-  // 011 T019: свёртка знает про ТРИ исхода, а не два. Бинарное `pass ? pass : block` съедало
-  // `inconclusive` verify-судьи — ровно в двухсудейском сценарии, который спека 011 называет
-  // главным источником 77% block-rate (verify заблокировал при pass первичного 36 раз из 48).
-  // Сомнение второго слоя = сомнение, а не отказ: коммит с меткой и строка человеку.
-  const verdict = ['pass', 'inconclusive'].includes(secondary.verdict) ? secondary.verdict : 'block';
-  return withL0({
-    verdict,
-    reasons: verdict === 'pass' ? primary.reasons : [...primary.reasons, ...secondary.reasons],
-    filesReviewed: primary.filesReviewed,
-    judgeLog: primary.judgeLog,
-    runOk: true,
-    durationSec: primary.durationSec + secondary.durationSec,
-    judges,
-  });
+  return withL0({ ...primary, judges: [...deadAttempts, primaryEntry] });
 }
 
 // --- T028: нормализация worktree ПЕРЕД гейтом ------------------------------------
@@ -683,7 +633,7 @@ function normalizeWorktree(cwd, base, files) {
   if (base) gitSilent(['reset', '--soft', base], cwd); // un-commit self-commit воркера (HEAD→base)
   if (!base) return;                                   // без base откатывать нечем — только un-commit невозможен тоже
   let status = '';
-  try { status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' }); } catch { return; }
+  try { status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd, encoding: 'utf8' }); } catch { return; }
   for (const line of status.split(/\r?\n/)) {
     if (line.length < 4) continue;                     // "XY path" — минимум 4 символа
     const rel = line.slice(3).replace(/^"|"$/g, '').trim();
@@ -699,16 +649,16 @@ function normalizeWorktree(cwd, base, files) {
 // НЕ reject) | 'judge' (легитимный block) | 'commit' (git-фейл).
 // integration — интеграционная ветка (база слайса): включает T028-нормализацию. Без неё
 // (тесты/ручной вызов) нормализация = no-op, поведение как раньше.
-// 009 T010: контур усиленного судьи (тот же признак, что в elt.js/judge-invoke.js) — verify
-// задан ИЛИ harness.json.redProof не "off"/пуст. Включён → red-proof обязателен и здесь, и
+// Контур усиленного proof включён только когда harness.json.redProof не "off"/пуст.
+// Включён → red-proof обязателен и здесь, и
 // proof обязан нести judges[]/grounding/redProof, иначе `elt commit` его законно отвергнет.
 function circuitEnabled(cwd) {
   let mode = '';
   try {
     const j = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'));
     mode = typeof j.redProof === 'string' ? j.redProof.trim() : '';
-  } catch { /* нет harness.json / битый — считаем только по verify */ }
-  return !!verifySettings(cwd) || (mode !== '' && mode !== 'off');
+  } catch { /* нет harness.json / битый — контур выключен */ }
+  return mode !== '' && mode !== 'off';
 }
 
 // Живой прогон 011/T019 (01.08): fleet ЗНАЕТ tasksPath, но звал `elt` без `--spec` — автодетект
@@ -719,7 +669,7 @@ function specArgsFor(specFile) {
   return specFile ? ['--spec', path.dirname(specFile)] : [];
 }
 
-async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null, judgeVerify, judgeExclude = [], specFile = null }) {
+async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, judgeProvider = 'claude', judgeModel = 'sonnet', prevBlockReason = '', integration = null, judgeExclude = [], specFile = null }) {
   // 0. окружение: без elt CLI гейт не может ни оракул, ни commit — быстрый явный отказ
   if (!fs.existsSync(elt)) return { ok: false, stage: 'env', tid, err: `elt CLI не найден: ${elt}` };
 
@@ -735,7 +685,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
 
   // 2. судья (обязателен, REJECT-default). T022: prevBlockReason — причина прошлого block
   // этого же слайса (caller хранит между попытками) прокидывается в prompt.
-  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason, verify: judgeVerify, judgeExclude, specFile });
+  const j = await runJudge({ cwd, tid, taskText, provider: judgeProvider, model: judgeModel, prevBlockReason, judgeExclude, specFile });
   if (!j.runOk) return { ok: false, stage: 'judge-unavailable', tid, judgeLog: j.judgeLog };
   // 011 T004: inconclusive идёт дальше как pass — коммит с меткой + строка в очередь ревью
   // (её пишет `elt commit`, там есть sha). Второго раунда судейства нет: caller видит ok:true.

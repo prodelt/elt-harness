@@ -696,6 +696,11 @@ function checkHarnessConfig(root) {
   if (!harness.ok) {
     return result('fail', 'harness:config', 'Harness config invalid', harness.errors.join('; '), 'Run elt init for code projects or provide a valid kind, verifier, and judge config.', { file: harness.file });
   }
+  if (harness.config.judge && Object.prototype.hasOwnProperty.call(harness.config.judge, 'verify')) {
+    return result('warn', 'harness:config', 'Harness config valid; legacy judge.verify ignored',
+      'ELT v3 uses one independent judge. The old verify-on-pass field no longer runs.',
+      'Run node tools\\project-bootstrap.js apply --root . to remove judge.verify.', { file: harness.file });
+  }
   return result('pass', 'harness:config', 'Harness config valid', `kind=${harness.config.kind}`, '', { file: harness.file });
 }
 
@@ -1055,19 +1060,15 @@ function runDoctor(options) {
     ...checkAgentSkillsWrapper(root, home),
     ...checkAgentSurfaceAudit(root),
     ...checkDocsGate(root),
-    ...checkHarnessChecklist(root),
     checkHarnessConfig(root),
     ...checkReviewQueue(root),
     ...checkOracleFullStale(root),
     ...checkJudgeBridge(root, home),
-    ...checkHarnessGlobal(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
-    ...checkFleetWorkers(root),
     ...checkSelfDriveInvariants(),
     ...checkGitHubCli(root),
     ...checkRedTeam(root, home),
-    ...checkLoopReady(home),
   ];
   const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
   return { root: normalizePath(root), projectKey: projectKey(root), summary, checks };

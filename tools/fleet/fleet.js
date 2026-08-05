@@ -19,7 +19,7 @@ const watch = require('../harness-watch');
 const heal = require('./heal');
 const providers = require('./providers');
 const attestation = require('./attest');
-const { judgeSettings, verifySettings } = require('../elt-config');
+const { judgeSettings } = require('../elt-config');
 const router = require('./router');
 const approvalGuard = require('../approval-guard');
 
@@ -183,16 +183,13 @@ function applyWatchdog(actions, { cwd, routerState, policy, judgeProvider, judge
 // умеет providers.js; порядок = приоритет замены.
 // Заменять судью можно только на РЕАЛЬНО доступный CLI: увести его на не установленный
 // провайдер значит превратить каждый слайс в judge-unavailable-парковку. Список альтернатив и
-// резолв доступности — в gate/providers: тот же выбор делает gate при перевыдаче мёртвого
-// verify-судьи, и расходиться этим двум местам нельзя.
+// резолв доступності — у gate/providers: той самий вибір робить gate при failover мертвого CLI.
 const JUDGE_ALTS = gate.JUDGE_ALTS;
 const providerAvailable = providers.available;
 // avail прокинут параметром (а не берётся из модуля) ровно ради тестируемости ветки «замены
 // нет»: на машине разработчика все три CLI реально в PATH, и смоделировать её иначе нельзя.
 function judgeAwayFrom(cwd, workerProvider, judge, policy, avail = providerAvailable) {
   if (judge.provider !== workerProvider) return judge;
-  const v = verifySettings(cwd);
-  if (v && v.provider !== workerProvider) return v; // уже настроенный в проекте судья — первый выбор
   const p = JUDGE_ALTS.find((x) => x !== workerProvider && avail(x));
   if (!p) {
     // Единственный CLI на машине — разводить не с кем. Раньше здесь возвращался тот же судья
@@ -204,17 +201,6 @@ function judgeAwayFrom(cwd, workerProvider, judge, policy, avail = providerAvail
     return null;
   }
   return { provider: p, model: router.modelFor(p, policy) };
-}
-// verify-судья (второй, подтверждающий pass) не должен совпасть ни с воркером, ни с первичным
-// судьёй. Возвращает undefined, когда verify в проекте не настроен вовсе (gate читает конфиг
-// сам — старое поведение), пару — когда настроен, и null, если заменить некем: лучше один
-// честный судья, чем второй, дублирующий первого или воркера.
-function verifyAwayFrom(cwd, workerProvider, primaryProvider, policy, avail = providerAvailable) {
-  const v = verifySettings(cwd);
-  if (!v) return undefined;
-  if (v.provider !== workerProvider && v.provider !== primaryProvider) return v;
-  const p = JUDGE_ALTS.find((x) => x !== workerProvider && x !== primaryProvider && avail(x));
-  return p ? { provider: p, model: router.modelFor(p, policy) } : null;
 }
 
 function cleanupSlice(cwd, tid, { deleteBranch = true } = {}) {
@@ -549,8 +535,7 @@ async function run(opts = {}) {
           if (afterHeal) return afterHeal;
         }
 
-        // 009 T010: судья слайса не может быть тем же провайдером, что его воркер (ни первичный,
-        // ни verify) — «сам себя проверил» не проверка. Cap считаем под ФАКТИЧЕСКИМ судьёй.
+        // Судья слайса не может быть тем же провайдером, що й воркер: самоперевірка не proof.
         claims.setState(slice.id, { state: 'judge_pending' }, { cwd });
         phase = 'judge'; phaseStart = Date.now();
         const jp = judgeAwayFrom(cwd, provider, { provider: judgeProvider, model: judgeModel }, policy);
@@ -562,11 +547,10 @@ async function run(opts = {}) {
           });
           return { tid: slice.id, gateOk: false, parked: true };
         }
-        const jv = verifyAwayFrom(cwd, provider, jp.provider, policy);
         const judgeCap = router.tryBeginCall(callTracker, policy, jp.provider);
         if (!judgeCap.ok) return capBlock(judgeCap.reason);
         let g;
-        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], prevBlockReason: blockReasons.get(slice.id) || '', integration, specFile: tasksPath }); }
+        try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wtPath, judgeProvider: jp.provider, judgeModel: jp.model, judgeExclude: [provider], prevBlockReason: blockReasons.get(slice.id) || '', integration, specFile: tasksPath }); }
         finally { router.endCall(callTracker, jp.provider); }
         const judgeDurationSec = Math.round((Date.now() - phaseStart) / 1000);
 
@@ -763,11 +747,10 @@ async function redoSerial(slice, { cwd, integration, tasksPath, worker, model, j
       cleanupSlice(cwd, slice.id);
       return { ok: false };
     }
-    const jv = verifyAwayFrom(cwd, provider, jp.provider, policy);
     const judgeCap = router.tryBeginCall(callTracker, policy, jp.provider);
     if (!judgeCap.ok) return capBlock(judgeCap.reason);
     let g;
-    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider: jp.provider, judgeModel: jp.model, judgeVerify: jv, judgeExclude: [provider], integration, specFile: tasksPath }); }
+    try { g = await gate.gate({ tid: slice.id, taskText: slice.text, cwd: wt.path, judgeProvider: jp.provider, judgeModel: jp.model, judgeExclude: [provider], integration, specFile: tasksPath }); }
     finally { router.endCall(callTracker, jp.provider); }
     logSpawn(cwd, {
       tid: slice.id, phase: 'judge', provider: jp.provider, model: jp.model, durationSec: Math.round((Date.now() - phaseStart) / 1000),
@@ -864,7 +847,7 @@ function exitCodeFor(summary) {
   return (summary.stoppedReason || summary.failed.length || summary.abandoned.length) ? 1 : 0;
 }
 
-module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor, applyWatchdog, judgeAwayFrom, verifyAwayFrom };
+module.exports = { run, eventsPath, currentBranch, status, renderStatus, readEvents, ensureFleetIgnore, exitCodeFor, applyWatchdog, judgeAwayFrom };
 
 // --- CLI (для обёртки tools/elt-fleet.ps1) ---
 if (require.main === module) {

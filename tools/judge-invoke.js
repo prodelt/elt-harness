@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { runJudge } = require('./fleet/gate');
 const { redProof, applyRedProof } = require('./red-proof');
-const { judgeSettings, verifySettings } = require('./elt-config');
+const { judgeSettings } = require('./elt-config');
 
 // 008 T004: включённый контур — verify задан ИЛИ harness.json.redProof не "off"/пуст.
 // redProof — простое строковое поле, elt-config.js его не валидирует, читаем напрямую.
@@ -29,7 +29,7 @@ function redProofMode(cwd) {
   } catch { return ''; }
 }
 function circuitEnabled(cwd) {
-  return !!verifySettings(cwd) || (redProofMode(cwd) !== '' && redProofMode(cwd) !== 'off');
+  return redProofMode(cwd) !== '' && redProofMode(cwd) !== 'off';
 }
 
 async function main() {
@@ -57,7 +57,7 @@ async function main() {
   let redProofResult = null;
   // Red-proof — только на легитимный pass (флоу спеки 008: судья(и) pass → red-proof) и
   // только когда контур включён (без опт-ина — не платим прогоном тестов на каждом слайсе).
-  if (r.runOk && verdict === 'pass' && circuitEnabled(cwd)) {
+  if (r.runOk && ['pass', 'inconclusive'].includes(verdict) && circuitEnabled(cwd)) {
     redProofResult = redProof({ cwd, baseHead: 'HEAD' });
     ({ verdict, reasons } = applyRedProof(verdict, reasons, redProofResult)); // 011 T019(а)
   }

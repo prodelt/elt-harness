@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 let passed = 0;
 let failed = 0;
@@ -318,6 +318,31 @@ process.stdout.write('\n[Suite 6] analyzeAll — multi-target\n');
   assertEqual(analysis.results.codex.missing, [], 'codex has all skills');
   assertEqual(analysis.results.gemini.missing, ['skill-x'], 'gemini missing skill-x');
   assertEqual(analysis.sourceSkillCount, 1, 'source skill count correct');
+  cleanup(tmp);
+}
+
+// Suite 6b: real CLI narrows forced conflict sync to one skill
+process.stdout.write('\n[Suite 6b] CLI --skill — isolated HOME\n');
+{
+  tmp = makeTmpDir();
+  const claude = path.join(tmp, '.claude', 'skills');
+  const codex = path.join(tmp, '.codex', 'skills');
+  fs.mkdirSync(claude, { recursive: true }); fs.mkdirSync(codex, { recursive: true });
+  makeSkillDir(claude, 'elt', { 'SKILL.md': 'v3' });
+  makeSkillDir(claude, 'unrelated', { 'SKILL.md': 'source' });
+  makeSkillDir(codex, 'elt', { 'SKILL.md': 'v2' });
+  makeSkillDir(codex, 'unrelated', { 'SKILL.md': 'local edit' });
+
+  const run = spawnSync(process.execPath, [path.join(__dirname, 'sync-agent-surface.js'),
+    '--apply', '--force', '--target', 'codex', '--skill', 'elt', '--json'], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: tmp, USERPROFILE: tmp },
+  });
+  assert(run.status === 0, `real CLI exits 0: ${run.stderr}`);
+  const output = run.status === 0 ? JSON.parse(run.stdout) : null;
+  assertEqual(output && output.applied.applied.map((item) => item.skill), ['elt'], 'real CLI overwrites only selected skill');
+  assertEqual(fs.readFileSync(path.join(codex, 'elt', 'SKILL.md'), 'utf8'), 'v3', 'selected skill is synchronized');
+  assertEqual(fs.readFileSync(path.join(codex, 'unrelated', 'SKILL.md'), 'utf8'), 'local edit', 'unrelated conflict is preserved');
   cleanup(tmp);
 }
 

@@ -1,88 +1,61 @@
-# PLAYBOOK — карта работы с Claude
+# PLAYBOOK — практичний ELT v3
 
-> Не знаешь, что делать с задачей? Читай сверху вниз, остановись на **первой подходящей строке**.
-> Это карта. Глубина — в `/harness-method` (REFERENCE.md) и `.planning/WORKING-SYSTEM.md`.
-> Живое состояние системы — `CHEATSHEET.html`.
+## Одна схема
 
-## Модель (одна строка)
-**Agent = Model + Harness.** Харнесс = **guide** (направляет ДО) + **sensor** (ловит ПОСЛЕ) +
-**блокирующий gate** (останавливает в нужный момент) + **steering** (растёт от повторов боли).
-Качество — это не «старайся лучше», это guide + sensor + gate вокруг задачи.
+Для коду є один маршрут: `elt`. `agy` пише першу версію, поточний Claude Code або Codex читає diff, запускає oracle, виправляє за потреби й є єдиним judge. Це реалізація схеми A+C з `ELT v3 — протокол замера и три схемы харнесса.html`: L0 → impact oracle → smoke → risk routing → один `pass|block|inconclusive` → накопичення evidence.
 
-## Золотой путь (дефолт на 90% задач)
-1. **Код (фича/баг/рефактор/продолжи) →** `/elt` (v2 — **единственный active code route**). Слайсы с механическими инвариантами:
-   elt CLI (оракул → авто-ветка → commit → run-log), судья sonnet, dirty-exit-gate.
-   Крупная цель без плана: спека чанками юзеру → явное «утверждаю» → `elt spec approve` (при
-   `harness.json.specApproval:true` без этого `slice next`/`commit` откажут, exit 4).
-   Автономно → драйвер `tools/elt-loop.ps1` (fresh `claude -p` на слайс).
-   Параллельно (≥3 [P]-слайсов, disjoint `[files:]`) → **fleet** `tools/elt-fleet.ps1`
-   (N воркеров claude/codex/agy в git worktree; гейт неизменен: оракул→судья→`elt commit`;
-   merge-очередь, роутер+failover; `specs/002-elt-fleet`, T003 live-fire ждёт agy-логина).
-   ⚠ **Fleet experimental — не для реальной работы, пока `specs/003-elt-fleet-hardening` не закрыт.**
-2. **Не-код нетривиальное →** `/elt-work` (офис) или доменный `/harness-method` (guide+gate под домен).
-3. **Тривиальное** (опечатка, одна правка, вопрос) → просто делай, без церемоний.
-4. **Закрытие любой задачи** — только с доказательством (вывод build/test/lint), не «готово».
+Схема B з асинхронним verify та auto-revert не використовується: вона необов'язкова й повертає зайву чергу та складність.
 
-> **⚠ Deprecated — не активные route.** Pipeline v3 / `/pipeline`, Agent Harness v1
-> (`harness-runner`/`harness-gates`/`pipeline-state`) и `install-harness-teeth` — прямой запуск
-> CLI падает с deprecated-ошибкой; единственный code control plane — `/elt`. Миграция и удаление:
-> `specs/005-elt-control-plane-convergence/spec.md §9`.
+## Звичайна робота
 
-## Дерево решений — «что я делаю?»
+1. Тривіальна правка — просто зробити й запустити найменшу релевантну перевірку.
+2. Один нетривіальний слайс — короткий regression test, oracle, один judge, `elt commit`.
+3. Велика нова ціль — `specs/NNN-name/spec.md` + `tasks.md`, показати користувачу, отримати «затверджую», виконати `elt spec approve --spec specs/NNN-name`, потім працювати слайсами.
+4. Продовження — `elt status`; без `--spec` він бере найновіший план. Старий план завжди вказувати явно.
 
-| Ситуация | Что запускаю | Что получаю |
-|---|---|---|
-| Новый проект / навести порядок / сделать эталонным | **`/project-bootstrap`** | доки + харнесс с зубами + индекс + память проекта |
-| Фича / баг / рефактор в коде | **`/elt`** | слайс: оракул → судья → авто-commit (внутри линзы `tdd`/`diagnose`) |
-| Архитектурное решение, развилка | `/elt` (план-шаг Mode 0) → `grill-me` / `/architect-first` | план + инварианты до кода |
-| Не-код: маркетинг / бизнес / дизайн | **`/harness-method`** (домен) + доменные скилы ниже | guide + gate перед публикацией/тратой |
-| Просто разобраться в коде / «как работает X» | `codegraph_context` (MCP), затем `codegraph_explore` | ответ без чтения файлов целиком |
-| Ресёрч / собрать факты до реализации | `/research-autopilot`, `ctx7`, `agent-browser` | компактные evidence |
+```powershell
+node "$env:USERPROFILE\.claude\bin\elt.js" status
+node "$env:USERPROFILE\.claude\bin\elt.js" slice next --json --count 3 --spec specs/NNN-name
+node "$env:USERPROFILE\.claude\bin\elt.js" judge run --task T001 --spec specs/NNN-name
+node "$env:USERPROFILE\.claude\bin\elt.js" commit --task T001 --spec specs/NNN-name --skip-oracle
+```
 
-## Домены (где сидят «зубы») — сводка, источник: `/harness-method` REFERENCE.md
-| Домен | Guide (конституция) | Sensor (тип) | Gate (где блок) |
-|---|---|---|---|
-| **Код** | архитектурные инварианты, `spec.md` | tests/lint/types/dep-граф — **computational** | pre-commit / CI |
-| **Маркетинг** | brand voice, ICP, позиционирование | LLM-судья по рубрике + SEO/факт-чек | перед публикацией |
-| **Бизнес** | принципы, цели, рынок | `grill-me` / `red-team` + юнит-экономика | перед тратой ресурсов |
-| **Дизайн** | design-system, бренд | контраст/токены + ревью + `gstack` | перед хэндофом в код |
+## Автономний прогін
 
-Принцип: **церемония растёт с необратимостью**. Прод/ad-spend/найм → тяжёлый gate; черновик → лёгкий guide.
+Послідовний драйвер — дефолт. У prompt для `agy` драйвер явно вимагає прочитати `C:\Users\user\.gemini\skills\elt\SKILL.md`, бо Antigravity не завантажує цей skill сам.
 
-## Каталог скилов — по работе, не по алфавиту
-- **План и спека:** `architect-first` · `grill-me` (допрос плана) · `pm` (продукт/стратегия) · `to-prd` · `to-issues`
-- **Сборка:** `tdd` (red-green) · `sprint` (слайсы с verify) · `incremental-implementation`
-- **Проверка (sensor):** `inline-review` (быстро после юнита) · `security-best-practices` · `ship` (финальный gate) · `diagnose` (трудный баг) · `hunt-bug` (регресс-тест первым)
-- **Ресёрч / доки:** `research-autopilot` · `agent-browser` (браузер/QA, **единственный** браузер) · `ctx7` (актуальные доки либ)
-- **Память / контекст:** `/checkpoint` (снимок сессии) · `/handoff` (передать другому агенту) · claude-mem `mem-search` (прошлые сессии) · codegraph MCP (структура кода)
-- **Доменные:** `mikrotik-audit` · `contract-review` (закупки) · `itstep-lesson-builder` · `design-an-interface` · `obsidian-vault`
+```powershell
+# робота з Claude Code
+powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider claude -JudgeModel sonnet
 
-Бюджет скилов по умолчанию: **1 orchestrator (`pipeline`) + 1 domain + 1 verifier.** Больше — только
-если задача явно мульти-доменная или verify вскрыл риск (назови причину).
+# робота з Codex
+powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider codex -JudgeModel gpt-5.6-sol
+```
 
-## Команды агентов — когда (и когда НЕТ)
-- **Да:** работа реально параллельна и независима (несколько модулей сразу) → `/company` или Task-агенты.
-- **Нет:** последовательная задача, или «просто чтобы быстрее» — оверхед координации съест выигрыш.
-- **Правило verify-gate:** >2 субагента редактируют код → обязателен verify-шаг (тесты/билд **или** reviewer/security/qa-субагент) перед closeout.
-- Субагенты крутятся на **haiku** (`CLAUDE_CODE_SUBAGENT_MODEL=haiku`) — дёшево; тяжёлое суждение оставляй главному.
+На червоному oracle поточна поверхня робить до двох вузьких виправлень. На `block` слайс паркується; сліпого циклу LLM немає. Stop-файл: `.harness/STOP`; логи: `.harness/loop-logs/`.
 
-## Экономия токенов — дефолты (уже включены, просто соблюдай)
-- **Дробить крупное** — COMPLEX-задачу не гнать в одном растущем контексте: слайсы через
-  `/clear`/новую сессию, тяжёлое чтение → haiku-субагент (возвращает итог, не сырьё). Расход ≈
-  `turns × размер контекста`; монолит легко даёт сотни turns × ~130k = десятки M cache_read.
-  Главный рычаг экономии; автономные слайсы — драйвер `tools/elt-loop.ps1` (fresh `claude -p` на слайс).
-- **codegraph до Read** — структурный поиск вместо чтения файлов целиком.
-- **ponytail** активен — лаконичный код и ответы.
-- **claude-mem** — пассивный захват + инъекция контекста со 2-й сессии (ничего делать не надо).
-- **Доки on-demand**, не в контекст каждый ход. `ctx7` — по требованию, не как always-on MCP.
-- Глобальных хуков ровно один (PreCompact). Дисциплина — на тебе, авто-нуджей нет.
+## Proof
 
-## Память — что где
-- **Долгая (проект):** `constitution.md` / `spec.md` + `AGENTS.md`/`CLAUDE.md` + `.planning/` + git.
-- **Кросс-сессия:** claude-mem (`/mem-search`) + per-project `~/.claude/projects/<key>/memory/MEMORY.md`.
-- **Сессия:** `/checkpoint` вручную при смене контекста; PreCompact-хук пишет briefing на компакте.
+`Done` означає одночасно:
 
-## Глубже
-- Метод и доменные playbook-и: `/harness-method` → его `REFERENCE.md`, `.planning/WORKING-SYSTEM.md`.
-- Полный список команд: `.planning/COMMANDS-REFERENCE.md`.
-- Красные линии анти-AMOS: enforce-не-nag, per-project-конфиг, no per-turn injection, «Done» только с proof.
+- oracle exit 0;
+- smoke exit 0, якщо налаштований;
+- рівно один judge `pass` або `inconclusive`;
+- `elt commit` створив commit і запис у `.harness/run-log.jsonl`.
+
+`judge.verify` зі старих конфігів runtime ігнорує. Для очищення конфіга достатньо `project-bootstrap apply`.
+
+## Інші маршрути
+
+- Офісний документ, таблиця, презентація або PDF → `elt-work`.
+- Новий еталонний проєкт → `project-bootstrap`.
+- Зовнішня бібліотека → актуальні docs через `ctx7` перед кодом.
+- Fleet → тільки за явним запитом; спочатку `node tools/doctor.js --fleet`.
+
+## Видалені маршрути
+
+`/pipeline`, `harness-runner`, `harness-gates`, `pipeline-state` та `install-harness-teeth` не запускати. Compatibility shims лише пояснюють міграцію та завершуються з exit 64. Єдиний code control plane — `elt`.
+
+## Живий стан
+
+`.planning/STATE.md` — поточний стан, найновіший `CHECKPOINT-*.md` — точка відновлення, `.planning/PROJECT-HISTORY.md` — історія. Реальний runtime перевіряється `node tools/doctor.js`, а не старими нотатками.

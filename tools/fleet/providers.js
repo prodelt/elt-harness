@@ -116,7 +116,7 @@ function resolveBin(provider) {
 // CLI реально установлен? Стаб-override (FLEET_BIN_*) считается доступностью и проверяется
 // первым — тесты и live-стабы не должны зависеть от того, что стоит на машине. Результат
 // `where` кешируется на процесс. 009 T010: живёт здесь (а не в fleet.js), потому что нужен
-// обоим — и роутеру ролей судьи, и gate.js при перевыдаче мёртвого verify-судьи.
+// обоим — и роутеру ролей судьи, и gate.js при failover мёртвого judge CLI.
 const _availCache = new Map();
 function available(provider) {
   if (process.env['FLEET_BIN_' + provider.toUpperCase()]) return true;

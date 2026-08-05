@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// sync-bin.js — копирует замыкание моста судьи (judge-invoke.js + зависимости, T002 спеки
-// 010) в `~/.claude/bin/judge/`, чтобы проекты без repo-checkout репо-разработчика (elt.js
-// резолвит их фолбэком, T003) могли запускать судью через `elt judge run`.
+// sync-bin.js — один деплой ELT runtime: CLI в `~/.claude/bin/` и замыкание judge-моста
+// в `~/.claude/bin/judge/`. Раньше команда обновляла только judge/, а сам elt.js оставался
+// старым — именно так разные проекты получали разные протоколы после «успешной» синхронизации.
 //
 // Замыкание фиксировано вручную (не auto-discovery require-графа): tasks.md T002 перечисляет
 // ровно эти файлы, и relative require() внутри них (`./fleet/gate`, `../elt-config`, ...)
@@ -26,9 +26,40 @@ const CLOSURE = [
   path.join('fleet', 'router.js'),
 ];
 
+const ROOT_CLOSURE = [
+  'elt.js',
+  'elt-config.js',
+  'run-log.js',
+  'elt-stats.js',
+  'harness-watch.js',
+  path.join('fleet', 'providers.js'),
+  path.join('fleet', 'router.js'),
+];
+
+const DEPRECATED_SHIMS = {
+  'harness-runner.cmd': '@echo off\r\n1>&2 echo DEPRECATED: harness-runner removed. Use ELT v3: node "%USERPROFILE%\\.claude\\bin\\elt.js" status ^| oracle ^| judge run ^| commit\r\nexit /b 64\r\n',
+  'harness-runner.ps1': '[Console]::Error.WriteLine(\'DEPRECATED: harness-runner removed. Use ELT v3: node "$env:USERPROFILE\\.claude\\bin\\elt.js" status | oracle | judge run | commit\')\r\nexit 64\r\n',
+  'harness-gates.cmd': '@echo off\r\n1>&2 echo DEPRECATED: harness-gates removed. Use ELT v3: node "%USERPROFILE%\\.claude\\bin\\elt.js" oracle ^| judge run ^| commit\r\nexit /b 64\r\n',
+  'harness-gates.ps1': '[Console]::Error.WriteLine(\'DEPRECATED: harness-gates removed. Use ELT v3: node "$env:USERPROFILE\\.claude\\bin\\elt.js" oracle | judge run | commit\')\r\nexit 64\r\n',
+};
+
 function syncBin({ toolsRoot = __dirname, home = os.homedir() } = {}) {
-  const dest = path.join(home, '.claude', 'bin', 'judge');
+  const rootDest = path.join(home, '.claude', 'bin');
+  const dest = path.join(rootDest, 'judge');
   const copied = [];
+  const rootCopied = [];
+  const shimmed = [];
+  for (const rel of ROOT_CLOSURE) {
+    const src = path.join(toolsRoot, rel);
+    const out = path.join(rootDest, rel);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.copyFileSync(src, out);
+    rootCopied.push(rel);
+  }
+  for (const [name, content] of Object.entries(DEPRECATED_SHIMS)) {
+    fs.writeFileSync(path.join(rootDest, name), content, 'utf8');
+    shimmed.push(name);
+  }
   for (const rel of CLOSURE) {
     const src = path.join(toolsRoot, rel);
     const out = path.join(dest, rel);
@@ -36,14 +67,14 @@ function syncBin({ toolsRoot = __dirname, home = os.homedir() } = {}) {
     fs.copyFileSync(src, out);
     copied.push(rel);
   }
-  return { dest, copied };
+  return { rootDest, rootCopied, shimmed, dest, copied };
 }
 
 if (require.main === module) {
   const homeIdx = process.argv.indexOf('--home');
   const home = homeIdx !== -1 ? process.argv[homeIdx + 1] : os.homedir();
-  const { dest, copied } = syncBin({ home });
-  process.stdout.write(`sync-bin: ${copied.length} файлов → ${dest}\n`);
+  const { rootDest, rootCopied, shimmed, dest, copied } = syncBin({ home });
+  process.stdout.write(`sync-bin: runtime ${rootCopied.length} + ${shimmed.length} deprecated shims → ${rootDest}; judge ${copied.length} → ${dest}\n`);
 }
 
-module.exports = { syncBin, CLOSURE };
+module.exports = { syncBin, CLOSURE, ROOT_CLOSURE, DEPRECATED_SHIMS };

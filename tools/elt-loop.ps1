@@ -1,7 +1,7 @@
 ﻿<#
-  elt-loop.ps1 — автономный драйвер ELT v2 (спека: .planning/CHECKPOINT-2026-07-08-elt-v2-core-built-next-driver.md).
-  Свежий `claude -p` на КАЖДЫЙ слайс (анти-context-rot) → оракул (+1 retry) → судья sonnet (обязателен,
-  REJECT-default) → `elt commit`. Инварианты живут в elt.js (exit-коды), тут только оркестровка.
+  elt-loop.ps1 — автономный драйвер ELT v3.
+  Antigravity пишет → активный Claude/Codex исправляет красный oracle → один независимый judge
+  (REJECT-default) → `elt commit`. Инварианты живут в elt.js; здесь только оркестровка.
   PS 5.1: без && / ||, here-string '@ в колонке 0, -Encoding utf8, LASTEXITCODE после native exe.
   Kill-switch: файл <Project>/.harness/STOP. Логи: <Project>/.harness/loop-logs/.
 #>
@@ -9,6 +9,10 @@ param(
   [string]$Project = ".",
   [int]$Slices = 4,
   [int]$MaxMinutes = 120,
+  [string]$WriterProvider = "agy",
+  [string]$WriterModel = "",
+  [string]$FixProvider = "",
+  [string]$FixModel = "",
   [string]$JudgeModel = "",
   [string]$JudgeProvider = "",
   [string]$SpecDir = "",
@@ -16,7 +20,7 @@ param(
   [switch]$DryRun
 )
 
-# Continue (НЕ Stop): claude.exe пишет безвредный warning в stderr; при Stop+2>&1 PS 5.1
+# Continue (НЕ Stop): agent CLI может писать безвредный warning в stderr; при Stop+2>&1 PS 5.1
 # обернул бы его в терминирующий NativeCommandError. Ошибки native-команд ловим по $LASTEXITCODE.
 $ErrorActionPreference = "Continue"
 $eltCli = Join-Path $env:USERPROFILE ".claude\bin\elt.js"
@@ -37,7 +41,18 @@ if (Test-Path $harnessJson) {
   if ([string]::IsNullOrWhiteSpace($JudgeModel)    -and $hj.judge.model)    { $JudgeModel    = $hj.judge.model }
 }
 if ([string]::IsNullOrWhiteSpace($JudgeProvider)) { $JudgeProvider = "claude" }
-if ([string]::IsNullOrWhiteSpace($JudgeModel))    { $JudgeModel    = "sonnet" }
+if ([string]::IsNullOrWhiteSpace($JudgeModel)) {
+  $JudgeModel = switch ($JudgeProvider) { "agy" { "gemini-3.6-flash-high" } "codex" { "gpt-5.6-sol" } default { "sonnet" } }
+}
+if ([string]::IsNullOrWhiteSpace($WriterModel)) {
+  $WriterModel = switch ($WriterProvider) { "agy" { "gemini-3.6-flash-high" } "codex" { "gpt-5.6-sol" } default { "sonnet" } }
+}
+if ([string]::IsNullOrWhiteSpace($FixProvider)) { $FixProvider = $JudgeProvider }
+if ([string]::IsNullOrWhiteSpace($FixModel))    { $FixModel = $JudgeModel }
+if ($WriterProvider -eq $JudgeProvider -or $WriterProvider -eq $FixProvider) {
+  Write-Error "ELT v3 разводит роли: writer ($WriterProvider) не может проверять/исправлять сам себя. Укажите -JudgeProvider claude|codex."
+  exit 4
+}
 
 # Батч (2026-07-22): сколько задач имплементируется ПОДРЯД до одного прогона гейта.
 # Оракул (~96с) + судья (~40-90с) платятся раз на батч, а не раз на задачу — на мелких
@@ -48,7 +63,12 @@ if ($Batch -le 0) { $Batch = 1 }
 
 if (-not (Test-Path $eltCli))              { Write-Error "нет elt CLI: $eltCli"; exit 1 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue))   { Write-Error "нет node в PATH"; exit 1 }
-if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { Write-Error "нет claude в PATH"; exit 1 }
+$writerOverride = [Environment]::GetEnvironmentVariable("FLEET_BIN_$($WriterProvider.ToUpperInvariant())")
+$fixOverride = [Environment]::GetEnvironmentVariable("FLEET_BIN_$($FixProvider.ToUpperInvariant())")
+if (-not $DryRun) {
+  if ([string]::IsNullOrWhiteSpace($writerOverride) -and -not (Get-Command $WriterProvider -ErrorAction SilentlyContinue)) { Write-Error "нет writer CLI '$WriterProvider' в PATH"; exit 1 }
+  if ([string]::IsNullOrWhiteSpace($fixOverride) -and -not (Get-Command $FixProvider -ErrorAction SilentlyContinue))       { Write-Error "нет fixer CLI '$FixProvider' в PATH"; exit 1 }
+}
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 if ($runLog) {
   New-Item -ItemType Directory -Force -Path (Split-Path $runLog -Parent) | Out-Null
@@ -62,20 +82,20 @@ function Ts { (Get-Date).ToString("yyyyMMdd-HHmmss") }
 function Append-RunLog($obj) {
   if ($runLog) { ($obj | ConvertTo-Json -Compress -Depth 6) | Add-Content -Path $runLog -Encoding utf8 }
 }
-# Баг #10 (T016) чинили резолвом .cmd-шима в claude.exe — но остался баг глубже: Windows
+# Windows PowerShell 5.1 некорректно маршалит сложные argv в native agent CLI. Поэтому
 # PowerShell 5.1 (`& $exe @ArgsArray`) сам не умеет корректно маршалить argv-элементы с
 # embedded `"` в НАТИВНЫЙ .exe (не только через cmd.exe-шим) — известный дефект легаси
 # native-parameter-binding PS5.1. --json-schema и промпты с diff'ами реального кода (где
 # кавычки почти неизбежны) молча ломались, ошибка claude.exe уходила в stderr → глушилась
 # `2>$null` → пустой лог → REJECT-default блокировал ЛЮБОЙ слайс (обнаружено 2026-07-11,
 # A/B fleet-vs-solo, solo T002 — 2 независимых воспроизведения). Обходим маршалинг
-# ПОЛНОСТЬЮ: делегируем реальный spawn в tools/claude-invoke.js → tools/fleet/providers.js
-# (Node сам корректно экранирует Windows argv, проверено live тем же прогоном на fleet).
+# реальный spawn делегирован совместимому мосту tools/claude-invoke.js → providers.js.
 # Промпт/схема идут в JSON-дескрипторе через временный файл (без argv вообще) — до node
 # долетает только путь к файлу, простая строка без единой кавычки внутри.
-$claudeInvoke = Join-Path $PSScriptRoot "claude-invoke.js"
-function Invoke-Claude {
+$agentInvoke = Join-Path $PSScriptRoot "claude-invoke.js"
+function Invoke-Agent {
   param(
+    [string]$Provider,
     [string]$Prompt,
     [string]$LogPath,
     [string]$Model = $null,
@@ -84,11 +104,11 @@ function Invoke-Claude {
     [string]$Effort = $null,
     [string]$Phase = $null
   )
-  $desc = @{ prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath; effort = $Effort; phase = $Phase }
+  $desc = @{ provider = $Provider; prompt = $Prompt; cwd = (Get-Location).Path; model = $Model; jsonSchema = $JsonSchema; timeoutMs = $TimeoutMs; logPath = $LogPath; effort = $Effort; phase = $Phase }
   $descFile = [System.IO.Path]::GetTempFileName()
   try {
     ($desc | ConvertTo-Json -Depth 6 -Compress) | Out-File -FilePath $descFile -Encoding utf8
-    return (& node $claudeInvoke $descFile 2>$null | Out-String)
+    return (& node $agentInvoke $descFile 2>$null | Out-String)
   } finally {
     Remove-Item -Path $descFile -ErrorAction SilentlyContinue
   }
@@ -111,7 +131,11 @@ function Park-Slice {
     Write-Host "elt-loop: git stash вернул $LASTEXITCODE — дерево НЕ откачено, СТОП (правки $Ids загрязнили бы следующий слайс)."
     return $false
   }
-  & node $eltCli park --task $Ids --reason $Reason --log $LogPath | Out-Null
+  if ($SpecDir -ne "") {
+    & node $eltCli park --task $Ids --reason $Reason --log $LogPath --spec $SpecDir | Out-Null
+  } else {
+    & node $eltCli park --task $Ids --reason $Reason --log $LogPath | Out-Null
+  }
   if ($LASTEXITCODE -ne 0) {
     # Парковка не записалась → `slice next` снова отдаст этот же слайс, и петля будет
     # молотить его до конца бюджета. Это поломка харнесса, а не слайса — жёсткий стоп.
@@ -183,7 +207,7 @@ try {
 
     # 2.2 watchdog между слайсами (009 T008): детекторы поверх run-log/parked/config,
     # решения — из закрытого списка. `park` и `judge-fallback` применяются; `cooldown`
-    # драйвер применить НЕ МОЖЕТ (у него один имплементатор — claude, цепочки нет), поэтому
+    # драйвер применить НЕ МОЖЕТ (у него один writer, цепочки нет), поэтому
     # он его не молча глотает, а печатает и пишет в run-log: инцидент виден, действие честно
     # помечено неприменимым. ponytail: появится -Worker с цепочкой — здесь и переключать.
     # --judge-provider — ТЕКУЩИЙ судья прогона (флаг запуска или уже применённый фолбэк),
@@ -209,7 +233,7 @@ try {
         }
         elseif ($a.action -eq "cooldown") {
           # Маршрут в решении есть только у subject=judge (цепочка судей). Имплементатор
-          # у драйвера один (claude, цепочки нет), поэтому cooldown на него применить нечем:
+          # у драйвера один writer (цепочки нет), поэтому cooldown на него применить нечем:
           # пишем явный noop, а не глотаем решение молча.
           if ($a.subject -eq "judge" -and $a.from -eq $JudgeProvider -and $a.to) {
             Write-Host "elt-loop: watchdog — судья $($a.from) в лимите, увожу на $($a.to)."
@@ -224,7 +248,11 @@ try {
         }
         elseif ($a.action -eq "park" -and $a.from) {
           Write-Host "elt-loop: watchdog — $($a.from) повторно красный, паркую без новой попытки."
-          & node $eltCli park --task $a.from --reason $a.reason | Out-Null
+          if ($SpecDir -ne "") {
+            & node $eltCli park --task $a.from --reason $a.reason --spec $SpecDir | Out-Null
+          } else {
+            & node $eltCli park --task $a.from --reason $a.reason | Out-Null
+          }
           if ($LASTEXITCODE -eq 0) { $watchAcked += $a.key; $watchParked += ($a.from -split ',') }
           else { Write-Host "elt-loop: watchdog — парковка $($a.from) НЕ удалась (exit $LASTEXITCODE), решение остаётся неподтверждённым." }
         }
@@ -259,25 +287,28 @@ try {
       break
     }
 
-    # 3-4. имплементатор: СВЕЖИЙ claude на КАЖДУЮ задачу батча (анти-context-rot),
+    # 3-4. writer: свежий Antigravity на КАЖДУЮ задачу батча (анти-context-rot),
     # но гейт (шаги 5-7) один на весь батч.
     $logTag = ($picked | ForEach-Object { $_.id }) -join '-'
     $implLog  = Join-Path $logDir ("{0}-{1}-impl.log"  -f (Ts), $logTag)
-    $judgeLog = Join-Path $logDir ("{0}-{1}-judge.log" -f (Ts), $logTag)
 
     foreach ($p in $picked) {
       $pid_ = $p.id; $ptext = $p.text
       # Дерево уже содержит незакоммиченную работу предыдущих задач батча — имплементатор
       # обязан её НЕ трогать, иначе батч съедает сам себя (первая задача откатывается второй).
       $batchNote = if ($picked.Count -gt 1) { "`nВ рабочем дереве уже есть НЕЗАКОММИЧЕННЫЕ правки предыдущих задач этого батча ($id) — не откатывай и не переписывай их, дополняй." } else { "" }
-      # 009 T006: промпт v2 — сначала РАЗВЕДКА, потом решение, запреты в конце. Замер 24.07:
+      # Промпт v3 — agy сначала делает разведку, потом пишет код; текущая поверхность проверяет.
       # имплементатор жёг 52 turns и до 205K контекста на слепой Read (codegraph — 0.4% вызовов),
       # потому что промпт открывался запретами и «сделай минимально» — то есть требованием
       # действия до понимания. Порядок секций здесь и есть механизм: разведка названа первой
       # и явно перечислена (зона, спека, существующие тесты), запреты не убраны, а сдвинуты.
       $psize = if ($ptext -match '\[(S|M|L)\]') { $matches[1] } else { $null }
+      $agySkillNote = if ($WriterProvider -eq "agy") {
+        "ОБЯЗАТЕЛЬНО до работы прочитай C:\Users\user\.gemini\skills\elt\SKILL.md и следуй ему: Antigravity не загружает этот skill автоматически."
+      } else { "" }
       $implPrompt = @"
 Ты выполняешь ОДИН слайс spec-driven плана. Задача ${pid_}: ${ptext}.
+$agySkillNote
 
 1. СНАЧАЛА РАЗБЕРИСЬ (до единой правки):
    - зона задачи: посмотри её через codegraph (codegraph_context по теме задачи, codegraph_explore по символам зоны) — это индекс, он дешевле чтения файлов целиком;
@@ -299,8 +330,8 @@ try {
       }
       # Эффорт резолвит effort-policy.js (единый источник уровней), драйвер лишь передаёт тег.
       $implEffort = (& node -e "process.stdout.write(require(process.argv[1]).effortFor('impl', process.argv[2]))" (Join-Path $PSScriptRoot "fleet/effort-policy.js") "$psize")
-      Write-Host "elt-loop: имплементатор $pid_ (тег '$psize', эффорт $implEffort)…"
-      Invoke-Claude -Prompt $implPrompt -LogPath $implLog -Phase "impl" -Effort $implEffort | Out-Null
+      Write-Host "elt-loop: writer $WriterProvider/$WriterModel — $pid_ (тег '$psize', эффорт $implEffort)…"
+      Invoke-Agent -Provider $WriterProvider -Model $WriterModel -Prompt $implPrompt -LogPath $implLog -Phase "impl" -Effort $implEffort | Out-Null
     }
     if ($DryRun) {
       Write-Host "[DryRun] оракул/судья/commit пропущены. Одна итерация — стоп."
@@ -327,8 +358,8 @@ $errTail
 $tail
 Почини МИНИМАЛЬНО только то, на что указывает ошибка. Тесты не ослаблять и не удалять. НЕ коммить.
 "@
-        Write-Host "elt-loop: self-heal попытка $attempt/2 (эффорт $effort)…"
-        Invoke-Claude -Prompt $healPrompt -LogPath $implLog -Phase "heal" -Effort $effort | Out-Null
+        Write-Host "elt-loop: fixer $FixProvider/$FixModel, попытка $attempt/2 (эффорт $effort)…"
+        Invoke-Agent -Provider $FixProvider -Model $FixModel -Prompt $healPrompt -LogPath $implLog -Phase "heal" -Effort $effort | Out-Null
         & node $eltCli oracle
         Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "heal"; healAttempt = $attempt; effort = $effort; oracle = @{ exit = $LASTEXITCODE } }
         if ($LASTEXITCODE -eq 0) { $healed = $true; break }
@@ -341,12 +372,13 @@ $tail
       }
     }
 
-    # 6. СУДЬЯ (обязателен, REJECT-default) — делегирован в tools/judge-invoke.js → gate.runJudge().
-    # T002 (004-elt-selfdrive): inline-PS парсинг раньше НЕ отличал «судья не отработал»
-    # (пустой вывод/timeout/spawn-fail) от block → REJECT-default оставлял $verdict="block" →
-    # judge-block, неотличимо от реального reject (баг 3e73423 — судья молча блокировал ВСЁ).
-    # Теперь runOk:false = judge-dead (ERROR-STOP), а не тихий block. Один протестированный
-    # источник истины (gate.runJudge, инвариант runOk), а не хрупкий PS-дубль парсинга/рубрики.
+    # 6-7. СУДЬЯ + persist (обязателен, REJECT-default) — `elt judge run` (код elt.js), НЕ
+    # tools/judge-invoke.js + `judge-proof write` напрямую: при harness.json.judge.attest:true
+    # ручная запись вердикта отвергается БЕЗУСЛОВНО (elt.js "вердикт пишет только elt judge
+    # run" — обнаружено live 2026-08-05, драйвер стопался exit 4 на первом же слайсе на любом
+    # проекте с attest:true). `elt judge run` — тот же путь (тот же judge-invoke.js мост,
+    # gate.runJudge: рубрика, один judge, red-proof) и САМ пишет proof + run-log
+    # (pass/block/dead/inconclusive, l0-clean) — здесь дублировать нечего.
     $porcelain = (& git status --porcelain) -join "`n"
     if ([string]::IsNullOrWhiteSpace($porcelain)) {
       Write-Host "elt-loop: имплементатор ничего не изменил — нечего судить/коммитить."
@@ -354,52 +386,32 @@ $tail
       $parked += $picked.Count; $i += $picked.Count; continue
     }
     Write-Host "elt-loop: судья ($JudgeProvider/$JudgeModel)…"
-    # Дескриптор через файл (без argv-кавычек, PS5.1). judge-invoke сам грузит рубрику spec.md
-    # рядом с tasks.md слайса и строит промпт (gate.runJudge/loadRubric — уже под тестом).
-    $jDesc = @{ cwd = (Get-Location).Path; tid = $id; taskText = $text; provider = $JudgeProvider; model = $JudgeModel; specFile = $picked[0].file }
-    $jDescFile = [System.IO.Path]::GetTempFileName()
-    $judgeRaw = ""
-    try {
-      ($jDesc | ConvertTo-Json -Compress) | Out-File -FilePath $jDescFile -Encoding utf8
-      $judgeRaw = (& node (Join-Path $PSScriptRoot "judge-invoke.js") $jDescFile 2>$null | Out-String)
-    } finally {
-      Remove-Item -Path $jDescFile -ErrorAction SilentlyContinue
+    if ($SpecDir -ne "") {
+      & node $eltCli judge run --task $id --provider $JudgeProvider --model $JudgeModel --spec $SpecDir | Out-Null
+    } else {
+      & node $eltCli judge run --task $id --provider $JudgeProvider --model $JudgeModel | Out-Null
     }
-    $j = $null
-    try { $j = $judgeRaw | ConvertFrom-Json } catch { }
-    if (-not $j -or -not $j.runOk) {
-      # judge-dead: судья не отработал (нет JSON / runOk:false) — ERROR-STOP, НЕ молчаливый block.
-      $jl = if ($j) { $j.judgeLog } else { "(нет JSON от judge-invoke)" }
-      Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; result = "judge-dead"; judgeLog = $jl }
-      Write-Host "elt-loop: судья НЕ отработал (judge-dead) — НЕ коммичу. Лог: $jl"
-      if (-not (Park-Slice -Ids $id -Reason "judge-dead" -LogPath $jl)) { break }
-      $parked += $picked.Count; $i += $picked.Count; continue
+    $judgeExit = $LASTEXITCODE
+    # Вердикт/лог — из run-log.jsonl (elt judge run уже дописал последнюю строку туда),
+    # не из stdout: PS5.1 не маршалит stderr native-процесса в пайплайн надёжно (см. шапку
+    # файла), а run-log — тот же протестированный источник истины, что использует `elt stats`.
+    $jEntry = $null
+    if ($runLog -and (Test-Path $runLog)) {
+      try { $jEntry = (Get-Content $runLog -Tail 1 -Encoding utf8 | ConvertFrom-Json) } catch { }
     }
-    if ($j.verdict -ne "pass") {
-      Append-RunLog @{ ts = (Get-Date).ToString("o"); task = $id; verdict = "block"; result = "judge-block" }
-      Write-Host "elt-loop: судья BLOCK по $id — НЕ коммичу. Лог: $($j.judgeLog)"
-      if (-not (Park-Slice -Ids $id -Reason "judge-block" -LogPath $j.judgeLog)) { break }
+    $jl = if ($jEntry) { $jEntry.judgeLog } else { $null }
+    if ($judgeExit -ne 0) {
+      $reason = if ($jEntry -and $jEntry.verdict -eq "dead") { "judge-dead" } else { "judge-block" }
+      Write-Host "elt-loop: судья $reason по $id — НЕ коммичу. Лог: $jl"
+      if (-not (Park-Slice -Ids $id -Reason $reason -LogPath $jl)) { break }
       $parked += $picked.Count; $i += $picked.Count; continue
     }
 
-    # 7. Persist the judge result against this exact green-oracle tree, then commit.
-    # judges[]/grounding/redProof (008 T004) идут временным файлом, не argv — JSON с
-    # embedded-кавычками бьётся о тот же PS5.1 native-marshalling баг, что и Invoke-Claude
-    # выше (claude.exe/node.exe не маршалят `"` внутри аргумента корректно).
-    # reasons верхнего уровня — тем же файлом. Раньше здесь стоял литерал `--reasons-json "[]"`,
-    # и обоснования живого судьи в пруф НЕ попадали: файл, ради которого весь протокол
-    # доказательности, был содержательно пуст (видно в proof T002/T003 — `"reasons": []`
-    # при судье с развёрнутым разбором).
-    $extra = @{ judges = $j.judges; grounding = $j.grounding; redProof = $j.redProof; reasons = $j.reasons }
-    $extraFile = [System.IO.Path]::GetTempFileName()
-    try {
-      ($extra | ConvertTo-Json -Compress -Depth 8) | Out-File -FilePath $extraFile -Encoding utf8
-      & node $eltCli judge-proof write --task $id --verdict pass --model $JudgeModel --extra-file $extraFile
-    } finally {
-      Remove-Item -Path $extraFile -ErrorAction SilentlyContinue
+    if ($SpecDir -ne "") {
+      & node $eltCli commit --task $id --skip-oracle --spec $SpecDir
+    } else {
+      & node $eltCli commit --task $id --skip-oracle
     }
-    if ($LASTEXITCODE -ne 0) { Write-Error "judge proof вернул $LASTEXITCODE"; break }
-    & node $eltCli commit --task $id --skip-oracle
     if ($LASTEXITCODE -ne 0) { Write-Error "elt commit вернул $LASTEXITCODE"; break }
     $done += $picked.Count; $committed++
     $i += $picked.Count

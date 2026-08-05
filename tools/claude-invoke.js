@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// claude-invoke.js — мост elt-loop.ps1 → tools/fleet/providers.js:run().
+// claude-invoke.js — совместимое имя универсального моста elt-loop.ps1 → providers.run().
 //
 // Почему это существует: Windows PowerShell 5.1 (`& $exe @ArgsArray`) не умеет
 // корректно маршалить argv-элементы с embedded `"` в нативный .exe — отдельный,
@@ -32,6 +32,7 @@ async function main() {
   // JSON.parse иначе падает на U+FEFF в начале файла, до всякого спавна claude.
   const desc = JSON.parse(fs.readFileSync(descPath, 'utf8').replace(/^﻿/, ''));
   const {
+    provider = 'claude',
     prompt = '',
     cwd = process.cwd(),
     model = null,
@@ -48,11 +49,9 @@ async function main() {
   // ни другого → null (флаг не добавится, старое поведение). Единый источник — effort-policy.js.
   const resolvedEffort = effort || (phase ? effortFor(phase) : null);
 
-  // lean:false — сохраняем поведение elt-loop.ps1 ДО этого фикса (полный
-  // контекст: skills/MCP/hooks/CLAUDE.md). providers.run() по умолчанию
-  // включает lean (--safe-mode) для fleet-воркеров — здесь это был бы
-  // незапрошенный побочный эффект, искажающий A/B-сравнение fleet vs solo.
-  const r = await run({ provider: 'claude', prompt, cwd, model, jsonSchema, timeoutMs, lean: false, effort: resolvedEffort, sessionId, resume });
+  // Solo-driver передаёт явную роль (agy writer; claude/codex fixer). lean:false сохраняет
+  // проектные AGENTS/GEMINI/CLAUDE инструкции; это не изолированный fleet-worker.
+  const r = await run({ provider, prompt, cwd, model, jsonSchema, timeoutMs, lean: false, effort: resolvedEffort, sessionId, resume });
 
   // Append, не overwrite: сохраняет старую семантику elt-loop.ps1 (self-heal дописывался
   // в тот же $implLog, что и имплементатор). Для свежего logPath (implLog/judgeLog в первый
