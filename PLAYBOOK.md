@@ -24,6 +24,8 @@ node "$env:USERPROFILE\.claude\bin\elt.js" commit --task T001 --spec specs/NNN-n
 
 Послідовний драйвер — дефолт. У prompt для `agy` драйвер явно вимагає прочитати `C:\Users\user\.gemini\skills\elt\SKILL.md`, бо Antigravity не завантажує цей skill сам.
 
+В Antigravity IDE достатньо `/elt <задача>`: глобальний workflow з `~/.gemini/config/global_workflows/elt.md` відкриває цей skill і запускає той самий драйвер. За замовчуванням зовнішній fixer/judge — Codex; `reviewer Claude` у запиті перемикає його на Claude.
+
 ```powershell
 # робота з Claude Code
 powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider claude -JudgeModel sonnet

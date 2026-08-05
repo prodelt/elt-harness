@@ -346,6 +346,37 @@ process.stdout.write('\n[Suite 6b] CLI --skill — isolated HOME\n');
   cleanup(tmp);
 }
 
+// Suite 6c: the existing ELT sync command also installs Antigravity IDE's native /elt workflow.
+process.stdout.write('\n[Suite 6c] Antigravity IDE /elt global workflow\n');
+{
+  tmp = makeTmpDir();
+  const claude = path.join(tmp, '.claude', 'skills');
+  const gemini = path.join(tmp, '.gemini', 'skills');
+  fs.mkdirSync(claude, { recursive: true });
+  fs.mkdirSync(gemini, { recursive: true });
+  makeSkillDir(claude, 'elt', { 'SKILL.md': 'v3' });
+
+  const command = [path.join(__dirname, 'sync-agent-surface.js'),
+    '--apply', '--force', '--target', 'gemini', '--skill', 'elt', '--json'];
+  const env = { ...process.env, HOME: tmp, USERPROFILE: tmp };
+  const first = spawnSync(process.execPath, command, { encoding: 'utf8', env });
+  const workflow = path.join(tmp, '.gemini', 'config', 'global_workflows', 'elt.md');
+  assert(first.status === 0, `workflow install exits 0: ${first.stderr}`);
+  assert(fs.existsSync(workflow), 'Antigravity global /elt workflow is installed');
+  assertEqual(
+    fs.readFileSync(workflow, 'utf8'),
+    fs.readFileSync(path.join(__dirname, '..', 'config', 'antigravity-elt-workflow.md'), 'utf8'),
+    'installed workflow matches tracked source'
+  );
+
+  const second = spawnSync(process.execPath,
+    [path.join(__dirname, 'sync-agent-surface.js'), '--dry-run', '--target', 'gemini', '--skill', 'elt', '--json'],
+    { encoding: 'utf8', env });
+  const secondReport = second.status === 0 ? JSON.parse(second.stdout) : null;
+  assertEqual(secondReport && secondReport.antigravityWorkflow.status, 'up-to-date', 'second sync reports workflow up-to-date');
+  cleanup(tmp);
+}
+
 // Suite 7: applySync — copies missing skills
 process.stdout.write('\n[Suite 7] applySync — copies missing skills\n');
 {

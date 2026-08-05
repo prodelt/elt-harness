@@ -18,6 +18,8 @@ const os = require('os');
 const crypto = require('crypto');
 
 const HOME = os.homedir();
+const ANTIGRAVITY_ELT_WORKFLOW_SOURCE = path.resolve(__dirname, '..', 'config', 'antigravity-elt-workflow.md');
+const ANTIGRAVITY_ELT_WORKFLOW_TARGET = path.join(HOME, '.gemini', 'config', 'global_workflows', 'elt.md');
 
 const CLIENTS = {
   claude: path.join(HOME, '.claude', 'skills'),
@@ -103,6 +105,24 @@ function assertInside(parentDir, childPath) {
   }
 }
 
+function analyzeAntigravityEltWorkflow(opts = {}) {
+  if (!['all', 'gemini'].includes(opts.target || 'gemini')) return null;
+  if (opts.skill && opts.skill !== 'elt') return null;
+  if (!fs.existsSync(ANTIGRAVITY_ELT_WORKFLOW_SOURCE)) {
+    return { status: 'source-missing', source: ANTIGRAVITY_ELT_WORKFLOW_SOURCE, target: ANTIGRAVITY_ELT_WORKFLOW_TARGET };
+  }
+  if (!fs.existsSync(ANTIGRAVITY_ELT_WORKFLOW_TARGET)) {
+    return { status: 'missing', source: ANTIGRAVITY_ELT_WORKFLOW_SOURCE, target: ANTIGRAVITY_ELT_WORKFLOW_TARGET };
+  }
+  const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(ANTIGRAVITY_ELT_WORKFLOW_SOURCE)).digest('hex');
+  const targetHash = crypto.createHash('sha256').update(fs.readFileSync(ANTIGRAVITY_ELT_WORKFLOW_TARGET)).digest('hex');
+  return {
+    status: sourceHash === targetHash ? 'up-to-date' : 'conflict',
+    source: ANTIGRAVITY_ELT_WORKFLOW_SOURCE,
+    target: ANTIGRAVITY_ELT_WORKFLOW_TARGET,
+  };
+}
+
 // ── analysis ─────────────────────────────────────────────────────────────────
 
 function analyzeTarget(targetName, targetDir, sourceSkills, sourceDir, opts = {}) {
@@ -175,7 +195,12 @@ function analyzeAll(opts = {}) {
     results[t] = result;
   }
 
-  return { source: 'claude', sourceSkillCount: sourceSkills.length, results };
+  return {
+    source: 'claude',
+    sourceSkillCount: sourceSkills.length,
+    results,
+    antigravityWorkflow: analyzeAntigravityEltWorkflow(opts),
+  };
 }
 
 // ── apply ─────────────────────────────────────────────────────────────────────
@@ -215,6 +240,22 @@ function applySync(analysis, opts = {}) {
     }
   }
 
+  const workflow = analysis.antigravityWorkflow;
+  if (workflow && workflow.status !== 'up-to-date') {
+    if (workflow.status === 'missing' || (workflow.status === 'conflict' && opts.force)) {
+      try {
+        assertInside(path.dirname(workflow.target), workflow.target);
+        fs.mkdirSync(path.dirname(workflow.target), { recursive: true });
+        fs.copyFileSync(workflow.source, workflow.target);
+        applied.push({ target: 'gemini', skill: 'elt', artifact: 'global-workflow', action: 'copied' });
+      } catch (err) {
+        errors.push({ target: 'gemini', skill: 'elt', artifact: 'global-workflow', error: err.message });
+      }
+    } else if (workflow.status === 'source-missing') {
+      errors.push({ target: 'gemini', skill: 'elt', artifact: 'global-workflow', error: `source missing: ${workflow.source}` });
+    }
+  }
+
   return { applied, errors };
 }
 
@@ -242,6 +283,10 @@ function printReport(analysis, applyResult) {
     if (r.extra.length) {
       console.log(`  Target-only extras: ${r.extra.join(', ')}`);
     }
+  }
+
+  if (analysis.antigravityWorkflow) {
+    console.log(`\n[ANTIGRAVITY IDE]\n  /elt global workflow: ${analysis.antigravityWorkflow.status}`);
   }
 
   if (applyResult) {
@@ -287,6 +332,7 @@ function main() {
     source: analysis.source,
     sourceSkillCount: analysis.sourceSkillCount,
     results: analysis.results,
+    antigravityWorkflow: analysis.antigravityWorkflow,
     ...(applyResult ? { applied: applyResult } : {}),
   };
 
