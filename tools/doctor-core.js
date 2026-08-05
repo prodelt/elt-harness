@@ -429,7 +429,11 @@ function checkSurfaceSync(root) {
     const details = targets.map(([t, r]) => r.conflicts && r.conflicts.length ? `${t}:${r.conflicts.map((c) => c.skill).join(',')}` : null).filter(Boolean).join(' | ');
     return [result('warn', 'surface:sync', `Skill versions diverge across claude/codex/gemini — ${conflictTotal} conflict(s)`, details, 'Compare version: frontmatter, then node tools/sync-agent-surface.js --apply --target all --force to re-sync intentionally.')];
   }
-  return [result('pass', 'surface:sync', 'Skill surface sync OK', 'all targets in sync')];
+  const workflow = data.antigravityWorkflow;
+  if (workflow && workflow.status !== 'up-to-date') {
+    return [result('warn', 'surface:sync', `Antigravity IDE /elt workflow: ${workflow.status}`, workflow.target || '', 'Run node tools/sync-agent-surface.js --apply --force --target gemini --skill elt')];
+  }
+  return [result('pass', 'surface:sync', 'Skill surface sync OK', 'all targets and Antigravity /elt workflow in sync')];
 }
 
 function supplyChainTargets(manifest, audit) {
