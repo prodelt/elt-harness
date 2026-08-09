@@ -31,6 +31,13 @@ function validateHarnessConfig(config) {
   if (config.verify !== undefined && !VERIFY_MODES.has(config.verify)) {
     errors.push(`verify must be one of: ${[...VERIFY_MODES].join(', ')}`);
   }
+  // 014 T008: сколько ждать фоновый вердикт, прежде чем молчание считать инцидентом. Ноль или
+  // отрицательное значило бы «каждый спекулятивный коммит немедленно bg-silent» — это не
+  // «выключить детектор», а сломать его, поэтому падаем на конфиге.
+  if (config.backgroundTimeoutMin !== undefined
+      && (typeof config.backgroundTimeoutMin !== 'number' || !(config.backgroundTimeoutMin > 0))) {
+    errors.push('backgroundTimeoutMin must be a positive number of minutes');
+  }
   if (!config.judge || typeof config.judge !== 'object' || Array.isArray(config.judge)) {
     errors.push('judge must be an object');
   } else {
@@ -78,6 +85,16 @@ function verifyMode(root) {
   } catch { return 'sync'; }
 }
 
+// 014 T008 — сколько минут молчания фона считать инцидентом. Дефолт 20: полный сьют этого
+// репо в фоне ≈ 200 c, двадцатикратный запас отделяет «долго» от «умер».
+const BACKGROUND_TIMEOUT_MIN_DEFAULT = 20;
+function backgroundTimeoutMin(root) {
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).backgroundTimeoutMin;
+    return typeof v === 'number' && v > 0 ? v : BACKGROUND_TIMEOUT_MIN_DEFAULT;
+  } catch { return BACKGROUND_TIMEOUT_MIN_DEFAULT; }
+}
+
 function readHarnessConfig(root) {
   const file = path.join(root, '.harness', 'harness.json');
   let config;
@@ -90,4 +107,5 @@ function readHarnessConfig(root) {
 module.exports = {
   readHarnessConfig, validateHarnessConfig, judgeSettings, verifySettings, JUDGE_PROVIDERS, JUDGE_DEFAULTS,
   verifyMode, VERIFY_MODES,
+  backgroundTimeoutMin, BACKGROUND_TIMEOUT_MIN_DEFAULT,
 };

@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { runtimeRunLog } = require('./run-log');
 const { classifyBlockSource } = require('./elt-stats');
+const { backgroundTimeoutMin } = require('./elt-config');
 
 const DEFAULTS = { window: 50, staleParkHours: 24, pollMs: 5000, oracleSlowFactor: 3, minOracleSamples: 5, blockPatternMin: 3 };
 
@@ -176,6 +177,24 @@ function detectBlockPattern(entries, opts) {
   return out;
 }
 
+// 014 T008 (AC6): тихая смерть фона — сама инцидент. `judge-dead` и `timeout` дают ОТСУТСТВИЕ
+// вердикта, а не красное: очередь `bg-red` пуста, и это выглядит как «всё хорошо». Значит
+// смотрим не на красное, а на пару: спекулятивный коммит (`committed-speculative`, 014 T005)
+// без парной записи `background-verify-*` по тому же хешу дольше `backgroundTimeoutMin`.
+// Идемпотентность — по хешу коммита в `key`: он не меняется, сколько бы раз watchdog ни бегал
+// (`ts` записи взять было бы нельзя — тот же коммит дал бы новый key на каждом прогоне).
+function detectBgSilent(entries, opts, now) {
+  const verified = new Set(entries
+    .filter((e) => typeof statusOf(e) === 'string' && statusOf(e).startsWith('background-verify'))
+    .map((e) => e.commit));
+  const limitMs = opts.backgroundTimeoutMin * 60000;
+  return entries.filter((e) => statusOf(e) === 'committed-speculative' && e.commit
+    && !verified.has(e.commit) && now - Date.parse(e.ts) > limitMs).map((e) => ({
+    kind: 'bg-silent', key: `bg-silent:${e.commit}`, task: e.task || null, commit: e.commit,
+    detail: `спекулятивный коммит ${e.commit} без фонового вердикта дольше ${opts.backgroundTimeoutMin} мин`,
+  }));
+}
+
 function detectStalePark(parked, opts, now) {
   const limitMs = opts.staleParkHours * 3600 * 1000;
   return parked.filter((p) => {
@@ -290,10 +309,14 @@ function excludeHealth(root) {
 }
 
 function detect(root, options = {}) {
-  const opts = { ...DEFAULTS, ...options };
+  // 014 T008: порог молчания живёт в harness.json проекта (там же, где `verify`), а не в
+  // DEFAULTS — иначе проект с медленным сьютом не мог бы его поднять, не правя код харнесса.
+  // options по-прежнему главнее: тесты и разовые прогоны задают его напрямую.
+  const opts = { backgroundTimeoutMin: backgroundTimeoutMin(root), ...DEFAULTS, ...options };
   const now = opts.now || Date.now();
   const entries = readEntries(root).slice(-opts.window);
   return [
+    ...detectBgSilent(entries, opts, now),
     ...detectLimitStreak(entries),
     ...detectRedRepeat(entries),
     ...detectJudgeDeadStreak(entries),
