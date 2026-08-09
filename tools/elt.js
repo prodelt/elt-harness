@@ -1048,8 +1048,10 @@ if (cmd === 'commit') {
   // spec while an earlier one still has open boxes could never be gated (or
   // never be committable at all).
   let approvalSkipped = false;
+  // 014 T022: binding снимается ЗДЕСЬ, до markDone() — findTaskBinding ищет только открытые
+  // `[ ]`, и после простановки `[X]` вернул бы null. Фоновому судье он нужен ниже.
+  const binding = findTaskBinding(taskId);
   {
-    const binding = findTaskBinding(taskId);
     const specDir = binding ? path.dirname(path.join(cwd, binding.specPath)) : null;
     const gate = specApprovalGateFor(cfg, specDir);
     if (gate.blocked) {
@@ -1145,7 +1147,15 @@ if (cmd === 'commit') {
   // синхронное (run-log, watchdog) уже записано; commit не ждёт его результата.
   if (bgVerify) {
     const { spawnBackgroundVerify } = require('./elt-verify-bg');
-    const bg = spawnBackgroundVerify({ cwd, commitHash: sha, taskId });
+    // 014 T022: фоновому судье нужны ТЕ ЖЕ два входа, что и синхронному, — путь к tasks.md
+    // слайса (иначе findSpecDir берёт первый попавшийся `**Txxx**` по всем specs/ и подсовывает
+    // чужую рубрику, gate.js:166) и текст задачи (в нём `[files:]`, зона scope-триггера L0).
+    // texts[0] — полный текст задачи; msg-переменная выше обрезана до 90 символов и не годится.
+    const bg = spawnBackgroundVerify({
+      cwd, commitHash: sha, taskId,
+      specFile: binding ? binding.specPath : null,
+      taskText: texts.join('\n'),
+    });
     console.error(`elt commit: фон запущен (pid ${bg.pid}, лог ${bg.logPath})`);
   }
 

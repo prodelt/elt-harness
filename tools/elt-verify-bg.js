@@ -76,14 +76,29 @@ function cleanupWorktree(cwd, commitHash) {
 
 // Родитель (elt.js commit): отправляет фон и НЕ ждёт его — `unref()` снимает child с event loop
 // родителя, поэтому `process.exit()` в elt.js не убивает уже отсоединённый (`detached`) child.
-function spawnBackgroundVerify({ cwd, commitHash, taskId }) {
+// 014 T022: рубрика и зона слайса едут в фон ЧЕРЕЗ ENV, не argv — argv здесь фиксирован
+// ([--run, hash, task]) и не переживёт многострочный taskText, а тот же приём уже держит
+// ELT_VERIFY_BG_ORACLE_CMD. Пустые значения не пишем: пустая строка в env неотличима от
+// «передали пустое», и findSpecDir тогда молча вернулся бы к слепому поиску.
+function bgChildEnv({ specFile, taskText }, base = process.env) {
+  return {
+    ...base,
+    ...(specFile ? { ELT_VERIFY_BG_SPEC_FILE: specFile } : {}),
+    ...(taskText ? { ELT_VERIFY_BG_TASK_TEXT: taskText } : {}),
+  };
+}
+function bgChildContextFromEnv(env = process.env) {
+  return { specFile: env.ELT_VERIFY_BG_SPEC_FILE || null, taskText: env.ELT_VERIFY_BG_TASK_TEXT || '' };
+}
+
+function spawnBackgroundVerify({ cwd, commitHash, taskId, specFile = null, taskText = '' }) {
   fs.mkdirSync(path.join(cwd, BG_LOG_DIR), { recursive: true });
   const logPath = path.join(cwd, BG_LOG_DIR, `bg-${commitHash}.log`);
   const logFd = fs.openSync(logPath, 'a');
   const child = spawn(
     process.execPath,
     [__filename, '--run', commitHash, taskId || ''],
-    { cwd, stdio: ['ignore', logFd, logFd], detached: true },
+    { cwd, stdio: ['ignore', logFd, logFd], detached: true, env: bgChildEnv({ specFile, taskText }) },
   );
   child.unref();
   fs.closeSync(logFd);
@@ -127,14 +142,22 @@ function commitFiles(cwd, commitHash) {
 // HEAD` (gate.slurpDiff) пуст — судья получил бы пустой слайс и отверг его по REJECT-default.
 // `reset --soft HEAD~1` сдвигает HEAD на родителя, оставляя содержимое коммита в дереве: ровно
 // тот дифф, который судья и должен читать. Worktree одноразовый и detached — портить нечего.
-async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText }) {
+// 014 T022 (дефект, найденный САМИМ контуром на T016/T017): без specFile `findSpecDir` ищет
+// `**Txxx**` по всем specs/ и берёт ПЕРВЫЙ файл — ровно коллизия, описанная в gate.js:166.
+// T016/T017 спеки 014 получили рубрику из specs/002-elt-fleet и были заблокированы «не по той
+// задаче». Без taskText молчит и scope-триггер L0 (011 T024 берёт зону из `[files:]`).
+// Оба поля есть у `elt commit` в момент запуска фона — их надо просто донести.
+async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile = null, judgeImpl = null }) {
   const back = spawnSync('git', ['reset', '--soft', 'HEAD~1'], { cwd: wt, encoding: 'utf8' });
   if (back.status !== 0) return { verdict: 'dead', reasons: [`reset --soft не удался: ${back.stderr || back.stdout}`] };
   const cfg = harnessField(cwd, 'judge') || {};
-  const { runJudge } = require('./fleet/gate');
+  const runJudge = judgeImpl || require('./fleet/gate').runJudge;
   try {
     const r = await runJudge({
       cwd: wt, tid: taskId || commitHash, taskText: taskText || '',
+      // specFile — путь к tasks.md спеки слайса ОТНОСИТЕЛЬНО основного дерева; резолвится он в
+      // worktree (cwd: wt), где лежит тот же коммит, поэтому относительный путь и корректен.
+      specFile,
       provider: cfg.provider || 'claude', model: cfg.model || 'sonnet',
     });
     // 014 решение 4: судья, который НЕ отработал, — отсутствие вердикта, а не красное. Красным
@@ -150,7 +173,7 @@ async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText }) {
 // Тело фонового процесса. Вынесено из require.main-ветки, чтобы тест мог прогнать его
 // напрямую (без реального spawn — детство «медленный тест = никто не гоняет» здесь неуместно;
 // у самого T005 уже есть кэш оракула T001, но интеграционный прогон всё равно не бесплатен).
-async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, oracleCmd = 'node tools/elt-oracle-runner.js --full' }) {
+async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile = null, judgeImpl = null, oracleCmd = 'node tools/elt-oracle-runner.js --full' }) {
   const started = Date.now();
   const wt = ensureWorktree(cwd, commitHash);
   const on = enabledLayers(cwd);
@@ -191,7 +214,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, oracleCm
   });
   if (on.has('judge')) {
     const t = Date.now();
-    const j = await runJudgeLayer({ cwd, wt, commitHash, taskId, taskText });
+    const j = await runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile, judgeImpl });
     sections.push({ layer: 'judge', verdict: j.verdict, red: j.verdict === 'block',
       reason: j.verdict === 'block' ? `судья: ${(j.reasons || []).join('; ')}` : null,
       durationSec: (Date.now() - t) / 1000 });
@@ -233,7 +256,8 @@ if (require.main === module) {
   // сам spawn (доказывал бы мок, не реальный отсоединённый процесс). env, не argv — тот же
   // приём, что у ELT_ORACLE_JOBS (elt-oracle-runner.js): argv фиксирован ([--run, hash, task]).
   const oracleCmd = process.env.ELT_VERIFY_BG_ORACLE_CMD || undefined;
-  runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, ...(oracleCmd ? { oracleCmd } : {}) })
+  const { specFile, taskText } = bgChildContextFromEnv();
+  runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, specFile, taskText, ...(oracleCmd ? { oracleCmd } : {}) })
     .then(({ exit }) => process.exit(exit))
     .catch((e) => { process.stderr.write(`elt-verify-bg: ${e.stack || e.message}\n`); process.exit(1); });
 }
@@ -242,4 +266,5 @@ module.exports = {
   spawnBackgroundVerify, runBackgroundVerify, BG_LOG_DIR,
   ensureWorktree, cleanupWorktree, worktreePath, WT_ROOT,
   enqueueBgRed, REVIEW_QUEUE, LAYERS, enabledLayers,
+  bgChildEnv, bgChildContextFromEnv, runJudgeLayer,
 };
