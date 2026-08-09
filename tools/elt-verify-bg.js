@@ -29,6 +29,23 @@ const runLog = require('./run-log');
 
 const BG_LOG_DIR = path.join('.harness', 'loop-logs'); // уже в .gitignore (соседи 011 T012/judge-bench)
 const WT_ROOT = '.fleet-wt';
+const REVIEW_QUEUE = path.join('.harness', 'review-queue.jsonl');
+
+// 014 T007 (AC5): красный фон — задача в очередь, НЕ блок. Пишем в ту же
+// `.harness/review-queue.jsonl`, что и `inconclusive` (011 T012): второго механизма не
+// заводить — иначе разбор красного зависел бы от того, какой слой его нашёл. `kind:"bg-red"`
+// отличает запись от inconclusive-строк (у тех поля kind нет — старые не размечаем).
+// `elt review close --task` работает без правок: строка несёт `task`.
+function enqueueBgRed(cwd, { task, commit, layer, reason, logPath }) {
+  const queue = path.join(cwd, REVIEW_QUEUE);
+  fs.mkdirSync(path.dirname(queue), { recursive: true });
+  const row = {
+    kind: 'bg-red', task: task || null, commit, layer, reason,
+    logPath, ts: new Date().toISOString(),
+  };
+  fs.appendFileSync(queue, JSON.stringify(row) + '\n');
+  return row;
+}
 
 function worktreePath(cwd, commitHash) { return path.join(cwd, WT_ROOT, `bg-${commitHash}`); }
 
@@ -90,6 +107,16 @@ function runBackgroundVerify({ cwd, commitHash, taskId, oracleCmd = 'node tools/
   // Убирается независимо от вердикта — «остаётся» относится к отказу самого remove, не к
   // красному оракулу (иначе .fleet-wt/ пух бы одним каталогом на каждый красный слайс).
   const cleanup = cleanupWorktree(cwd, commitHash);
+  // AC5: красное не роняет и не откатывает чужую работу — оно становится строкой в очереди.
+  // logPath детерминирован от хеша (тот же, что открыл `spawnBackgroundVerify`), поэтому его
+  // не надо протаскивать через argv отсоединённого процесса.
+  if (exit !== 0) {
+    enqueueBgRed(cwd, {
+      task: taskId || null, commit: commitHash, layer: 'suite',
+      reason: `фоновый слой suite: exit ${exit}`,
+      logPath: path.join(BG_LOG_DIR, `bg-${commitHash}.log`),
+    });
+  }
   runLog.appendRunLog(cwd, {
     task: taskId || null,
     commit: commitHash,
@@ -119,4 +146,5 @@ if (require.main === module) {
 module.exports = {
   spawnBackgroundVerify, runBackgroundVerify, BG_LOG_DIR,
   ensureWorktree, cleanupWorktree, worktreePath, WT_ROOT,
+  enqueueBgRed, REVIEW_QUEUE,
 };

@@ -691,7 +691,12 @@ if (cmd === 'review') {
   if (flag('--json')) { console.log(JSON.stringify(open)); process.exit(0); }
   if (!open.length) { console.log('elt review: очередь пуста'); process.exit(0); }
   console.log(`elt review: ${open.length} на разборе`);
-  for (const row of open) console.log(`  ${row.task}  ${row.commit}  ${row.ts}\n    ${row.reason}`);
+  // 014 T007: у записей `bg-red` есть слой и лог — без них строка «фон покраснел» неразбираема.
+  for (const row of open) {
+    const kind = row.kind ? `[${row.kind}${row.layer ? `/${row.layer}` : ''}] ` : '';
+    console.log(`  ${kind}${row.task}  ${row.commit}  ${row.ts}\n    ${row.reason}`
+      + (row.logPath ? `\n    лог: ${row.logPath}` : ''));
+  }
   process.exit(0);
 }
 

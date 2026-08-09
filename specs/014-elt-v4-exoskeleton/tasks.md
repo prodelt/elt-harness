@@ -102,7 +102,7 @@ C наполняет фон, D замыкает петлю, E раскатыва
   [files: tools/elt-verify-bg.js, tools/elt-verify-bg.test.js]
   [AC4]
 
-- [ ] **T007** Красный фон → задача в очередь, не блок.
+- [X] **T007** Красный фон → задача в очередь, не блок.
   Запись `kind: "bg-red"` в существующую `.harness/review-queue.jsonl` (011 T012): task, commit,
   слой (`suite`/`mutate`/`smoke`/`judge`), причина, путь к логу. `elt review` показывает и
   закрывает. Второго механизма не заводить.

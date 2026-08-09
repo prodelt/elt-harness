@@ -85,6 +85,60 @@ test('review close: без --task — явный отказ, а не тихое 
   assert.deepEqual(openRows(root).map((x) => x.task), ['T001'], 'ничего не тронуто');
 });
 
+// --- 014 T007 (AC5): красный фон → задача в ту же очередь, не блок ------------------
+
+const { enqueueBgRed, runBackgroundVerify } = require('./elt-verify-bg');
+
+// Минимальный git-репозиторий: `runBackgroundVerify` делает `worktree add --detach <hash>`,
+// поэтому нужен реальный коммит. Дубль хелпера из elt-verify-bg.test.js осознан: [files:]
+// слайса T007 не включает тот файл, а общий фикстур-модуль ради 8 строк — лишняя сущность.
+function bgRepo() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-review-bg-'));
+  roots.push(root);
+  for (const a of [['init', '-q'], ['config', 'user.email', 't@t'], ['config', 'user.name', 't']]) {
+    spawnSync('git', a, { cwd: root });
+  }
+  fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+  spawnSync('git', ['add', '-A'], { cwd: root });
+  spawnSync('git', ['commit', '-qm', 'seed'], { cwd: root });
+  const hash = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  return { root, hash };
+}
+
+test('bg-red: пишется от каждого слоя и виден в review как задача, а не блок', () => {
+  const root = fixture(null);
+  for (const layer of ['suite', 'mutate', 'smoke', 'judge']) {
+    enqueueBgRed(root, { task: 'T007', commit: 'sha1', layer, reason: `${layer} упал`, logPath: `.harness/loop-logs/bg-sha1.log` });
+  }
+  const open = openRows(root);
+  assert.deepEqual(open.map((x) => x.layer), ['suite', 'mutate', 'smoke', 'judge'], 'все четыре слоя доходят');
+  assert.ok(open.every((x) => x.kind === 'bg-red'), 'помечены kind — отличимы от inconclusive');
+  const printed = run(root, ['review']).stdout;
+  assert.match(printed, /bg-red\/mutate/, 'слой виден человеку, иначе строку нечем разбирать');
+  assert.match(printed, /bg-sha1\.log/, 'путь к логу — единственный вход в причину красного');
+});
+
+test('bg-red: закрытая запись не возвращается (тот же механизм, что у inconclusive)', () => {
+  const root = fixture([row('T001', 'inconclusive-строка')]);
+  enqueueBgRed(root, { task: 'T007', commit: 'sha1', layer: 'suite', reason: 'suite упал', logPath: 'x.log' });
+  assert.equal(run(root, ['review', 'close', '--task', 'T007']).status, 0);
+  assert.deepEqual(openRows(root).map((x) => x.task), ['T001'], 'закрыта ровно bg-red, соседняя цела');
+});
+
+test('bg-red: красный фоновый прогон сам ставит запись; зелёный не ставит ничего', () => {
+  const red = bgRepo();
+  runBackgroundVerify({ cwd: red.root, commitHash: red.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(1)' });
+  const open = openRows(red.root);
+  assert.equal(open.length, 1);
+  assert.equal(open[0].kind, 'bg-red');
+  assert.equal(open[0].commit, red.hash, 'в строке настоящий хеш — по нему и смотрят дифф');
+  assert.equal(open[0].layer, 'suite');
+
+  const green = bgRepo();
+  runBackgroundVerify({ cwd: green.root, commitHash: green.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(0)' });
+  assert.deepEqual(openRows(green.root), [], 'зелёный фон очередь не засоряет');
+});
+
 test('doctor: длина очереди видна; превышение порога — WARN, но не FAIL', () => {
   assert.deepEqual(checkReviewQueue(fixture(null)), [], 'нет очереди — доктор молчит, а не ругается');
 
