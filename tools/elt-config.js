@@ -6,6 +6,10 @@ const path = require('node:path');
 const KINDS = new Set(['code', 'docs', 'office']);
 // Кто может быть судьёй. Те же имена, что у fleet-провайдеров (tools/fleet/providers.js).
 const JUDGE_PROVIDERS = new Set(['claude', 'codex', 'agy']);
+// 014 T005 (AC3) — `sync` умолчание = поведение 011 (побайтово прежнее, AC12 обратная
+// совместимость). `background` — commit возвращает управление после L0+быстрого оракула,
+// тяжёлые слои уходят в tools/elt-verify-bg.js.
+const VERIFY_MODES = new Set(['sync', 'background']);
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -22,6 +26,11 @@ function validateHarnessConfig(config) {
   // 011 T010: smoke опционален (нет поля → слоя нет). Но кривой тип обязан падать на конфиге,
   // а не молча выключать слой — «пусто» и «я ошибся в формате» это разные вещи.
   if (config.smoke !== undefined && typeof config.smoke !== 'string') errors.push('smoke must be a string command');
+  // 014 T005: та же дисциплина — опечатка в verify обязана упасть на конфиге, не молча
+  // откатиться на sync (иначе включение фона выглядело бы включённым, а слайсы шли бы sync).
+  if (config.verify !== undefined && !VERIFY_MODES.has(config.verify)) {
+    errors.push(`verify must be one of: ${[...VERIFY_MODES].join(', ')}`);
+  }
   if (!config.judge || typeof config.judge !== 'object' || Array.isArray(config.judge)) {
     errors.push('judge must be an object');
   } else {
@@ -58,6 +67,17 @@ function judgeSettings(root) {
 // из двух LLM-судей. project-bootstrap apply физически удаляет legacy-поле из проекта.
 function verifySettings(_root) { return null; }
 
+// 014 T005 — отсутствие поля/битый конфиг → 'sync' (AC12: старый проект без поля работает
+// по-старому). Читает файл напрямую (не readHarnessConfig): вызывающие места (elt.js commit,
+// elt-verify-bg.js) не обязаны тащить уже распарсенный cfg через границу процесса — фоновый
+// child получает только cwd.
+function verifyMode(root) {
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).verify;
+    return VERIFY_MODES.has(v) ? v : 'sync';
+  } catch { return 'sync'; }
+}
+
 function readHarnessConfig(root) {
   const file = path.join(root, '.harness', 'harness.json');
   let config;
@@ -67,4 +87,7 @@ function readHarnessConfig(root) {
   return { ...validateHarnessConfig(config), file, config };
 }
 
-module.exports = { readHarnessConfig, validateHarnessConfig, judgeSettings, verifySettings, JUDGE_PROVIDERS, JUDGE_DEFAULTS };
+module.exports = {
+  readHarnessConfig, validateHarnessConfig, judgeSettings, verifySettings, JUDGE_PROVIDERS, JUDGE_DEFAULTS,
+  verifyMode, VERIFY_MODES,
+};
