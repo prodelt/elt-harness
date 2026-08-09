@@ -175,7 +175,7 @@ C наполняет фон, D замыкает петлю, E раскатыва
   [files: tools/judge-bench/cases.js, tools/judge-bench-ingest.js, tools/judge-bench-ingest.test.js]
   [AC9]
 
-- [ ] **T014** Первое живое применение `elt harness propose`.
+- [X] **T014** Первое живое применение `elt harness propose`.
   `.harness/learnings.jsonl` не существует — эволюция написана (011 T027) и ни разу не применялась.
   Слайс: взять реальную правку гейта из фазы A (T002, триггер) как кандидата, прогнать
   `elt harness propose` с evidence/root-cause/predicted-impact против последнего
