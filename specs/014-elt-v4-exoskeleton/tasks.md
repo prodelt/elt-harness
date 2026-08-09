@@ -166,7 +166,7 @@ C наполняет фон, D замыкает петлю, E раскатыва
   [files: tools/elt-retro-label.js, tools/elt-retro-label.test.js]
   [AC8]
 
-- [ ] **T013** Размеченные кейсы пополняют judge-bench сами.
+- [X] **T013** Размеченные кейсы пополняют judge-bench сами.
   `false-block` и `missed-defect` с однозначной меткой добавляются в хранилище кейсов
   (`tools/judge-bench/cases.js` или вынесенный из него json — вынос допустим и предпочтителен).
   Идемпотентность по идентификатору вердикта. `unknown` и `correct` не добавляются.

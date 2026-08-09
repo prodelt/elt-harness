@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { score, runAll, parseArgs, costFromLog } = require('./judge-bench');
-const { cases } = require('./judge-bench/cases');
+const { cases, handwritten } = require('./judge-bench/cases');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-bench-'));
 
@@ -68,9 +68,13 @@ test('011 T023: JUDGE-BENCH-011-T023.json имеет структуру отчё
   for (const key of ['total', 'recall', 'falsePositiveRate', 'blockCases', 'passCases', 'accuracy']) {
     assert.ok(key in report.score, `score.${key} отсутствует`);
   }
-  assert.ok(Array.isArray(report.results) && report.results.length === cases.length, 'results не покрывает весь набор');
-  assert.equal(report.score.blockCases, cases.filter((c) => c.expect === 'block').length);
-  assert.equal(report.score.passCases, cases.filter((c) => c.expect === 'pass').length);
+  // 014 T013: набор с тех пор растёт САМ (ретро-разметка дозаписывает кейсы), поэтому
+  // исторический отчёт сверяется с рукописным набором — тем, что существовал на момент его
+  // прогона. Сверка с текущим  требовала бы перегонять живого судью на каждый новый
+  // машинный кейс, то есть привязывала бы оракул к LLM.
+  assert.ok(Array.isArray(report.results) && report.results.length === handwritten.length, 'results не покрывает набор на момент прогона');
+  assert.equal(report.score.blockCases, handwritten.filter((c) => c.expect === 'block').length);
+  assert.equal(report.score.passCases, handwritten.filter((c) => c.expect === 'pass').length);
 });
 
 test('score: идеальный судья = recall 1, FP 0', () => {
