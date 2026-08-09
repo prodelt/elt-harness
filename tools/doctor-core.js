@@ -731,9 +731,12 @@ function checkReviewQueue(root) {
 // смотрит. Невидимый режим не используют и, что хуже, не замечают его смерти. Одна секция
 // отвечает на четыре вопроса: включён ли фон, сколько красного он уже принёс, сколько раз
 // молчал и когда в последний раз считалась ретро-разметка.
-// ponytail: окно инцидентов — все записи health.jsonl, без даты отсечения. Файл пишется по
-// одной строке на инцидент (дедуп по key), расти ему не с чего; окно понадобится, когда
-// понадобится.
+// 014 T024: окно инцидентов появилось — раньше складывалась ВСЯ история health.jsonl, и один
+// давно разобранный `bg-silent` держал doctor в warn навсегда. Текст T017 требует «за окно»
+// именно поэтому: сигнал должен гаснуть сам, иначе его перестают читать. 7 суток — рабочая
+// неделя этого репо; константа, а не поле конфига (та же дисциплина, что у T012).
+const BG_SILENT_WINDOW_DAYS = 7;
+
 function checkExoskeleton(root) {
   const harness = readHarnessConfig(root);
   if (!harness.ok) return []; // без harness.json говорить не о чем — это ловит другая проверка
@@ -744,10 +747,14 @@ function checkExoskeleton(root) {
     return text.value.split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   };
   const bgRed = rows(path.join(root, '.harness', 'review-queue.jsonl')).filter((r) => r.kind === 'bg-red' && !r.closedAt).length;
-  const silent = rows(path.join(root, '.harness', 'health.jsonl')).filter((r) => r.kind === 'bg-silent').length;
+  // Запись без разбираемого `ts` считается попавшей в окно: молчание фона слишком дорого,
+  // чтобы прятать его из-за битой строки.
+  const cutoff = Date.now() - BG_SILENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const inWindow = (r) => { const t = Date.parse(r.ts); return Number.isNaN(t) || t >= cutoff; };
+  const silent = rows(path.join(root, '.harness', 'health.jsonl')).filter((r) => r.kind === 'bg-silent' && inWindow(r)).length;
   const ingested = readText(path.join(root, 'tools', 'judge-bench', 'cases-ingested.json'));
   const labeledAt = ingested.ok ? (fs.statSync(path.join(root, 'tools', 'judge-bench', 'cases-ingested.json')).mtime.toISOString().slice(0, 10)) : null;
-  const detail = `verify: ${mode}, bg-red в очереди: ${bgRed}, bg-silent: ${silent}, ретро-разметка: ${labeledAt || 'ни разу'}`;
+  const detail = `verify: ${mode}, bg-red в очереди: ${bgRed}, bg-silent за ${BG_SILENT_WINDOW_DAYS} дн: ${silent}, ретро-разметка: ${labeledAt || 'ни разу'}`;
   // `bg-silent` — единственное, что здесь warn: очередь и отсутствие разметки это работа,
   // а молчание фона это неработающая проверка, то есть ложное ощущение зелёного.
   return [silent > 0

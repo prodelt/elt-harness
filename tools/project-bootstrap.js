@@ -169,8 +169,13 @@ function applyPlan(root, options = {}) {
       if (!('verify' in current)) { current.verify = 'background'; added.push('verify'); }
       if (!('backgroundTimeoutMin' in current)) { current.backgroundTimeoutMin = 20; added.push('backgroundTimeoutMin'); }
       if (!('smokeParallel' in current)) { current.smokeParallel = false; added.push('smokeParallel'); }
-      if (!('background' in current)) {
-        current.background = { layers: ['suite', 'mutate', 'smoke', 'judge'] };
+      // 014 T024: смотрим на САМО поле `layers`, а не на наличие объекта `background`. Проект,
+      // у которого уже есть `background` с любым другим ключом (например будущий тюнинг
+      // таймаутов), оставался бы без списка слоёв — а его отсутствие фон трактует как «включены
+      // все» лишь по умолчанию, и явности, ради которой бутстрап и существует, не возникало.
+      if (!current.background || typeof current.background !== 'object') current.background = {};
+      if (!Array.isArray(current.background.layers)) {
+        current.background.layers = ['suite', 'mutate', 'smoke', 'judge'];
         added.push('background.layers');
       }
       if (added.length > 0) {

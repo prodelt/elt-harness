@@ -338,6 +338,24 @@ function testApplyPlanFillsInV4ExoskeletonFields() {
   assert.equal(second.changes.some((c) => c.id === 'harness-approval-fields'), false, 'идемпотентно');
 }
 
+// 014 T024: проверка шла по НАЛИЧИЮ объекта `background`, а не по полю `layers` — проект с
+// частично заполненным `background` оставался без списка слоёв навсегда.
+function testApplyPlanFillsLayersIntoPartialBackground() {
+  const root = tempProject();
+  validHarness(root);
+  const file = path.join(root, '.harness', 'harness.json');
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  cfg.background = { somethingElse: true }; // объект есть, layers нет
+  fs.writeFileSync(file, JSON.stringify(cfg));
+
+  const report = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  const added = report.changes.find((c) => c.id === 'harness-approval-fields').added;
+  assert.ok(added.includes('background.layers'), 'layers обязан доставиться в частичный background');
+  const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(written.background.layers, ['suite', 'mutate', 'smoke', 'judge']);
+  assert.equal(written.background.somethingElse, true, 'чужие ключи background не затёрты');
+}
+
 function testExistingHarnessWithoutV4FieldsKeeps011Behaviour() {
   const root = tempProject();
   validHarness(root);
@@ -761,6 +779,7 @@ function main() {
   testApplyPlanDoesNotBlockWhenHarnessAlreadyValid();
   testApplyPlanFillsInMissingApprovalDefaultsOnExistingHarness();
   testApplyPlanFillsInV4ExoskeletonFields();
+  testApplyPlanFillsLayersIntoPartialBackground();
   testExistingHarnessWithoutV4FieldsKeeps011Behaviour();
   testApplyPlanNeverOverridesExplicitApprovalChoice();
   testVerifyReportsApprovalGateSignalWithoutGatingOverallResult();
