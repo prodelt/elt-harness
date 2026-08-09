@@ -346,6 +346,28 @@ test('T022: elt commit доносит specFile/taskText в отсоединён�
   } finally { delete process.env.ELT_VERIFY_BG_ORACLE_CMD; }
 });
 
+// 014 T023: `logPath` в записи `bg-red` обязан вести к РАЗБИРАЕМОМУ логу. До фикса `runCmd`
+// захватывал вывод через spawnSync(encoding) и выбрасывал его: файл содержал одну строку
+// deprecation-варнинга, и красное фона было неразбираемым (живьём на T016 и T018).
+test('T023: лог фона содержит вывод упавшего слоя, а не пустоту', async () => {
+  const { root } = gitRepo({ background: { layers: ['suite'] } });
+  fs.writeFileSync(path.join(root, 'noisy.js'),
+    "console.log('ЖИВОЙ ВЫВОД СЬЮТА');process.exit(1);\n");
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'noisy'], { cwd: root });
+  const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T001', oracleCmd: 'node noisy.js' });
+  assert.equal(r.exit, 1, 'слой обязан быть красным — иначе тест ничего не доказывает');
+
+  const queued = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l)).filter((x) => x.kind === 'bg-red');
+  assert.equal(queued.length, 1);
+  const log = fs.readFileSync(path.join(root, queued[0].logPath), 'utf8');
+  assert.match(log, /ЖИВОЙ ВЫВОД СЬЮТА/, 'вывод упавшей команды дошёл до лога');
+  assert.match(log, /exit 1/, 'в логе виден и код возврата');
+});
+
 after(() => {
   for (const root of roots) { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* windows lock */ } }
 });

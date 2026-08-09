@@ -807,6 +807,15 @@ function testEltSingleSource() {
   const binElt = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
   const repoElt = path.join(__dirname, 'elt.js');
   if (!fs.existsSync(binElt)) return; // нет глобального деплоя — нечего сверять
+  // 014 T023: в СВЯЗАННОМ worktree сверять нечего и незачем. Фоновая проверка (T006) гоняет
+  // сьют в `.fleet-wt/bg-<hash>` — detached checkout на ПРОШЛОМ коммите, тогда как
+  // ~/.claude/bin отражает то, что синхронизировали последним. Их расхождение — норма, а не
+  // дрейф, но тест объявлял его красным: живьём это дало ложный `bg-red/suite` на T016 и T018.
+  // Признак связанного worktree: `.git` там ФАЙЛ-указатель на gitdir, а в основном дереве —
+  // каталог. Инвариант «bin == tools» продолжает проверяться в основном дереве, где им и
+  // управляют (`node tools/sync-bin.js`).
+  const dotGit = path.join(__dirname, '..', '.git');
+  if (fs.existsSync(dotGit) && fs.statSync(dotGit).isFile()) return;
   const norm = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n').replace(/﻿/g, '');
   assert.equal(
     norm(repoElt),
