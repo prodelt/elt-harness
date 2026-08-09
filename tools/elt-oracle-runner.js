@@ -23,10 +23,25 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 const { selectTests } = require('./elt-oracle-select');
+const oracleCache = require('./elt-oracle-cache');
 
 const ROOT = path.join(__dirname, '..');
+
+// 014 T001 — инвалидация кэша по «версии раннера»: хеш собственного исходника + исходника
+// модуля кэша. Правка логики выборки/сравнения обязана сбросить весь кэш, а не оставить старые
+// ключи, посчитанные по старым правилам.
+const RUNNER_VERSION = crypto.createHash('sha256')
+  .update(fs.readFileSync(__filename))
+  .update(fs.readFileSync(require.resolve('./elt-oracle-cache')))
+  .digest('hex');
+
+function harnessOracleCmd(root = ROOT) {
+  try { return JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8')).oracle || 'node'; }
+  catch { return 'node'; }
+}
 
 // Denylist for known-broken tests (reason required). Empty since 005 T020
 // removed the codemap suite that was the only entry.
@@ -116,6 +131,27 @@ function slicesSinceFull(entries) {
   return count;
 }
 
+// 014 T001 — тест-файлы, чьё замыкание не изменилось с прошлого зелёного прогона, не гоняются
+// повторно. Кэш хранит только PASS: нет записи, замыкание изменилось или прошлый прогон был
+// красным → промах (гонять), не попадание. `forceFull` (--full/ELT_ORACLE_FULL) игнорирует
+// кэш целиком — ни чтения, ни записи.
+function partitionByCache(run, root = ROOT, forceFull = false) {
+  if (forceFull) return { toRun: run, hits: [], entries: {}, cache: {} };
+  const cache = oracleCache.loadCache(root);
+  const read = (rel) => { try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; } };
+  const cmd = harnessOracleCmd(root);
+  const toRun = [];
+  const hits = [];
+  const entries = {};
+  for (const file of run) {
+    const { key } = oracleCache.computeEntry({ root, testFile: file, runnerVersion: RUNNER_VERSION, cmd, readFile: read });
+    entries[file] = key;
+    if (cache[file] && cache[file].key === key) hits.push(file);
+    else toRun.push(file);
+  }
+  return { toRun, hits, entries, cache };
+}
+
 async function main() {
   const files = discover(path.join(ROOT, 'tools'))
     .map((f) => path.relative(ROOT, f).split(path.sep).join('/'))
@@ -132,13 +168,29 @@ async function main() {
   console.error(`elt-oracle-runner: выборка ${pick.mode} — ${pick.selected}/${pick.total} файлов (${pick.reason})`);
 
   console.error(`elt-oracle-runner: ${run.length} test files, jobs=${jobs} (${skipped.length} skipped: ${skipped.join(', ') || 'none'})`);
+
+  // 014 T001 — кэш по хешу замыкания: попадания не гоняются вовсе, с пометкой в отчёте.
+  const { toRun, hits, entries, cache } = partitionByCache(run, ROOT, forceFull);
+  if (hits.length) console.error(`elt-oracle-runner: кэш оракула — ${hits.length} попаданий, ${toRun.length} к прогону (замыкание не изменилось)`);
+
   const started = Date.now();
-  const results = await runAll(run, jobs, ROOT, (r) => {
+  const ran = await runAll(toRun, jobs, ROOT, (r) => {
     if (!r.ok) {
       console.error(`\n── FAIL ${r.file} (exit ${r.code}, ${r.sec.toFixed(1)}s) ──`);
       console.error(r.out);
     }
   });
+  const cached = hits.map((file) => ({ file, ok: true, code: 0, sec: 0, out: '(кэш оракула)' }));
+  const results = [...ran, ...cached];
+
+  if (!forceFull) {
+    const nextCache = { ...cache };
+    for (const r of ran) {
+      if (r.ok) nextCache[r.file] = { key: entries[r.file], ts: Date.now() };
+      else delete nextCache[r.file]; // красный никогда не считается «неизменным» (R3)
+    }
+    oracleCache.saveCache(ROOT, nextCache);
+  }
 
   const failed = results.filter((r) => !r.ok);
   const wall = ((Date.now() - started) / 1000).toFixed(1);
@@ -151,4 +203,7 @@ async function main() {
 
 if (require.main === module) main();
 
-module.exports = { discover, SKIP, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode, slicesSinceFull };
+module.exports = {
+  discover, SKIP, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode, slicesSinceFull,
+  partitionByCache, harnessOracleCmd,
+};

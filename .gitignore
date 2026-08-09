@@ -81,3 +81,6 @@ vendor/
 
 # learnings (011 T027): решения elt harness propose (accepted/rejected) — рантайм-след, не исходник
 .harness/learnings.jsonl
+
+# oracle-cache (014 T001): рантайм-кэш попаданий по хешу замыкания, не исходник
+.harness/oracle-cache.json
