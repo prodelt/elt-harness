@@ -27,6 +27,38 @@ const DEFAULT_FANIN_THRESHOLD = 10;
 const TEST_PATH = /(^|\/)[^/]*\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(tests?|__tests__)\//i;
 const CODE_PATH = /\.(js|cjs|mjs|jsx|ts|tsx|py|go|rs|rb|java|cs|php|sh|ps1)$/i;
 
+// 014 T002 — `existing-test-modified` сработал на 30 из 39 слайсов (замер 011): любая правка
+// теста, включая чистое добавление нового кейса, будила судью — `l0-clean` был всего 12,8%.
+// Новый триггер смотрит НЕ «тест правили», а «утверждение стало слабее»: удалена строка с
+// assert/expect/throws; вырезан блок test(/it(; файл переписан больше чем наполовину. Чистое
+// добавление строк (removed=0) не матчит НИ ОДНО условие ниже — специального case не нужно.
+// Эвристика по diff-строкам, без AST (решение 5 спеки 014: парсер — только после промаха вживую).
+const ASSERT_REMOVE_RE = /\b(?:assert|expect)\s*\(|\.(?:equal|strictEqual|deepEqual|deepStrictEqual|notEqual|notStrictEqual|ok|throws|rejects|match|doesNotThrow|doesNotReject)\s*\(/;
+const TEST_BLOCK_RE = /\b(?:test|it|describe)\s*\(\s*['"`]/;
+const REWRITE_RATIO = 0.5;
+
+// Существующий (не новый) тест-файл считается «ослабленным», если среди УДАЛЁННЫХ строк есть
+// сорванное утверждение/блок кейса, либо файл переписан больше REWRITE_RATIO. `originalLineCount`
+// — геттер (path)=>number|null от вызывающего (git show HEAD:path, живёт в loadConfig — та же
+// дисциплина, что у fanIn): недоступен → эта конкретная проверка молчит, а не падает.
+function weakenedTestFiles(tests, originalLineCount) {
+  const flagged = [];
+  for (const file of tests) {
+    if (file.isNew) continue;
+    const removedLines = file.removedLines || [];
+    if (!removedLines.length) continue; // чистое добавление — не триггер
+    const hitsAssert = removedLines.some((l) => ASSERT_REMOVE_RE.test(l));
+    const hitsBlock = removedLines.some((l) => TEST_BLOCK_RE.test(l));
+    let hitsRewrite = false;
+    if (typeof originalLineCount === 'function') {
+      const total = originalLineCount(file.path);
+      if (Number.isFinite(total) && total > 0) hitsRewrite = file.removed / total > REWRITE_RATIO;
+    }
+    if (hitsAssert || hitsBlock || hitsRewrite) flagged.push(file.path);
+  }
+  return flagged;
+}
+
 // 011 T009: новый ВНЕШНИЙ импорт в диффе. Мотив (§3.3 спеки): API чужой либы — ровно то место,
 // где модель уверенно пишет несуществующий метод, а оракул этого не ловит (тест пишет тот же,
 // кто выдумал API). Пруф свежего обращения к ctx7 — механическая замена «я помню эту либу».
@@ -84,7 +116,7 @@ function parseDiff(diff, cwd) {
   for (const line of String(diff || '').split(/\r?\n/)) {
     const header = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
     if (header) {
-      current = { path: normalize(header[2], cwd), added: 0, removed: 0, isNew: false, isDeleted: false };
+      current = { path: normalize(header[2], cwd), added: 0, removed: 0, isNew: false, isDeleted: false, removedLines: [] };
       files.push(current);
       continue;
     }
@@ -93,7 +125,7 @@ function parseDiff(diff, cwd) {
     else if (line.startsWith('deleted file mode ')) current.isDeleted = true;
     else if (line.startsWith('+++ ') || line.startsWith('--- ')) continue;
     else if (line.startsWith('+')) current.added += 1;
-    else if (line.startsWith('-')) current.removed += 1;
+    else if (line.startsWith('-')) { current.removed += 1; current.removedLines.push(line.slice(1)); }
   }
   return files;
 }
@@ -157,12 +189,12 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = ''
   const prod = changed.filter((file) => !TEST_PATH.test(file.path) && CODE_PATH.test(file.path));
   const triggers = [];
 
-  const modifiedTests = tests.filter((file) => !file.isNew).map((file) => file.path);
-  if (modifiedTests.length) {
+  const weakened = weakenedTestFiles(tests, config.originalLineCount);
+  if (weakened.length) {
     triggers.push({
-      name: 'existing-test-modified',
-      files: modifiedTests,
-      reason: 'правится тест, существовавший на baseHead — проверка могла быть ослаблена под код',
+      name: 'weakened-assertion',
+      files: weakened,
+      reason: 'дифф теста удаляет утверждение/блок кейса или переписывает файл больше чем наполовину',
     });
   }
 
@@ -279,6 +311,23 @@ function computeFanIn(cwd, scanDirs = ['tools']) {
   };
 }
 
+// 014 T002 — «переписка > 50% строк файла» (REWRITE_RATIO) нужна ОРИГИНАЛЬНАЯ длина файла на
+// baseHead; unified diff с ограниченным контекстом её не несёт. Гетter, а не аргумент evaluate()
+// напрямую — та же дисциплина, что у computeFanIn: git-доступ живёт тут, evaluate() чистая.
+// Файл не читается (новый файл, git недоступен) → null, вызывающий уже трактует не-число как
+// «сигнала нет» (Number.isFinite в weakenedTestFiles).
+function originalLineCounter(cwd) {
+  const { spawnSync } = require('child_process');
+  const cache = new Map();
+  return (relPath) => {
+    if (cache.has(relPath)) return cache.get(relPath);
+    const r = spawnSync('git', ['show', `HEAD:${relPath}`], { cwd, encoding: 'utf8', timeout: 5000 });
+    const n = (!r.error && r.status === 0) ? r.stdout.split(/\r?\n/).length : null;
+    cache.set(relPath, n);
+    return n;
+  };
+}
+
 // 011 T017 (в): конфиг L0 читают ДВА вызывающих — `fleet/gate.js` перед судьёй и `elt.js` перед
 // оракулом. Живёт он здесь, а не в gate.js, потому что elt.js не может тянуть fleet-путь
 // (providers/router/замыкание sync-bin) ради чтения одного json'а. `evaluate` остаётся ЧИСТОЙ
@@ -298,10 +347,11 @@ function loadConfig(cwd) {
       .map((line) => { try { return JSON.parse(line); } catch { return null; } })
       .filter(Boolean);
   } catch { /* файла нет — пруфов нет, и это значимо: новый внешний импорт даст block */ }
-  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs }, fanIn: computeFanIn(cwd) };
+  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs }, fanIn: computeFanIn(cwd), originalLineCount: originalLineCounter(cwd) };
 }
 
 module.exports = {
   evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
   taskScopeFiles, inTaskScope, isHarnessOwned, computeFanIn, DEFAULT_FANIN_THRESHOLD,
+  weakenedTestFiles, originalLineCounter, ASSERT_REMOVE_RE, TEST_BLOCK_RE, REWRITE_RATIO,
 };

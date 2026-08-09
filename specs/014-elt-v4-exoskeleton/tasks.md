@@ -44,7 +44,7 @@ C наполняет фон, D замыкает петлю, E раскатыва
   [files: tools/elt-oracle-cache.js, tools/elt-oracle-runner.js, tools/elt-oracle-cache.test.js, .gitignore]
   [AC1]
 
-- [ ] **T002** Триггер `weakened-assertion` вместо `existing-test-modified`.
+- [X] **T002** Триггер `weakened-assertion` вместо `existing-test-modified`.
   Замер: старый триггер сработал 30 раз из 39 → `l0-clean` всего 12,8%, судья зовётся почти всегда.
   Новый смотрит в diff тест-файла: удалённые строки с `assert`/`expect`/`throws`; замена строгой
   проверки на слабую (`strictEqual`→`ok`, `deepStrictEqual`→`ok`, снятие `assert` вокруг вызова);

@@ -50,14 +50,16 @@ function testBenchBaselineParses() {
 // Дифф собирается вручную, а не из git: L0 обязан быть чистой функцией, и тест это
 // фиксирует — если в неё заедет fs/spawn, тест начнёт требовать репозиторий и упадёт.
 
-function diffFor(file, { isNew = false, added = 1, removed = 0 } = {}) {
+function diffFor(file, { isNew = false, added = 1, removed = 0, removedLines, addedLines } = {}) {
+  const rem = removedLines || Array.from({ length: removed }, (_, i) => `old ${i}`);
+  const add = addedLines || Array.from({ length: added }, (_, i) => `new ${i}`);
   return [
     `diff --git a/${file} b/${file}`,
     ...(isNew ? [`new file mode 100644`, '--- /dev/null'] : ['--- a/' + file]),
     `+++ b/${file}`,
     '@@ -1,1 +1,1 @@',
-    ...Array.from({ length: removed }, (_, i) => `-old ${i}`),
-    ...Array.from({ length: added }, (_, i) => `+new ${i}`),
+    ...rem.map((l) => `-${l}`),
+    ...add.map((l) => `+${l}`),
   ].join('\n');
 }
 
@@ -77,13 +79,84 @@ function testNoTriggersOnCleanSlice() {
   assert.equal(result.judgeNeeded, false, 'судья на чистом слайсе не нужен');
 }
 
-function testExistingTestModified() {
-  const result = evaluate({ diff: diffFor('tools/some-feature.test.js', { removed: 3, added: 1 }), config: {} });
-  assert.deepEqual(names(result), ['existing-test-modified']);
+// --- 014 T002: weakened-assertion заменяет existing-test-modified (AC2) --------------
+// Старый триггер сработал на 30 из 39 слайсов (замер 011) — любая правка теста, включая
+// чистое добавление кейса, будила судью. Новый смотрит в СОДЕРЖИМОЕ удалённых строк.
+
+function testWeakenedAssertionRemovedAssertLine() {
+  const result = evaluate({
+    diff: diffFor('tools/some-feature.test.js', {
+      removedLines: ["assert(require('./f').ok());"],
+      addedLines: ['// проверка убрана'],
+    }),
+    config: {},
+  });
+  assert.deepEqual(names(result), ['weakened-assertion']);
   assert.deepEqual(result.triggers[0].files, ['tools/some-feature.test.js']);
   assert.equal(result.judgeNeeded, true);
-  // Граница: НОВЫЙ тест-файл — не этот триггер (ослаблять там нечего).
+}
+
+function testWeakenedAssertionStrictToWeakSwap() {
+  // strictEqual → ok: строгая проверка удалена, слабая добавлена — реалистичный стиль
+  // репо (`require('node:assert').equal(...)`), не только голый `assert.strictEqual(`.
+  const result = evaluate({
+    diff: diffFor('tools/some-feature.test.js', {
+      removedLines: ["require('node:assert').strictEqual(f(), 42);"],
+      addedLines: ["require('node:assert').ok(f());"],
+    }),
+    config: {},
+  });
+  assert.deepEqual(names(result), ['weakened-assertion']);
+}
+
+function testWeakenedAssertionRemovedTestBlock() {
+  const result = evaluate({
+    diff: diffFor('tools/some-feature.test.js', {
+      removedLines: ["test('кейс сломан', () => { assert.ok(false); });"],
+      addedLines: [],
+    }),
+    config: {},
+  });
+  assert.deepEqual(names(result), ['weakened-assertion']);
+}
+
+function testWeakenedAssertionFullRewrite() {
+  // Переписка > 50% строк: сами удалённые строки нейтральны (не матчат assert/block), но
+  // originalLineCount говорит, что снесена бОльшая часть файла.
+  const result = evaluate({
+    diff: diffFor('tools/some-feature.test.js', {
+      removedLines: ['line a', 'line b', 'line c', 'line d', 'line e', 'line f'],
+      addedLines: ['new a', 'new b'],
+    }),
+    config: { originalLineCount: () => 10 }, // 6 удалено из 10 → 60% > REWRITE_RATIO
+  });
+  assert.deepEqual(names(result), ['weakened-assertion']);
+  // Та же правка, но originalLineCount недоступен (git недоступен/новый файл) — сигнала нет.
+  assert.deepEqual(names(evaluate({
+    diff: diffFor('tools/some-feature.test.js', { removedLines: ['line a', 'line b', 'line c', 'line d', 'line e', 'line f'], addedLines: ['new a'] }),
+    config: {},
+  })), []);
+}
+
+function testWeakenedAssertionCleanAdditionIsNotATrigger() {
+  // Чистое добавление кейса — removed=0 — не триггер, даже если добавленные строки несут assert.
+  const result = evaluate({
+    diff: diffFor('tools/some-feature.test.js', { added: 5 }),
+    config: {},
+  });
+  assert.deepEqual(names(result), [], 'добавление нового теста не обязано будить судью');
+  // Граница: НОВЫЙ тест-файл целиком — не этот триггер (ослаблять там нечего).
   assert.deepEqual(names(evaluate({ diff: diffFor('tools/some-feature.test.js', { isNew: true, added: 9 }), config: {} })), []);
+}
+
+function testWeakenedAssertionNeutralEditIsNotATrigger() {
+  // Убрана строка без ассерта/блока, и переписка ниже порога — правка теста, а не ослабление
+  // (например, переименование переменной без изменения проверок).
+  const result = evaluate({
+    diff: diffFor('tools/some-feature.test.js', { removedLines: ['const x = 1;'], addedLines: ['const y = 1;'] }),
+    config: { originalLineCount: () => 100 },
+  });
+  assert.deepEqual(names(result), []);
 }
 
 function testNewCodeWithoutCheck() {
@@ -326,12 +399,12 @@ async function testJudgeCalledOnceOnRiskySlice() {
 
   const { result, calls } = await withJudgeStub(() => runJudge({ cwd: repo, tid: 'T003', taskText: 'ослабить проверку' }));
   assert.equal(calls.length, 1, 'на рисковом слайсе судья зовётся РОВНО один раз (verify снят)');
-  assert.deepEqual(result.l0.triggers.map((t) => t.name), ['existing-test-modified']);
+  assert.deepEqual(result.l0.triggers.map((t) => t.name), ['weakened-assertion']);
   assert.equal(result.l0.judgeNeeded, true);
   // Триггеры доезжают до судьи как контекст «почему тебя позвали», а не теряются по дороге.
   const prompt = calls[0].prompt;
   assert.match(prompt, /ПОЧЕМУ ТЕБЯ ПОЗВАЛИ/);
-  assert.match(prompt, /existing-test-modified/);
+  assert.match(prompt, /weakened-assertion/);
   assert.match(prompt, /widget\.test\.js/);
 }
 
@@ -439,7 +512,12 @@ async function main() {
   testRepoJudgeProviderIsAlive();
   testBenchBaselineParses();
   testNoTriggersOnCleanSlice();
-  testExistingTestModified();
+  testWeakenedAssertionRemovedAssertLine();
+  testWeakenedAssertionStrictToWeakSwap();
+  testWeakenedAssertionRemovedTestBlock();
+  testWeakenedAssertionFullRewrite();
+  testWeakenedAssertionCleanAdditionIsNotATrigger();
+  testWeakenedAssertionNeutralEditIsNotATrigger();
   testNewCodeWithoutCheck();
   testHotPath();
   testDiffSize();
