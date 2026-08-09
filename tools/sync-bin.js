@@ -33,6 +33,12 @@ const ROOT_CLOSURE = [
   'elt-stats.js',
   'harness-watch.js',
   'elt-verify-bg.js', // 014 T005: elt.js commit требует его лениво в verify:"background" ветке
+  // 014 T009: слои фона тянут мутатор (верхний require) и судью (ленивый require fleet/gate.js
+  // со всем его замыканием). Без них deploy-копия падала MODULE_NOT_FOUND ДО открытия лога —
+  // фон не стартовал вовсе, и это выглядело как «всё тихо», ровно та слепота, ради которой
+  // написан T008. Поймано живым прогоном T009/T010, а не тестом: тесты требуют tools/ напрямую.
+  'elt-mutate.js',
+  ...CLOSURE,
   path.join('fleet', 'providers.js'),
   path.join('fleet', 'router.js'),
 ];
