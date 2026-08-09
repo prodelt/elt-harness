@@ -93,7 +93,7 @@ const sectionsOf = (r) => Object.fromEntries(r.sections.map((s) => [s.layer, s])
 test('T009: отчёт содержит все четыре секции с временем каждой', async () => {
   // Судья выключен: он единственный слой, зовущий внешний CLI — в юните это был бы не тест,
   // а живой вызов модели. Его секция обязана присутствовать, но как явно выключенная.
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(0)', background: { layers: ['suite', 'mutate', 'smoke'] } });
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(0)', smokeParallel: true, background: { layers: ['suite', 'mutate', 'smoke'] } });
   const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
   assert.deepEqual(r.sections.map((s) => s.layer), ['suite', 'mutate', 'smoke', 'judge'], 'четыре секции, в порядке схемы спеки');
   assert.ok(r.sections.every((s) => typeof s.durationSec === 'number'), 'у каждой секции своё время');
@@ -111,7 +111,7 @@ test('T009: smoke не задан — секция пропущена с при�
 });
 
 test('T009: красный smoke — bg-red слоя smoke, сьют при этом зелёный', async () => {
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(3)', background: { layers: ['suite', 'smoke'] } });
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(3)', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
   const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
   assert.equal(r.exit, 1);
   const rows = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
@@ -121,11 +121,29 @@ test('T009: красный smoke — bg-red слоя smoke, сьют при эт
 });
 
 test('T009: каждый красный слой даёт СВОЮ строку очереди, а не одну общую', async () => {
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', background: { layers: ['suite', 'smoke'] } });
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
   await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(1)' });
   const rows = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
     .trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((x) => x.layer), ['suite', 'smoke'], 'две причины — две задачи');
+});
+
+// --- 014 T010: smoke в фоне только с явного разрешения ------------------------------
+
+test('T010: smokeParallel по умолчанию false — smoke пропущен с причиной, фон зелёный', async () => {
+  // Красная команда специально: если бы слой всё-таки исполнился, тест упал бы на exit.
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T010', oracleCmd: 'node -e process.exit(0)' });
+  assert.equal(r.exit, 0, 'непрогнанный smoke не красный — «не проверяли» ≠ «проверили и упало»');
+  assert.equal(sectionsOf(r).smoke.reason, 'skipped: smokeParallel=false');
+  assert.equal(fs.existsSync(path.join(root, '.harness', 'review-queue.jsonl')), false, 'пропуск не заводит задачу');
+});
+
+test('T010: smokeParallel:true — слой реально исполняется и красное доходит до очереди', async () => {
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T010', oracleCmd: 'node -e process.exit(0)' });
+  assert.equal(r.exit, 1);
+  assert.equal(sectionsOf(r).smoke.red, true);
 });
 
 test('T009: background.layers отсутствует — включены все четыре (AC7 «по умолчанию все»)', () => {

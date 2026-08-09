@@ -38,6 +38,10 @@ function validateHarnessConfig(config) {
       && (typeof config.backgroundTimeoutMin !== 'number' || !(config.backgroundTimeoutMin > 0))) {
     errors.push('backgroundTimeoutMin must be a positive number of minutes');
   }
+  // 014 T010: строка "true" вместо булева выглядела бы как разрешение и молча им не была.
+  if (config.smokeParallel !== undefined && typeof config.smokeParallel !== 'boolean') {
+    errors.push('smokeParallel must be boolean');
+  }
   if (!config.judge || typeof config.judge !== 'object' || Array.isArray(config.judge)) {
     errors.push('judge must be an object');
   } else {

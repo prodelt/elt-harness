@@ -181,6 +181,11 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, oracleCm
   section('smoke', () => {
     const smoke = harnessField(cwd, 'smoke');
     if (typeof smoke !== 'string' || !smoke.trim()) return { skipped: true, reason: 'smoke не задан' };
+    // 014 T010 (R2): внешние сервисы, БД и порты не терпят второго экземпляра — фоновый smoke
+    // на worktree стартовал бы параллельно тому, что уже гоняет человек. Пропуск, а НЕ падение:
+    // «мы это не проверяли» не то же самое, что «проверили и красное» (та же дисциплина, что у
+    // бюджета мутатора). Разрешение даёт только владелец проекта полем smokeParallel:true.
+    if (harnessField(cwd, 'smokeParallel') !== true) return { skipped: true, reason: 'skipped: smokeParallel=false' };
     const exit = runCmd(smoke, wt);
     return { exit, red: exit !== 0, reason: exit !== 0 ? `smoke: exit ${exit}` : null };
   });
