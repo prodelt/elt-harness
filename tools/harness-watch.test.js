@@ -211,6 +211,60 @@ test('T026: elt commit реально зовёт watchdog — 3 judge-block то
   assert.equal(bp.count, 3);
 });
 
+// --- 014 T008 (AC6): тихая смерть фона --------------------------------------------
+
+// `runlog()` ставит записи по минуте на индекс от 2026-07-27T10:00Z, поэтому `now` ниже —
+// это «через час с лишним после коммита», т.е. заведомо больше дефолтных 20 минут.
+const BG_NOW = Date.parse('2026-07-27T12:00:00.000Z');
+
+test('bg-silent: спекулятивный коммит без фонового вердикта дольше порога — инцидент', () => {
+  const root = fixture();
+  runlog(root, [
+    { task: 'T007', commit: 'aaa111', status: 'committed-speculative' },
+    { task: 'T008', commit: 'bbb222', status: 'committed-speculative' },
+    // Вердикт пришёл ровно по одному из двух — второй молчит.
+    { task: 'T008', commit: 'bbb222', status: 'background-verify-pass', background: { layer: 'suite', exit: 0 } },
+  ]);
+  const hit = detect(root, { now: BG_NOW }).filter((i) => i.kind === 'bg-silent');
+  assert.deepEqual(hit.map((i) => i.commit), ['aaa111'], 'молчание видно, отработавший фон — нет');
+  assert.match(hit[0].detail, /без фонового вердикта/);
+});
+
+test('bg-silent: КРАСНЫЙ фон — не молчание (вердикт есть, он в очереди bg-red)', () => {
+  const root = fixture();
+  runlog(root, [
+    { task: 'T007', commit: 'aaa111', status: 'committed-speculative' },
+    { task: 'T007', commit: 'aaa111', status: 'background-verify-red', background: { layer: 'suite', exit: 1 } },
+  ]);
+  assert.deepEqual(detect(root, { now: BG_NOW }).filter((i) => i.kind === 'bg-silent'), []);
+});
+
+test('bg-silent: внутри порога молчания нет — фон ещё имеет право работать', () => {
+  const root = fixture();
+  runlog(root, [{ task: 'T007', commit: 'aaa111', status: 'committed-speculative' }]);
+  const soon = Date.parse('2026-07-27T10:05:00.000Z'); // 5 минут < дефолтных 20
+  assert.deepEqual(detect(root, { now: soon }).filter((i) => i.kind === 'bg-silent'), []);
+});
+
+test('bg-silent: порог берётся из harness.json (backgroundTimeoutMin), дефолт 20', () => {
+  const root = fixture({ backgroundTimeoutMin: 1 });
+  runlog(root, [{ task: 'T007', commit: 'aaa111', status: 'committed-speculative' }]);
+  const soon = Date.parse('2026-07-27T10:05:00.000Z');
+  assert.equal(detect(root, { now: soon }).filter((i) => i.kind === 'bg-silent').length, 1,
+    'проект с быстрым сьютом вправе считать молчанием и 5 минут');
+  assert.equal(detect(fixture(), { now: soon }).filter((i) => i.kind === 'bg-silent').length, 0);
+});
+
+test('bg-silent: повторный прогон не плодит дублей (идемпотентно по key)', () => {
+  const root = fixture();
+  runlog(root, [{ task: 'T007', commit: 'aaa111', status: 'committed-speculative' }]);
+  runOnce(root, { now: BG_NOW });
+  runOnce(root, { now: BG_NOW + 3600000 }); // час спустя — тот же коммит, тот же key
+  const rows = fs.readFileSync(path.join(root, '.harness', 'health.jsonl'), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.kind === 'bg-silent');
+  assert.equal(rows.length, 1, 'один коммит — одна строка, сколько бы раз watchdog ни бегал');
+});
+
 test('stale-park: парковка старше окна — инцидент, свежая — нет', () => {
   const root = fixture();
   const now = Date.parse('2026-07-27T12:00:00.000Z');
