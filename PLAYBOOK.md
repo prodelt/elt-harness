@@ -4,7 +4,15 @@
 
 Для коду є один маршрут: `elt`. `agy` пише першу версію, поточний Claude Code або Codex читає diff, запускає oracle, виправляє за потреби й є єдиним judge. Це реалізація схеми A+C з `ELT v3 — протокол замера и три схемы харнесса.html`: L0 → impact oracle → smoke → risk routing → один `pass|block|inconclusive` → накопичення evidence.
 
-Схема B з асинхронним verify та auto-revert не використовується: вона необов'язкова й повертає зайву чергу та складність.
+З 09.08.2026 (спека 014, фаза B) до цього маршруту додано **спекулятивний контур**: поле
+`verify: "background"` у `.harness/harness.json`. `elt commit` робить L0 + швидкий oracle і
+**повертає керування**; повний сьют, мутатор, smoke і суддя йдуть у фон на detached-worktree
+`.fleet-wt/bg-<hash>`. Червоне з фону — запис `kind: "bg-red"` у `.harness/review-queue.jsonl`
+(розбір: `elt review` / `elt review close --task`), мовчання фону довше `backgroundTimeoutMin` —
+інцидент `bg-silent` у `.harness/health.jsonl`. `verify: "sync"` лишається умовчанням.
+
+Auto-revert зі схеми B так і не взято: черга й задача — так, автоматичний відкат чужої роботи —
+ні, він небезпечніший за червоний рядок у черзі.
 
 ## Звичайна робота
 
@@ -15,6 +23,7 @@
 
 ```powershell
 node "$env:USERPROFILE\.claude\bin\elt.js" status
+node "$env:USERPROFILE\.claude\bin\elt.js" brief tools/elt.js   # ПЕРЕД слайсом, не після
 node "$env:USERPROFILE\.claude\bin\elt.js" slice next --json --count 3 --spec specs/NNN-name
 node "$env:USERPROFILE\.claude\bin\elt.js" judge run --task T001 --spec specs/NNN-name
 node "$env:USERPROFILE\.claude\bin\elt.js" commit --task T001 --spec specs/NNN-name --skip-oracle

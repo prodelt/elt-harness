@@ -31,6 +31,10 @@ const ROOT_CLOSURE = [
   'elt-config.js',
   'run-log.js',
   'elt-stats.js',
+  // 014 T018: `elt brief` (T011) в deploy-копии падал `Cannot find module './elt-brief'` — файл
+  // не входил в замыкание, а smoke этого не ловит. Скилл теперь прямо велит звать brief ПЕРЕД
+  // слайсом, значит снаружи он обязан работать, а не только в репо-разработчике.
+  'elt-brief.js',
   'harness-watch.js',
   'elt-verify-bg.js', // 014 T005: elt.js commit требует его лениво в verify:"background" ветке
   // 014 T009: слои фона тянут мутатор (верхний require) и судью (ленивый require fleet/gate.js
