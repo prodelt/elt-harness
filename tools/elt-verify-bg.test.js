@@ -287,6 +287,65 @@ test('commit: verify:"background" — коммитит БЕЗ судейског
   } finally { delete process.env.ELT_VERIFY_BG_ORACLE_CMD; }
 });
 
+// --- 014 T022: фоновый судья получает рубрику СВОЕЙ спеки -------------------------------
+// Живой дефект: T016/T017 спеки 014 были заблокированы фоном с причиной «рубрика относится к
+// specs/002-elt-fleet». Причина — runJudge звался без specFile, и findSpecDir (gate.js:166)
+// брал первый tasks.md, где встречается `**Txxx**`. Тест воспроизводит именно коллизию: две
+// спеки, обе содержат **T001**, и первой по обходу идёт ЧУЖАЯ.
+
+test('T022: runBackgroundVerify доносит до судьи specFile и taskText', async () => {
+  const { root } = gitRepo({ background: { layers: ['judge'] } });
+  // Второй коммит обязателен: судейский слой делает `reset --soft HEAD~1`, чтобы дифф слайса
+  // оказался в дереве worktree — на корневом коммите он бы отвалился ещё до вызова судьи.
+  fs.writeFileSync(path.join(root, 'slice.txt'), 'change\n');
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'slice'], { cwd: root });
+  const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  let seen = null;
+  await runBackgroundVerify({
+    cwd: root, commitHash: hash, taskId: 'T001',
+    taskText: '**T001** first [files: a.js]',
+    specFile: 'specs/014-mine/tasks.md',
+    judgeImpl: async (args) => { seen = args; return { verdict: 'pass', reasons: [] }; },
+  });
+  assert.equal(seen.specFile, 'specs/014-mine/tasks.md', 'без specFile судья получит рубрику чужой спеки');
+  assert.match(seen.taskText, /\[files: a\.js\]/, 'без taskText молчит scope-триггер L0 (011 T024)');
+});
+
+test('T022: elt commit доносит specFile/taskText в отсоединённый фон', () => {
+  const root = commitRepo('background');
+  // Коллизия: обе спеки объявляют **T001**; `002-collision` идёт по обходу ПЕРВОЙ.
+  fs.mkdirSync(path.join(root, 'specs', '002-collision'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'specs', '002-collision', 'tasks.md'), '- [ ] **T001** чужая задача\n');
+  // Слой suite и есть наблюдатель: он наследует env фонового процесса и печатает то, что дошло.
+  // Пишет на два уровня вверх от worktree (.fleet-wt/bg-<hash>/) — это корень репо.
+  fs.writeFileSync(path.join(root, 'dump-bg-env.js'),
+    "const fs=require('fs'),p=require('path');"
+    + "fs.writeFileSync(p.join(process.cwd(),'..','..','bg-env.json'),JSON.stringify("
+    + "{specFile:process.env.ELT_VERIFY_BG_SPEC_FILE||null,taskText:process.env.ELT_VERIFY_BG_TASK_TEXT||null}));\n");
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node -e "process.exit(0)"', shell: SHELL,
+    judge: { enabled: true, model: 'codex' }, specApproval: false,
+    verify: 'background', background: { layers: ['suite'] }, // судью в юнит-тесте не будим
+  }));
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'collision fixture'], { cwd: root });
+  fs.writeFileSync(path.join(root, 'slice.txt'), 'change again\n');
+
+  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node dump-bg-env.js';
+  try {
+    assert.equal(run(root, ['commit', '--task', 'T001', '--spec', 'specs/001-fixture', '--skip-oracle']).status, 0);
+    const out = path.join(root, 'bg-env.json');
+    const deadline = Date.now() + 30000;
+    while (!fs.existsSync(out) && Date.now() < deadline) execFileSync(process.execPath, ['-e', 'setTimeout(()=>{},200)']);
+    assert.ok(fs.existsSync(out), 'фон не отработал за 30 c — нечего проверять');
+    const got = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.equal(got.specFile, 'specs/001-fixture/tasks.md',
+      'фон обязан получить tasks.md СВОЕЙ спеки, а не первый попавшийся с **T001**');
+    assert.match(got.taskText, /first/);
+  } finally { delete process.env.ELT_VERIFY_BG_ORACLE_CMD; }
+});
+
 after(() => {
   for (const root of roots) { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* windows lock */ } }
 });
