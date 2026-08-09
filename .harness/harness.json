@@ -13,6 +13,7 @@
   },
   "redProof": "on",
   "oracleSelect": "impact",
+  "verify": "background",
   "testCmd": "node",
   "redProofTimeoutMs": 120000,
   "batch": 3,
