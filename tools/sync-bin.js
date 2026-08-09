@@ -32,6 +32,7 @@ const ROOT_CLOSURE = [
   'run-log.js',
   'elt-stats.js',
   'harness-watch.js',
+  'elt-verify-bg.js', // 014 T005: elt.js commit требует его лениво в verify:"background" ветке
   path.join('fleet', 'providers.js'),
   path.join('fleet', 'router.js'),
 ];

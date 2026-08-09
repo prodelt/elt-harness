@@ -81,7 +81,7 @@ C наполняет фон, D замыкает петлю, E раскатыва
 
 ## Фаза B — вынести проверку с критического пути
 
-- [ ] **T005** Поле `verify` в `harness.json` и режим `background` у `elt commit`.
+- [X] **T005** Поле `verify` в `harness.json` и режим `background` у `elt commit`.
   `verify: "sync"` (умолчание, поведение 011) | `"background"`. В режиме `background` `elt commit`
   выполняет L0 + быстрый оракул (impact + кэш), коммитит и **возвращает управление**, записав
   `status: "committed-speculative"` с хешем коммита; тяжёлые слои не запускаются синхронно.

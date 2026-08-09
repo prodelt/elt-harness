@@ -992,6 +992,8 @@ if (cmd === 'gate') {
 if (cmd === 'commit') {
   runLog.runtimeRunLog(cwd);
   const cfg = loadConfig();
+  // 014 T005 (AC3): 'sync' — умолчание, поведение 011 побайтово; ветка ниже её не касается.
+  const bgVerify = cfg.verify === 'background';
   const taskId = normalizeTaskArg(opt('--task'));
   if (flag('--verdict')) die('elt commit: --verdict is not authority; write a judge proof instead', 4);
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
@@ -1045,13 +1047,16 @@ if (cmd === 'commit') {
     }
   }
 
-  const judge = validateJudgeProof({ taskId });
-  if (!judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
+  // 014 T005 (AC3): в background-режиме тяжёлые слои (полный сьют/мутатор/smoke/судья) не
+  // синхронны — судейский пруф здесь не требуется, дифф проверяется фоном ПОСЛЕ коммита
+  // (spawnBackgroundVerify ниже). sync-ветка не тронута — судья остаётся обязательным.
+  const judge = bgVerify ? null : validateJudgeProof({ taskId });
+  if (!bgVerify && !judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
   // Captured now, BEFORE markDone() edits tasks.md and shifts treeHash — the
   // pre-commit hook (triggered by `git commit` below) re-checks the SAME
   // already-validated proof bytes via this hash rather than re-deriving
   // treeHash against the post-markDone tree (see `gate` command comment).
-  const gateTrust = sha256(readJudgeProof().raw);
+  const gateTrust = bgVerify ? null : sha256(readJudgeProof().raw);
 
   // 2. auto-branch: never commit slices straight to main (policy: feature)
   let branch = git(['branch', '--show-current']).out;
@@ -1077,11 +1082,12 @@ if (cmd === 'commit') {
 
   // 011 T004: метка ставится ПОСЛЕ обрезки до 90 — иначе длинный заголовок съедал бы её
   // ровно на тех слайсах, где она и нужна.
-  const inconclusive = judge.proof.verdict === 'inconclusive';
+  const inconclusive = !bgVerify && judge.proof.verdict === 'inconclusive';
   const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice')
     + (inconclusive ? ' [inconclusive]' : '');
   if (git(['add', '-A']).code !== 0) die('git add failed');
-  const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8', env: { ...process.env, ELT_GATE_TRUST: gateTrust } });
+  const commitEnv = bgVerify ? process.env : { ...process.env, ELT_GATE_TRUST: gateTrust };
+  const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8', env: commitEnv });
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
 
@@ -1108,13 +1114,25 @@ if (cmd === 'commit') {
       // счётчик пропускает записи без него, а не считает их impact-прогоном).
       ...(skipTrusted ? {} : { full: lastOracleFull }),
     },
-    commit: sha, branch, verdict: judge.proof.verdict, msg, ...(approvalSkipped ? { approvalSkipped: true } : {}),
+    commit: sha, branch, msg,
+    // 014 T005 (AC3): bg — вердикта ещё нет (тяжёлые слои не запускались), только заявка на
+    // проверку; sync — вердикт судьи, как и раньше (поведение 011 не тронуто).
+    ...(bgVerify ? { status: 'committed-speculative' } : { verdict: judge.proof.verdict }),
+    ...(approvalSkipped ? { approvalSkipped: true } : {}),
   });
 
   // 011 T026: watchdog зовётся сам между слайсами, СРАЗУ после записи run-log (там его
   // сырьё). Не гейт — тихий сбой (в т.ч. деплой без ~/.claude/bin/harness-watch.js) не
   // валит коммит, только теряет это одно наблюдение.
   try { requireHarnessWatch().runOnce(cwd); } catch { /* watchdog не гейт */ }
+
+  // 014 T005 (AC3): тяжёлые слои — отдельным отсоединённым процессом, ПОСЛЕ того как всё
+  // синхронное (run-log, watchdog) уже записано; commit не ждёт его результата.
+  if (bgVerify) {
+    const { spawnBackgroundVerify } = require('./elt-verify-bg');
+    const bg = spawnBackgroundVerify({ cwd, commitHash: sha, taskId });
+    console.error(`elt commit: фон запущен (pid ${bg.pid}, лог ${bg.logPath})`);
+  }
 
   // 4. push strictly by flag (config or CLI)
   if (cfg.push || flag('--push')) {
