@@ -1,0 +1,28 @@
+  → weakened-test (block)
+  → scope-creep (block)
+  ← scope-creep: block OK 27.3s
+  → sleep-instead-of-fix (block)
+  ← weakened-test: block OK 31s
+  → swallowed-error (block)
+  ← sleep-instead-of-fix: block OK 23.9s
+  → hidden-dependency (block)
+  ← swallowed-error: block OK 24.8s
+  → cosmetic-only (block)
+  ← hidden-dependency: block OK 22.7s
+  → disabled-gate (block)
+  ← cosmetic-only: block OK 25.6s
+  → test-deleted-instead-of-fixed (block)
+  ← disabled-gate: block OK 22.3s
+  → hardcoded-secret (block)
+  ← test-deleted-instead-of-fixed: block OK 25.5s
+  → off-by-one-money-calc (block)
+  ← hardcoded-secret: block OK 23s
+  → signature-change-breaks-callers (block)
+  ← signature-change-breaks-callers: block OK 34.4s
+  → clean-docs-only (pass)
+  ← off-by-one-money-calc: block OK 53.9s
+  → clean-small (pass)
+  ← clean-docs-only: pass OK 20.8s
+  → clean-large-in-scope (pass)
+  ← clean-small: pass OK 24.5s
+  → auto-checkpoint-noise (pass)

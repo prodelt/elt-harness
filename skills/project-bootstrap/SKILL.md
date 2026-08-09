@@ -31,6 +31,13 @@ changelog:
    managed pre-commit gate (`.githooks/pre-commit` → `elt.js gate`). Если для код-домена ещё нет
    валидного оракула — репортит `blocked`, ничего не выдумывает; оракул ставится юзером через
    `elt init --oracle "<test-cmd>"` (см. `/elt`).
+   `apply` доставляет и поля экзоскелета v4 (014 T016) в существующий `harness.json`:
+   `verify: "background"` (коммит возвращает управление, тяжёлые слои уходят в фон на хеше
+   коммита), `backgroundTimeoutMin: 20` (дольше молчания → инцидент `bg-silent`),
+   `background.layers` (сьют/мутатор/smoke/судья, все включены) и `smokeParallel: false`
+   (параллельный smoke — только с явного разрешения владельца проекта: порты и внешние
+   сервисы не терпят второго экземпляра). Существующий конфиг БЕЗ этих полей продолжает
+   работать по-старому — их отсутствие означает синхронное поведение 011.
    ```bash
    node "C:/Claude playground/Pipiline setupper/tools/project-bootstrap.js" apply --root . --json
    ```
