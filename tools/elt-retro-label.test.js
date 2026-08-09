@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, test } = require('node:test');
 
-const { label, format, touchedLines, overlaps } = require('./elt-retro-label');
+const { label, format, touchedLines, overlaps, daily, REPORT } = require('./elt-retro-label');
 const roots = [];
 after(() => { for (const r of roots) try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* windows lock */ } });
 
@@ -103,4 +103,25 @@ test('touchedLines/overlaps: пересечение по строкам, а не
     'первый коммит создаёт файл целиком — он пересекается с любой его правкой');
   const b = commit(root, 'y.js', lines(60), 'feat: T002 второй файл');
   assert.equal(overlaps(touchedLines(root, b), touchedLines(root, far)), null, 'разные файлы не пересекаются');
+});
+
+// 014 T015: суточный проход, который вешается в Task Scheduler. Планировщик показывает только
+// LastTaskResult — «процесс не упал»; пруф работы даёт ОТЧЁТ НА ДИСКЕ, поэтому его и проверяем.
+// Заодно ловится цикл require между этим модулем и judge-bench-ingest: он рвётся именно здесь
+// (ingest требует label обратно) и падает молча только в реальном запуске, не в юнитах label().
+test('T015 daily(): размечает, зовёт ingest и кладёт отчёт на диск', () => {
+  const root = repo();
+  const sha = commit(root, 'a.js', lines(5), 'feat: T001 слайс');
+  fs.mkdirSync(path.join(root, '.git', 'elt'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), [
+    { ts: '2026-08-01T10:00:00Z', task: 'T001', verdict: 'block', reasons: ['scope creep'] },
+    { ts: '2026-08-01T10:30:00Z', task: 'T001', commit: sha, verdict: 'pass' },
+  ].map((e) => JSON.stringify(e)).join('\n') + '\n');
+
+  const rep = daily(root);
+  assert.equal(rep.labels['false-block'], 1, 'блок, за которым не было красных попыток, — ложный');
+  assert.equal(rep.total, Object.values(rep.labels).reduce((a, b) => a + b, 0), 'метки покрывают все вердикты');
+  assert.equal(typeof rep.benchTotal, 'number', 'ingest отработал, а не свалился на цикле require');
+  const onDisk = JSON.parse(fs.readFileSync(path.join(root, REPORT), 'utf8'));
+  assert.deepEqual(onDisk.labels, rep.labels, 'отчёт на диске совпадает с возвращённым');
 });
