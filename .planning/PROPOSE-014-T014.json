@@ -26,3 +26,49 @@
   → clean-large-in-scope (pass)
   ← clean-small: pass OK 24.5s
   → auto-checkpoint-noise (pass)
+  ← clean-large-in-scope: block MISS 83s
+  → diff-capped-large-file (pass)
+  ← auto-checkpoint-noise: block MISS 78.8s
+  → contract-test-only-additive (pass)
+  ← contract-test-only-additive: pass OK 37.4s
+  → new-cli-command-with-tests (pass)
+  ← diff-capped-large-file: block MISS 52.6s
+  → harness-config-field-addition (pass)
+  ← new-cli-command-with-tests: block MISS 40.3s
+  → batch-commit-multiple-tasks (pass)
+  ← harness-config-field-addition: pass OK 34.1s
+  → refactor-extract-function-same-scope (pass)
+  ← refactor-extract-function-same-scope: block MISS 40.2s
+  → spec-approval-doc-only-recommit (pass)
+  ← batch-commit-multiple-tasks: block MISS 54.1s
+  → T015:2026-07-10T10:29:39.551Z (block)
+  ← spec-approval-doc-only-recommit: pass OK 23.4s
+  → T003:2026-07-10T10:58:41.142Z (block)
+  ← T015:2026-07-10T10:29:39.551Z: pass MISS 30.5s
+  → T025:2026-07-11T09:32:38.659Z (block)
+  ← T003:2026-07-10T10:58:41.142Z: pass MISS 38.1s
+  → T026:2026-07-11T09:41:44.267Z (block)
+  ← T025:2026-07-11T09:32:38.659Z: block OK 59.9s
+  → T027:2026-07-11T09:50:11.346Z (block)
+  ← T026:2026-07-11T09:41:44.267Z: pass MISS 79s
+  → T003:2026-07-11T18:11:39.948Z (block)
+  ← T027:2026-07-11T09:50:11.346Z: block OK 50.4s
+  → T004:2026-07-11T18:19:42.319Z (block)
+  ← T004:2026-07-11T18:19:42.319Z: block OK 36.3s
+  → T005:2026-07-11T18:36:20.176Z (block)
+  ← T005:2026-07-11T18:36:20.176Z: JUDGE-DEAD:nonzero-exit MISS 11.5s
+  → T014:2026-07-11T20:43:46.819Z (block)
+  ← T003:2026-07-11T18:11:39.948Z: pass MISS 60.7s
+  → T007:2026-07-11T21:29:46.426Z (block)
+  ← T014:2026-07-11T20:43:46.819Z: JUDGE-DEAD:nonzero-exit MISS 10.2s
+  → T008:2026-07-12T00:50:38.2803743+03:00 (pass)
+  ← T007:2026-07-11T21:29:46.426Z: JUDGE-DEAD:nonzero-exit MISS 10.3s
+  → T010:2026-07-12T10:33:11.5772880+03:00 (pass)
+  ← T008:2026-07-12T00:50:38.2803743+03:00: JUDGE-DEAD:nonzero-exit MISS 10.3s
+  → T001:2026-07-15T09:43:08.514Z (block)
+  ← T010:2026-07-12T10:33:11.5772880+03:00: JUDGE-DEAD:nonzero-exit MISS 10.2s
+  → T002:2026-07-15T10:10:26.230Z (block)
+  ← T001:2026-07-15T09:43:08.514Z: JUDGE-DEAD:nonzero-exit MISS 10.6s
+  → T004:2026-07-15T11:15:20.786Z (block)
+  ← T002:2026-07-15T10:10:26.230Z: JUDGE-DEAD:nonzero-exit MISS 9.8s
+  → T001:2026-07-22T16:51:25.4419323+03:00 (pass)

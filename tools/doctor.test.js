@@ -25,6 +25,7 @@ const {
   checkFleet,
   checkFleetWorkers,
   checkSelfDriveInvariants,
+  checkExoskeleton,
   runDoctor,
   runFleet,
 } = require('./doctor-core');
@@ -1170,6 +1171,40 @@ function testEltSelfhealAutoMergeGate() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+
+// 014 T017 (AC13): состояние экзоскелета видно в докторе при ОБОИХ режимах verify — иначе
+// фоновый контур невидим, а невидимый режим не используют и не замечают его смерти.
+function testExoskeletonCheck() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-exo-'));
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  const harness = (extra) => fs.writeFileSync(path.join(root, '.harness', 'harness.json'),
+    JSON.stringify({ kind: 'code', oracle: 'npm test', judge: { enabled: true, model: 'sonnet' }, ...extra }));
+
+  harness({});
+  const sync = checkExoskeleton(root);
+  assert.equal(sync.length, 1, 'секция есть и в sync — иначе не видно, что фон выключен');
+  assert.equal(sync[0].status, 'pass');
+  assert.match(sync[0].detail, /verify: sync/);
+
+  harness({ verify: 'background' });
+  fs.writeFileSync(path.join(root, '.harness', 'review-queue.jsonl'), [
+    JSON.stringify({ kind: 'bg-red', task: 'T001', layer: 'suite' }),
+    JSON.stringify({ kind: 'bg-red', task: 'T002', layer: 'judge', closedAt: '2026-08-09T00:00:00Z' }),
+    JSON.stringify({ task: 'T003', reason: 'inconclusive — не bg-red' }),
+  ].join(String.fromCharCode(10)) + String.fromCharCode(10));
+  const bg = checkExoskeleton(root);
+  assert.match(bg[0].detail, /verify: background/);
+  assert.equal(bg[0].data.bgRed, 1, 'закрытые и inconclusive-строки в счётчик не входят');
+  assert.equal(bg[0].status, 'pass', 'красное в очереди — работа, а не отказ доктора');
+
+  fs.writeFileSync(path.join(root, '.harness', 'health.jsonl'),
+    JSON.stringify({ kind: 'bg-silent', key: 'bg-silent:abc' }) + String.fromCharCode(10));
+  const silent = checkExoskeleton(root);
+  assert.equal(silent[0].status, 'warn', 'молчание фона — единственное, что здесь warn');
+  assert.equal(silent[0].data.silent, 1);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function main() {
   testEltSingleSource();
   testStuckDetectorUnit();
@@ -1206,6 +1241,7 @@ function main() {
   testFleetCheck();
   testFleetWorkersCheck();
   testSelfDriveInvariantsCheck();
+  testExoskeletonCheck();
   process.stdout.write('doctor tests: PASS\n');
 }
 

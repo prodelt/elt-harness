@@ -727,6 +727,34 @@ function checkReviewQueue(root) {
     : result('pass', 'elt:review-queue', 'Очередь ревью', detail, '', { open, file })];
 }
 
+// 014 T017 (AC13): экзоскелет невидим — фон по определению работает там, где человек не
+// смотрит. Невидимый режим не используют и, что хуже, не замечают его смерти. Одна секция
+// отвечает на четыре вопроса: включён ли фон, сколько красного он уже принёс, сколько раз
+// молчал и когда в последний раз считалась ретро-разметка.
+// ponytail: окно инцидентов — все записи health.jsonl, без даты отсечения. Файл пишется по
+// одной строке на инцидент (дедуп по key), расти ему не с чего; окно понадобится, когда
+// понадобится.
+function checkExoskeleton(root) {
+  const harness = readHarnessConfig(root);
+  if (!harness.ok) return []; // без harness.json говорить не о чем — это ловит другая проверка
+  const mode = harness.config.verify === 'background' ? 'background' : 'sync';
+  const rows = (file) => {
+    const text = readText(file);
+    if (!text.ok) return [];
+    return text.value.split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  };
+  const bgRed = rows(path.join(root, '.harness', 'review-queue.jsonl')).filter((r) => r.kind === 'bg-red' && !r.closedAt).length;
+  const silent = rows(path.join(root, '.harness', 'health.jsonl')).filter((r) => r.kind === 'bg-silent').length;
+  const ingested = readText(path.join(root, 'tools', 'judge-bench', 'cases-ingested.json'));
+  const labeledAt = ingested.ok ? (fs.statSync(path.join(root, 'tools', 'judge-bench', 'cases-ingested.json')).mtime.toISOString().slice(0, 10)) : null;
+  const detail = `verify: ${mode}, bg-red в очереди: ${bgRed}, bg-silent: ${silent}, ретро-разметка: ${labeledAt || 'ни разу'}`;
+  // `bg-silent` — единственное, что здесь warn: очередь и отсутствие разметки это работа,
+  // а молчание фона это неработающая проверка, то есть ложное ощущение зелёного.
+  return [silent > 0
+    ? result('warn', 'elt:exoskeleton', 'Фон молчал', detail, 'Разбери bg-silent: elt review, лог в .harness/loop-logs/.', { mode, bgRed, silent, labeledAt })
+    : result('pass', 'elt:exoskeleton', 'Экзоскелет', detail, '', { mode, bgRed, silent, labeledAt })];
+}
+
 // 011 T020 (R4): impact-выборка (`oracleSelect:impact`) экономит время на КАЖДОМ слайсе, но
 // платит за это слепотой к дефектам вне 2-хопового обратного скана диффа — единственная сеть
 // под ней (fleet-merge всегда full, T020) не покрывает соло-путь без fleet вовсе. Счётчик —
@@ -1066,6 +1094,7 @@ function runDoctor(options) {
     ...checkDocsGate(root),
     checkHarnessConfig(root),
     ...checkReviewQueue(root),
+    ...checkExoskeleton(root),
     ...checkOracleFullStale(root),
     ...checkJudgeBridge(root, home),
     ...checkGitWorkflowAudit(root),
@@ -1118,6 +1147,7 @@ module.exports = {
   checkHarnessChecklist,
   checkHarnessConfig,
   checkReviewQueue,
+  checkExoskeleton,
   checkOracleFullStale,
   checkJudgeBridge,
   checkHarnessGlobal,
