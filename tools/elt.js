@@ -667,6 +667,16 @@ if (cmd === 'stats') {
   process.exit(0);
 }
 
+// 014 T011 (AC11): единственный слой, который снижает число ошибок, а не ловит их — читается
+// ПЕРЕД правкой. Без сети и без LLM: та же история run-log, только повёрнутая к файлам.
+if (cmd === 'brief') {
+  const files = argv.slice(1).filter((a) => !a.startsWith('-'));
+  if (!files.length) die('elt brief <файл> [файл...] [--json]', 4);
+  const b = require('./elt-brief').brief(cwd, files);
+  console.log(flag('--json') ? JSON.stringify(b, null, 2) : require('./elt-brief').format(b));
+  process.exit(0);
+}
+
 if (cmd === 'review') {
   const rows = readReviewQueue();
   if (sub === 'close') {
