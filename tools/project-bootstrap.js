@@ -162,6 +162,17 @@ function applyPlan(root, options = {}) {
         if ('verify' in current.judge) { delete current.judge.verify; added.push('removed judge.verify'); }
       }
       if (!('redProof' in current)) { current.redProof = 'on'; added.push('redProof'); }
+      // 014 T016 (AC12): поля экзоскелета v4. Умолчания подобраны так, что ОТСУТСТВИЕ полей =
+      // поведение 011 — старый harness.json работает по-старому (verifyMode → 'sync'), а
+      // проставленные значения включают спекулятивный контур явно. `smokeParallel:false` —
+      // консервативно: параллельный smoke бьётся о порты и внешние сервисы (T010, R2).
+      if (!('verify' in current)) { current.verify = 'background'; added.push('verify'); }
+      if (!('backgroundTimeoutMin' in current)) { current.backgroundTimeoutMin = 20; added.push('backgroundTimeoutMin'); }
+      if (!('smokeParallel' in current)) { current.smokeParallel = false; added.push('smokeParallel'); }
+      if (!('background' in current)) {
+        current.background = { layers: ['suite', 'mutate', 'smoke', 'judge'] };
+        added.push('background.layers');
+      }
       if (added.length > 0) {
         fs.writeFileSync(harnessPath, JSON.stringify(current, null, 2) + '\n');
         changes.push({ id: 'harness-approval-fields', added });

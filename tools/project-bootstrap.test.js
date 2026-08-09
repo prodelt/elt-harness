@@ -20,6 +20,7 @@ const {
   scanProject,
   verifyProject,
 } = require('./project-bootstrap');
+const { validateHarnessConfig, verifyMode, backgroundTimeoutMin } = require('./elt-config');
 
 function validHarness(root) {
   fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
@@ -313,6 +314,38 @@ function testApplyPlanFillsInMissingApprovalDefaultsOnExistingHarness() {
 
   const second = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
   assert.equal(second.changes.some((c) => c.id === 'harness-approval-fields'), false, 'idempotent: no re-patch once fields exist');
+}
+
+// 014 T016 (AC12): экзоскелет v4 доезжает до ЧУЖИХ проектов — аудит 29.07 показал, что контур
+// судьи жил только в репо-разработчике. Проверяем и обратную совместимость: конфиг без полей
+// обязан работать по-старому, иначе апгрейд ломает каждый существующий проект.
+function testApplyPlanFillsInV4ExoskeletonFields() {
+  const root = tempProject();
+  validHarness(root);
+  const report = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  const added = report.changes.find((c) => c.id === 'harness-approval-fields').added;
+  for (const field of ['verify', 'backgroundTimeoutMin', 'smokeParallel', 'background.layers']) {
+    assert.ok(added.includes(field), `apply must set ${field}`);
+  }
+  const written = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
+  assert.equal(written.verify, 'background');
+  assert.equal(written.backgroundTimeoutMin, 20);
+  assert.equal(written.smokeParallel, false, 'параллельный smoke только с явного разрешения (T010)');
+  assert.deepEqual(written.background.layers, ['suite', 'mutate', 'smoke', 'judge']);
+  assert.equal(validateHarnessConfig(written).ok, true, 'записанный конфиг обязан быть валидным');
+
+  const second = applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.equal(second.changes.some((c) => c.id === 'harness-approval-fields'), false, 'идемпотентно');
+}
+
+function testExistingHarnessWithoutV4FieldsKeeps011Behaviour() {
+  const root = tempProject();
+  validHarness(root);
+  // Ни одного поля v4 — ровно та форма, что лежит в чужих проектах с 011.
+  assert.equal(verifyMode(root), 'sync', 'отсутствие verify = старое синхронное поведение');
+  assert.equal(backgroundTimeoutMin(root), 20, 'дефолт есть даже без поля — детектор не слепнет');
+  const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness', 'harness.json'), 'utf8'));
+  assert.equal(validateHarnessConfig(cfg).ok, true, 'старый конфиг остаётся валидным');
 }
 
 function testApplyPlanNeverOverridesExplicitApprovalChoice() {
@@ -727,6 +760,8 @@ function main() {
   testApplyPlanBlocksHarnessWithoutInventingOracle();
   testApplyPlanDoesNotBlockWhenHarnessAlreadyValid();
   testApplyPlanFillsInMissingApprovalDefaultsOnExistingHarness();
+  testApplyPlanFillsInV4ExoskeletonFields();
+  testExistingHarnessWithoutV4FieldsKeeps011Behaviour();
   testApplyPlanNeverOverridesExplicitApprovalChoice();
   testVerifyReportsApprovalGateSignalWithoutGatingOverallResult();
   testApplyPlanSkipsGitGateForNonCodeKind();
