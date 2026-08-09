@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const runLog = require('./run-log');
+const { mutate } = require('./elt-mutate');
 
 const BG_LOG_DIR = path.join('.harness', 'loop-logs'); // уже в .gitignore (соседи 011 T012/judge-bench)
 const WT_ROOT = '.fleet-wt';
@@ -89,44 +90,132 @@ function spawnBackgroundVerify({ cwd, commitHash, taskId }) {
   return { pid: child.pid, logPath: path.relative(cwd, logPath) };
 }
 
+// ── 014 T009 (AC7): четыре слоя в фоне ────────────────────────────────────────────────
+// Порядок фиксирован (схема спеки): сьют → мутатор → smoke → судья. Дешёвое впереди: красный
+// сьют делает мутанта бессмысленным, а судью — дорогим шумом, но слои НЕ прерывают друг друга
+// — фон не на критическом пути, а четыре причины лучше одной (за них уже заплачено worktree).
+const LAYERS = ['suite', 'mutate', 'smoke', 'judge'];
+
+// Поле `background.layers` — список ВКЛЮЧЁННЫХ слоёв; нет поля → включены все (AC7 «по
+// умолчанию все»). Читаем harness.json напрямую (приём `verifyMode`): [files:] T009 не
+// включает elt-config.js, а фоновому процессу через границу передаётся только cwd.
+function enabledLayers(cwd) {
+  try {
+    const bg = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8')).background;
+    const list = bg && Array.isArray(bg.layers) ? bg.layers.filter((l) => LAYERS.includes(l)) : null;
+    return new Set(list || LAYERS);
+  } catch { return new Set(LAYERS); }
+}
+function harnessField(cwd, key) {
+  try { return JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'))[key]; }
+  catch { return undefined; }
+}
+// ponytail: наивный split(' ') — команды харнесса (оракул/smoke) без пробелов внутри
+// аргументов, шелл не нужен. Апгрейд до разбора кавычек — когда такая команда появится.
+function runCmd(cmd, cwd) {
+  const [bin, ...args] = cmd.split(' ');
+  const r = spawnSync(bin, args, { cwd, encoding: 'utf8' });
+  return r.status == null ? 1 : r.status;
+}
+// Файлы коммита — вход мутатора. `--pretty=` глушит заголовок, остаются одни имена.
+function commitFiles(cwd, commitHash) {
+  const r = spawnSync('git', ['show', '--name-only', '--pretty=', commitHash], { cwd, encoding: 'utf8' });
+  return (r.stdout || '').split(/\r?\n/).filter(Boolean);
+}
+
+// Судья в фоне видит дифф только так: в worktree на хеше рабочее дерево ЧИСТОЕ, и `git diff
+// HEAD` (gate.slurpDiff) пуст — судья получил бы пустой слайс и отверг его по REJECT-default.
+// `reset --soft HEAD~1` сдвигает HEAD на родителя, оставляя содержимое коммита в дереве: ровно
+// тот дифф, который судья и должен читать. Worktree одноразовый и detached — портить нечего.
+async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText }) {
+  const back = spawnSync('git', ['reset', '--soft', 'HEAD~1'], { cwd: wt, encoding: 'utf8' });
+  if (back.status !== 0) return { verdict: 'dead', reasons: [`reset --soft не удался: ${back.stderr || back.stdout}`] };
+  const cfg = harnessField(cwd, 'judge') || {};
+  const { runJudge } = require('./fleet/gate');
+  try {
+    const r = await runJudge({
+      cwd: wt, tid: taskId || commitHash, taskText: taskText || '',
+      provider: cfg.provider || 'claude', model: cfg.model || 'sonnet',
+    });
+    // 014 решение 4: судья, который НЕ отработал, — отсутствие вердикта, а не красное. Красным
+    // его сделать значило бы завести очередь ложных задач на каждый упавший CLI; молчание фона
+    // ловит T008 (`bg-silent`), а не эта ветка.
+    if (!r || r.ok === false || r.runOk === false) return { verdict: 'dead', reasons: (r && r.reasons) || ['судья не отработал'] };
+    return { verdict: r.verdict, reasons: r.reasons || [] };
+  } catch (e) {
+    return { verdict: 'dead', reasons: [`судья упал: ${e.message}`] };
+  }
+}
+
 // Тело фонового процесса. Вынесено из require.main-ветки, чтобы тест мог прогнать его
 // напрямую (без реального spawn — детство «медленный тест = никто не гоняет» здесь неуместно;
 // у самого T005 уже есть кэш оракула T001, но интеграционный прогон всё равно не бесплатен).
-function runBackgroundVerify({ cwd, commitHash, taskId, oracleCmd = 'node tools/elt-oracle-runner.js --full' }) {
+async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, oracleCmd = 'node tools/elt-oracle-runner.js --full' }) {
   const started = Date.now();
   const wt = ensureWorktree(cwd, commitHash);
-  // ponytail: наивный split(' ') — реальная команда (дефолт выше) без пробелов внутри
-  // аргументов, шелл не нужен. Апгрейд до разбора кавычек — когда команда с пробелом-в-
-  // аргументе реально понадобится (T009 может принести такую).
-  const [bin, ...args] = oracleCmd.split(' ');
-  // cwd: wt — AC4, сердце слайса: команда исполняется в ИЗОЛИРОВАННОМ checkout на хеше
-  // коммита, а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
-  const r = spawnSync(bin, args, { cwd: wt, encoding: 'utf8' });
-  const exit = r.status == null ? 1 : r.status;
+  const on = enabledLayers(cwd);
+  const logPath = path.join(BG_LOG_DIR, `bg-${commitHash}.log`);
+  const sections = [];
+  // Секция на КАЖДЫЙ слой, включая выключенный: отчёт без строки о слое неотличим от отчёта,
+  // где слой молча не сработал — ровно та слепота, ради которой написан T008.
+  const section = (layer, body) => {
+    if (!on.has(layer)) { sections.push({ layer, skipped: true, reason: 'выключен в background.layers', durationSec: 0 }); return null; }
+    const t = Date.now();
+    const out = body();
+    return sections.push({ layer, ...out, durationSec: (Date.now() - t) / 1000 }), out;
+  };
+
+  // cwd: wt — AC4, сердце T006: слои исполняются в ИЗОЛИРОВАННОМ checkout на хеше коммита,
+  // а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
+  section('suite', () => {
+    const exit = runCmd(oracleCmd, wt);
+    return { exit, red: exit !== 0, reason: exit !== 0 ? `сьют: exit ${exit}` : null };
+  });
+  section('mutate', () => {
+    // Мутатор написан 011 T008 и до сих пор ни разу не был подключён к гейту (спека, п. 30).
+    // Тесты гоняются impact-выборкой, а не `--full`: мутация трогает одну строку одного файла.
+    const files = commitFiles(cwd, commitHash);
+    const r = mutate({ cwd: wt, files, runTests: () => runCmd('node tools/elt-oracle-runner.js', wt) !== 0 });
+    return { status: r.status, reason: r.reason, survived: r.survived.length, red: r.status === 'block' };
+  });
+  section('smoke', () => {
+    const smoke = harnessField(cwd, 'smoke');
+    if (typeof smoke !== 'string' || !smoke.trim()) return { skipped: true, reason: 'smoke не задан' };
+    const exit = runCmd(smoke, wt);
+    return { exit, red: exit !== 0, reason: exit !== 0 ? `smoke: exit ${exit}` : null };
+  });
+  if (on.has('judge')) {
+    const t = Date.now();
+    const j = await runJudgeLayer({ cwd, wt, commitHash, taskId, taskText });
+    sections.push({ layer: 'judge', verdict: j.verdict, red: j.verdict === 'block',
+      reason: j.verdict === 'block' ? `судья: ${(j.reasons || []).join('; ')}` : null,
+      durationSec: (Date.now() - t) / 1000 });
+  } else {
+    sections.push({ layer: 'judge', skipped: true, reason: 'выключен в background.layers', durationSec: 0 });
+  }
+
+  const red = sections.filter((s) => s.red);
   const durationSec = (Date.now() - started) / 1000;
   // Убирается независимо от вердикта — «остаётся» относится к отказу самого remove, не к
-  // красному оракулу (иначе .fleet-wt/ пух бы одним каталогом на каждый красный слайс).
+  // красному слою (иначе .fleet-wt/ пух бы одним каталогом на каждый красный слайс).
   const cleanup = cleanupWorktree(cwd, commitHash);
   // AC5: красное не роняет и не откатывает чужую работу — оно становится строкой в очереди.
-  // logPath детерминирован от хеша (тот же, что открыл `spawnBackgroundVerify`), поэтому его
-  // не надо протаскивать через argv отсоединённого процесса.
-  if (exit !== 0) {
-    enqueueBgRed(cwd, {
-      task: taskId || null, commit: commitHash, layer: 'suite',
-      reason: `фоновый слой suite: exit ${exit}`,
-      logPath: path.join(BG_LOG_DIR, `bg-${commitHash}.log`),
-    });
+  // Строка НА КАЖДЫЙ красный слой: одна общая скрывала бы, что упало и сьютом, и судьёй.
+  for (const s of red) {
+    enqueueBgRed(cwd, { task: taskId || null, commit: commitHash, layer: s.layer, reason: s.reason, logPath });
   }
+  const exit = red.length ? 1 : 0;
   runLog.appendRunLog(cwd, {
     task: taskId || null,
     commit: commitHash,
+    // Префикс `background-verify` держит T008: его детектор `bg-silent` ищет именно его.
     status: exit === 0 ? 'background-verify-pass' : 'background-verify-red',
     background: {
-      layer: 'suite', exit, durationSec,
+      layer: 'suite', exit, durationSec, sections,
       worktree: path.relative(cwd, cleanup.path), worktreeRemoved: cleanup.removed,
     },
   });
-  return { exit, durationSec, worktree: wt, worktreeRemoved: cleanup.removed };
+  return { exit, durationSec, sections, worktree: wt, worktreeRemoved: cleanup.removed };
 }
 
 if (require.main === module) {
@@ -139,12 +228,13 @@ if (require.main === module) {
   // сам spawn (доказывал бы мок, не реальный отсоединённый процесс). env, не argv — тот же
   // приём, что у ELT_ORACLE_JOBS (elt-oracle-runner.js): argv фиксирован ([--run, hash, task]).
   const oracleCmd = process.env.ELT_VERIFY_BG_ORACLE_CMD || undefined;
-  const { exit } = runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, ...(oracleCmd ? { oracleCmd } : {}) });
-  process.exit(exit);
+  runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, ...(oracleCmd ? { oracleCmd } : {}) })
+    .then(({ exit }) => process.exit(exit))
+    .catch((e) => { process.stderr.write(`elt-verify-bg: ${e.stack || e.message}\n`); process.exit(1); });
 }
 
 module.exports = {
   spawnBackgroundVerify, runBackgroundVerify, BG_LOG_DIR,
   ensureWorktree, cleanupWorktree, worktreePath, WT_ROOT,
-  enqueueBgRed, REVIEW_QUEUE,
+  enqueueBgRed, REVIEW_QUEUE, LAYERS, enabledLayers,
 };

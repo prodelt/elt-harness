@@ -125,9 +125,9 @@ test('bg-red: закрытая запись не возвращается (то�
   assert.deepEqual(openRows(root).map((x) => x.task), ['T001'], 'закрыта ровно bg-red, соседняя цела');
 });
 
-test('bg-red: красный фоновый прогон сам ставит запись; зелёный не ставит ничего', () => {
+test('bg-red: красный фоновый прогон сам ставит запись; зелёный не ставит ничего', async () => {
   const red = bgRepo();
-  runBackgroundVerify({ cwd: red.root, commitHash: red.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(1)' });
+  await runBackgroundVerify({ cwd: red.root, commitHash: red.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(1)' });
   const open = openRows(red.root);
   assert.equal(open.length, 1);
   assert.equal(open[0].kind, 'bg-red');
@@ -135,7 +135,7 @@ test('bg-red: красный фоновый прогон сам ставит з�
   assert.equal(open[0].layer, 'suite');
 
   const green = bgRepo();
-  runBackgroundVerify({ cwd: green.root, commitHash: green.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(0)' });
+  await runBackgroundVerify({ cwd: green.root, commitHash: green.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(0)' });
   assert.deepEqual(openRows(green.root), [], 'зелёный фон очередь не засоряет');
 });
 

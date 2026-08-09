@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, test } = require('node:test');
 
-const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath } = require('./elt-verify-bg');
+const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath, enabledLayers, LAYERS } = require('./elt-verify-bg');
 const { validateHarnessConfig, verifyMode, VERIFY_MODES } = require('./elt-config');
 
 const ELT = path.join(__dirname, 'elt.js');
@@ -19,7 +19,7 @@ const roots = [];
 // add --detach <path> <hash>`, фейковая строка вроде 'abc123' больше не резолвится. Заодно
 // коммитит `check-seed.js` — маленький чекер БЕЗ пробелов в оракул-команде (наивный split(' ')
 // в elt-verify-bg.js не понимает кавычки, см. его ponytail-комментарий).
-function gitRepo() {
+function gitRepo(harness) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-verify-bg-'));
   roots.push(root);
   execFileSync('git', ['init', '-q'], { cwd: root });
@@ -28,6 +28,10 @@ function gitRepo() {
   fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
   fs.writeFileSync(path.join(root, 'check-seed.js'),
     "process.exit(require('fs').readFileSync('seed.txt','utf8').trim()==='seed'?0:1);\n");
+  // 014 T009: фикстура по умолчанию гоняет только suite — остальные слои включаются точечно
+  // в своих тестах (судья иначе позвал бы настоящий CLI из юнит-теста).
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify(harness || { background: { layers: ['suite'] } }));
   execFileSync('git', ['add', '-A'], { cwd: root });
   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: root });
   const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
@@ -41,9 +45,9 @@ function runLogEntries(root) {
 
 // --- runBackgroundVerify (прямой вызов, без spawn — быстро) -------------------------
 
-test('runBackgroundVerify: зелёная команда пишет background-verify-pass с хешем коммита', () => {
+test('runBackgroundVerify: зелёная команда пишет background-verify-pass с хешем коммита', async () => {
   const { root, hash } = gitRepo();
-  const r = runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(0)' });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(0)' });
   assert.equal(r.exit, 0);
   const entries = runLogEntries(root);
   const last = entries[entries.length - 1];
@@ -54,9 +58,9 @@ test('runBackgroundVerify: зелёная команда пишет background-v
   assert.equal(last.background.exit, 0);
 });
 
-test('runBackgroundVerify: красная команда пишет background-verify-red, не маскирует провал', () => {
+test('runBackgroundVerify: красная команда пишет background-verify-red, не маскирует провал', async () => {
   const { root, hash } = gitRepo();
-  const r = runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(1)' });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(1)' });
   assert.equal(r.exit, 1);
   const entries = runLogEntries(root);
   assert.equal(entries[entries.length - 1].status, 'background-verify-red');
@@ -64,22 +68,79 @@ test('runBackgroundVerify: красная команда пишет background-v
 
 // --- T006 (AC4): worktree на ХЕШЕ коммита, не на живом дереве -----------------------
 
-test('runBackgroundVerify (AC4): фон видит содержимое НА ХЕШЕ, не правку основного дерева после старта', () => {
+test('runBackgroundVerify (AC4): фон видит содержимое НА ХЕШЕ, не правку основного дерева после старта', async () => {
   const { root, hash } = gitRepo();
   // Гонка со следующим слайсом: правим main-дерево ПОСЛЕ того, как коммит (и его хеш) уже
   // зафиксирован — ровно то, что произошло бы, если бы пользователь начал T+1, пока фон T ещё
   // не закончил. check-seed.js на хеше `hash` обязан по-прежнему видеть 'seed', не правку.
   fs.writeFileSync(path.join(root, 'seed.txt'), 'CORRUPTED-BY-NEXT-SLICE\n');
-  const r = runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node check-seed.js' });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node check-seed.js' });
   assert.equal(r.exit, 0, 'worktree обязан видеть seed.txt НА ХЕШЕ коммита — не текущую правку основного дерева (stale-tree)');
   // Основное дерево осталось с правкой — фон её не тронул и не откатил.
   assert.equal(fs.readFileSync(path.join(root, 'seed.txt'), 'utf8'), 'CORRUPTED-BY-NEXT-SLICE\n');
 });
 
-test('runBackgroundVerify (AC4): worktree убирается после прогона (не копится в .fleet-wt/)', () => {
+test('runBackgroundVerify (AC4): worktree убирается после прогона (не копится в .fleet-wt/)', async () => {
   const { root, hash } = gitRepo();
-  runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node -e process.exit(0)' });
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node -e process.exit(0)' });
   assert.equal(fs.existsSync(worktreePath(root, hash)), false, 'worktree обязан быть снесён после зелёного прогона');
+});
+
+// --- 014 T009 (AC7): четыре слоя в фоне ---------------------------------------------
+
+const sectionsOf = (r) => Object.fromEntries(r.sections.map((s) => [s.layer, s]));
+
+test('T009: отчёт содержит все четыре секции с временем каждой', async () => {
+  // Судья выключен: он единственный слой, зовущий внешний CLI — в юните это был бы не тест,
+  // а живой вызов модели. Его секция обязана присутствовать, но как явно выключенная.
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(0)', background: { layers: ['suite', 'mutate', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  assert.deepEqual(r.sections.map((s) => s.layer), ['suite', 'mutate', 'smoke', 'judge'], 'четыре секции, в порядке схемы спеки');
+  assert.ok(r.sections.every((s) => typeof s.durationSec === 'number'), 'у каждой секции своё время');
+  assert.equal(r.exit, 0);
+  const by = sectionsOf(r);
+  assert.equal(by.judge.skipped, true);
+  assert.match(by.judge.reason, /выключен/, 'выключенный слой отсутствует С ПРИЧИНОЙ, а не молча');
+});
+
+test('T009: smoke не задан — секция пропущена с причиной, а не падает', async () => {
+  const { root, hash } = gitRepo({ background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  assert.equal(r.exit, 0, 'отсутствие smoke не делает фон красным');
+  assert.match(sectionsOf(r).smoke.reason, /не задан/);
+});
+
+test('T009: красный smoke — bg-red слоя smoke, сьют при этом зелёный', async () => {
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(3)', background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  assert.equal(r.exit, 1);
+  const rows = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((x) => x.layer), ['smoke'], 'красный ровно один слой — ровно одна задача');
+  assert.equal(sectionsOf(r).suite.red, false);
+});
+
+test('T009: каждый красный слой даёт СВОЮ строку очереди, а не одну общую', async () => {
+  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', background: { layers: ['suite', 'smoke'] } });
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(1)' });
+  const rows = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((x) => x.layer), ['suite', 'smoke'], 'две причины — две задачи');
+});
+
+test('T009: background.layers отсутствует — включены все четыре (AC7 «по умолчанию все»)', () => {
+  const { root } = gitRepo({ kind: 'code' });
+  assert.deepEqual([...enabledLayers(root)], LAYERS);
+  const { root: only } = gitRepo({ background: { layers: ['suite'] } });
+  assert.deepEqual([...enabledLayers(only)], ['suite']);
+});
+
+test('T009: run-log несёт секции — без них отчёт фона неразбираем', async () => {
+  const { root, hash } = gitRepo({ background: { layers: ['suite'] } });
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  const last = runLogEntries(root).pop();
+  assert.equal(last.status, 'background-verify-pass', 'префикс background-verify держит детектор bg-silent (T008)');
+  assert.equal(last.background.sections.length, 4);
 });
 
 test('ensureWorktree: реальный checkout на хеше — файлы читаемы напрямую из worktree-пути', () => {
@@ -139,7 +200,7 @@ test('validateHarnessConfig: verify:"background"/"sync" — валидны; оп
 test('verifyMode: нет поля/битый конфиг → sync (AC12 обратная совместимость)', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-verify-mode-'));
   roots.push(root);
-  fs.mkdirSync(path.join(root, '.harness'));
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true }); // gitRepo() уже мог его создать (T009)
   fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'x' }));
   assert.equal(verifyMode(root), 'sync');
   assert.equal(verifyMode(path.join(root, 'nope')), 'sync', 'нечитаемый путь — тоже sync, не бросает');
@@ -148,7 +209,7 @@ test('verifyMode: нет поля/битый конфиг → sync (AC12 обр�
 test('verifyMode: явный background читается как есть', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-verify-mode-'));
   roots.push(root);
-  fs.mkdirSync(path.join(root, '.harness'));
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true }); // gitRepo() уже мог его создать (T009)
   fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({ kind: 'code', oracle: 'x', verify: 'background' }));
   assert.equal(verifyMode(root), 'background');
 });
@@ -171,7 +232,7 @@ function harness(verify) {
 }
 function commitRepo(verify) {
   const { root } = gitRepo();
-  fs.mkdirSync(path.join(root, '.harness'));
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true }); // gitRepo() уже мог его создать (T009)
   fs.writeFileSync(path.join(root, '.harness', 'harness.json'), harness(verify));
   fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
   fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'), '- [ ] **T001** first\n');
