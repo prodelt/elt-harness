@@ -10,6 +10,7 @@
 // Дисциплина метки: ЛЮБАЯ неуверенность → `unknown`. Доля unknown печатается и является
 // главным числом отчёта: разметка, которая уверена во всём, врёт.
 const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
 const { runtimeRunLog } = require('./run-log');
 
@@ -131,10 +132,68 @@ function format(r) {
   ].join('\n');
 }
 
-if (require.main === module) {
-  const r = label(process.cwd());
-  console.log(format(r));
-  if (process.argv.includes('--json')) console.log(JSON.stringify(r.results, null, 2));
+// ── 014 T015: разметка ходит по расписанию, а не рукой ──────────────────────────────────
+// Ретро-разметка ценна только накопительно: раз в сутки она видит новые вердикты и новые
+// коммиты-фиксы, а запущенная рукой — не запускается никогда. Планировщик — Windows Task
+// Scheduler (решение пользователя 02.07): у CronCreate 7-дневный авто-истечок, то есть ровно
+// то свойство, из-за которого задача и умирает молча.
+//
+// `propose` СЮДА НЕ ВХОДИТ намеренно (текст T015): автомат готовит данные, правку гейта
+// предлагает человек или слайс. Авто-propose менял бы гейт без единого читателя.
+const REPORT = path.join('.harness', 'judge-bench', 'retro-report.json'); // каталог уже в .gitignore:75
+const TASK_NAME = 'ELT-retro-label';
+
+// Один суточный проход: разметить → пополнить bench → положить отчёт на диск. Отчёт и есть
+// пруф того, что задача отработала: LastTaskResult=0 говорит лишь, что процесс не упал.
+function daily(cwd) {
+  const r = label(cwd);
+  const { ingest } = require('./judge-bench-ingest');
+  const ing = ingest(cwd);
+  const by = (l) => r.results.filter((x) => x.label === l).length;
+  const report = {
+    ts: new Date().toISOString(),
+    total: r.total,
+    labels: { 'false-block': by('false-block'), 'missed-defect': by('missed-defect'), correct: by('correct'), unknown: r.unknown },
+    unknownShare: r.unknownShare,
+    benchAdded: ing.added,
+    benchTotal: ing.total,
+  };
+  const file = path.join(cwd, REPORT);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(report, null, 2) + '\n');
+  return report;
 }
 
-module.exports = { label, format, touchedLines, overlaps, FIX_WINDOW, LINE_TOLERANCE };
+// Регистрация идемпотентна: `/F` перезаписывает существующую задачу, поэтому повторный запуск
+// не плодит дублей и заодно чинит устаревший путь к node/скрипту после переезда репо.
+function installSchedule(cwd, { time = '03:00', name = TASK_NAME } = {}) {
+  const script = path.join(cwd, 'tools', 'elt-retro-label.js');
+  const tr = `"${process.execPath}" "${script}" --daily --project "${cwd}"`;
+  const r = spawnSync('schtasks', ['/Create', '/TN', name, '/SC', 'DAILY', '/ST', time, '/F', '/TR', tr], { encoding: 'utf8' });
+  return { ok: r.status === 0, taskName: name, command: tr, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
+}
+
+// Экспорт ДО main-ветки: `judge-bench-ingest` требует этот модуль обратно (цикл), и если
+// `daily()` стартует раньше присвоения, ingest получит пустой exports и упадёт на `label`.
+module.exports = { label, format, touchedLines, overlaps, daily, installSchedule, REPORT, TASK_NAME, FIX_WINDOW, LINE_TOLERANCE };
+
+if (require.main === module) {
+  const argv = process.argv.slice(2);
+  const at = (f) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : null; };
+  // --project: планировщик стартует процесс не в корне репо, cwd там — system32.
+  const cwd = at('--project') || process.cwd();
+  if (argv.includes('--install-schedule')) {
+    const r = installSchedule(cwd, { ...(at('--at') ? { time: at('--at') } : {}) });
+    console.log(`elt retro-label: задача ${r.taskName} ${r.ok ? 'зарегистрирована' : 'НЕ зарегистрирована'}\n  ${r.command}\n  ${r.out}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  if (argv.includes('--daily')) {
+    const rep = daily(cwd);
+    console.log(`elt retro-label --daily: ${rep.total} вердиктов, unknown ${Math.round(rep.unknownShare * 100)}%, `
+      + `bench +${rep.benchAdded} (всего ${rep.benchTotal}) → ${REPORT}`);
+    process.exit(0);
+  }
+  const r = label(cwd);
+  console.log(format(r));
+  if (argv.includes('--json')) console.log(JSON.stringify(r.results, null, 2));
+}
