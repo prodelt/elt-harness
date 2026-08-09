@@ -1211,6 +1211,20 @@ function testExoskeletonCheck() {
   const silent = checkExoskeleton(root);
   assert.equal(silent[0].status, 'warn', 'молчание фона — единственное, что здесь warn');
   assert.equal(silent[0].data.silent, 1);
+
+  // 014 T024: окно. Раньше складывалась вся история, и один разобранный полгода назад инцидент
+  // держал doctor в warn навсегда — сигнал, который не гаснет, перестают читать.
+  const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  fs.writeFileSync(path.join(root, '.harness', 'health.jsonl'),
+    JSON.stringify({ kind: 'bg-silent', key: 'bg-silent:old', ts: old }) + String.fromCharCode(10));
+  const aged = checkExoskeleton(root);
+  assert.equal(aged[0].data.silent, 0, 'инцидент за пределами окна не считается');
+  assert.equal(aged[0].status, 'pass', 'старое молчание больше не держит doctor в warn');
+
+  const fresh = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  fs.appendFileSync(path.join(root, '.harness', 'health.jsonl'),
+    JSON.stringify({ kind: 'bg-silent', key: 'bg-silent:fresh', ts: fresh }) + String.fromCharCode(10));
+  assert.equal(checkExoskeleton(root)[0].data.silent, 1, 'свежий инцидент виден');
   fs.rmSync(root, { recursive: true, force: true });
 }
 
