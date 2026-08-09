@@ -673,4 +673,15 @@ new file mode 100644
   },
 ];
 
-module.exports = { cases };
+// 014 T013 (AC9): к рукописному набору подмешиваются кейсы, добытые ретро-разметкой
+// (`judge-bench-ingest.js`). Отдельный файл, а не дозапись сюда: рукописный кейс несёт
+// объяснение человека, машинный — эвиденс метки, и смешивать их источники нельзя. Файла может
+// не быть (чистый клон, проект без истории) — это не ошибка, просто набор из одних рукописных.
+function ingestedCases() {
+  try {
+    const j = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'cases-ingested.json'), 'utf8'));
+    return Array.isArray(j) ? j : [];
+  } catch { return []; }
+}
+
+module.exports = { cases: [...cases, ...ingestedCases()], handwritten: cases, ingestedCases };
