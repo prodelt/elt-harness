@@ -8,13 +8,17 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, test } = require('node:test');
 
-const { runBackgroundVerify, spawnBackgroundVerify } = require('./elt-verify-bg');
+const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath } = require('./elt-verify-bg');
 const { validateHarnessConfig, verifyMode, VERIFY_MODES } = require('./elt-config');
 
 const ELT = path.join(__dirname, 'elt.js');
 const SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
 const roots = [];
 
+// Возвращает { root, hash } — реальный commit-ish обязателен с T006: фон делает `git worktree
+// add --detach <path> <hash>`, фейковая строка вроде 'abc123' больше не резолвится. Заодно
+// коммитит `check-seed.js` — маленький чекер БЕЗ пробелов в оракул-команде (наивный split(' ')
+// в elt-verify-bg.js не понимает кавычки, см. его ponytail-комментарий).
 function gitRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-verify-bg-'));
   roots.push(root);
@@ -22,9 +26,12 @@ function gitRepo() {
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
   fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+  fs.writeFileSync(path.join(root, 'check-seed.js'),
+    "process.exit(require('fs').readFileSync('seed.txt','utf8').trim()==='seed'?0:1);\n");
   execFileSync('git', ['add', '-A'], { cwd: root });
   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: root });
-  return root;
+  const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  return { root, hash };
 }
 function runLogEntries(root) {
   const file = path.join(root, '.git', 'elt', 'run-log.jsonl');
@@ -35,12 +42,12 @@ function runLogEntries(root) {
 // --- runBackgroundVerify (прямой вызов, без spawn — быстро) -------------------------
 
 test('runBackgroundVerify: зелёная команда пишет background-verify-pass с хешем коммита', () => {
-  const root = gitRepo();
-  const r = runBackgroundVerify({ cwd: root, commitHash: 'abc123', taskId: 'T005', oracleCmd: 'node -e process.exit(0)' });
+  const { root, hash } = gitRepo();
+  const r = runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(0)' });
   assert.equal(r.exit, 0);
   const entries = runLogEntries(root);
   const last = entries[entries.length - 1];
-  assert.equal(last.commit, 'abc123');
+  assert.equal(last.commit, hash);
   assert.equal(last.task, 'T005');
   assert.equal(last.status, 'background-verify-pass');
   assert.equal(last.background.layer, 'suite');
@@ -48,21 +55,50 @@ test('runBackgroundVerify: зелёная команда пишет background-v
 });
 
 test('runBackgroundVerify: красная команда пишет background-verify-red, не маскирует провал', () => {
-  const root = gitRepo();
-  const r = runBackgroundVerify({ cwd: root, commitHash: 'def456', taskId: 'T005', oracleCmd: 'node -e process.exit(1)' });
+  const { root, hash } = gitRepo();
+  const r = runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(1)' });
   assert.equal(r.exit, 1);
   const entries = runLogEntries(root);
   assert.equal(entries[entries.length - 1].status, 'background-verify-red');
 });
 
+// --- T006 (AC4): worktree на ХЕШЕ коммита, не на живом дереве -----------------------
+
+test('runBackgroundVerify (AC4): фон видит содержимое НА ХЕШЕ, не правку основного дерева после старта', () => {
+  const { root, hash } = gitRepo();
+  // Гонка со следующим слайсом: правим main-дерево ПОСЛЕ того, как коммит (и его хеш) уже
+  // зафиксирован — ровно то, что произошло бы, если бы пользователь начал T+1, пока фон T ещё
+  // не закончил. check-seed.js на хеше `hash` обязан по-прежнему видеть 'seed', не правку.
+  fs.writeFileSync(path.join(root, 'seed.txt'), 'CORRUPTED-BY-NEXT-SLICE\n');
+  const r = runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node check-seed.js' });
+  assert.equal(r.exit, 0, 'worktree обязан видеть seed.txt НА ХЕШЕ коммита — не текущую правку основного дерева (stale-tree)');
+  // Основное дерево осталось с правкой — фон её не тронул и не откатил.
+  assert.equal(fs.readFileSync(path.join(root, 'seed.txt'), 'utf8'), 'CORRUPTED-BY-NEXT-SLICE\n');
+});
+
+test('runBackgroundVerify (AC4): worktree убирается после прогона (не копится в .fleet-wt/)', () => {
+  const { root, hash } = gitRepo();
+  runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node -e process.exit(0)' });
+  assert.equal(fs.existsSync(worktreePath(root, hash)), false, 'worktree обязан быть снесён после зелёного прогона');
+});
+
+test('ensureWorktree: реальный checkout на хеше — файлы читаемы напрямую из worktree-пути', () => {
+  const { root, hash } = gitRepo();
+  const wt = ensureWorktree(root, hash);
+  // .trim(): Windows git (core.autocrlf) переписывает \n в \r\n при checkout — содержимое,
+  // не перевод строки, доказывает, что это реальный чекаут, а не заглушка.
+  assert.equal(fs.readFileSync(path.join(wt, 'seed.txt'), 'utf8').trim(), 'seed');
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: root });
+});
+
 // --- spawnBackgroundVerify (реальный detached-процесс) -------------------------------
 
 test('spawnBackgroundVerify: возвращает управление немедленно (не ждёт завершения фона)', () => {
-  const root = gitRepo();
+  const { root, hash } = gitRepo();
   process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e setTimeout(()=>process.exit(0),1500)';
   try {
     const started = Date.now();
-    const r = spawnBackgroundVerify({ cwd: root, commitHash: 'fast1', taskId: 'T005' });
+    const r = spawnBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005' });
     const elapsedMs = Date.now() - started;
     assert.ok(elapsedMs < 800, `spawnBackgroundVerify обязан вернуть управление сразу, занял ${elapsedMs}ms`);
     assert.ok(r.pid > 0, 'фон реально запущен — есть pid');
@@ -71,15 +107,15 @@ test('spawnBackgroundVerify: возвращает управление неме�
 });
 
 test('spawnBackgroundVerify: фон реально дописывает run-log ПОСЛЕ того, как родитель уже вернул управление', async () => {
-  const root = gitRepo();
+  const { root, hash } = gitRepo();
   process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e process.exit(0)';
   try {
-    spawnBackgroundVerify({ cwd: root, commitHash: 'fast2', taskId: 'T005' });
+    spawnBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005' });
     // Родитель уже не ждёт — тест ждёт САМ, с таймаутом, а не синхронно в вызывающем коде.
     const deadline = Date.now() + 10000;
     let found = null;
     while (Date.now() < deadline && !found) {
-      found = runLogEntries(root).find((e) => e.commit === 'fast2');
+      found = runLogEntries(root).find((e) => e.commit === hash);
       if (!found) await new Promise((r) => setTimeout(r, 100));
     }
     assert.ok(found, 'фон обязан дописать run-log в разумное время после старта');
@@ -134,7 +170,7 @@ function harness(verify) {
   });
 }
 function commitRepo(verify) {
-  const root = gitRepo();
+  const { root } = gitRepo();
   fs.mkdirSync(path.join(root, '.harness'));
   fs.writeFileSync(path.join(root, '.harness', 'harness.json'), harness(verify));
   fs.mkdirSync(path.join(root, 'specs', '001-fixture'), { recursive: true });
