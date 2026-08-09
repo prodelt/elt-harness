@@ -127,10 +127,20 @@ function harnessField(cwd, key) {
 }
 // ponytail: наивный split(' ') — команды харнесса (оракул/smoke) без пробелов внутри
 // аргументов, шелл не нужен. Апгрейд до разбора кавычек — когда такая команда появится.
-function runCmd(cmd, cwd) {
+// 014 T023: вывод дочернего процесса ДОПИСЫВАЕТСЯ в лог фона. До этого `spawnSync` с `encoding`
+// захватывал stdout/stderr в объект результата и молча их выбрасывал: `logPath` в каждой записи
+// `bg-red` указывал на файл с одной строкой deprecation-варнинга, и разобрать красное фона было
+// физически нечем (поймано живьём на T016 и T018). Лог не гейт — отказ записи не роняет слой.
+function runCmd(cmd, cwd, logFile = null) {
   const [bin, ...args] = cmd.split(' ');
   const r = spawnSync(bin, args, { cwd, encoding: 'utf8' });
-  return r.status == null ? 1 : r.status;
+  const exit = r.status == null ? 1 : r.status;
+  if (logFile) {
+    try {
+      fs.appendFileSync(logFile, `\n$ ${cmd}  (exit ${exit})\n${r.stdout || ''}${r.stderr || ''}`);
+    } catch { /* лог не гейт */ }
+  }
+  return exit;
 }
 // Файлы коммита — вход мутатора. `--pretty=` глушит заголовок, остаются одни имена.
 function commitFiles(cwd, commitHash) {
@@ -178,6 +188,8 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   const wt = ensureWorktree(cwd, commitHash);
   const on = enabledLayers(cwd);
   const logPath = path.join(BG_LOG_DIR, `bg-${commitHash}.log`);
+  const logFile = path.join(cwd, logPath); // 014 T023: тот же файл, что уже указан в очереди
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const sections = [];
   // Секция на КАЖДЫЙ слой, включая выключенный: отчёт без строки о слое неотличим от отчёта,
   // где слой молча не сработал — ровно та слепота, ради которой написан T008.
@@ -191,14 +203,14 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   // cwd: wt — AC4, сердце T006: слои исполняются в ИЗОЛИРОВАННОМ checkout на хеше коммита,
   // а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
   section('suite', () => {
-    const exit = runCmd(oracleCmd, wt);
+    const exit = runCmd(oracleCmd, wt, logFile);
     return { exit, red: exit !== 0, reason: exit !== 0 ? `сьют: exit ${exit}` : null };
   });
   section('mutate', () => {
     // Мутатор написан 011 T008 и до сих пор ни разу не был подключён к гейту (спека, п. 30).
     // Тесты гоняются impact-выборкой, а не `--full`: мутация трогает одну строку одного файла.
     const files = commitFiles(cwd, commitHash);
-    const r = mutate({ cwd: wt, files, runTests: () => runCmd('node tools/elt-oracle-runner.js', wt) !== 0 });
+    const r = mutate({ cwd: wt, files, runTests: () => runCmd('node tools/elt-oracle-runner.js', wt, logFile) !== 0 });
     return { status: r.status, reason: r.reason, survived: r.survived.length, red: r.status === 'block' };
   });
   section('smoke', () => {
@@ -209,7 +221,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
     // «мы это не проверяли» не то же самое, что «проверили и красное» (та же дисциплина, что у
     // бюджета мутатора). Разрешение даёт только владелец проекта полем smokeParallel:true.
     if (harnessField(cwd, 'smokeParallel') !== true) return { skipped: true, reason: 'skipped: smokeParallel=false' };
-    const exit = runCmd(smoke, wt);
+    const exit = runCmd(smoke, wt, logFile);
     return { exit, red: exit !== 0, reason: exit !== 0 ? `smoke: exit ${exit}` : null };
   });
   if (on.has('judge')) {
