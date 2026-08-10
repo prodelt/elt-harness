@@ -14,6 +14,7 @@ const runLog = require('./run-log');
 const { slicesSinceFull } = require('./elt-oracle-runner');
 const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 const { CORE_SECTIONS } = require('./project-docs-core');
+const { resolveBinary, scannerVersion } = require('./skill-scan');
 const { inspectProject } = require('./project-bootstrap');
 const fleetClaims = require('./fleet/claims');
 const fleetWorktree = require('./fleet/worktree');
@@ -317,6 +318,28 @@ function checkCodexDefaults(home) {
     ? result('warn', 'codex:defaults', 'Codex defaults are expensive', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, 'Consider upgrading to gpt-5.5 for best results.')
     : result('pass', 'codex:defaults', 'Codex defaults OK', `model=${model || '<unset>'}, effort=${effort || '<unset>'}`, '');
   return [modelFinding, checkCodexSandbox(text.value)];
+}
+
+// 015 T002: the skill supply-chain gate is only real if the scanner it shells out to actually
+// exists. Without this line "гейт включён" is belief, not state — doctor names the binary and
+// its version so a stale vendored copy can't masquerade as the global install.
+function checkSkillScanner() {
+  const binary = resolveBinary();
+  if (!binary) {
+    return result('warn', 'skill:scanner', 'SkillSpector not installed',
+      'tools/skill-scan.js has no binary to call — the supply-chain gate cannot run.',
+      'Run: uv tool install --python 3.12 git+https://github.com/NVIDIA/skillspector.git');
+  }
+  const version = scannerVersion(binary);
+  const global = !binary.includes(path.join('vendor', 'skill-packs'));
+  return result(
+    global ? 'pass' : 'warn',
+    'skill:scanner',
+    `SkillSpector ${version || 'version unknown'} (${global ? 'global' : 'repo-vendored'})`,
+    binary,
+    global ? '' : 'Repo-local copy only — other projects have no gate. Run: uv tool install --python 3.12 git+https://github.com/NVIDIA/skillspector.git',
+    { binary, version, global },
+  );
 }
 
 // T008 (004-elt-selfdrive): mandate is "codegraph первым" — this must be a
@@ -1092,6 +1115,7 @@ function runDoctor(options) {
     ...checkHooks(home),
     ...checkCodeGraph(root),
     checkCodeGraphMcp(home),
+    checkSkillScanner(),
     ...checkCodeGraphAdoption(root, home),
     ...checkSurfaceSync(root),
     ...checkAgentSkillSupplyChain(root, home),

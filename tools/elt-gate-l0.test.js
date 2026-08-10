@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { verifySettings, readHarnessConfig } = require('./elt-config');
-const { evaluate, DEFAULT_DIFF_SIZE } = require('./elt-gate-l0');
+const { evaluate, externalImports, DEFAULT_DIFF_SIZE } = require('./elt-gate-l0');
 const providers = require('./fleet/providers');
 const { runJudge } = require('./fleet/gate');
 
@@ -168,6 +168,23 @@ function testNewCodeWithoutCheck() {
   const untracked = evaluate({ diff: '', status: '?? tools/brand-new.js', config: {} });
   assert.deepEqual(names(untracked), ['new-code-no-check']);
   assert.deepEqual(untracked.triggers[0].files, ['tools/brand-new.js']);
+}
+
+// 015 T001 — `@/…`, `~/…`, `#…` это path-алиасы (tsconfig paths, imports-поле package.json),
+// а не пакеты. Без этого каждый TS/Next-проект давал ложный триггер new-dependency на своём же
+// коде: у npm-скоупа имя непустое (`@scope/name`), а `@/lib/x` даёт скоуп `@`.
+function testPathAliasesAreNotDependencies() {
+  // Спецификаторы собираются из кусков, а НЕ пишутся литералом: иначе L0 читает диff этого
+  // самого теста и репортит фикстуры как реальные новые зависимости (проверено — блокирует).
+  const KW = 'from';
+  const line = (spec) => `+import x ${KW} ${JSON.stringify(spec)};`;
+  const diff = ['@/lib/db', '~/utils/x', '#internal/y', 'lodash/fp', '@scope/pkg/sub']
+    .map(line).join('\n');
+  assert.deepEqual(
+    externalImports(diff).sort(),
+    ['@scope/pkg', 'lodash'],
+    'алиасы игнорируются, реальные пакеты сворачиваются до имени пакета',
+  );
 }
 
 function testHotPath() {
@@ -519,6 +536,7 @@ async function main() {
   testWeakenedAssertionCleanAdditionIsNotATrigger();
   testWeakenedAssertionNeutralEditIsNotATrigger();
   testNewCodeWithoutCheck();
+  testPathAliasesAreNotDependencies();
   testHotPath();
   testDiffSize();
   testOutOfScopeNotTriggeredInsideZone();

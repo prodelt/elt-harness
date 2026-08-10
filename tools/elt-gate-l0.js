@@ -71,7 +71,10 @@ function externalImports(diff) {
     if (!line.startsWith('+') || line.startsWith('+++')) continue; // только ДОБАВЛЕННЫЕ строки
     for (const m of line.matchAll(IMPORT_RE)) {
       const spec = m[1];
-      if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) continue;
+      // `@/…`, `~/…`, `#…` — path-алиасы (tsconfig paths, imports-поле package.json), не
+      // пакеты: у npm-скоупа имя непустое (`@scope/name`), а `@/lib/x` даёт скоуп `@`.
+      if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')
+        || spec.startsWith('@/') || spec.startsWith('~/') || spec.startsWith('#')) continue;
       // Пакет, а не подпуть внутри него: `lodash/fp` — та же либа.
       const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
       if (!BUILTINS.has(pkg)) names.add(pkg);

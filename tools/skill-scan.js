@@ -32,6 +32,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -49,9 +50,14 @@ const HARD_BLOCK_IDS = new Set([
 
 // Categories whose HIGH findings represent real CODE behavior (block only when
 // they appear inside an executable component).
+// 015 T003: category names are NOT stable across SkillSpector versions. v2.1.3 reported the
+// AST and taint analyzers as `Behavioral AST` / `Taint Tracking`; v2.8.2 ships the same rules
+// (AST1..AST9, TT1..TT5) as `Dangerous Code Execution` / `Data Flow`. Keep both spellings: a
+// missed name silently demotes a finding from `blocked` to `review` — the gate weakens and
+// says nothing. skill-scan.test.js pins this against the live binary.
 const CODE_CATEGORIES = new Set([
-  'Behavioral AST',
-  'Taint Tracking',
+  'Dangerous Code Execution', 'Behavioral AST', // AST1..AST9
+  'Data Flow', 'Taint Tracking', // TT1..TT5
   'Supply Chain',
   'Data Exfiltration',
 ]);
@@ -63,13 +69,27 @@ const BINARY_EXT = new Set([
   '.zip', '.gz', '.tar', '.woff', '.woff2', '.ttf', '.mp4', '.mov',
 ]);
 
-function resolveBinary() {
+// 015 T002: global install first, so any project on this machine gets the same gate — the
+// vendored venv stays only as a fallback for a machine without the global tool.
+// `uv tool install` puts the shim in `uv tool dir --bin`, i.e. ~/.local/bin on Windows.
+function resolveBinary(env = process.env, home = os.homedir()) {
   const candidates = [
+    env.SKILLSPECTOR_BIN,
+    path.join(home, '.local', 'bin', 'skillspector.exe'),
+    path.join(home, '.local', 'bin', 'skillspector'),
     path.join(SPECTOR_DIR, '.venv', 'Scripts', 'skillspector.exe'),
     path.join(SPECTOR_DIR, '.venv', 'Scripts', 'skillspector'),
     path.join(SPECTOR_DIR, '.venv', 'bin', 'skillspector'),
-  ];
+  ].filter(Boolean);
   return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
+/** Installed version string, or null when the binary is absent/unreadable. */
+function scannerVersion(binary = resolveBinary()) {
+  if (!binary) return null;
+  const r = spawnSync(binary, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 20000 });
+  const m = /(\d+\.\d+\.\d+)/.exec(`${r.stdout || ''}${r.stderr || ''}`);
+  return m ? m[1] : null;
 }
 
 function parseArgs(argv) {
@@ -189,4 +209,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { resolveBinary, summarize, classify, HARD_BLOCK_IDS, CODE_CATEGORIES };
+module.exports = { resolveBinary, scannerVersion, summarize, classify, HARD_BLOCK_IDS, CODE_CATEGORIES };
