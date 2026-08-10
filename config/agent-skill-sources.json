@@ -28,8 +28,9 @@
       "tier": "core",
       "status": "approved",
       "source": {
-        "type": "local-repo",
-        "path": "audit/S11_pipeline_top1/skills/pipeline"
+        "type": "local-client",
+        "client": "claude",
+        "path": "pipeline"
       },
       "purpose": "Unified task entrypoint, complexity classification, state, ledger, closeout proof."
     },
@@ -123,8 +124,9 @@
       "tier": "verifier",
       "status": "approved",
       "source": {
-        "type": "local-repo",
-        "path": "audit/S11_pipeline_top1/skills/agent-browser"
+        "type": "local-client",
+        "client": "claude",
+        "path": "agent-browser"
       },
       "purpose": "Strict default browser automation skill for agent-driven web testing, screenshots, snapshots, and UI QA."
     },
