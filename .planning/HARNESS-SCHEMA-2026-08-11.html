@@ -1,0 +1,192 @@
+<title>Як влаштований харнес — схема простою мовою</title>
+<style>
+  :root{
+    --paper:#F6F7F9; --card:#FFFFFF; --sunk:#EEF1F5;
+    --ink:#11151C; --muted:#5B6674; --faint:#8A94A3; --line:#DDE2E9;
+    --accent:#2F4B8F; --alert:#C0392B; --safe:#1B7A4F;
+    --display:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    --serif:Georgia,"Iowan Old Style","Times New Roman",serif;
+    --mono:"Cascadia Code",Consolas,ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  /* Односвітлова тема — сторінку відкривають із чужих машин, вигляд має бути один. */
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--display); font-size:17px; line-height:1.55; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1000px; margin:0 auto; padding:clamp(28px,5vw,64px) clamp(18px,5vw,36px) 90px;}
+  header{border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:36px;}
+  .eyebrow{font-family:var(--mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); margin-bottom:12px;}
+  h1{font-weight:700; font-size:clamp(28px,4.6vw,46px); line-height:1.06; margin:0 0 14px; letter-spacing:-.02em; text-wrap:balance;}
+  h2{font-weight:700; font-size:clamp(22px,3vw,32px); line-height:1.12; margin:0 0 6px; letter-spacing:-.015em; text-wrap:balance;}
+  h2 em{font-style:normal; color:var(--accent);}
+  h2 em.bad{color:var(--alert);}
+  .lede{font-family:var(--serif); font-size:clamp(17px,2vw,21px); color:var(--muted); margin:0; max-width:64ch;}
+  .lede b{color:var(--ink); font-weight:600;}
+  section{margin-bottom:clamp(38px,6vh,64px);}
+  .kicker{font-family:var(--mono); font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-bottom:10px;}
+  p{margin:0 0 12px; max-width:70ch; color:var(--muted);}
+  p b{color:var(--ink); font-weight:600;}
+
+  .dia{width:100%; height:auto; display:block; margin:22px 0 18px;}
+  .dia .box{fill:var(--card); stroke:var(--line); stroke-width:1.5;}
+  .dia .box-a{fill:var(--card); stroke:var(--accent); stroke-width:2;}
+  .dia .box-bad{fill:var(--card); stroke:var(--alert); stroke-width:2;}
+  .dia .box-safe{fill:var(--card); stroke:var(--safe); stroke-width:2;}
+  .dia .sunk{fill:var(--sunk); stroke:var(--line); stroke-width:1.5;}
+  .dia text{font-family:var(--display); font-size:18px; fill:var(--ink);}
+  .dia .t-s{font-size:15px; fill:var(--muted);}
+  .dia .t-xs{font-family:var(--mono); font-size:12px; fill:var(--faint); letter-spacing:.08em;}
+  .dia .t-b{font-weight:700;}
+  .dia .t-bad{fill:var(--alert);} .dia .t-safe{fill:var(--safe);} .dia .t-acc{fill:var(--accent);}
+  .dia .ln{stroke:var(--faint); stroke-width:1.8; fill:none;}
+  .dia .ln-bad{stroke:var(--alert); stroke-width:2.2; fill:none;}
+  .dia .ln-safe{stroke:var(--safe); stroke-width:2.2; fill:none;}
+  .mk{fill:var(--faint);} .mk-bad{fill:var(--alert);} .mk-safe{fill:var(--safe);}
+
+  .cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; margin-top:18px;}
+  .card{border:1px solid var(--line); border-radius:7px; padding:16px 18px; background:var(--card);}
+  .card h3{margin:0 0 6px; font-size:15.5px; font-weight:700;}
+  .card p{font-size:14.5px; margin:0;}
+  .card.ok{border-left:3px solid var(--safe);} .card.no{border-left:3px solid var(--alert);}
+  ul{margin:0; padding-left:22px; display:flex; flex-direction:column; gap:9px; max-width:72ch;}
+  li{color:var(--muted);} li b{color:var(--ink); font-weight:600;}
+  code{font-family:var(--mono); font-size:.87em; color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,transparent); padding:1px 5px; border-radius:3px;}
+  .rule{border-left:3px solid var(--accent); background:var(--sunk); padding:14px 18px; border-radius:0 6px 6px 0; margin-top:20px;}
+  .rule p{margin:0; color:var(--ink); font-family:var(--serif); font-size:clamp(16px,1.8vw,19px);}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Схема · простою мовою</div>
+  <h1>Як влаштований харнес<br>і чому йому можна довіряти</h1>
+  <p class="lede">Харнес — це <b>конвеєр із перевірками навколо ШІ-агента</b>. Агент пише код,
+  але сам себе не пропускає: щоб зміна потрапила в проєкт, вона має пройти кілька воріт,
+  де рішення приймає не модель.</p>
+</header>
+
+<section>
+  <div class="kicker">Частина 1 · як це працює</div>
+  <h2>Шлях однієї задачі — від плану до коміту</h2>
+  <p>Робота ріжеться на маленькі шматки: одна задача — один прохід конвеєра. Ніхто не пише «велику фічу» цілком.</p>
+
+  <svg class="dia" viewBox="0 0 1000 300" role="img"
+       aria-label="Схема конвеєра: план, агент пише код, механічна перевірка, суддя, коміт">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk"/></marker>
+      <marker id="ar-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-bad"/></marker>
+      <marker id="ar-safe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-safe"/></marker>
+    </defs>
+
+    <rect class="sunk" x="8" y="70" width="150" height="86" rx="6"/>
+    <text class="t-xs" x="24" y="97">ПЛАН</text>
+    <text class="t-s" x="24" y="122">Список задач,</text>
+    <text class="t-s" x="24" y="143">підписаний</text>
+
+    <rect class="box box-a" x="196" y="70" width="168" height="86" rx="6"/>
+    <text class="t-b" x="280" y="106" text-anchor="middle">Агент пише</text>
+    <text class="t-s" x="280" y="130" text-anchor="middle">одну задачу</text>
+
+    <rect class="box" x="402" y="70" width="176" height="86" rx="6"/>
+    <text class="t-b" x="490" y="100" text-anchor="middle">Механічна</text>
+    <text class="t-b" x="490" y="122" text-anchor="middle">перевірка</text>
+    <text class="t-xs" x="490" y="144" text-anchor="middle">ТЕСТИ · 79 ФАЙЛІВ</text>
+
+    <rect class="box" x="616" y="70" width="168" height="86" rx="6"/>
+    <text class="t-b" x="700" y="106" text-anchor="middle">Суддя</text>
+    <text class="t-s" x="700" y="130" text-anchor="middle">читає зміну</text>
+
+    <rect class="box box-safe" x="822" y="70" width="170" height="86" rx="6"/>
+    <text class="t-b t-safe" x="907" y="106" text-anchor="middle">Коміт</text>
+    <text class="t-s" x="907" y="130" text-anchor="middle">задача закрита</text>
+
+    <path class="ln" marker-end="url(#ar)" d="M158 113 H 188"/>
+    <path class="ln" marker-end="url(#ar)" d="M364 113 H 394"/>
+    <path class="ln" marker-end="url(#ar)" d="M578 113 H 608"/>
+    <path class="ln-safe" marker-end="url(#ar-safe)" d="M784 113 H 814"/>
+
+    <path class="ln-bad" marker-end="url(#ar-bad)" d="M490 156 V 214 H 280 V 164"/>
+    <path class="ln-bad" marker-end="url(#ar-bad)" d="M700 156 V 250 H 280 V 164"/>
+    <text class="t-xs t-bad" x="392" y="203" text-anchor="middle">ТЕСТИ ЧЕРВОНІ — НАЗАД</text>
+    <text class="t-xs t-bad" x="500" y="272" text-anchor="middle">СУДДЯ НЕ ПРОПУСТИВ — НАЗАД</text>
+  </svg>
+
+  <div class="cols">
+    <div class="card"><h3>План підписаний</h3><p>Список задач має підпис-відбиток. Якщо хтось змінив план — підпис перестає сходитись, і конвеєр вимагає підписати наново. Не можна тихо переписати умову задачі під те, що вийшло.</p></div>
+    <div class="card"><h3>Одна задача за раз</h3><p>Агент бере рівно один пункт плану. Маленька зміна — її реально перевірити очима й тестами; велика — ні.</p></div>
+    <div class="card"><h3>Механічна перевірка</h3><p>Запускаються тести. Тут немає думок і формулювань: або зелено, або червоно. Це <b>єдина частина, яку не можна вмовити</b>.</p></div>
+    <div class="card"><h3>Суддя</h3><p>Окрема модель читає саму зміну й вирішує: рішення справжнє чи його підігнали під тест. Суддя — не той, хто писав код.</p></div>
+  </div>
+
+  <div class="rule"><p>Ключове: <b>рішення пропустити приймає не той, хто писав.</b> Тести не знають, хто автор, а суддя не бачив, як код народжувався — тільки результат.</p></div>
+</section>
+
+<section>
+  <div class="kicker">Частина 2 · безпека</div>
+  <h2>Де стоять ворота</h2>
+  <p>Перевірок кілька, і вони на різних рівнях. Одну можна обійти помилково — усі одразу ні.</p>
+
+  <svg class="dia" viewBox="0 0 1000 400" role="img"
+       aria-label="Схема воріт: перед дією, перед комітом, після коміту">
+    <rect class="box box-a" x="330" y="20" width="340" height="64" rx="6"/>
+    <text class="t-b" x="500" y="48" text-anchor="middle">Агент хоче щось зробити</text>
+    <text class="t-s" x="500" y="70" text-anchor="middle">виконати команду, змінити файл</text>
+
+    <rect class="box box-bad" x="245" y="118" width="510" height="76" rx="6"/>
+    <text class="t-b t-bad" x="265" y="147">Ворота 1 · перед дією</text>
+    <text class="t-s" x="265" y="174">небезпечні команди й встановлення чужих доповнень зупиняються тут</text>
+
+    <rect class="box box-bad" x="245" y="222" width="510" height="76" rx="6"/>
+    <text class="t-b t-bad" x="265" y="251">Ворота 2 · перед комітом</text>
+    <text class="t-s" x="265" y="278">без зелених тестів і свіжого вердикту судді коміт просто не створюється</text>
+
+    <rect class="box box-bad" x="245" y="326" width="510" height="66" rx="6"/>
+    <text class="t-b t-bad" x="265" y="355">Ворота 3 · після роботи</text>
+    <text class="t-s" x="265" y="380">не можна піти, лишивши незакомічені зміни — сесія про це нагадує</text>
+
+    <path class="ln" marker-end="url(#ar)" d="M500 84 V 110"/>
+    <path class="ln" marker-end="url(#ar)" d="M500 194 V 214"/>
+    <path class="ln" marker-end="url(#ar)" d="M500 298 V 318"/>
+
+    <rect class="box box-safe" x="790" y="222" width="200" height="76" rx="6"/>
+    <text class="t-b t-safe" x="890" y="251" text-anchor="middle">Зміна в проєкті</text>
+    <text class="t-s" x="890" y="278" text-anchor="middle">із записом у журнал</text>
+    <path class="ln-safe" marker-end="url(#ar-safe)" d="M755 260 H 782"/>
+
+    <rect class="sunk" x="10" y="222" width="200" height="76" rx="6"/>
+    <text class="t-b t-bad" x="110" y="251" text-anchor="middle">Відхилено</text>
+    <text class="t-s" x="110" y="278" text-anchor="middle">повертається на доробку</text>
+    <path class="ln-bad" marker-end="url(#ar-bad)" d="M245 260 H 218"/>
+  </svg>
+
+  <div class="cols">
+    <div class="card no"><h3>Ворота 1 · перед дією</h3><p>Спрацьовують <b>до</b> того, як команда виконається. Ловлять руйнівні операції з історією проєкту й спробу поставити чуже доповнення без перевірки сканером.</p></div>
+    <div class="card no"><h3>Ворота 2 · перед комітом</h3><p>Коміт створює не людина руками, а сам конвеєр — і лише за двох умов: тести зелені <b>і</b> вердикт судді свіжий саме для цієї зміни. Старий вердикт не приймається.</p></div>
+    <div class="card no"><h3>Ворота 3 · після роботи</h3><p>Якщо в кінці сесії лишились незбережені зміни, система про це каже прямо. «Забув закомітити» перестає бути можливим сценарієм.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="kicker">Частина 3 · чому це не самообман</div>
+  <h2>Що заважає агенту <em class="bad">пропустити самого себе</em></h2>
+  <ul>
+    <li><b>Тести написані заздалегідь, а не під результат.</b> Нова перевірка спершу має <b>впасти</b> на зламаному коді — інакше вона нічого не доводить. Тест, що зелений завжди, конвеєр не приймає.</li>
+    <li><b>Суддя й виконавець — різні.</b> Той, хто писав код, не може підписати сам собі допуск.</li>
+    <li><b>Вердикт прив’язаний до конкретної зміни.</b> Змінили файли після перевірки — вердикт протухає, і коміт не пройде.</li>
+    <li><b>План підписаний відбитком.</b> Не можна переписати умову задачі під те, що вийшло: підпис перестане сходитись.</li>
+    <li><b>Механічна частина не має думки.</b> Тести не можна переконати аргументами — тільки полагодити код.</li>
+    <li><b>Кожен прохід лишає слід.</b> Хто, що, коли, з яким вердиктом — записується в журнал, який можна перечитати пізніше.</li>
+  </ul>
+
+  <div class="rule"><p>Коротко: <b>агент отримує свободу писати, але не отримує права вирішувати, що готово.</b>
+  Це рішення завжди належить перевіркам, які він не контролює.</p></div>
+</section>
+
+<section>
+  <div class="kicker">Частина 4 · межі</div>
+  <h2>Чого харнес не робить</h2>
+  <div class="cols">
+    <div class="card"><h3>Не замінює людину</h3><p>Він відсіює очевидно погане й змушує доводити результат. Питання «а чи те ми взагалі будуємо» лишається людині.</p></div>
+    <div class="card"><h3>Не рятує від поганого плану</h3><p>Якщо задача сформульована неправильно, конвеєр акуратно доведе її до кінця — неправильною.</p></div>
+    <div class="card"><h3>Не є пісочницею</h3><p>Ворота обмежують дії агента, але справжня ізоляція — це окрема машина або контейнер, а не набір перевірок.</p></div>
+  </div>
+</section>
+</div>
