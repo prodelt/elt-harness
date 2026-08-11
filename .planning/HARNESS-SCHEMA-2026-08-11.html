@@ -49,6 +49,11 @@
   ul{margin:0; padding-left:22px; display:flex; flex-direction:column; gap:9px; max-width:72ch;}
   li{color:var(--muted);} li b{color:var(--ink); font-weight:600;}
   code{font-family:var(--mono); font-size:.87em; color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,transparent); padding:1px 5px; border-radius:3px;}
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin:22px 0 4px;}
+  .stat{border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:5px; padding:14px 16px; background:var(--card);}
+  .stat .n{font-family:var(--mono); font-size:clamp(24px,3vw,32px); font-weight:600; line-height:1; font-variant-numeric:tabular-nums; display:block;}
+  .stat .l{font-size:13.5px; color:var(--muted); margin-top:7px; display:block;}
+  .stat.acc{border-left-color:var(--safe);}
   .rule{border-left:3px solid var(--accent); background:var(--sunk); padding:14px 18px; border-radius:0 6px 6px 0; margin-top:20px;}
   .rule p{margin:0; color:var(--ink); font-family:var(--serif); font-size:clamp(16px,1.8vw,19px);}
   :focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
@@ -183,7 +188,73 @@
 </section>
 
 <section>
-  <div class="kicker">Частина 4 · межі</div>
+  <div class="kicker">Частина 4 · масштаб</div>
+  <h2>З чого це зібрано насправді</h2>
+  <p>Схема вище — несучий хребет. Навколо нього стоїть інфраструктура, яка робить конвеєр швидким, спостережним і таким, якому можна довіряти. Числа — з живого репозиторію.</p>
+
+  <div class="stats">
+    <div class="stat"><span class="n">117</span><span class="l">файлів у ядрі</span></div>
+    <div class="stat"><span class="n">22 154</span><span class="l">рядки коду</span></div>
+    <div class="stat acc"><span class="n">63</span><span class="l">з них — файли тестів</span></div>
+    <div class="stat acc"><span class="n">79</span><span class="l">тестових файлів у прогоні</span></div>
+  </div>
+
+  <svg class="dia" viewBox="0 0 1000 336" role="img"
+       aria-label="Схема шарів харнеса: ядро, оракул, суддя, ворота, стан, паралельний режим">
+    <rect class="box box-a" x="10" y="10" width="690" height="58" rx="6"/>
+    <text class="t-b" x="28" y="36">Ядро · єдиний CLI</text>
+    <text class="t-xs" x="28" y="57">ПЛАН · СЛАЙС · ПІДПИС · КОМІТ · ЖУРНАЛ — 1165 РЯДКІВ</text>
+
+    <rect class="box" x="10" y="80" width="336" height="76" rx="6"/>
+    <text class="t-b" x="28" y="107">Оракул · 3 модулі</text>
+    <text class="t-s" x="28" y="131">запуск · вибірка за впливом · кеш</text>
+    <text class="t-xs" x="28" y="150">150 С → 1,6 С НА ВИБІРЦІ</text>
+
+    <rect class="box" x="364" y="80" width="336" height="76" rx="6"/>
+    <text class="t-b" x="382" y="107">Суддя · 6 модулів</text>
+    <text class="t-s" x="382" y="131">виклик · індекс вердиктів · повтор</text>
+    <text class="t-xs" x="382" y="150">+ СТЕНД, ЯКИЙ ПЕРЕВІРЯЄ САМОГО СУДДЮ</text>
+
+    <rect class="box box-bad" x="10" y="168" width="336" height="76" rx="6"/>
+    <text class="t-b t-bad" x="28" y="195">Ворота й хуки</text>
+    <text class="t-s" x="28" y="219">брудне дерево · документація · git</text>
+    <text class="t-xs" x="28" y="238">3 ПРОЄКТНІ ХУКИ · 16 ТИПІВ ПОДІЙ</text>
+
+    <rect class="box" x="364" y="168" width="336" height="76" rx="6"/>
+    <text class="t-b" x="382" y="195">Стан і журнали</text>
+    <text class="t-s" x="382" y="219">конфіг · кеш · здоровʼя · черга розбору</text>
+    <text class="t-xs" x="382" y="238">ЩО, КОЛИ Й З ЯКИМ ВЕРДИКТОМ</text>
+
+    <rect class="box" x="10" y="256" width="690" height="70" rx="6"/>
+    <text class="t-b" x="28" y="283">Оточення</text>
+    <text class="t-s" x="28" y="307">перевірка машини перед роботою · розкатка конвеєра в інший проєкт</text>
+
+    <rect class="sunk" x="722" y="10" width="268" height="316" rx="6"/>
+    <text class="t-b t-acc" x="740" y="42">Паралельний режим</text>
+    <text class="t-xs" x="740" y="64">ЗА ЗАМОВЧУВАННЯМ ВИМКНЕНИЙ</text>
+    <text class="t-s" x="740" y="98">окрема підсистема:</text>
+    <text class="t-s" x="740" y="126">· свої ворота</text>
+    <text class="t-s" x="740" y="152">· транспорт до трьох моделей</text>
+    <text class="t-s" x="740" y="178">· ізоляція по гілках</text>
+    <text class="t-s" x="740" y="204">· злиття й самолікування</text>
+    <text class="t-xs" x="740" y="240">~2000 РЯДКІВ КОДУ</text>
+    <text class="t-xs" x="740" y="262">І СТІЛЬКИ Ж ТЕСТІВ</text>
+    <text class="t-s" x="740" y="298">Тут писар і суддя —</text>
+    <text class="t-s" x="740" y="320">різні моделі.</text>
+  </svg>
+
+  <div class="cols">
+    <div class="card"><h3>Оракул — не одна команда</h3><p>Розділений на три частини не з любові до архітектури: раніше він з’їдав більшу частину часу задачі. Вибірка за впливом і кеш замикання скоротили повний прогін із двох із половиною хвилин до секунди з чимось.</p></div>
+    <div class="card"><h3>Суддю теж перевіряють</h3><p>Правку судді не можна прийняти на око: вона ганяється проти збереженого еталона, і якщо не покращила якість — відмова записується в журнал. Тобто <b>перевіряльник сам під перевіркою</b>.</p></div>
+    <div class="card"><h3>Половина коду — тести</h3><p>63 файли з 117 — це перевірки самого конвеєра. Ворота, які нікого не ловлять, помітні лише так: окремий сканер шукає гейти, що протухли й перестали спрацьовувати.</p></div>
+    <div class="card"><h3>Нічого не тримається в голові</h3><p>Конфіг, кеш, здоров’я, черга спірних вердиктів, припарковані задачі й журнали прогонів лежать файлами на диску. Стан можна прочитати, а не здогадатись про нього.</p></div>
+  </div>
+
+  <div class="rule"><p>Із двадцяти двох тисяч рядків несучими для однієї задачі є чотири рішення: <b>план підписаний, тести зелені, вердикт свіжий, коміт зробила машина</b>. Решта — швидкість, довіра до самого судді, масштаб і видимість. Приберіть її — конвеєр працюватиме далі, але повільно, наосліп і без доказів.</p></div>
+</section>
+
+<section>
+  <div class="kicker">Частина 5 · межі</div>
   <h2>Чого харнес не робить</h2>
   <div class="cols">
     <div class="card"><h3>Не замінює людину</h3><p>Він відсіює очевидно погане й змушує доводити результат. Питання «а чи те ми взагалі будуємо» лишається людині.</p></div>
