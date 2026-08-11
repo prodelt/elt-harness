@@ -473,7 +473,12 @@ test('fleet уважает все три решения: cooldown, park, judge-f
 // батчами. Слайс с двумя красными прогонами не получает третьей попытки (и парковка
 // переживает прогон), лимитированный воркер уходит в cooldown, а судья, дважды мёртвый
 // В ФОРМАТЕ FLEET-LEDGER, заменяется — и заменённый провайдер виден в следующей записи фазы.
-test('fleet между батчами: park + cooldown + judge-fallback применяются живым циклом', { timeout: 120000 }, async () => {
+// 016 T004: дедлайны в этом файле были 120 c (внутренний spawnSync — 110 c), а сам файл в
+// фоновой полосе молотил 118,0 c и 107,8 c — то есть зелёный тут держался на секундах запаса и
+// под нагрузкой срывался бы в СВОЙ таймаут, а не в реальную ошибку. Запас поднят до 300/280 c.
+// Это не ослабление проверки: таймаут ловит зависание, а не медленную машину, и ни один assert
+// не тронут.
+test('fleet между батчами: park + cooldown + judge-fallback применяются живым циклом', { timeout: 300000 }, async () => {
   const fleet = require('./fleet/fleet');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-watch-fleet-'));
   roots.push(root);
@@ -533,7 +538,7 @@ test('fleet между батчами: park + cooldown + judge-fallback прим
     `судья прогона обязан стать фолбэк-провайдером: ${JSON.stringify(ledger)}`);
 });
 
-test('драйвер паркует задачу по решению watchdog, не запуская имплементатора', { timeout: 120000 }, () => {
+test('драйвер паркует задачу по решению watchdog, не запуская имплементатора', { timeout: 300000 }, () => {
   const root = fixture({ specApproval: false, codegraphGuard: false, judge: { enabled: true, provider: 'agy', model: 'gemini-3.6-flash-high' } });
   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'T'], { cwd: root });
@@ -552,7 +557,7 @@ test('драйвер паркует задачу по решению watchdog, �
   ]);
 
   const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'claude'], { encoding: 'utf8', timeout: 110000 });
+    path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'claude'], { encoding: 'utf8', timeout: 280000 });
   const parkedFile = path.join(root, '.harness', 'parked.json');
   assert.ok(fs.existsSync(parkedFile), 'драйвер обязан припарковать задачу по решению watchdog');
   const list = JSON.parse(fs.readFileSync(parkedFile, 'utf8'));
@@ -609,7 +614,7 @@ test('судья берётся из ФАКТИЧЕСКОГО прогона (ov
 // Обратная ветка драйвера: cooldown относится к ИМПЛЕМЕНТАТОРУ, у которого цепочки нет.
 // Решение неприменимо — драйвер обязан сказать это вслух и НЕ подтверждать его, иначе
 // ack молча похоронит инцидент, который никто не лечил.
-test('драйвер: cooldown не своего судьи — явный noop без ack', { timeout: 120000 }, () => {
+test('драйвер: cooldown не своего судьи — явный noop без ack', { timeout: 300000 }, () => {
   const root = fixture({ specApproval: false, codegraphGuard: false, oracle: 'node -e "0"',
     judge: { enabled: true, provider: 'agy', model: 'gemini-3.6-flash-high' } });
   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: root });
@@ -629,7 +634,7 @@ test('драйвер: cooldown не своего судьи — явный noop 
   fs.writeFileSync(stub, "console.log('stub worker');");
   const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
     path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'claude'],
-    { encoding: 'utf8', timeout: 110000, env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
+    { encoding: 'utf8', timeout: 280000, env: { ...process.env, FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
 
   const log = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8')
     .trim().split('\n').map((l) => JSON.parse(l));
@@ -645,7 +650,7 @@ test('драйвер: cooldown не своего судьи — явный noop 
   // относится к судье прогона, и драйвер обязан увести его, а не повторить noop.
   const r2 = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
     path.join(__dirname, 'elt-loop.ps1'), '-Project', root, '-Slices', '1', '-WriterProvider', 'agy', '-JudgeProvider', 'claude'],
-    { encoding: 'utf8', timeout: 110000, env: { ...process.env, FLEET_BIN_AGY: JSON.stringify(['node', stub]), FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
+    { encoding: 'utf8', timeout: 280000, env: { ...process.env, FLEET_BIN_AGY: JSON.stringify(['node', stub]), FLEET_BIN_CLAUDE: JSON.stringify(['node', stub]) } });
   const log2 = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8')
     .trim().split('\n').map((l) => JSON.parse(l));
   const cooled = log2.find((e) => e.result === 'watchdog-judge-cooldown');

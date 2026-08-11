@@ -131,9 +131,22 @@ function harnessField(cwd, key) {
 // захватывал stdout/stderr в объект результата и молча их выбрасывал: `logPath` в каждой записи
 // `bg-red` указывал на файл с одной строкой deprecation-варнинга, и разобрать красное фона было
 // физически нечем (поймано живьём на T016 и T018). Лог не гейт — отказ записи не роняет слой.
+// 016 T004: фоновая полоса гоняет тесты МЕНЬШИМ числом параллельных процессов, чем
+// интерактивная. Дефолт `jobs = min(8, cpus)` разумен на критическом пути, где ждёт человек;
+// в фоне ждать некому — время бесплатно, а вот контention стоит дорого. Живой счёт: четыре
+// подряд `bg-red/suite` (39912f3, 31ee775, f452f27, 6e85a2c), последний — `elt: git commit
+// failed:` с ПУСТЫМ stdout и stderr, то есть git не написал ничего: процесс не отработал, а не
+// упал по существу. Тот же файл изолированно даёт 12/12 зелёных. Плюс harness-watch.test.js
+// молотил 118,0 c и 107,8 c при СВОИХ дедлайнах 110–120 c — под нагрузкой он срывался бы в
+// собственный таймаут. Меньше параллели → меньше и того, и другого.
+// ponytail: одно число, не поле конфига — «фон медленнее интерактива» не настройка, а свойство
+// полосы. Появится проект, которому 2 мало, — тогда и поле.
+const BG_ORACLE_JOBS = '2';
+function bgOracleEnv() { return { ...process.env, ELT_ORACLE_JOBS: BG_ORACLE_JOBS }; }
+
 function runCmd(cmd, cwd, logFile = null) {
   const [bin, ...args] = cmd.split(' ');
-  const r = spawnSync(bin, args, { cwd, encoding: 'utf8' });
+  const r = spawnSync(bin, args, { cwd, encoding: 'utf8', env: bgOracleEnv() });
   const exit = r.status == null ? 1 : r.status;
   if (logFile) {
     try {
@@ -201,10 +214,10 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   const on = enabledLayers(cwd);
   // До ensureWorktree: отказ после него оставил бы осиротевший .fleet-wt/bg-<hash> — cleanup
   // живёт только в конце функции. Отказ ровно тогда, когда команда кому-то нужна: с
-  // `background.layers` без `suite` фону оракул не требуется, и требовать его было бы новым
-  // блокирующим условием на пустом месте (красная линия спеки 016).
-  if (on.has('suite') && (typeof cmd !== 'string' || !cmd.trim())) {
-    throw new Error('elt-verify-bg: поле `oracle` не задано в .harness/harness.json — фоновому слою suite нечего запускать (молчаливого дефолта больше нет, 016 T001)');
+  // `background.layers` без `suite` и `mutate` фону оракул не требуется, и требовать его было бы
+  // новым блокирующим условием на пустом месте (красная линия спеки 016).
+  if ((on.has('suite') || on.has('mutate')) && (typeof cmd !== 'string' || !cmd.trim())) {
+    throw new Error('elt-verify-bg: поле `oracle` не задано в .harness/harness.json — фоновым слоям suite/mutate нечего запускать (молчаливого дефолта больше нет, 016 T001)');
   }
   const wt = ensureWorktree(cwd, commitHash);
   const logPath = path.join(BG_LOG_DIR, `bg-${commitHash}.log`);
@@ -230,7 +243,11 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
     // Мутатор написан 011 T008 и до сих пор ни разу не был подключён к гейту (спека, п. 30).
     // Тесты гоняются impact-выборкой, а не `--full`: мутация трогает одну строку одного файла.
     const files = commitFiles(cwd, commitHash);
-    const r = mutate({ cwd: wt, files, runTests: () => runCmd('node tools/elt-oracle-runner.js', wt, logFile) !== 0 });
+    // 016 T003: та же команда проекта, что и у слоя `suite`. Здесь стоял второй захардкоженный
+    // `node tools/elt-oracle-runner.js` — тот же дефект, что чинил T001, просто этажом ниже:
+    // в чужом проекте каждая мутация «убивалась» падением `Cannot find module`, то есть слой
+    // рапортовал бы чистоту, ничего не проверив.
+    const r = mutate({ cwd: wt, files, runTests: () => runCmd(cmd, wt, logFile) !== 0 });
     return { status: r.status, reason: r.reason, survived: r.survived.length, red: r.status === 'block' };
   });
   section('smoke', () => {

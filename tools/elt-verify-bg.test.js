@@ -94,7 +94,13 @@ test('T009: отчёт содержит все четыре секции с вр
   // Судья выключен: он единственный слой, зовущий внешний CLI — в юните это был бы не тест,
   // а живой вызов модели. Его секция обязана присутствовать, но как явно выключенная.
   const { root, hash } = gitRepo({ smoke: 'node -e process.exit(0)', smokeParallel: true, background: { layers: ['suite', 'mutate', 'smoke'] } });
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  // 016 T003: команда обязана быть НАСТОЯЩЕЙ проверкой (`check-seed.js` — зелёная на чистом
+  // коде, красная на мутанте). С `node -e process.exit(0)` слой mutate теперь честно краснеет:
+  // константно-зелёная команда не убивает ни одной мутации. Раньше тест это не ловил, потому
+  // что мутатор звал захардкоженный `tools/elt-oracle-runner.js`, которого в фикстуре нет, —
+  // падение `Cannot find module` засчитывалось как «мутация убита». Ровно тот дефект, что
+  // чинит T003, держал этот assert зелёным.
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node check-seed.js' });
   assert.deepEqual(r.sections.map((s) => s.layer), ['suite', 'mutate', 'smoke', 'judge'], 'четыре секции, в порядке схемы спеки');
   assert.ok(r.sections.every((s) => typeof s.durationSec === 'number'), 'у каждой секции своё время');
   assert.equal(r.exit, 0);
@@ -404,6 +410,42 @@ test('T002: ELT_VERIFY_BG_ORACLE_CMD перекрывает конфиг — т�
     const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T002' });
     assert.equal(r.exit, 0, 'env обязан выигрывать у конфига — на нём стоят тесты T005/T022 выше');
   } finally { delete process.env.ELT_VERIFY_BG_ORACLE_CMD; }
+});
+
+// --- 016 T003: слой mutate гоняет тесты командой ПРОЕКТА -------------------------------
+// Второй экземпляр того же дефекта, что чинил T001, этажом ниже: `runTests` звал
+// захардкоженный `node tools/elt-oracle-runner.js`. В чужом проекте каждая мутация
+// «убивалась» падением `Cannot find module` — слой рапортовал бы чистоту, ничего не проверив.
+
+test('T003: mutate гоняет тесты командой из harness.json, а не захардкоженным оракулом', async () => {
+  const { root } = gitRepo({ oracle: 'node mark-oracle.js', background: { layers: ['mutate'] } });
+  // Красный выход = «мутация убита»: слой остаётся зелёным, и тест меряет РОВНО команду.
+  fs.writeFileSync(path.join(root, 'mark-oracle.js'), 'process.exit(1);\n');
+  fs.writeFileSync(path.join(root, 'prod.js'), 'function f(a) { if (a > 1) { return 1; } return 0; }\nmodule.exports = { f };\n');
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'prod'], { cwd: root });
+  const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T003' });
+  assert.notEqual(sectionsOf(r).mutate.status, 'skipped', 'слой обязан реально отработать — иначе тест ничего не доказывает');
+  const log = fs.readFileSync(path.join(root, '.harness', 'loop-logs', `bg-${hash}.log`), 'utf8');
+  assert.match(log, /\$ node mark-oracle\.js/, 'мутатор обязан звать команду проекта');
+  assert.doesNotMatch(log, /elt-oracle-runner/, 'команда домашнего репо не должна протекать в чужой проект');
+});
+
+// --- 016 T004: фоновая полоса гоняет тесты меньшей параллелью ---------------------------
+
+test('T004: фон снижает параллелизм — команда получает ELT_ORACLE_JOBS, а не дефолт min(8,cpus)', async () => {
+  const { root } = gitRepo({ oracle: 'node dump-jobs.js', background: { layers: ['suite'] } });
+  fs.writeFileSync(path.join(root, 'dump-jobs.js'),
+    "console.log('JOBS=' + (process.env.ELT_ORACLE_JOBS || 'unset'));\n");
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'dump-jobs'], { cwd: root });
+  const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T004' });
+  const log = fs.readFileSync(path.join(root, '.harness', 'loop-logs', `bg-${hash}.log`), 'utf8');
+  assert.match(log, /JOBS=2/, 'в фоне ждать некому — время бесплатно, а contention стоит четырёх подряд ложных bg-red');
 });
 
 after(() => {
