@@ -134,6 +134,8 @@
     .dia{max-height:42vh;}
     .say{font-size:clamp(16px,1.75vw,20px);}
     .card p{font-size:13.5px;}
+    .card{gap:4px; padding:12px 14px;}
+    ul.plain{gap:5px; font-size:15px;}
     th,td{padding:6px 11px;}
   }
   a{color:var(--accent);}
@@ -491,7 +493,7 @@ Installed 1 executable: skillspector
     </div>
     <div class="cols">
       <div class="card"><h3>Без Python узагалі</h3><p><code>docker build -t skillspector .</code> → <code>docker run --rm -v "$PWD:/scan" skillspector scan ./skill/ --no-llm</code></p></div>
-      <div class="card"><h3>Пінити версію обовʼязково</h3><p>Ставити тег (<code>@v2.8.2</code>), не HEAD. Чому — див. A4: імена категорій між версіями їдуть.</p></div>
+      <div class="card"><h3>Пінити версію обовʼязково</h3><p>Ставити тег (<code>@v2.8.2</code>), не HEAD: між версіями їдуть імена категорій, і власна обгортка над сканером може мовчки перестати блокувати частину знахідок.</p></div>
       <div class="card"><h3>Windows-нюанс</h3><p><code>uv</code> кладе виконуваний файл у <code>~/.local/bin</code>. Якщо його немає в <code>PATH</code> — не воювати з PATH, а вказати шлях явно.</p></div>
     </div>
     <p class="say">Щоденне використання — одна команда:
@@ -567,27 +569,36 @@ Installed 1 executable: skillspector
 <!-- ДОДАТОК A4 ────────────────────────────────────────── -->
 <section class="slide">
  <div class="inner">
-  <div class="eyebrow"><span class="appendix-mark">Додаток</span> <span class="no">A4</span> Пастка</div>
+  <div class="eyebrow"><span class="appendix-mark">Додаток</span> <span class="no">A4</span> Налаштування</div>
   <div class="grow">
-    <h2>Оновлення сканера може <em class="bad">тихо послабити</em> ваш гейт</h2>
-    <p class="say">У нас уже стояв SkillSpector <b>v2.1.3</b>. Оновлення до <b>v2.8.2</b> нічого не зламало —
-    і саме тому це небезпечно.</p>
-    <div class="term">
-      <div class="term-head"><span class="dot" style="background:#F0A202"></span>той самий звіт, дві версії правил<span class="tag">виміряно</span></div>
-<pre>Імена категорій:
-  v2.1.3   <span class="k-dim">Behavioral AST</span>   <span class="k-dim">Taint Tracking</span>
-  v2.8.2   <span class="k-ok">Dangerous Code Execution</span>   <span class="k-ok">Data Flow</span>
-           <span class="k-dim">↑ ті самі правила AST1..AST9 і TT1..TT5, інша назва</span>
-
-Гейт зі старими іменами:
-  ДО фікса    verdict=blocked  blocking=<span class="k-warn">6</span>  advisory=4
-  ПІСЛЯ фікса verdict=blocked  blocking=<span class="k-ok">7</span>  advisory=3
-  <span class="k-crit">→ AST1 «exec() call detected» зʼїхав з blocked у review</span></pre>
+    <h2>Що ввімкнути в Claude Code і Codex</h2>
+    <p class="say">Безпечний стан уже стоїть за замовчуванням: агент <b>питає дозвіл</b> перед дією.
+    Небезпека починається, коли підтвердження вимикають заради швидкості.</p>
+    <div class="cols">
+      <div class="card">
+        <h3>Claude Code</h3>
+        <p><code>--permission-mode plan</code> — агент спершу показує план і нічого не змінює. Найбезпечніший старт для нової задачі.</p>
+        <p><code>--allowedTools</code> / <code>--disallowedTools</code> — білий і чорний списки замість «дозволити все».</p>
+        <p><code>--dangerously-skip-permissions</code> і режим <code>bypassPermissions</code> вимикають <b>усі</b> перевірки. Довідка самого CLI прямо каже: тільки для пісочниць без доступу до інтернету.</p>
+      </div>
+      <div class="card">
+        <h3>Codex</h3>
+        <p><code>--sandbox read-only</code> — читає, але нічого не змінює. Дефолт для розвідки в чужому коді.</p>
+        <p><code>--sandbox workspace-write</code> — пише лише в папку проєкту, не в усю систему.</p>
+        <p><code>--ask-for-approval untrusted</code> — без запиту виконуються тільки довірені команди.</p>
+        <p><code>danger-full-access</code> і <code>--dangerously-bypass-approvals-and-sandbox</code> — повний доступ до машини. Лише там, де ізоляція забезпечена ззовні.</p>
+      </div>
     </div>
-    <p class="say">Помилок немає, тести зелені, вивід той самий. Гейт просто перестає блокувати частину знахідок.
-    Мораль ширша за SkillSpector: <b>якщо ваша перевірка хардкодить рядки з чужого інструмента — потрібен тест
-    проти живого інструмента</b>, інакше оновлення мовчки змінює політику.</p>
+    <h2 style="font-size:clamp(20px,2.4vw,27px); margin-top:6px">Автономний режим — пʼять правил</h2>
+    <ul class="plain">
+      <li><b>Не на робочому ноуті</b> — контейнер або окрема машина, без ваших доступів і документів.</li>
+      <li><b>Окремі облікові дані з мінімальними правами</b>, без продакшн-доступів «щоб не заважало».</li>
+      <li><b>Обмежена мережа</b> — тільки ті адреси, без яких агент не працює.</li>
+      <li><b>Гілка й перегляд людиною</b> — автономність закінчується перед злиттям.</li>
+      <li><b>Усі доповнення перевірені сканером заздалегідь</b> — тут не буде нікого поруч, хто помітить.</li>
+    </ul>
   </div>
+  <div class="note"><b>Перевірено:</b> прапорці зняті з довідки встановлених CLI (<code>claude --help</code>, <code>codex --help</code>) 2026-08-11. Звіряйте зі своєю версією — набір режимів між релізами змінюється.</div>
  </div>
 </section>
 
