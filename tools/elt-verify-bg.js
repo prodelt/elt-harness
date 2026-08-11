@@ -183,10 +183,30 @@ async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile =
 // Тело фонового процесса. Вынесено из require.main-ветки, чтобы тест мог прогнать его
 // напрямую (без реального spawn — детство «медленный тест = никто не гоняет» здесь неуместно;
 // у самого T005 уже есть кэш оракула T001, но интеграционный прогон всё равно не бесплатен).
-async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile = null, judgeImpl = null, oracleCmd = 'node tools/elt-oracle-runner.js --full' }) {
+async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile = null, judgeImpl = null, oracleCmd = null }) {
   const started = Date.now();
-  const wt = ensureWorktree(cwd, commitHash);
+  // 016 T001: команда оракула — из `.harness/harness.json` ПРОЕКТА. Дефолт
+  // `'node tools/elt-oracle-runner.js --full'` стоял здесь с 014 T005 и перекрывался только
+  // через ELT_VERIFY_BG_ORACLE_CMD, которую не выставлял ни один продовый вызов: в чужом
+  // проекте фон 7 из 7 раз падал за 0,13 c на `Cannot find module .../tools/elt-oracle-runner.js`,
+  // а дома тот же слой честно работал минуты — дефект был невидим по построению.
+  // `--full` не приклеиваем: в detached worktree дерево чистое, impact-выборка на пустом диффе
+  // fail-open'ится в полный прогон (elt-oracle-select.js:123), а склейка исказила бы команду,
+  // которую владелец проекта видит в логе.
+  // Резолв ОДИН, здесь: класть его ещё и в bgChildEnv значило бы завести вторую копию того же
+  // правила — и мёртвую ветку, ведь родитель всегда перекрывал бы конфиг. cwd дочернего
+  // процесса и есть корень проекта, поэтому читается тот же самый harness.json.
+  // Порядок: параметр (тесты) > env (шов для spawn-тестов) > конфиг > громкий отказ.
+  const cmd = oracleCmd || process.env.ELT_VERIFY_BG_ORACLE_CMD || harnessField(cwd, 'oracle');
   const on = enabledLayers(cwd);
+  // До ensureWorktree: отказ после него оставил бы осиротевший .fleet-wt/bg-<hash> — cleanup
+  // живёт только в конце функции. Отказ ровно тогда, когда команда кому-то нужна: с
+  // `background.layers` без `suite` фону оракул не требуется, и требовать его было бы новым
+  // блокирующим условием на пустом месте (красная линия спеки 016).
+  if (on.has('suite') && (typeof cmd !== 'string' || !cmd.trim())) {
+    throw new Error('elt-verify-bg: поле `oracle` не задано в .harness/harness.json — фоновому слою suite нечего запускать (молчаливого дефолта больше нет, 016 T001)');
+  }
+  const wt = ensureWorktree(cwd, commitHash);
   const logPath = path.join(BG_LOG_DIR, `bg-${commitHash}.log`);
   const logFile = path.join(cwd, logPath); // 014 T023: тот же файл, что уже указан в очереди
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
@@ -203,7 +223,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   // cwd: wt — AC4, сердце T006: слои исполняются в ИЗОЛИРОВАННОМ checkout на хеше коммита,
   // а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
   section('suite', () => {
-    const exit = runCmd(oracleCmd, wt, logFile);
+    const exit = runCmd(cmd, wt, logFile);
     return { exit, red: exit !== 0, reason: exit !== 0 ? `сьют: exit ${exit}` : null };
   });
   section('mutate', () => {
@@ -264,12 +284,11 @@ if (require.main === module) {
   const commitHash = i >= 0 ? args[i + 1] : null;
   const taskId = i >= 0 ? args[i + 2] : null;
   if (!commitHash) { process.stderr.write('elt-verify-bg: --run <hash> [taskId] required\n'); process.exit(4); }
-  // Тестовый шов: без него unit-тест либо ждёт полный `--full` оракул (минуты), либо мокает
-  // сам spawn (доказывал бы мок, не реальный отсоединённый процесс). env, не argv — тот же
-  // приём, что у ELT_ORACLE_JOBS (elt-oracle-runner.js): argv фиксирован ([--run, hash, task]).
-  const oracleCmd = process.env.ELT_VERIFY_BG_ORACLE_CMD || undefined;
+  // 016 T001: ELT_VERIFY_BG_ORACLE_CMD (тестовый шов для spawn-тестов — без него unit-тест ждал
+  // бы полный оракул) читается теперь внутри runBackgroundVerify, вместе с конфигом проекта:
+  // одно правило, одно место. Здесь пробрасывать нечего.
   const { specFile, taskText } = bgChildContextFromEnv();
-  runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, specFile, taskText, ...(oracleCmd ? { oracleCmd } : {}) })
+  runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, specFile, taskText })
     .then(({ exit }) => process.exit(exit))
     .catch((e) => { process.stderr.write(`elt-verify-bg: ${e.stack || e.message}\n`); process.exit(1); });
 }
