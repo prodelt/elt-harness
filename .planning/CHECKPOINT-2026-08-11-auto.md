@@ -1,20 +1,20 @@
 # Checkpoint (auto) — 2026-08-11
 
-Автозаписан `checkpoint-writer.js` на пороге ~226k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~256k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
 - dirty files: 0
 
 ## Last Run
-- commit: `f452f27`
+- commit: `512467e`
 - verdict: (none)
 - oracle exit: ?
 - msg: 
 
 ## Next Slice
 - plan file: `specs\015-agent-skill-security\tasks.md`
-- open: 0 / done: 9
+- open: 0 / done: 11
 - next: (план закрыт)
 
 ## Resume Prompt
