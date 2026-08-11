@@ -24,7 +24,11 @@
   h1{font-weight:700; font-size:clamp(26px,4.4vw,40px); line-height:1.1; margin:0 0 12px; letter-spacing:-.02em; text-wrap:balance;}
   .lede{font-family:var(--serif); font-size:clamp(16px,1.9vw,19px); color:var(--muted); margin:0; max-width:62ch;}
 
-  .q{border:1px solid var(--line); border-radius:8px; background:var(--card); padding:20px 22px; margin-bottom:16px;}
+  .q{border:1px solid var(--line); border-left:4px solid var(--line); border-radius:8px; background:var(--card); padding:20px 22px; margin-bottom:16px;}
+  .q.was-ok{border-left-color:var(--safe);}
+  .q.was-no{border-left-color:var(--alert);}
+  .q.was-ok .q-no{background:var(--safe);}
+  .q.was-no .q-no{background:var(--alert);}
   .q-head{display:flex; gap:12px; align-items:baseline; margin-bottom:14px;}
   .q-no{
     font-family:var(--mono); font-size:12px; color:var(--card); background:var(--accent);
@@ -84,7 +88,7 @@
   <div class="eyebrow">Перевірка знань · 10 питань · ~4 хвилини</div>
   <h1>Чотири двері й один сканер</h1>
   <p class="lede">Коротка перевірка після доповіді про безпеку ШІ-агентів. Одна правильна відповідь на питання.
-  Пояснення з’являється після перевірки — разом із номером слайда, куди подивитись.</p>
+  Результат видно <b>одразу після вибору</b> — разом із поясненням і номером слайда, куди подивитись.</p>
 </header>
 
 <div class="result" id="result">
@@ -96,7 +100,7 @@
 <form id="quiz"></form>
 
 <div class="bar">
-  <button type="button" id="check">Перевірити</button>
+  <button type="button" id="check">Показати підсумок</button>
   <button type="button" id="again" class="ghost" style="display:none">Пройти ще раз</button>
   <span class="progress" id="progress">відповіли: 0 / 10</span>
 </div>
@@ -260,27 +264,29 @@ function updateProgress(){
   checkBtn.disabled = n < QUESTIONS.length;
 }
 
-function check(){
-  let score = 0;
-  QUESTIONS.forEach((item, i) => {
-    const picked = Number(form.querySelector(`input[name="q${i}"]:checked`).value);
-    const ok = picked === item.a;
-    if (ok) score++;
-    const box = document.getElementById('q' + i);
-    box.classList.add('locked');
-    box.querySelectorAll('input').forEach(inp => { inp.disabled = true; });
-    box.querySelectorAll('.opt').forEach(label => {
-      const j = Number(label.dataset.j);
-      if (j === item.a){
-        label.classList.add('correct');
-        label.insertAdjacentHTML('beforeend', '<span class="mark ok">правильно</span>');
-      } else if (j === picked){
-        label.classList.add('wrong');
-        label.insertAdjacentHTML('beforeend', '<span class="mark no">ваш вибір</span>');
-      }
-    });
+// відповідь замикається одразу після кліку: видно, правильно чи ні, без очікування підсумку
+function lock(i){
+  const box = document.getElementById('q' + i);
+  if (box.classList.contains('locked')) return;
+  const item = QUESTIONS[i];
+  const picked = Number(form.querySelector(`input[name="q${i}"]:checked`).value);
+  box.classList.add('locked', picked === item.a ? 'was-ok' : 'was-no');
+  box.querySelectorAll('input').forEach(inp => { inp.disabled = true; });
+  box.querySelectorAll('.opt').forEach(label => {
+    const j = Number(label.dataset.j);
+    if (j === item.a){
+      label.classList.add('correct');
+      label.insertAdjacentHTML('beforeend', '<span class="mark ok">правильно</span>');
+    } else if (j === picked){
+      label.classList.add('wrong');
+      label.insertAdjacentHTML('beforeend', '<span class="mark no">ваш вибір</span>');
+    }
   });
+}
 
+function check(){
+  const score = QUESTIONS.filter((item, i) =>
+    Number(form.querySelector(`input[name="q${i}"]:checked`).value) === item.a).length;
   document.getElementById('score').textContent = score;
   const verdict = document.getElementById('verdict');
   const advice = document.getElementById('advice');
@@ -309,7 +315,11 @@ function reset(){
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
-form.addEventListener('change', updateProgress);
+form.addEventListener('change', (e) => {
+  const opt = e.target.closest('.opt');
+  if (opt) lock(Number(opt.dataset.i));
+  updateProgress();
+});
 checkBtn.addEventListener('click', check);
 againBtn.addEventListener('click', reset);
 render();
