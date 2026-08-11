@@ -99,6 +99,11 @@ function bgRepo() {
     spawnSync('git', a, { cwd: root });
   }
   fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+  // 016 T005: фон исполняет команду ШЕЛЛОМ проекта, поэтому фикстуре нужен `shell` — без поля
+  // сработал бы дефолт `bash`, а на Windows это WSL: `node -e "…"` ушёл бы в чужую ОС.
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'),
+    JSON.stringify({ shell: process.platform === 'win32' ? 'powershell' : 'bash' }));
   spawnSync('git', ['add', '-A'], { cwd: root });
   spawnSync('git', ['commit', '-qm', 'seed'], { cwd: root });
   const hash = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
@@ -127,7 +132,7 @@ test('bg-red: закрытая запись не возвращается (то�
 
 test('bg-red: красный фоновый прогон сам ставит запись; зелёный не ставит ничего', async () => {
   const red = bgRepo();
-  await runBackgroundVerify({ cwd: red.root, commitHash: red.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(1)' });
+  await runBackgroundVerify({ cwd: red.root, commitHash: red.hash, taskId: 'T007', oracleCmd: 'node -e "process.exit(1)"' });
   const open = openRows(red.root);
   assert.equal(open.length, 1);
   assert.equal(open[0].kind, 'bg-red');
@@ -135,7 +140,7 @@ test('bg-red: красный фоновый прогон сам ставит з�
   assert.equal(open[0].layer, 'suite');
 
   const green = bgRepo();
-  await runBackgroundVerify({ cwd: green.root, commitHash: green.hash, taskId: 'T007', oracleCmd: 'node -e process.exit(0)' });
+  await runBackgroundVerify({ cwd: green.root, commitHash: green.hash, taskId: 'T007', oracleCmd: 'node -e "process.exit(0)"' });
   assert.deepEqual(openRows(green.root), [], 'зелёный фон очередь не засоряет');
 });
 

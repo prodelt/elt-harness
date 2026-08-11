@@ -125,8 +125,22 @@ function harnessField(cwd, key) {
   try { return JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'))[key]; }
   catch { return undefined; }
 }
-// ponytail: наивный split(' ') — команды харнесса (оракул/smoke) без пробелов внутри
-// аргументов, шелл не нужен. Апгрейд до разбора кавычек — когда такая команда появится.
+// 016 T005: команду проекта запускает ШЕЛЛ из его же harness.json — тот же разбор, что у
+// синхронного гейта (`elt.js:42` sh()). Наивный `split(' ')` стоял здесь с 014 и жил только
+// потому, что домашний оракул — одно слово плюс путь. Живой прогон в Portfolio
+// (`oracle: "npx tsc --noEmit && npm run lint"`) дал `exit 1` за 0,012 c: `&&` уехал
+// аргументом в npx, а на Windows `npx`/`npm` вообще .cmd-шимы, которых spawnSync без шелла
+// не видит. Третий дефект той же семьи, что T001 и T003: команда уже правильная, а выполнить
+// её фон не мог. Ветка в ветку с sh(): улучшать нельзя — расхождение с синхронным гейтом
+// означало бы, что фон проверяет не то, что человек.
+function shellArgv(cmd, shell) {
+  return shell === 'powershell'
+    ? ['powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]]
+    : ['bash', ['-c', cmd]];
+}
+// Дефолт spawnSync — 1 МБ, и при переполнении процесс УБИВАЕТСЯ (ENOBUFS, status null → exit 1):
+// болтливый оракул чужого проекта давал бы ложное красное. То же число, что у elt.js.
+const BG_MAX_BUFFER = 256 * 1024 * 1024;
 // 014 T023: вывод дочернего процесса ДОПИСЫВАЕТСЯ в лог фона. До этого `spawnSync` с `encoding`
 // захватывал stdout/stderr в объект результата и молча их выбрасывал: `logPath` в каждой записи
 // `bg-red` указывал на файл с одной строкой deprecation-варнинга, и разобрать красное фона было
@@ -144,9 +158,9 @@ function harnessField(cwd, key) {
 const BG_ORACLE_JOBS = '2';
 function bgOracleEnv() { return { ...process.env, ELT_ORACLE_JOBS: BG_ORACLE_JOBS }; }
 
-function runCmd(cmd, cwd, logFile = null) {
-  const [bin, ...args] = cmd.split(' ');
-  const r = spawnSync(bin, args, { cwd, encoding: 'utf8', env: bgOracleEnv() });
+function runCmd(cmd, cwd, logFile = null, shell = null) {
+  const [bin, args] = shellArgv(cmd, shell);
+  const r = spawnSync(bin, args, { cwd, encoding: 'utf8', env: bgOracleEnv(), maxBuffer: BG_MAX_BUFFER });
   const exit = r.status == null ? 1 : r.status;
   if (logFile) {
     try {
@@ -211,6 +225,9 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   // процесса и есть корень проекта, поэтому читается тот же самый harness.json.
   // Порядок: параметр (тесты) > env (шов для spawn-тестов) > конфиг > громкий отказ.
   const cmd = oracleCmd || process.env.ELT_VERIFY_BG_ORACLE_CMD || harnessField(cwd, 'oracle');
+  // 016 T005: шелл берётся из конфига ОСНОВНОГО дерева (тот же файл, что и `oracle`), а не из
+  // worktree — читается один раз здесь, чтобы слои не расходились в способе запуска.
+  const shell = harnessField(cwd, 'shell');
   const on = enabledLayers(cwd);
   // До ensureWorktree: отказ после него оставил бы осиротевший .fleet-wt/bg-<hash> — cleanup
   // живёт только в конце функции. Отказ ровно тогда, когда команда кому-то нужна: с
@@ -236,7 +253,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   // cwd: wt — AC4, сердце T006: слои исполняются в ИЗОЛИРОВАННОМ checkout на хеше коммита,
   // а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
   section('suite', () => {
-    const exit = runCmd(cmd, wt, logFile);
+    const exit = runCmd(cmd, wt, logFile, shell);
     return { exit, red: exit !== 0, reason: exit !== 0 ? `сьют: exit ${exit}` : null };
   });
   section('mutate', () => {
@@ -247,7 +264,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
     // `node tools/elt-oracle-runner.js` — тот же дефект, что чинил T001, просто этажом ниже:
     // в чужом проекте каждая мутация «убивалась» падением `Cannot find module`, то есть слой
     // рапортовал бы чистоту, ничего не проверив.
-    const r = mutate({ cwd: wt, files, runTests: () => runCmd(cmd, wt, logFile) !== 0 });
+    const r = mutate({ cwd: wt, files, runTests: () => runCmd(cmd, wt, logFile, shell) !== 0 });
     return { status: r.status, reason: r.reason, survived: r.survived.length, red: r.status === 'block' };
   });
   section('smoke', () => {
@@ -258,7 +275,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
     // «мы это не проверяли» не то же самое, что «проверили и красное» (та же дисциплина, что у
     // бюджета мутатора). Разрешение даёт только владелец проекта полем smokeParallel:true.
     if (harnessField(cwd, 'smokeParallel') !== true) return { skipped: true, reason: 'skipped: smokeParallel=false' };
-    const exit = runCmd(smoke, wt, logFile);
+    const exit = runCmd(smoke, wt, logFile, shell);
     return { exit, red: exit !== 0, reason: exit !== 0 ? `smoke: exit ${exit}` : null };
   });
   if (on.has('judge')) {

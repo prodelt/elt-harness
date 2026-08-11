@@ -31,7 +31,11 @@ function gitRepo(harness) {
   // 014 T009: фикстура по умолчанию гоняет только suite — остальные слои включаются точечно
   // в своих тестах (судья иначе позвал бы настоящий CLI из юнит-теста).
   fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify(harness || { background: { layers: ['suite'] } }));
+  // 016 T005: `shell` — часть фикстуры, потому что фон теперь исполняет команду шеллом проекта
+  // (как синхронный гейт). Без поля сработал бы дефолт `bash`, а на этой машине `bash` — WSL:
+  // тесты гонялись бы в чужой ОС вместо родного шелла.
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'),
+    JSON.stringify({ shell: SHELL, ...(harness || { background: { layers: ['suite'] } }) }));
   execFileSync('git', ['add', '-A'], { cwd: root });
   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: root });
   const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
@@ -47,7 +51,7 @@ function runLogEntries(root) {
 
 test('runBackgroundVerify: зелёная команда пишет background-verify-pass с хешем коммита', async () => {
   const { root, hash } = gitRepo();
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(0)' });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e "process.exit(0)"' });
   assert.equal(r.exit, 0);
   const entries = runLogEntries(root);
   const last = entries[entries.length - 1];
@@ -60,7 +64,7 @@ test('runBackgroundVerify: зелёная команда пишет background-v
 
 test('runBackgroundVerify: красная команда пишет background-verify-red, не маскирует провал', async () => {
   const { root, hash } = gitRepo();
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e process.exit(1)' });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005', oracleCmd: 'node -e "process.exit(1)"' });
   assert.equal(r.exit, 1);
   const entries = runLogEntries(root);
   assert.equal(entries[entries.length - 1].status, 'background-verify-red');
@@ -82,7 +86,7 @@ test('runBackgroundVerify (AC4): фон видит содержимое НА Х�
 
 test('runBackgroundVerify (AC4): worktree убирается после прогона (не копится в .fleet-wt/)', async () => {
   const { root, hash } = gitRepo();
-  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node -e process.exit(0)' });
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T006', oracleCmd: 'node -e "process.exit(0)"' });
   assert.equal(fs.existsSync(worktreePath(root, hash)), false, 'worktree обязан быть снесён после зелёного прогона');
 });
 
@@ -93,9 +97,9 @@ const sectionsOf = (r) => Object.fromEntries(r.sections.map((s) => [s.layer, s])
 test('T009: отчёт содержит все четыре секции с временем каждой', async () => {
   // Судья выключен: он единственный слой, зовущий внешний CLI — в юните это был бы не тест,
   // а живой вызов модели. Его секция обязана присутствовать, но как явно выключенная.
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(0)', smokeParallel: true, background: { layers: ['suite', 'mutate', 'smoke'] } });
+  const { root, hash } = gitRepo({ smoke: 'node -e "process.exit(0)"', smokeParallel: true, background: { layers: ['suite', 'mutate', 'smoke'] } });
   // 016 T003: команда обязана быть НАСТОЯЩЕЙ проверкой (`check-seed.js` — зелёная на чистом
-  // коде, красная на мутанте). С `node -e process.exit(0)` слой mutate теперь честно краснеет:
+  // коде, красная на мутанте). С `node -e "process.exit(0)"` слой mutate теперь честно краснеет:
   // константно-зелёная команда не убивает ни одной мутации. Раньше тест это не ловил, потому
   // что мутатор звал захардкоженный `tools/elt-oracle-runner.js`, которого в фикстуре нет, —
   // падение `Cannot find module` засчитывалось как «мутация убита». Ровно тот дефект, что
@@ -111,14 +115,14 @@ test('T009: отчёт содержит все четыре секции с вр
 
 test('T009: smoke не задан — секция пропущена с причиной, а не падает', async () => {
   const { root, hash } = gitRepo({ background: { layers: ['suite', 'smoke'] } });
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e "process.exit(0)"' });
   assert.equal(r.exit, 0, 'отсутствие smoke не делает фон красным');
   assert.match(sectionsOf(r).smoke.reason, /не задан/);
 });
 
 test('T009: красный smoke — bg-red слоя smoke, сьют при этом зелёный', async () => {
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(3)', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  const { root, hash } = gitRepo({ smoke: 'node -e "process.exit(3)"', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e "process.exit(0)"' });
   assert.equal(r.exit, 1);
   const rows = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
     .trim().split('\n').map((l) => JSON.parse(l));
@@ -127,8 +131,8 @@ test('T009: красный smoke — bg-red слоя smoke, сьют при эт
 });
 
 test('T009: каждый красный слой даёт СВОЮ строку очереди, а не одну общую', async () => {
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
-  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(1)' });
+  const { root, hash } = gitRepo({ smoke: 'node -e "process.exit(1)"', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e "process.exit(1)"' });
   const rows = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8')
     .trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((x) => x.layer), ['suite', 'smoke'], 'две причины — две задачи');
@@ -138,16 +142,16 @@ test('T009: каждый красный слой даёт СВОЮ строку 
 
 test('T010: smokeParallel по умолчанию false — smoke пропущен с причиной, фон зелёный', async () => {
   // Красная команда специально: если бы слой всё-таки исполнился, тест упал бы на exit.
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', background: { layers: ['suite', 'smoke'] } });
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T010', oracleCmd: 'node -e process.exit(0)' });
+  const { root, hash } = gitRepo({ smoke: 'node -e "process.exit(1)"', background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T010', oracleCmd: 'node -e "process.exit(0)"' });
   assert.equal(r.exit, 0, 'непрогнанный smoke не красный — «не проверяли» ≠ «проверили и упало»');
   assert.equal(sectionsOf(r).smoke.reason, 'skipped: smokeParallel=false');
   assert.equal(fs.existsSync(path.join(root, '.harness', 'review-queue.jsonl')), false, 'пропуск не заводит задачу');
 });
 
 test('T010: smokeParallel:true — слой реально исполняется и красное доходит до очереди', async () => {
-  const { root, hash } = gitRepo({ smoke: 'node -e process.exit(1)', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
-  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T010', oracleCmd: 'node -e process.exit(0)' });
+  const { root, hash } = gitRepo({ smoke: 'node -e "process.exit(1)"', smokeParallel: true, background: { layers: ['suite', 'smoke'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T010', oracleCmd: 'node -e "process.exit(0)"' });
   assert.equal(r.exit, 1);
   assert.equal(sectionsOf(r).smoke.red, true);
 });
@@ -161,7 +165,7 @@ test('T009: background.layers отсутствует — включены все
 
 test('T009: run-log несёт секции — без них отчёт фона неразбираем', async () => {
   const { root, hash } = gitRepo({ background: { layers: ['suite'] } });
-  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e process.exit(0)' });
+  await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T009', oracleCmd: 'node -e "process.exit(0)"' });
   const last = runLogEntries(root).pop();
   assert.equal(last.status, 'background-verify-pass', 'префикс background-verify держит детектор bg-silent (T008)');
   assert.equal(last.background.sections.length, 4);
@@ -193,7 +197,7 @@ test('spawnBackgroundVerify: возвращает управление неме�
 
 test('spawnBackgroundVerify: фон реально дописывает run-log ПОСЛЕ того, как родитель уже вернул управление', async () => {
   const { root, hash } = gitRepo();
-  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e process.exit(0)';
+  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e "process.exit(0)"';
   try {
     spawnBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005' });
     // Родитель уже не ждёт — тест ждёт САМ, с таймаутом, а не синхронно в вызывающем коде.
@@ -276,7 +280,7 @@ test('commit: sync (дефолт, поле отсутствует) — БЕЗ с
 
 test('commit: verify:"background" — коммитит БЕЗ судейского пруфа и возвращает управление быстро', () => {
   const root = commitRepo('background');
-  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e process.exit(0)';
+  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e "process.exit(0)"';
   try {
     const started = Date.now();
     const r = run(root, ['commit', '--task', 'T001', '--skip-oracle']);
@@ -404,8 +408,8 @@ test('T002: нет поля oracle — громкая ошибка, а не мо
 });
 
 test('T002: ELT_VERIFY_BG_ORACLE_CMD перекрывает конфиг — тестовый шов остаётся живым', async () => {
-  const { root, hash } = gitRepo({ oracle: 'node -e process.exit(1)', background: { layers: ['suite'] } });
-  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e process.exit(0)';
+  const { root, hash } = gitRepo({ oracle: 'node -e "process.exit(1)"', background: { layers: ['suite'] } });
+  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e "process.exit(0)"';
   try {
     const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T002' });
     assert.equal(r.exit, 0, 'env обязан выигрывать у конфига — на нём стоят тесты T005/T022 выше');
@@ -446,6 +450,21 @@ test('T004: фон снижает параллелизм — команда по
   await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T004' });
   const log = fs.readFileSync(path.join(root, '.harness', 'loop-logs', `bg-${hash}.log`), 'utf8');
   assert.match(log, /JOBS=2/, 'в фоне ждать некому — время бесплатно, а contention стоит четырёх подряд ложных bg-red');
+});
+
+// --- 016 T005: команду проекта исполняет шелл из его же harness.json --------------------
+// Третий экземпляр той же семьи, что T001 и T003: команда уже бралась из конфига, но
+// `cmd.split(' ')` не шелл. Живой прогон в Portfolio (`npx tsc --noEmit && npm run lint`) дал
+// `exit 1` за 0,012 c — `&&` уехал аргументом в npx. Дискриминатор ниже работает в ОБОИХ
+// шеллах: наивный split отдаёт node аргумент `"process.exit(3)"` — строковый литерал, который
+// он вычисляет и выходит с 0; настоящий шелл снимает кавычки и даёт 3.
+
+test('T005: команда с кавычками исполняется шеллом проекта, а не наивным split(" ")', async () => {
+  const { root, hash } = gitRepo({ oracle: 'node -e "process.exit(3)"', background: { layers: ['suite'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T005' });
+  // Не `equal(…, 3)`: PowerShell 5.1 с `-Command` не проксирует точный код нативной команды
+  // (даёт 1), bash даёт 3. Дискриминатор всё равно точный — наивный split вернул бы РОВНО 0.
+  assert.notEqual(sectionsOf(r).suite.exit, 0, 'до фикса кавычки уезжали в argv, node вычислял строковый литерал и выходил с 0');
 });
 
 after(() => {
