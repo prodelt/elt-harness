@@ -368,6 +368,44 @@ test('T023: лог фона содержит вывод упавшего сло�
   assert.match(log, /exit 1/, 'в логе виден и код возврата');
 });
 
+// --- 016 T002: фон гоняет оракул ПРОЕКТА, а не захардкоженный оракул домашнего репо ------
+// Живой дефект (аудит 11.08, `.planning/HARNESS-DEEP-AUDIT-2026-08-11.md`): дефолт параметра
+// `oracleCmd = 'node tools/elt-oracle-runner.js --full'` перекрывался ТОЛЬКО через
+// ELT_VERIFY_BG_ORACLE_CMD, а её не выставлял ни один продовый вызов — только тесты выше.
+// В Portfolio 7 из 7 фоновых прогонов были красные за 0,13 c с `Cannot find module
+// '...\.fleet-wt\bg-9ade717\tools\elt-oracle-runner.js'`. Дома тот же слой честно молотит
+// минуты — дефект невидим по построению, поэтому тест зовёт runBackgroundVerify ровно так,
+// как это делает прод: БЕЗ env и БЕЗ параметра.
+
+test('T002: без env и без параметра фон берёт команду из harness.json проекта', async () => {
+  assert.equal(process.env.ELT_VERIFY_BG_ORACLE_CMD, undefined, 'тест обязан идти по продовому пути — без тестового шва');
+  const { root, hash } = gitRepo({ oracle: 'node check-seed.js', background: { layers: ['suite'] } });
+  const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T002' });
+  assert.equal(r.exit, 0, 'до фикса здесь запускался оракул ДОМАШНЕГО репо, которого в чужом проекте нет');
+  const log = fs.readFileSync(path.join(root, '.harness', 'loop-logs', `bg-${hash}.log`), 'utf8');
+  assert.match(log, /\$ node check-seed\.js/, 'в логе обязана быть команда проекта');
+  assert.doesNotMatch(log, /elt-oracle-runner/, 'команда домашнего репо не должна протекать в чужой проект');
+});
+
+test('T002: нет поля oracle — громкая ошибка, а не молчаливый фолбек на чужой путь', async () => {
+  const { root, hash } = gitRepo({ background: { layers: ['suite'] } });
+  await assert.rejects(
+    runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T002' }),
+    /oracle/,
+    'отсутствие команды — конфигурационная ошибка; фолбек и есть тот дефект',
+  );
+  assert.equal(fs.existsSync(worktreePath(root, hash)), false, 'отказ до создания worktree — иначе .fleet-wt/ копит сирот');
+});
+
+test('T002: ELT_VERIFY_BG_ORACLE_CMD перекрывает конфиг — тестовый шов остаётся живым', async () => {
+  const { root, hash } = gitRepo({ oracle: 'node -e process.exit(1)', background: { layers: ['suite'] } });
+  process.env.ELT_VERIFY_BG_ORACLE_CMD = 'node -e process.exit(0)';
+  try {
+    const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T002' });
+    assert.equal(r.exit, 0, 'env обязан выигрывать у конфига — на нём стоят тесты T005/T022 выше');
+  } finally { delete process.env.ELT_VERIFY_BG_ORACLE_CMD; }
+});
+
 after(() => {
   for (const root of roots) { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* windows lock */ } }
 });
