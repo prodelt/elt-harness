@@ -1,6 +1,6 @@
 # Checkpoint (auto) — 2026-08-11
 
-Автозаписан `checkpoint-writer.js` на пороге ~256k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~281k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
