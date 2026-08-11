@@ -1,6 +1,6 @@
 # Checkpoint (auto) — 2026-08-11
 
-Автозаписан `checkpoint-writer.js` на пороге ~121k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~139k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
@@ -9,8 +9,8 @@
 ## Last Run
 - commit: `6e85a2c`
 - verdict: (none)
-- oracle exit: 0
-- msg: feat: T001,T002 Фон бере команду оракула з конфігу проєкту, а не з дефолту: `spawnBackgrou
+- oracle exit: ?
+- msg: 
 
 ## Next Slice
 - plan file: `specs\016-harness-v4-repair\tasks.md`
