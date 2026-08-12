@@ -22,7 +22,28 @@
 ## Демо-репо
 `C:\Ametrin projects\Ametrin web ecosystem 3` (AWE3) — Rust+Node, spec-kit стоит, `justfile` оракул, husky-зубы (live-fire 2026-06-19), `specs/001-service-aggregator-platform/tasks.md` = источник слайсов.
 
-## Текущий фокус
+## Текущий фокус (2026-08-12)
+
+**016 Ремонт харнеса v4 — 10 из 14 закрыто.** Сегодня: `a0ffaf7` (T007, T009), `b082438`
+(T008, T010), `faa79e0` (T011). Фаза A закрыта раньше (T001-T005).
+
+- **T006 — единственный блокер, за пользователем.** Код готов: регистрация задачи планировщика
+  переехала с `schtasks` (давал «Logon Mode: Interactive only» → 0x80070520 в 03:00) на
+  `Register-ScheduledTask -LogonType S4U`. Саму регистрацию блокирует классификатор Claude Code,
+  запускать вручную:
+  `node tools/elt-retro-label.js --install-schedule --project "C:\Claude playground\Pipiline setupper"`
+  Оговорка: приёмка требует записи в `learnings.jsonl`, но её пишет `elt-harness-propose.js`, а
+  не ретро-разметка — доказательством служит `LastTaskResult=0` + свежий `retro-report.json`.
+- **T012-T014 (фаза E) припаркованы** решением пользователя 2026-08-12 как необязательные.
+- **`elt review` — 6 записей `bg-red` на разбор**, включая справедливый scope creep по `a0ffaf7`
+  (код T006 уехал в срез T007/T009).
+
+Разборы этой сессии: `.planning/016-T007-bench-ingest-finding.md` (обрыва в bench нет, это
+идемпотентность; `unknown` вырос 2%→10% — кандидат в следующую спеку) и
+`.planning/016-T011-sync-path-measurement.md` (судья вне критического пути; узкое место
+синхронной части — `computeEntry`, 11 c из 14 c).
+
+## Прошлый фокус
 **006 ELT Front Gate (`specs/006-elt-front-gate`) — T001-T008+T019 ЗАКРЫТЫ.** Судья-межрепо-слепота
 починена (`tools/fleet/gate.js` видит diff файлов `[files:]` вне cwd-репо, 006 T007-блокер снят).
 T007 (grill-me v2) и T008 (elt SKILL.md Режим 0 v2) закрыты sonnet-судьёй. Resume:
