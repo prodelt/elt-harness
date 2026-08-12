@@ -37,11 +37,19 @@ function runtimeRunLog(cwd) {
   return runtime;
 }
 
+// 016 T009 — молчаливый `return null` здесь стоил AWE4 всей истории слайсов: коммиты
+// `chore: elt slice` есть, `.git/elt/` нет вовсе, и харнес про работу не знает. Коммит без
+// записи в run-log хуже отсутствующего коммита: гейт, brief и ретро-разметка считают срез
+// несуществующим. Поэтому невозможность записать — громкая ошибка, а не тихий null.
 function appendRunLog(cwd, entry) {
   const file = runtimeRunLog(cwd);
-  if (!file) return null;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
+  if (!file) throw new Error(`run-log: не удалось определить git-dir для ${cwd} — запись слайса невозможна`);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
+  } catch (e) {
+    throw new Error(`run-log: запись в ${file} не удалась (${e.code || e.message}) — слайс остался бы невидимым для харнеса`);
+  }
   return file;
 }
 

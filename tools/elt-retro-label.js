@@ -164,18 +164,35 @@ function daily(cwd) {
   return report;
 }
 
-// Регистрация идемпотентна: `/F` перезаписывает существующую задачу, поэтому повторный запуск
-// не плодит дублей и заодно чинит устаревший путь к node/скрипту после переезда репо.
-function installSchedule(cwd, { time = '03:00', name = TASK_NAME } = {}) {
+// 016 T006 — `schtasks /Create` без `/RU`+`/RP` даёт "Logon Mode: Interactive only": в 03:00 при
+// заблокированной сессии задача падает с 0x80070520 (ERROR_NO_SUCH_LOGON_SESSION) и разметка
+// молча не идёт. Пароль в аргументах хранить нельзя, а `schtasks` не умеет S4U — поэтому
+// регистрация идёт через `Register-ScheduledTask` с `-LogonType S4U`: "run whether user is
+// logged on or not" без сохранённого пароля.
+// Идемпотентно: `-Force` перезаписывает задачу, заодно чиня устаревший путь к node после переезда.
+function scheduleCommand(cwd, { time = '03:00', name = TASK_NAME } = {}) {
   const script = path.join(cwd, 'tools', 'elt-retro-label.js');
-  const tr = `"${process.execPath}" "${script}" --daily --project "${cwd}"`;
-  const r = spawnSync('schtasks', ['/Create', '/TN', name, '/SC', 'DAILY', '/ST', time, '/F', '/TR', tr], { encoding: 'utf8' });
-  return { ok: r.status === 0, taskName: name, command: tr, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
+  const q = (s) => `'${String(s).replace(/'/g, "''")}'`; // PowerShell single-quote escaping
+  const args = `"${script}" --daily --project "${cwd}"`;
+  return [
+    `$a = New-ScheduledTaskAction -Execute ${q(process.execPath)} -Argument ${q(args)}`,
+    `$t = New-ScheduledTaskTrigger -Daily -At ${q(time)}`,
+    `$p = New-ScheduledTaskPrincipal -UserId ${q(process.env.USERNAME || 'SYSTEM')} -LogonType S4U -RunLevel Limited`,
+    `$s = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries`,
+    `Register-ScheduledTask -TaskName ${q(name)} -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null`,
+  ].join('; ');
+}
+
+function installSchedule(cwd, opts = {}) {
+  const name = opts.name || TASK_NAME;
+  const cmd = scheduleCommand(cwd, opts);
+  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' });
+  return { ok: r.status === 0, taskName: name, command: cmd, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
 }
 
 // Экспорт ДО main-ветки: `judge-bench-ingest` требует этот модуль обратно (цикл), и если
 // `daily()` стартует раньше присвоения, ingest получит пустой exports и упадёт на `label`.
-module.exports = { label, format, touchedLines, overlaps, daily, installSchedule, REPORT, TASK_NAME, FIX_WINDOW, LINE_TOLERANCE };
+module.exports = { label, format, touchedLines, overlaps, daily, installSchedule, scheduleCommand, REPORT, TASK_NAME, FIX_WINDOW, LINE_TOLERANCE };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
