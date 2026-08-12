@@ -137,3 +137,12 @@ test('scheduleCommand: S4U-принципал, а не interactive-only schtasks
   assert.doesNotMatch(cmd, /\/RP\b/);       // пароль в аргументах не хранится
   assert.match(cmd, /--daily --project "C:\repo"/);
 });
+
+// 016 T006 — fallback без прав администратора: Interactive обязан идти вместе со
+// StartWhenAvailable, иначе пропущенный в 03:00 запуск просто теряется (это и есть 0x80070520).
+test('scheduleCommand: Interactive-режим сохраняет StartWhenAvailable', () => {
+  const { scheduleCommand } = require('./elt-retro-label');
+  const cmd = scheduleCommand('C:\repo', { logonType: 'Interactive' });
+  assert.match(cmd, /-LogonType Interactive/);
+  assert.match(cmd, /-StartWhenAvailable/);
+});
