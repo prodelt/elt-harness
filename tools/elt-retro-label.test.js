@@ -125,3 +125,15 @@ test('T015 daily(): размечает, зовёт ingest и кладёт отч
   const onDisk = JSON.parse(fs.readFileSync(path.join(root, REPORT), 'utf8'));
   assert.deepEqual(onDisk.labels, rep.labels, 'отчёт на диске совпадает с возвращённым');
 });
+
+// 016 T006 — регресс на 0x80070520: задача обязана регистрироваться как S4U, иначе она
+// "Interactive only" и в 03:00 при заблокированной сессии не стартует вовсе.
+test('scheduleCommand: S4U-принципал, а не interactive-only schtasks', () => {
+  const { scheduleCommand } = require('./elt-retro-label');
+  const cmd = scheduleCommand('C:\repo', { time: '03:00', name: 'ELT-x' });
+  assert.match(cmd, /-LogonType S4U/);
+  assert.match(cmd, /Register-ScheduledTask/);
+  assert.match(cmd, /-Force/);              // идемпотентность
+  assert.doesNotMatch(cmd, /\/RP\b/);       // пароль в аргументах не хранится
+  assert.match(cmd, /--daily --project "C:\repo"/);
+});
