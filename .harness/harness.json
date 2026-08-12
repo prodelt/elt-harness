@@ -18,5 +18,13 @@
   "redProofTimeoutMs": 120000,
   "batch": 3,
   "codegraphGuard": true,
-  "specApproval": true
+  "specApproval": true,
+  "background": {
+    "layers": [
+      "suite",
+      "mutate",
+      "smoke",
+      "judge"
+    ]
+  }
 }
