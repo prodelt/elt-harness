@@ -440,6 +440,9 @@ const PROOF_VERDICTS = ['pass', 'block', 'dead', 'inconclusive'];
 // Очередь ревью — рантайм-состояние проекта, как run-log: в .gitignore, чтобы строка не
 // попадала в дифф следующего слайса и не двигала treeHash под оракул-пруфом.
 const REVIEW_QUEUE = path.join('.harness', 'review-queue.jsonl');
+// 016 T010: что считается документным коммитом. Умышленно узко — текст и планы, ничего
+// исполняемого: любой файл вне этого списка возвращает требование `--task`.
+const DOC_COMMIT_RE = /(\.md|\.txt|\.rst)$|^\.planning\/|^specs\//i;
 // В ELT v3 усиленный proof включается только живым redProof. Legacy judge.verify игнорируется:
 // второй LLM-судья был главным источником ложных блокировок и больше не является частью схемы.
 function redProofMode() {
@@ -1041,7 +1044,24 @@ if (cmd === 'commit') {
     }
   }
 
-  if (!taskId) die('elt commit: --task Txxx is required for a code commit', 4);
+  // 016 T010: у чисто документного коммита задачи в плане нет и быть не должно — раньше это
+  // выгоняло из харнеса в ручной `git commit`, то есть мимо run-log. Дверь узкая: только
+  // документные файлы, без судьи и без approval (кода нет — судить нечего), запись в run-log
+  // обязательна, иначе смысл двери теряется.
+  if (!taskId) {
+    const nonDocs = changedFiles().filter((f) => !DOC_COMMIT_RE.test(f.replace(/\\/g, '/')));
+    if (nonDocs.length) {
+      die(`elt commit: --task Txxx обязателен для коммита с кодом (не документные файлы: ${nonDocs.slice(0, 5).join(', ')}${nonDocs.length > 5 ? ` +${nonDocs.length - 5}` : ''})`, 4);
+    }
+    const msgDocs = opt('-m', 'docs: обновление документации');
+    if (git(['add', '-A']).code !== 0) die('git add failed');
+    const cd = spawnSync('git', ['commit', '-m', msgDocs], { cwd, encoding: 'utf8' });
+    if (cd.status !== 0) die('git commit failed: ' + (cd.stderr || cd.stdout));
+    const shaDocs = git(['rev-parse', '--short', 'HEAD']).out;
+    appendRunLog({ task: null, status: 'docs-commit', commit: shaDocs, branch: git(['branch', '--show-current']).out, msg: msgDocs });
+    console.error(`elt commit: ${shaDocs} — документный коммит без задачи`);
+    return;
+  }
 
   // 006 T002: approval gate, evaluated against the TASK'S OWN spec dir (not
   // whatever findTasks() would auto-select) — otherwise a task from a later
@@ -1174,7 +1194,12 @@ if (cmd === 'commit') {
 // иначе эволюция контура — самообман (пороги правились вручную, ни разу не проверены).
 // НАМЕРЕННО последний блок файла: единственная async-ветка в плоском синхронном скрипте —
 // раньше по порядку она проиграла бы гонку с безусловным `process.exit()` в самом низу.
-if (cmd === 'harness' && sub === 'propose') {
+if (cmd === 'harness' && sub === 'sync-all') {
+  // 016 T008: раскатка схемы v4 по реестру. Дефолт — dry-run; запись только с --apply.
+  const { spawnSync: sp } = require('child_process');
+  const r = sp(process.execPath, [path.join(__dirname, 'elt-harness-sync-all.js'), ...argv.slice(2)], { cwd, stdio: 'inherit' });
+  process.exit(r.status === null ? 1 : r.status);
+} else if (cmd === 'harness' && sub === 'propose') {
   let harnessPropose;
   try { harnessPropose = require('./elt-harness-propose'); }
   catch { die('elt harness propose: доступно только в репо-разработчике (tools/elt-harness-propose.js не найден)', 4); }
