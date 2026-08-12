@@ -170,24 +170,56 @@ function daily(cwd) {
 // регистрация идёт через `Register-ScheduledTask` с `-LogonType S4U`: "run whether user is
 // logged on or not" без сохранённого пароля.
 // Идемпотентно: `-Force` перезаписывает задачу, заодно чиня устаревший путь к node после переезда.
-function scheduleCommand(cwd, { time = '03:00', name = TASK_NAME } = {}) {
+// `logonType`:
+//   'S4U'         — «run whether user is logged on or not» без сохранённого пароля. Чинит
+//                   0x80070520 полностью, но требует прав администратора (иначе 0x80070005).
+//   'Interactive' — регистрируется под обычным пользователем. Сам по себе не спасает: в 03:00
+//                   без сессии задача не стартует. Спасает `-StartWhenAvailable`: пропущенный
+//                   запуск выполняется при первом появлении сессии. Для накопительной суточной
+//                   разметки «в 03:00 либо при первом входе после» — эквивалент по смыслу.
+function scheduleCommand(cwd, { time = '03:00', name = TASK_NAME, logonType = 'S4U' } = {}) {
   const script = path.join(cwd, 'tools', 'elt-retro-label.js');
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`; // PowerShell single-quote escaping
   const args = `"${script}" --daily --project "${cwd}"`;
   return [
     `$a = New-ScheduledTaskAction -Execute ${q(process.execPath)} -Argument ${q(args)}`,
     `$t = New-ScheduledTaskTrigger -Daily -At ${q(time)}`,
-    `$p = New-ScheduledTaskPrincipal -UserId ${q(process.env.USERNAME || 'SYSTEM')} -LogonType S4U -RunLevel Limited`,
+    `$p = New-ScheduledTaskPrincipal -UserId ${q(process.env.USERNAME || 'SYSTEM')} -LogonType ${logonType} -RunLevel Limited`,
+    // StartWhenAvailable — несущая часть fallback'а, а не косметика: без неё Interactive-задача
+    // просто теряет пропущенный запуск.
     `$s = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries`,
     `Register-ScheduledTask -TaskName ${q(name)} -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null`,
   ].join('; ');
 }
 
+function registerTask(cmd) {
+  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' });
+  return { ok: r.status === 0, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
+}
+
+// Сначала S4U, при отказе в правах — Interactive + StartWhenAvailable. Молча деградировать
+// нельзя: разница между режимами видна пользователю в возвращаемом `logonType`.
 function installSchedule(cwd, opts = {}) {
   const name = opts.name || TASK_NAME;
   const cmd = scheduleCommand(cwd, opts);
-  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' });
-  return { ok: r.status === 0, taskName: name, command: cmd, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
+  const first = registerTask(cmd);
+  if (first.ok) return { ok: true, taskName: name, logonType: 'S4U', command: cmd, out: first.out };
+  if (!/0x80070005|PermissionDenied|Access is denied|Отказано в доступе/i.test(first.out)) {
+    return { ok: false, taskName: name, logonType: 'S4U', command: cmd, out: first.out };
+  }
+  const fbCmd = scheduleCommand(cwd, { ...opts, logonType: 'Interactive' });
+  const fb = registerTask(fbCmd);
+  return {
+    ok: fb.ok,
+    taskName: name,
+    logonType: 'Interactive',
+    fallback: true,
+    command: fbCmd,
+    out: fb.out,
+    note: 'S4U требует запуска от администратора (0x80070005). Зарегистрировано как Interactive '
+      + '+ StartWhenAvailable: пропущенный в 03:00 запуск выполнится при первом появлении сессии. '
+      + 'Для полноценного S4U повторить эту же команду из PowerShell «от имени администратора».',
+  };
 }
 
 // Экспорт ДО main-ветки: `judge-bench-ingest` требует этот модуль обратно (цикл), и если
@@ -201,7 +233,8 @@ if (require.main === module) {
   const cwd = at('--project') || process.cwd();
   if (argv.includes('--install-schedule')) {
     const r = installSchedule(cwd, { ...(at('--at') ? { time: at('--at') } : {}) });
-    console.log(`elt retro-label: задача ${r.taskName} ${r.ok ? 'зарегистрирована' : 'НЕ зарегистрирована'}\n  ${r.command}\n  ${r.out}`);
+    console.log(`elt retro-label: задача ${r.taskName} ${r.ok ? `зарегистрирована (LogonType ${r.logonType})` : 'НЕ зарегистрирована'}`
+      + (r.note ? `\n  ⚠ ${r.note}` : '') + `\n  ${r.command}\n  ${r.out}`);
     process.exit(r.ok ? 0 : 1);
   }
   if (argv.includes('--daily')) {
