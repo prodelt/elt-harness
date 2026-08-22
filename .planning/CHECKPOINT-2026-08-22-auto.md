@@ -1,21 +1,21 @@
 # Checkpoint (auto) — 2026-08-22
 
-Автозаписан `checkpoint-writer.js` на пороге ~217k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~293k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
-- dirty files: 5
+- dirty files: 17
 
 ## Last Run
-- commit: `422773e`
-- verdict: (none)
-- oracle exit: 0
-- msg: feat: гейт спеки читает только историю, approval.json снят как сущность кода (T004+T005, D4)
+- commit: `(none)`
+- verdict: block
+- oracle exit: ?
+- msg: 
 
 ## Next Slice
-- plan file: `specs\018-spec-approval-to-git-trailer\tasks.md`
-- open: 3 / done: 5
-- next: T006 Живий прогін критерію фази 1: фікстурна спека з 9 задач у темп-репо, закрити всі дев'ять поспіль. Порахувати число затверджень. Перевірка: рівно ОДНЕ затвердження на всі 9 закриттів, у run-log дев'ять записів коміта, жодного `спека не підписана`; додатково — вісім власних зрізів цієї спеки закриті теж однією підписом. Результат вписати в `.planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md` як закриття D4/D7/D11/D15.
+- plan file: `specs\019-elt-v5-phases-2-5\tasks.md`
+- open: 20 / done: 0
+- next: T001 Єдиний модуль `tools/harness-files.js`: одна функція `isHarnessOwned(path)` і один
 
 ## Resume Prompt
-/elt continue — план `specs\018-spec-approval-to-git-trailer\tasks.md`, следующий слайс: T006 Живий прогін критерію фази 1: фікстурна спека з 9 задач у темп-репо, закрити всі дев'ять поспіль. Порахувати число затверджень. Перевірка: рівно ОДНЕ затвердження на всі 9 закриттів, у run-log дев'ять записів коміта, жодного `спека не підписана`; додатково — вісім власних зрізів цієї спеки закриті теж однією підписом. Результат вписати в `.planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md` як закриття D4/D7/D11/D15.
+/elt continue — план `specs\019-elt-v5-phases-2-5\tasks.md`, следующий слайс: T001 Єдиний модуль `tools/harness-files.js`: одна функція `isHarnessOwned(path)` і один

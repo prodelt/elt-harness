@@ -14,6 +14,7 @@ const plan = require('./plan');
 const router = require('./router');
 const { redProof, applyRedProof } = require('../red-proof');
 const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('../elt-gate-l0');
+const { isHarnessOwned, isIgnoredForReview, isHarnessManaged } = require('../harness-files');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 // 009 T010 (четыре замера на живом слайсе, причины у CLI РАЗНЫЕ — одной формулой не лечатся):
@@ -252,6 +253,19 @@ function judgePrompt(tid, taskText, diff, status, prevBlockReason = '', rubric =
       `Эти файлы в дифф выше НЕ вошли. filesReviewed за них не спрашивается; если они важны\n` +
       `для вердикта — прочитай их с диска сам, иначе прямо скажи в reasons, что судил без них.\n`
     : '';
+  // 019 T001 (D19): до этой правки знание «файл принадлежит харнесу» было закодировано в
+  // гейте и НЕ передавалось судье — и судья честно называл scope creep'ом `review-queue.jsonl`,
+  // который пишет сам харнес после каждого слайса. Список считается из того же модуля, что
+  // и зона гейта, поэтому разойтись они больше не могут.
+  const ownedInDiff = String(status || '').split(/\r?\n/)
+    .map((line) => line.slice(3).replace(/^"|"$/g, '').trim())
+    .filter((rel) => rel && isIgnoredForReview(rel));
+  const ownedSection = ownedInDiff.length
+    ? `\n--- ПРИНАДЛЕЖИТ ХАРНЕСУ / СГЕНЕРИРОВАНО (не scope creep) ---\n${[...new Set(ownedInDiff)].join(', ')}\n`
+      + 'Эти файлы пишет сам харнес (марка задачи, состояние прогонов, очередь разбора) или генератор\n'
+      + '(lock-файлы, кеши). Слайс их не выбирал. НЕ выноси по ним вердикт и не считай их выходом\n'
+      + 'за границы задачи; суди только остальное.\n'
+    : '';
   const prevBlock = prevBlockReason
     ? `\nПРЕДЫДУЩАЯ попытка этого слайса уже была ЗАБЛОКИРОВАНА по причине: ${prevBlockReason}\nПроверь, устранена ли именно она в текущем диффе — не повторяй тот же вердикт вслепую.\n`
     : '';
@@ -300,7 +314,7 @@ spec-папках того же проекта. НЕ ищи историю/др�
 gh run view и т.п.) — суди ИСКЛЮЧИТЕЛЬНО дифф текущего рабочего дерева ниже. Пустой или
 нерелевантный дифф — повод для block, а не повод искать подтверждение где-то ещё.
 
-ЗАДАЧА (${tid}): ${taskText}${prevBlock}${rubricSection}${l0Section}
+ЗАДАЧА (${tid}): ${taskText}${prevBlock}${rubricSection}${ownedSection}${l0Section}
 --- git status --porcelain ---
 ${status}
 
@@ -439,6 +453,20 @@ function slurpExternalDiffs(cwd, files) {
   return externalRepoScopes(cwd, files).map(({ root, paths }) => ({ root, ...slurpDiff(root, DIFF_CAP, paths, paths) }));
 }
 
+// 019 T001: причины вердикта — свободный текст, поэтому файлы из них достаются регуляркой
+// по расширению/разделителю. Требование «хотя бы один путь найден» намеренно строгое:
+// причина без единого файла (например «тест мокает проверяемую логику») шумом не считается
+// и блок не теряет.
+const PATH_IN_TEXT = /[\w.\-/\\]+\.[A-Za-z0-9]{1,8}|\.harness[\w.\-/\\]*|\.git\/elt[\w.\-/\\]*/g;
+function reasonsAreNoiseOnly(reasons) {
+  const paths = [];
+  for (const r of reasons || []) {
+    for (const m of String(r).match(PATH_IN_TEXT) || []) paths.push(m.replace(/^[`"\x27(]+|[`"\x27),.;]+$/g, ''));
+  }
+  if (!paths.length) return false;
+  return paths.every((rel) => isIgnoredForReview(rel));
+}
+
 // Судья по ГОТОВОМУ диффу (без git-чтения) — общий путь для runJudge и judge-bench:
 // бенч обязан мерить ТУ ЖЕ функцию, что работает в проде, иначе меряет фикцию.
 // provider: только claude умеет --json-schema (структурированный вывод, T016). codex/agy
@@ -471,9 +499,18 @@ async function judgeDiff({ cwd = process.cwd(), tid, taskText, diff, status, pro
   // Любой отказ граундинга форсирует block независимо от того, что сказала модель, — это и
   // есть смысл проверки («судья сказал pass» ≠ «судья реально смотрел дифф»).
   const groundingReason = checkGrounding(status, filesReviewed, reasons, cwd, omitted);
+  // 019 T001 (D19): блок, который целиком держится на файлах, принадлежащих харнесу или
+  // сгенерированных, — это шум по построению: слайс их не выбирал. Такой вердикт не
+  // отбрасывается молча (тогда бы исчезла и причина), а понижается до `inconclusive` —
+  // строка уезжает в очередь разбора, коммит не встаёт. Правка работает ТОЛЬКО в сторону
+  // ослабления: превратить pass в block она не может по построению.
+  const noiseOnly = !groundingReason && verdict === 'block' && reasonsAreNoiseOnly(reasons);
+  const finalVerdict = groundingReason ? 'block' : (noiseOnly ? 'inconclusive' : verdict);
+  const finalReasons = groundingReason ? [...reasons, groundingReason]
+    : (noiseOnly ? [...reasons, '019 T001: блок снят до inconclusive — все названные файлы принадлежат харнесу или сгенерированы'] : reasons);
   return {
-    verdict: groundingReason ? 'block' : verdict,
-    reasons: groundingReason ? [...reasons, groundingReason] : reasons,
+    verdict: finalVerdict,
+    reasons: finalReasons,
     filesReviewed: filesReviewed || [],
     judgeLog: r.logPath, runOk: true, durationSec,
   };
@@ -623,10 +660,8 @@ function inScope(rel, files) {
 // Именно ЭТО agy контаминировал (shell bash→powershell, [ ]→[X], лишний elt commit). Откатываем
 // ТОЛЬКО их, а НЕ «всё вне [files:]»: настоящий scope-creep в РАБОТЕ (лишний out/beta.txt) обязан
 // увидеть и заблокировать судья, а не оркестратор молча спрятать.
-function isHarnessOwned(rel) {
-  const p = rel.replace(/\\/g, '/');
-  return p === 'tasks.md' || p.endsWith('/tasks.md') || p === '.harness' || p.startsWith('.harness/');
-}
+// 019 T001: сам список переехал в `harness-files.js` — здесь была вторая копия, и она
+// разошлась с копией в `elt-gate-l0.js`. Расхождение копий и есть корень D9/D15/D19.
 // reset --soft <base> некоммитит правки воркера (содержимое НЕ теряется — остаётся в дереве);
 // git-guardrails блокирует только --hard, и этот вызов идёт из child-процесса, не через тул.
 function normalizeWorktree(cwd, base, files) {
@@ -637,7 +672,7 @@ function normalizeWorktree(cwd, base, files) {
   for (const line of status.split(/\r?\n/)) {
     if (line.length < 4) continue;                     // "XY path" — минимум 4 символа
     const rel = line.slice(3).replace(/^"|"$/g, '').trim();
-    if (!rel || !isHarnessOwned(rel) || inScope(rel, files)) continue; // трогаем ТОЛЬКО харнесс-файлы вне явной зоны
+    if (!rel || !isHarnessManaged(rel) || inScope(rel, files)) continue; // трогаем ТОЛЬКО харнесс-файлы вне явной зоны
     // ponytail: rename в porcelain ("R old -> new") checkout не разберёт — редко; gitSilent молча мимо.
     if (line.startsWith('??')) { try { fs.rmSync(path.join(cwd, rel), { force: true, recursive: true }); } catch { /* уже нет */ } }
     else gitSilent(['checkout', base, '--', rel], cwd); // вернуть харнесс-файл к base
@@ -738,4 +773,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict, judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff };
+module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly };

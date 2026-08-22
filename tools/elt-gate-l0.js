@@ -17,6 +17,7 @@ const DEFAULT_HOT_PATHS = [
   '**/auth/**', '**/*auth*',
   '**/.env*', '**/*secret*', '**/*credential*',
 ];
+const { isHarnessOwned, isIgnoredForReview } = require('./harness-files');
 const DEFAULT_DIFF_SIZE = 400;
 // 011 T025 — риск из связности, не из имени файла: «узел с высокой входящей степенью = дорогая
 // ошибка» (артефакт). `hot-path` ловит по подстроке (`*auth*` цепляет `author.js`), а реально
@@ -182,9 +183,26 @@ function mergeChanged(fromDiff, fromStatus) {
 // Не require() gate.js/plan.js: elt-gate-l0.js — лист замыкания судьи (sync-bin CLOSURE),
 // а fleet/plan.js в него не входит — тривиальные 3 строки дублируются, а не тянут новый файл
 // в деплой каждого проекта.
+// 019 T002 (D13): `.match()` БЕЗ флага `g` возвращал только ПЕРВОЕ вхождение — в батч-коммите
+// это значило, что зона задач 2..N не видна вовсе и их файлы гарантированно объявлялись
+// `out-of-scope`. Батч-режим был задекларирован в `--help` и непроходим по построению.
 function taskScopeFiles(taskText) {
-  const m = String(taskText || '').match(/\[files:([^\]]+)\]/);
-  return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : [];
+  const out = [];
+  for (const m of String(taskText || '').matchAll(/\[files:([^\]]+)\]/g)) {
+    for (const part of m[1].split(',')) {
+      const g = part.trim();
+      if (g && !out.includes(g)) out.push(g);
+    }
+  }
+  return out;
+}
+// 019 T002 (D14): порог diff-size — на ЗАДАЧУ, а не на коммит. Батч из N задач законно даёт
+// больше строк. `elt judge run --task T001,T002` склеивает тексты через перевод строки, и
+// каждый начинается с идентификатора задачи — поэтому число задач считается по маркерам в
+// начале строк того же текста, без новой проводки judge-desc.json → judge-invoke → gate.js.
+function taskCountOf(taskText) {
+  const ids = String(taskText || '').match(/^T\d+\b/gm);
+  return ids && ids.length ? ids.length : 1;
 }
 function globPrefix(g) {
   const i = g.search(/[*?[]/);
@@ -193,12 +211,9 @@ function globPrefix(g) {
 function inTaskScope(rel, files) {
   return files.some((g) => { const pre = globPrefix(g); return rel === g || (pre && rel.startsWith(pre)); });
 }
-// Харнесс/оркестратор-владения — та же граница, что gate.js:isHarnessOwned (tasks.md [X]-марка,
-// .harness/** конфиг/логи): ни один слайс не трогает их легитимно, но и не барьером тоже —
-// оркестратор их правит сам, судить тут нечего.
-function isHarnessOwned(rel) {
-  return rel === 'tasks.md' || rel.endsWith('/tasks.md') || rel === '.harness' || rel.startsWith('.harness/');
-}
+// 019 T001: граница владения переехала в `harness-files.js` — один список на гейт, мерку
+// объёма и промпт судьи. Локальная копия здесь и копия в `fleet/gate.js` разошлись, и это
+// расхождение и было корнем D9/D15/D19.
 
 function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = '' } = {}) {
   const changed = mergeChanged(parseDiff(diff, cwd), parseStatus(status, cwd));
@@ -255,7 +270,7 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = ''
   const scopeFiles = taskScopeFiles(taskText);
   if (scopeFiles.length) {
     const outOfScope = changed.map((file) => file.path)
-      .filter((p) => !inTaskScope(p, scopeFiles) && !isHarnessOwned(p));
+      .filter((p) => !inTaskScope(p, scopeFiles) && !isIgnoredForReview(p));
     if (outOfScope.length) {
       triggers.push({
         name: 'out-of-scope',
@@ -265,12 +280,22 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = ''
     }
   }
 
-  const threshold = Number.isFinite(config.diffSizeThreshold) && config.diffSizeThreshold > 0
+  const perTask = Number.isFinite(config.diffSizeThreshold) && config.diffSizeThreshold > 0
     ? config.diffSizeThreshold
     : DEFAULT_DIFF_SIZE;
-  const lines = changed.reduce((sum, file) => sum + file.added + file.removed, 0);
+  const tasks = taskCountOf(taskText);
+  const threshold = perTask * tasks;
+  // 019 T001 (D9): сгенерированное в объём не входит. `package-lock.json` давал 694 строки при
+  // пороге 400, а объявить его в `[files:]` невозможно — он появляется сам.
+  const lines = changed
+    .filter((file) => !isIgnoredForReview(file.path))
+    .reduce((sum, file) => sum + file.added + file.removed, 0);
   if (lines > threshold) {
-    triggers.push({ name: 'diff-size', files: [], reason: `дифф ${lines} строк при пороге ${threshold}` });
+    triggers.push({
+      name: 'diff-size',
+      files: [],
+      reason: `дифф ${lines} строк при пороге ${threshold}` + (tasks > 1 ? ` (${perTask} × ${tasks} задачи)` : ''),
+    });
   }
 
   // 011 T009: единственный триггер, который сам выносит вердикт, а не будит судью. Новый
@@ -369,6 +394,7 @@ function loadConfig(cwd) {
 
 module.exports = {
   evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
-  taskScopeFiles, inTaskScope, isHarnessOwned, computeFanIn, DEFAULT_FANIN_THRESHOLD,
+  taskScopeFiles, inTaskScope, isHarnessOwned, isIgnoredForReview, taskCountOf,
+  computeFanIn, DEFAULT_FANIN_THRESHOLD,
   weakenedTestFiles, originalLineCounter, ASSERT_REMOVE_RE, TEST_BLOCK_RE, REWRITE_RATIO,
 };

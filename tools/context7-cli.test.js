@@ -52,7 +52,11 @@ function testTimeoutProducesSkipReasonWithMs() {
 }
 
 function testSuccessfulLibraryResolution() {
-  const result = resolveLibrary('vercel-ai', successRunner('Library: /vercel/ai\nID: /vercel/ai\n'));
+  // D22: раннер передавался ВТОРЫМ позиционным аргументом, а resolveLibrary ждёт его в
+  // options.runner — стаб молча игнорировался, и тест звал ЖИВОЙ ctx7. В одиночку он отвечал,
+  // под jobs=8 — нет, и весь оракул краснел на 347-й секунде. Механический оракул не имеет
+  // права ходить в сеть: недетерминированный гейт не гейт.
+  const result = resolveLibrary('vercel-ai', { runner: successRunner('Library: /vercel/ai\nID: /vercel/ai\n') });
   assert.equal(result.ok, true);
   assert.ok(result.stdoutExcerpt.includes('/vercel/ai'));
   assert.equal(result.skipReason, null);

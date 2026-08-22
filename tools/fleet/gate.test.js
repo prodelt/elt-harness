@@ -531,3 +531,50 @@ test('ELT v3: legacy verify override ignored — рівно один judge', asy
   assert.deepEqual(result.judges.filter((j) => j.runOk).map((j) => j.provider), ['claude']);
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+// --- 019 T001 (D19): понижение шумового блока — через прод-путь judgeDiff ---------------
+//
+// Механика: блок, ВСЕ причины которого называют только файлы, принадлежащие харнесу или
+// сгенерированные, понижается до inconclusive. Опасное пересечение — `.harness/harness.json`:
+// он лежит внутри `.harness/`, но это КОНФИГ гейта (redProof, hotPaths, пороги), и слайс,
+// который его ослабляет, обязан остаться заблокированным. Обе стороны проверяются здесь.
+function stubWithReason(name, reason) {
+  const payload = JSON.stringify({ verdict: 'block', reasons: [reason], filesReviewed: ['tools/widget.js'] });
+  return writeStub(name, `console.log(${JSON.stringify(payload)});`);
+}
+
+const NOISE_DIFF = [
+  'diff --git a/tools/widget.js b/tools/widget.js',
+  '--- a/tools/widget.js', '+++ b/tools/widget.js', '@@ -1,1 +1,1 @@', '+const a = 1;',
+].join('\n');
+const NOISE_STATUS = ' M tools/widget.js\n';
+
+test('019 T001: блок только по владениям харнеса понижается до inconclusive', async () => {
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node',
+    stubWithReason('judge-noise.js', 'scope creep: изменён .harness/review-queue.jsonl вне зоны')]);
+  const r = await gate.judgeDiff({ cwd: REPO, tid: 'T90', taskText: 'правка виджета',
+    diff: NOISE_DIFF, status: NOISE_STATUS });
+  delete process.env.FLEET_BIN_CLAUDE;
+  assert.equal(r.verdict, 'inconclusive', 'очередь разбора пишет сам харнес — это не scope creep');
+  assert.ok(r.reasons.some((x) => /019 T001/.test(x)), 'причина понижения записана, а не потеряна');
+  assert.ok(r.reasons.some((x) => /review-queue/.test(x)), 'исходная причина судьи сохранена');
+});
+
+test('019 T001: блок по КОНФИГУ гейта не понижается — слайс, ослабляющий гейт, стоит', async () => {
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node',
+    stubWithReason('judge-cfg.js', '.harness/harness.json: redProof выключен этим слайсом')]);
+  const r = await gate.judgeDiff({ cwd: REPO, tid: 'T91', taskText: 'правка виджета',
+    diff: NOISE_DIFF, status: NOISE_STATUS });
+  delete process.env.FLEET_BIN_CLAUDE;
+  assert.equal(r.verdict, 'block', 'конфиг гейта — не владение харнеса: block обязан выжить');
+  assert.ok(!r.reasons.some((x) => /019 T001/.test(x)), 'понижение не срабатывало вовсе');
+});
+
+test('019 T001: смесь шума и настоящей причины блок не теряет', async () => {
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node',
+    stubWithReason('judge-mix.js', 'tools/widget.js: проглочена ошибка; и .harness/review-queue.jsonl вне зоны')]);
+  const r = await gate.judgeDiff({ cwd: REPO, tid: 'T92', taskText: 'правка виджета',
+    diff: NOISE_DIFF, status: NOISE_STATUS });
+  delete process.env.FLEET_BIN_CLAUDE;
+  assert.equal(r.verdict, 'block', 'настоящая причина в списке — блок остаётся');
+});
