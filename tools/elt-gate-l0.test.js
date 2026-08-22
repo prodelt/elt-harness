@@ -218,6 +218,28 @@ function testDiffSize() {
 
 // --- 011 T024: scope-триггер (артефакт: «выход ловится механически, не судьёй») ------
 
+// 017 T004 — L0 стоит ПЕРЕД документной дверью (`elt commit` без --task) и до этого читал
+// .md-дифф кодовыми правилами. Живой блок 2026-08-22: коммит архива (11 файлов, 2955 строк)
+// остановлен на слове `vitest` из листинга ВНУТРИ field report; external-import-no-ctx7 —
+// единственный триггер с собственным `block`, поэтому одна строка в документе закрывала
+// документную дверь целиком.
+function testDocDiffIsNotJudgedAsCode() {
+  // Спецификатор собирается из кусков (как в testPathAliasesAreNotDependencies): иначе L0
+  // читает дифф этого самого теста и репортит фикстуру как настоящую новую зависимость.
+  const KW = 'from';
+  const listing = `import { describe } ${KW} ${JSON.stringify('vitest')};`;
+  const doc = diffFor('.planning/archive/HARNESS-FIELD-REPORT.md', {
+    isNew: true, addedLines: ['# Отчёт', '```js', listing, '```'],
+  });
+  assert.deepEqual(externalImports(doc), [], 'листинг кода внутри .md — не импорт');
+  const res = evaluate({ diff: doc, config: {} });
+  assert.equal(res.verdict, undefined, 'документный дифф не может вынести block');
+  assert.ok(!names(res).includes('external-import-no-ctx7'), 'триггера импорта на документе нет');
+  // Тот же листинг в кодовом файле обязан остаться видимым — правка не ослепила гейт на коде.
+  const code = diffFor('src/app.test.js', { isNew: true, addedLines: [listing] });
+  assert.deepEqual(externalImports(code), ['vitest'], 'в кодовом файле импорт по-прежнему виден');
+}
+
 function testOutOfScopeNotTriggeredInsideZone() {
   const result = evaluate({
     diff: diffFor('tools/widget.js', { removed: 1, added: 1 }),
@@ -539,6 +561,7 @@ async function main() {
   testPathAliasesAreNotDependencies();
   testHotPath();
   testDiffSize();
+  testDocDiffIsNotJudgedAsCode();
   testOutOfScopeNotTriggeredInsideZone();
   testOutOfScopeFiresOnFileOutsideZone();
   testOutOfScopeSilentWithoutFilesTagAtAll();
