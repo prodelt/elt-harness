@@ -94,6 +94,13 @@ function claudeExe() {
   try {
     const hits = execFileSync('where', ['claude'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
     for (const h of hits) {
+      // Нативный установщик (2.1.x): `where` уже отдаёт настоящий claude.exe, вложенного
+      // node_modules рядом с ним нет. Без этой ветки резолв падал в fallback 'claude' →
+      // needsShell=true → cmd.exe КОНКАТЕНИРУЕТ argv вместо экранирования → `--json-schema`
+      // приезжал битым (`--json-schema is not valid JSON`) и КАЖДЫЙ вызов судьи со схемой
+      // умирал с exit 1 (~1.7 s). Обычные вызовы выживали: у них промпт идёт через STDIN.
+      if (/\.exe$/i.test(h) && fs.existsSync(h)) { _claudeExe = h; break; }
+      // npm-раскладка: шим на PATH указывает на exe внутри пакета.
       const exe = path.join(path.dirname(h), 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
       if (fs.existsSync(exe)) { _claudeExe = exe; break; }
     }

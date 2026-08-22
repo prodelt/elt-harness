@@ -32,7 +32,33 @@ function create(tid, { cwd = process.cwd(), base = 'HEAD' } = {}) {
   } else {
     git(['worktree', 'add', p, '-b', branch, base], cwd);
   }
+  linkNodeModules(cwd, p);
   return { path: p, branch, tid };
+}
+
+// node_modules гитом не отслеживается → свежий worktree пуст, и оракул любого JS-проекта
+// (`npx tsc`, `npm run lint`, `npm test`) там красный по причине «нет зависимостей», а не
+// по причине слайса. Симлинк-junction на node_modules корня: на Windows не требует прав
+// админа, на POSIX — обычный dir-симлинк. Чтения конкурентны и безопасны.
+// ponytail: общий на все worktree — параллельные vitest/eslint делят кэш внутри
+// node_modules. Апгрейд, если пойдут гонки кэша: `npm ci` в каждый worktree (минуты) или
+// per-worktree CACHE_DIR через env оракула.
+function linkNodeModules(cwd, wt) {
+  const src = path.join(cwd, 'node_modules');
+  const dst = path.join(wt, 'node_modules');
+  if (!fs.existsSync(src) || fs.existsSync(dst)) return;
+  try { fs.symlinkSync(src, dst, 'junction'); } catch { /* нет прав/не Node-проект — оракул скажет сам */ }
+}
+
+// Снять junction ДО любого удаления worktree. Живой инцидент 2026-08-15: `fs.rmSync(recursive)`
+// на Windows пошёл СКВОЗЬ junction и начал выедать node_modules КОРНЕВОГО дерева (первым лёг
+// `.bin`), а затем упёрся в залоченный файл и отрапортовал «директория занята». Один unlink
+// линка снимает и утечку удаления, и саму причину лока.
+function unlinkNodeModules(wt) {
+  const link = path.join(wt, 'node_modules');
+  try {
+    if (fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link);
+  } catch { /* нет линка — нечего снимать */ }
 }
 
 // Синхронный busy-wait: короткий (≤900мс суммарно за все ретраи), только на пути ошибки.
@@ -72,6 +98,7 @@ function removeWorktreeRetrying(p, cwd, force) {
 // (после успешного merge оркестратор чистит; при requeue ветку сохраняем).
 function remove(tid, { cwd = process.cwd(), force = true, deleteBranch = false } = {}) {
   const p = wtPath(cwd, tid);
+  unlinkNodeModules(p);
   removeWorktreeRetrying(p, cwd, force);
   if (deleteBranch) gitOk(['branch', '-D', branchName(tid)], cwd);
   return { path: p, branch: branchName(tid) };
