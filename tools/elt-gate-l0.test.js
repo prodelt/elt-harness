@@ -216,6 +216,60 @@ function testDiffSize() {
   assert.deepEqual(names(evaluate({ diff: diffFor('docs/notes.md', { added: 11 }), config: { diffSizeThreshold: 10 } })), ['diff-size']);
 }
 
+
+// --- 019 T002: батч перестаёт быть непроходимым (D13/D14) ---------------------------
+
+// D13: `.match()` без флага `g` видел только ПЕРВОЕ вхождение `[files:]`. Для батча это
+// значило, что файлы задач 2..N всегда вне зоны — режим, объявленный в `--help`, не мог
+// пройти собственный гейт. Три задачи, три разные зоны, ни одного out-of-scope.
+function testBatchZoneReadsEveryFilesTag() {
+  const taskText = [
+    "T001 первая [files: tools/a.js]",
+    "T002 вторая [files: tools/b.js]",
+    "T003 третья [files: tools/c.js]",
+  ].join("\n");
+  const diff = [
+    diffFor('tools/a.js', { removed: 1, added: 1 }),
+    diffFor('tools/b.js', { removed: 1, added: 1 }),
+    diffFor('tools/c.js', { removed: 1, added: 1 }),
+  ].join("\n");
+  assert.deepEqual(names(evaluate({ diff, config: {}, taskText })), [],
+    'зона батча — объединение всех [files:], а не первого');
+  // Обратная сторона: файл вне ВСЕХ трёх зон обязан остаться нарушением.
+  const withStray = [diff, diffFor('tools/stray.js', { added: 1 })].join('\n');
+  const strayResult = evaluate({ diff: withStray, config: {}, taskText });
+  assert.ok(names(strayResult).includes('out-of-scope'), 'настоящий выход за зону остаётся виден');
+  const trigger = strayResult.triggers.find((t) => t.name === "out-of-scope");
+  assert.deepEqual(trigger.files, ['tools/stray.js'], 'нарушением назван ровно чужой файл');
+}
+
+// D14: порог diff-size был константой на КОММИТ. Батч из пяти задач законно даёт больше строк,
+// и тот же дифф, разложенный на пять отдельных коммитов, проходил, а собранный в один — нет.
+function testDiffSizeScalesWithBatchSize() {
+  const lines = DEFAULT_DIFF_SIZE * 2 + 10;
+  const big = diffFor('tools/widget.js', { added: lines });
+  const five = ["T001 раз", "T002 два", "T003 три", "T004 четыре", "T005 пять"].join("\n");
+  assert.deepEqual(names(evaluate({ diff: big, config: {}, taskText: five })), [],
+    'порог умножается на число задач в батче');
+  assert.deepEqual(names(evaluate({ diff: big, config: {}, taskText: 'T001 один' })), ['diff-size'],
+    'на одной задаче тот же дифф по-прежнему велик');
+  // Масштабирование не безгранично: пять задач не покрывают дифф на шесть порогов.
+  const huge = diffFor('tools/widget.js', { added: DEFAULT_DIFF_SIZE * 6 });
+  assert.deepEqual(names(evaluate({ diff: huge, config: {}, taskText: five })), ['diff-size'],
+    'потолок остаётся: 6 порогов на 5 задач — всё ещё много');
+}
+
+// D9 (019 T001): `package-lock.json` давал 694 строки при пороге 400, а объявить его в
+// `[files:]` невозможно — он генерируется всегда. Сгенерированное не считается в объёме
+// и не выносится за зону.
+function testDiffSizeIgnoresGeneratedFiles() {
+  const diff = [
+    diffFor('package-lock.json', { added: DEFAULT_DIFF_SIZE + 50 }),
+    diffFor('tools/widget.js', { added: 2 }),
+  ].join("\n");
+  assert.deepEqual(names(evaluate({ diff, config: {}, taskText: 'T001 правка [files: tools/widget.js]' })), [],
+    'lock-файл не считается ни в объёме, ни в зоне');
+}
 // --- 011 T024: scope-триггер (артефакт: «выход ловится механически, не судьёй») ------
 
 // 017 T004 — L0 стоит ПЕРЕД документной дверью (`elt commit` без --task) и до этого читал
@@ -280,13 +334,23 @@ function testOutOfScopeIgnoresHarnessOwnedFiles() {
   const result = evaluate({
     diff: [
       diffFor('tools/widget.js', { removed: 1, added: 1 }),
-      diffFor('.harness/harness.json', { removed: 1, added: 1 }),
+      diffFor('.harness/review-queue.jsonl', { removed: 1, added: 1 }),
       diffFor('specs/011-elt-v3-gate/tasks.md', { removed: 1, added: 1 }),
     ].join('\n'),
     config: {},
     taskText: 'починить виджет [files: tools/widget.js]',
   });
   assert.deepEqual(names(result), [], 'харнесс-владения не считаются выходом за зону');
+
+  // 019 T001: а КОНФИГ гейта — не владение. Слайс, который правит правила проверки, обязан
+  // объявить это в зоне; молча он туда не проходит. Дыру нашёл судья на батче A: пока
+  // `.harness/**` целиком считался владением, выключение redProof не давало ни одного триггера.
+  const cfg = evaluate({
+    diff: diffFor('.harness/harness.json', { removed: 1, added: 1 }),
+    config: {},
+    taskText: 'починить виджет [files: tools/widget.js]',
+  });
+  assert.ok(names(cfg).includes('out-of-scope'), 'правка конфига гейта вне зоны обязана быть видна');
 }
 
 function testOutOfScopeGlobPrefixMatchesSubpath() {
@@ -566,6 +630,9 @@ async function main() {
   testOutOfScopeFiresOnFileOutsideZone();
   testOutOfScopeSilentWithoutFilesTagAtAll();
   testOutOfScopeIgnoresHarnessOwnedFiles();
+  testBatchZoneReadsEveryFilesTag();
+  testDiffSizeScalesWithBatchSize();
+  testDiffSizeIgnoresGeneratedFiles();
   testOutOfScopeGlobPrefixMatchesSubpath();
   testHighFaninTriggersOnCentralModule();
   testHighFaninSilentOnLeafFile();
