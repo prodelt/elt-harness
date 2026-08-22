@@ -652,26 +652,12 @@ new file mode 100644
 +});
 `,
   },
-  {
-    id: 'spec-approval-doc-only-recommit',
-    expect: 'pass',
-    why: 'Ровно одно поле JSON (approvedAt/tasksHash) в файле подписи — чекбокс предыдущего слайса сменил hash, содержание задач не менялось, это не новый scope.',
-    taskText: 'Переутвердить спеку 011 после закрытия предыдущего слайса: elt spec approve пересчитывает подпись [files: specs/011-elt-v3-gate/approval.json]',
-    status: ' M specs/011-elt-v3-gate/approval.json\n',
-    diff: `diff --git a/specs/011-elt-v3-gate/approval.json b/specs/011-elt-v3-gate/approval.json
---- a/specs/011-elt-v3-gate/approval.json
-+++ b/specs/011-elt-v3-gate/approval.json
-@@ -1,5 +1,5 @@
- {
--  "approvedAt": "2026-08-01T09:31:05.941Z",
-+  "approvedAt": "2026-08-03T12:12:09.523Z",
-   "specHash": "be4194d3e8d8730088dc4a2e921f53b3cff6524c5e13b79d4721272395f974ce",
--  "tasksHash": "e1e1db7a108574da272939eaaba3ea0d9ed021a5a0c3594e44439e1d4caad3aa"
-+  "tasksHash": "4b54a1773dc6aed8af5d5e891cc954f7ba265a9cbeabf26dc53136de0d9c04f6"
- }
-`,
-  },
+
 ];
+
+// 018 T007: кейс `spec-approval-doc-only-recommit` снят вместе с `approval.json` — он
+// оценивал диф файла подписи, а подпись переехала в трейлер коммита и в диф слайса больше
+// не попадает. Учить судью на шаге, которого в харнесе нет, хуже, чем иметь набор короче.
 
 // 014 T013 (AC9): к рукописному набору подмешиваются кейсы, добытые ретро-разметкой
 // (`judge-bench-ingest.js`). Отдельный файл, а не дозапись сюда: рукописный кейс несёт

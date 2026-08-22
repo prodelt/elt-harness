@@ -72,9 +72,21 @@ test('011 T023: JUDGE-BENCH-011-T023.json имеет структуру отчё
   // исторический отчёт сверяется с рукописным набором — тем, что существовал на момент его
   // прогона. Сверка с текущим  требовала бы перегонять живого судью на каждый новый
   // машинный кейс, то есть привязывала бы оракул к LLM.
-  assert.ok(Array.isArray(report.results) && report.results.length === handwritten.length, 'results не покрывает набор на момент прогона');
-  assert.equal(report.score.blockCases, handwritten.filter((c) => c.expect === 'block').length);
-  assert.equal(report.score.passCases, handwritten.filter((c) => c.expect === 'pass').length);
+  // 018 T007: рукописный набор может УМЕНЬШАТЬСЯ, когда снимают сам механизм — кейс
+  // `spec-approval-doc-only-recommit` оценивал дифф approval.json, а подпись переехала в
+  // трейлер коммита и в дифф слайса больше не попадает. Замороженный отчёт всё ещё держит его
+  // результат, поэтому сверка идёт по ЯВНОМУ списку снятых кейсов, а не ослаблением равенства:
+  // любой другой дрейф набора (добавили/потеряли кейс молча) по-прежнему красный.
+  const RETIRED_SINCE_REPORT = [{ id: 'spec-approval-doc-only-recommit', expect: 'pass' }];
+  const setThen = [...handwritten, ...RETIRED_SINCE_REPORT];
+  assert.ok(Array.isArray(report.results), 'results не массив');
+  assert.deepEqual(
+    report.results.map((r) => r.id).sort(),
+    setThen.map((c) => c.id).sort(),
+    'results не покрывает набор на момент прогона',
+  );
+  assert.equal(report.score.blockCases, setThen.filter((c) => c.expect === 'block').length);
+  assert.equal(report.score.passCases, setThen.filter((c) => c.expect === 'pass').length);
 });
 
 test('score: идеальный судья = recall 1, FP 0', () => {
