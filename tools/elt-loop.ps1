@@ -42,10 +42,10 @@ if (Test-Path $harnessJson) {
 }
 if ([string]::IsNullOrWhiteSpace($JudgeProvider)) { $JudgeProvider = "claude" }
 if ([string]::IsNullOrWhiteSpace($JudgeModel)) {
-  $JudgeModel = switch ($JudgeProvider) { "agy" { "gemini-3.6-flash-high" } "codex" { "gpt-5.6-sol" } default { "sonnet" } }
+  $JudgeModel = switch ($JudgeProvider) { "agy" { "gemini-3.7-flash-high" } "codex" { "gpt-5.6-sol" } default { "sonnet" } }
 }
 if ([string]::IsNullOrWhiteSpace($WriterModel)) {
-  $WriterModel = switch ($WriterProvider) { "agy" { "gemini-3.6-flash-high" } "codex" { "gpt-5.6-sol" } default { "sonnet" } }
+  $WriterModel = switch ($WriterProvider) { "agy" { "gemini-3.7-flash-high" } "codex" { "gpt-5.6-sol" } default { "sonnet" } }
 }
 if ([string]::IsNullOrWhiteSpace($FixProvider)) { $FixProvider = $JudgeProvider }
 if ([string]::IsNullOrWhiteSpace($FixModel))    { $FixModel = $JudgeModel }
