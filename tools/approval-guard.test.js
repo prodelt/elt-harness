@@ -106,6 +106,31 @@ test('CLI: exits 1 and prints a loud message when blocked, 0 when clear', () => 
   assert.equal(clear.status, 0);
 });
 
+// 018 T005 — прямое доказательство закрытия D4 (9 отказов за один полевой прогон 15.08).
+// Раньше guard читал approval.json РАБОЧЕГО дерева: основное дерево и fleet-worktree держали
+// каждое своё состояние, подпись расходилась, и отказ прилетал уже ПОСЛЕ воркера, оракула и
+// судьи — когда LLM-бюджет раунда сожжён. История у обоих деревьев одна, поэтому расхождение
+// исчезает архитектурно. Сам guard не правился ни строкой: он делегирует в `elt spec status`.
+test('018 T005 (D4): guard даёт ОДИН ответ в основном дереве и в worktree', () => {
+  const root = fixture();
+  assert.equal(guard(root, specDir(root)).ok, false, 'без подписи — стоп');
+
+  const approve = elt(root, ['spec', 'approve', '--spec', 'specs/001-fixture']);
+  assert.equal(approve.status, 0, approve.stderr);
+  assert.equal(guard(root, specDir(root)).ok, true, 'по трейлеру — проход');
+
+  const wt = path.join(root, '..', path.basename(root) + '-wt');
+  git(root, ['worktree', 'add', '-q', '-b', 'wt', wt]);
+  try {
+    const wtSpec = path.join(wt, 'specs', '001-fixture');
+    assert.equal(fs.existsSync(path.join(wtSpec, 'approval.json')), false, 'файла нет ни там, ни там');
+    assert.equal(guard(wt, wtSpec).ok, true,
+      'worktree обязан видеть ту же подпись, что основное дерево');
+  } finally {
+    git(root, ['worktree', 'remove', '--force', wt]);
+  }
+});
+
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });
