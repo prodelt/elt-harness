@@ -999,21 +999,49 @@ if (cmd === 'spec') {
   }
 
   if (sub === 'approve') {
+    if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('elt spec approve: не git-репозиторий', 4);
     const lint = specLint(specDir);
     if (!lint.ok) die(`elt spec approve: lint не прошёл — не хватает секций: ${lint.missing.join(', ')}`, 4);
     const hashes = readSpecHashes(specDir);
     if (hashes.error) die(`elt spec approve: ${hashes.error} в ${path.relative(cwd, specDir)}`, 4);
-    const { approvalJson } = specPaths(specDir);
-    const existing = readApproval(specDir);
-    if (existing && existing.specHash === hashes.specHash && existing.tasksHash === hashes.tasksHash) {
-      console.error(`elt spec approve: уже утверждена (${existing.approvedAt}) — без изменений`);
-      console.log(JSON.stringify(existing, null, 2));
+    const key = specDirKey(specDir);
+    // 018 T003: идемпотентность считается по ТРЕЙЛЕРУ, а не по общему статусу спеки. Спека,
+    // подписанная ещё файлом, по статусу выглядит approved — и трейлера не получила бы
+    // никогда, то есть миграция встала бы на первой же спеке, которую сама и переводит.
+    const signed = readApprovalTrailers(specDir)
+      .find((t) => t.specHash === hashes.specHash && t.tasksHash === hashes.tasksHash);
+    if (signed) {
+      console.error(`elt spec approve: уже подписана в ${signed.sha.slice(0, 7)} (${signed.approvedAt}) — без изменений`);
+      console.log(JSON.stringify({ spec: key, approvedAt: signed.approvedAt, approvedIn: signed.sha, ...hashes }, null, 2));
       process.exit(0);
     }
-    const approval = { approvedAt: new Date().toISOString(), specHash: hashes.specHash, tasksHash: hashes.tasksHash };
-    fs.writeFileSync(approvalJson, JSON.stringify(approval, null, 2) + '\n');
-    console.error(`elt spec approve: ${path.relative(cwd, approvalJson)}`);
-    console.log(JSON.stringify(approval, null, 2));
+    // Подпись плана — не код, поэтому здесь нет ни оракула, ни L0, ни судьи. Коммит СВОЙ и
+    // узкий: pathspec держит его в границах директории спеки, так что грязное дерево вокруг
+    // не заметается — стена `git add -A` из `elt commit` сюда не тянется.
+    const msg = [
+      `chore: approve spec ${path.basename(specDir)}`, '',
+      `${TRAILERS.spec}: ${key}`,
+      `${TRAILERS.specHash}: ${hashes.specHash}`,
+      `${TRAILERS.tasksHash}: ${hashes.tasksHash}`,
+    ].join('\n');
+    // Новая спека git-у ещё неизвестна, а `commit -- <path>` знает только отслеживаемые пути
+    // и упал бы на `pathspec did not match any file(s) known to git` (проверено живьём). add
+    // тоже узкий — тем же pathspec, поэтому в индекс не втягивается ничего лишнего.
+    if (git(['add', '--', key]).code !== 0) die('elt spec approve: git add не прошёл', 4);
+    // `--allow-empty` покрывает случай «спека уже в истории без изменений»: подпись обязана
+    // появиться и тогда, когда коммитить в самой директории нечего.
+    const rc = spawnSync('git', ['-c', 'core.quotepath=false', 'commit', '--allow-empty', '-m', msg, '--', key], { cwd, encoding: 'utf8' });
+    if (rc.status !== 0) die('elt spec approve: git commit не прошёл — ' + ((rc.stderr || rc.stdout || '').trim()), 4);
+    const sha = git(['rev-parse', 'HEAD']).out;
+    const approvedAt = git(['log', '-1', '--format=%cI']).out;
+    appendRunLog({
+      task: null, status: 'spec-approve', spec: key,
+      commit: git(['rev-parse', '--short', 'HEAD']).out,
+      branch: git(['branch', '--show-current']).out,
+      msg: msg.split('\n')[0],
+    });
+    console.error(`elt spec approve: ${key} подписана в ${sha.slice(0, 7)}`);
+    console.log(JSON.stringify({ spec: key, approvedAt, approvedIn: sha, ...hashes }, null, 2));
     process.exit(0);
   }
 
