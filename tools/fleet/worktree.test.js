@@ -65,3 +65,27 @@ test('remove с deleteBranch дропает и ветку', () => {
   const branches = execFileSync('git', ['branch', '--list', 'fleet/T101'], { cwd: REPO, encoding: 'utf8' });
   assert.equal(branches.trim(), '', 'ветка удалена');
 });
+
+// 017 T006 — регресс на D1/D2. Фоновый судья по коммиту 76c40bb прав: пять тестов выше
+// проходят БАЙТ-В-БАЙТ, даже если удалить linkNodeModules/unlinkNodeModules целиком — в
+// фикстуре нет node_modules, и обе функции уходят в ранний выход. Здесь node_modules есть.
+// Уточнение к реестру дефектов: сквозь junction идёт НЕ `fs.rmSync` (Node 24 его только
+// отвязывает), а сам `git worktree remove --force` — воспроизведено 2026-08-22 на чистой
+// фикстуре: без снятия линка маркер в КОРНЕВОМ node_modules исчезает.
+test('node_modules: create линкует (D1), remove снимает линк и не выедает корневой (D2)', () => {
+  const src = path.join(REPO, 'node_modules');
+  const marker = path.join(src, '.bin', 'marker.txt');
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, 'корневая зависимость\n');
+
+  const r = wt.create('T103', { cwd: REPO });
+  const link = path.join(r.path, 'node_modules');
+  assert.ok(fs.existsSync(link), 'D1: worktree получил node_modules — иначе оракул там красный без вины слайса');
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'это линк, а не копия зависимостей');
+  assert.strictEqual(fs.readFileSync(path.join(link, '.bin', 'marker.txt'), 'utf8'), 'корневая зависимость\n',
+    'через линк видно содержимое корневого node_modules');
+
+  wt.remove('T103', { cwd: REPO, deleteBranch: true });
+  assert.ok(!fs.existsSync(link), 'линк снят вместе с worktree');
+  assert.ok(fs.existsSync(marker), 'D2: корневой node_modules цел — удаление не ушло сквозь junction');
+});
