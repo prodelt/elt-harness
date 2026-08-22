@@ -1,32 +1,21 @@
-# Checkpoint — 2026-08-22 (фаза 1 пересборки ELT v5)
+# Checkpoint (auto) — 2026-08-22
 
-Перезаписан вручную в конце сессии: авто-версия была снята до коммитов и утверждала
-`commit: (none)` / `oracle exit 1`, что уже неверно.
+Автозаписан `checkpoint-writer.js` на пороге ~202k/200k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
-- база сессии: `cd4ca2d`
-- слайсы спеки 017: `324bfb4` (T003), `76c40bb` (T001), `64b6047` (T002), `1d0ce81` (T004), `908920c` (T005), `567fed7` (T006)
-  + документный коммит `6ae062b`
+- dirty files: 2
 
 ## Last Run
-- oracle: exit 0 (T003 — 82/82 за 11 с на кэше замыкания; T001 — 40/82 impact за 300 с;
-  T002 — 47/82 impact за 391 с)
-- smoke: `smoke-elt-deploy: ok` на всех трёх
-- точечные тесты: worktree 5/5, providers 26/26, attest 18/18, router 14/14,
-  effort-policy 7/7
-- verdict: фоновая проверка (`verify: background`) запускалась после каждого коммита
+- commit: `(none)`
+- verdict: (none)
+- oracle exit: 0
+- msg: 
 
-## План
-- `specs/017-harness-fixes-backlog/tasks.md` — T001–T006 закрыты `[X]` (шесть задач)
-- вне спеки и остаётся в дереве: `tools/elt-gate-l0.js` (D13/D14/D15, без regression-тестов)
+## Next Slice
+- plan file: `specs\018-spec-approval-to-git-trailer\tasks.md`
+- open: 7 / done: 1
+- next: T002 Читання підпису з історії: `readApprovalTrailer(specDir, cwd)` у `tools/elt.js` шукає коміт із трейлерами `Spec-Approved: <specDir>`, `Spec-Hash:`, `Tasks-Hash:` і повертає перший, чиї хеші збігаються з поточними. Пошук звужує сам git (`git log -F --grep`), а не node — щоб ціна не росла з історією. Джерело — історія, тому відповідь однакова в основному дереві й у worktree (D4). Перевірка: новий тест `tools/elt-spec-trailer.test.js` на темп-репо — трейлер знайдено в основному дереві та в `git worktree add` на тому ж коміті.
 
 ## Resume Prompt
-
-Фаза 1 пересборки ELT v5. Спека 017 закрыта, фиксы харнеса в истории. Дальше — снять
-подпись спеки (`approval.json`, `specApproval: true`) с критического пути: она порождает
-D4 (рассинхрон рабочее дерево ↔ HEAD), D7 (stale внутри одного прогона), D11 (переподпись
-перед каждым слайсом — воспроизведён трижды в этой сессии), D15 (`approval.json` не признан
-harness-owned). Механизм разлит примерно по 20 файлам; замена — подтверждение намерения
-git-трейлером вместо файла — требует отдельной спеки. Критерий фазы 1: D4, D7, D11, D15 не
-воспроизводятся на спеке из 9 задач.
+/elt continue — план `specs\018-spec-approval-to-git-trailer\tasks.md`, следующий слайс: T002 Читання підпису з історії: `readApprovalTrailer(specDir, cwd)` у `tools/elt.js` шукає коміт із трейлерами `Spec-Approved: <specDir>`, `Spec-Hash:`, `Tasks-Hash:` і повертає перший, чиї хеші збігаються з поточними. Пошук звужує сам git (`git log -F --grep`), а не node — щоб ціна не росла з історією. Джерело — історія, тому відповідь однакова в основному дереві й у worktree (D4). Перевірка: новий тест `tools/elt-spec-trailer.test.js` на темп-репо — трейлер знайдено в основному дереві та в `git worktree add` на тому ж коміті.
