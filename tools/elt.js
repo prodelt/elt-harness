@@ -261,6 +261,59 @@ function normalizeTasks(text) {
 function readApproval(specDir) {
   try { return JSON.parse(fs.readFileSync(specPaths(specDir).approvalJson, 'utf8')); } catch { return null; }
 }
+// 018 T002: подпись спеки живёт в ИСТОРИИ, а не в рабочем дереве. D4 (9 отказов за один
+// полевой прогон 15.08): approval-guard читал файл основного дерева, а срез внутри
+// fleet-worktree читал своё — подпись расходилась, и отказ прилетал уже ПОСЛЕ воркера,
+// оракула и судьи, то есть после того, как LLM-бюджет раунда сожжён. `git log` отдаёт одну
+// и ту же историю обоим деревьям, поэтому расхождение исчезает архитектурно, а не смягчается.
+// Отбор коммитов-кандидатов делает сам git (`-F --grep`), чтобы цена чтения не росла с
+// длиной истории: node разбирает единицы коммитов, а не весь `%B` репозитория.
+const TRAILERS = { spec: 'Spec-Approved', specHash: 'Spec-Hash', tasksHash: 'Tasks-Hash' };
+const REC_SEP = '\u001e';
+const FIELD_SEP = '\u001f';
+function specDirKey(specDir) {
+  return path.relative(cwd, specDir).split(path.sep).join('/');
+}
+// Что считать трейлером, решает САМ git (`%(trailers:key=...)`), а не наш разбор строк.
+// Разница не косметическая: свой построчный парсер признал бы подписью строку вида
+// `Spec-Approved: specs/...`, стоящую где угодно в теле сообщения, — и тогда подпись спеки
+// подделывается обычным текстом коммита. Git засчитывает только завершающий блок трейлеров,
+// поэтому «честный» коммит и коммит с теми же строками посреди тела различаются механически.
+function trailerValues(raw) {
+  return String(raw || '').split('\n').map((v) => v.trim()).filter(Boolean);
+}
+// Все подписи этой спеки, новейшая первой.
+function readApprovalTrailers(specDir) {
+  const key = specDirKey(specDir);
+  // `-F --grep` — дешёвый предфильтр, чтобы цена не росла с длиной истории; авторитет
+  // не в нём, а в разборе трейлеров ниже.
+  const fmt = [
+    '%H', '%cI',
+    `%(trailers:key=${TRAILERS.spec},valueonly)`,
+    `%(trailers:key=${TRAILERS.specHash},valueonly)`,
+    `%(trailers:key=${TRAILERS.tasksHash},valueonly)`,
+  ].join(FIELD_SEP);
+  const r = git(['log', '-F', '--grep', `${TRAILERS.spec}: ${key}`, `--format=${fmt}${REC_SEP}`]);
+  if (r.code !== 0 || !r.out) return [];
+  const found = [];
+  for (const rec of r.out.split(REC_SEP)) {
+    if (!rec.trim()) continue;
+    const [sha, ts, specKeys, specHashes, tasksHashes] = rec.split(FIELD_SEP);
+    if (!sha || !sha.trim()) continue;
+    const keys = trailerValues(specKeys);
+    const specHash = trailerValues(specHashes);
+    const tasksHash = trailerValues(tasksHashes);
+    // Ровно один трейлер каждого вида: коммит с двумя разными `Spec-Hash` неоднозначен,
+    // и «выберем первый» здесь было бы решением за пользователя в пользу подписи.
+    if (keys.length !== 1 || specHash.length !== 1 || tasksHash.length !== 1) continue;
+    if (keys[0] !== key) continue;
+    found.push({
+      sha: sha.trim(), approvedAt: (ts || '').trim(),
+      specHash: specHash[0], tasksHash: tasksHash[0],
+    });
+  }
+  return found;
+}
 // 006 T003: spec.md completeness — required H2 sections present (prefix match,
 // since headings carry extra context, e.g. "## Вне scope (кандидаты в 007)").
 const SPEC_REQUIRED_SECTIONS = ['Проблема', 'Решения', 'User stories', 'Критерии приёмки', 'Риски', 'Вне scope'];
@@ -276,6 +329,15 @@ function specLint(specDir) {
 function specApprovalStatus(specDir) {
   const hashes = readSpecHashes(specDir);
   if (hashes.error) return { status: 'error', reason: hashes.error };
+  // 018 T002 поднимает трейлер как источник подписи и НЕ трогает ветку файла ниже: снятие
+  // `approval.json` — отдельный шаг (T005), а порядок спеки требует сперва поднять новое
+  // джерело істини и только потом убирать старое.
+  const trailers = readApprovalTrailers(specDir);
+  const hit = trailers.find((t) => t.specHash === hashes.specHash && t.tasksHash === hashes.tasksHash);
+  if (hit) return { status: 'approved', approvedAt: hit.approvedAt, approvedIn: hit.sha, source: 'trailer', ...hashes };
+  // Трейлер есть, но под другие хеши — это протухшая подпись, а не её отсутствие, и файл
+  // перебить её не может: иначе изменённый план проезжал бы гейт по забытому `approval.json`.
+  if (trailers.length) return { status: 'stale', approvedAt: trailers[0].approvedAt, approvedIn: trailers[0].sha, source: 'trailer', ...hashes };
   const approval = readApproval(specDir);
   if (!approval) return { status: 'unapproved', ...hashes };
   if (approval.specHash !== hashes.specHash || approval.tasksHash !== hashes.tasksHash) {
