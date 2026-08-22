@@ -53,6 +53,13 @@ test('изменённый файл не заявлен → undeclared-file', ()
   assert.deepEqual(r.detail, ['tools/elt.js']);
 });
 
+// Живой прогон izi-tracker 2026-08-15: 19 отказов из 20 подряд, и каждый раз undeclared-file
+// был РОВНО новым тестом из `testsAdded` — слайс с новым тестом был непроходим в принципе.
+test('новый тест в testsAdded не считается незаявленным', () => {
+  const r = attest.attest({ stdout: claimOf(['src/a.js'], ['src/a.test.js']), cwd: REPO, changed: ['src/a.js', 'src/a.test.js'] });
+  assert.ok(r.ok, `честная заявка отвергнута: ${r.code} ${JSON.stringify(r.detail)}`);
+});
+
 test('заявленный тест-файл без реального диффа тоже галлюцинация', () => {
   const r = attest.attest({ stdout: claimOf(['src/a.js'], ['src/a.test.js']), cwd: REPO, changed: ['src/a.js'] });
   assert.equal(r.code, 'hallucinated-file');

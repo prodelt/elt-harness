@@ -102,7 +102,12 @@ function attest({ stdout, cwd = process.cwd(), integration = null, changed = nul
   const claimed = [...new Set([...claim.filesChanged, ...claim.testsAdded])];
   const hallucinated = claimed.filter((f) => !actual.includes(f));
   if (hallucinated.length) return fail('hallucinated-file', hallucinated);
-  const undeclared = actual.filter((f) => !claim.filesChanged.includes(f));
+  // Сверяем с ОБОИМИ полями заявки, как и галлюцинации выше. Живой прогон 2026-08-15
+  // (izi-tracker, 19 отказов из 20 подряд): воркер клал новый тест в `testsAdded` — ровно
+  // как требует промпт — и получал undeclared-file именно на него. Асимметрия «union для
+  // hallucinated, только filesChanged для undeclared» отвергала честную работу и делала
+  // слайс с новым тестом непроходимым в принципе.
+  const undeclared = actual.filter((f) => !claimed.includes(f));
   if (undeclared.length) return fail('undeclared-file', undeclared);
   return { ok: true, code: null, detail: [], claim, actual };
 }
