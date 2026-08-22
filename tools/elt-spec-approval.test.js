@@ -49,3 +49,35 @@ test('правка ПО СУЩЕСТВУ по-прежнему делает appr
   assert.equal(status(root, dir).status, 'stale');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// 018 T001: корень D7/D11. `elt commit` правит в tasks.md ровно один символ — галочку
+// закрытой задачи — и этим делал подпись невалидной для СЛЕДУЮЩЕГО слайса: на спеке из
+// 9 задач 8 лишних переутверждений, каждое после полного прогона оракула впустую.
+test('018 T001: закрытие задачи ([ ] -> [X]) НЕ делает подпись stale', () => {
+  const { root, dir } = specRepo('\n');
+  const tasks = path.join(dir, 'tasks.md');
+  fs.writeFileSync(tasks, '- [ ] **T019** слайс [files: a.js]\n- [ ] **T020** второй [files: b.js]\n');
+  execFileSync('node', [ELT, 'spec', 'approve', '--spec', dir], { cwd: root, encoding: 'utf8' });
+  assert.equal(status(root, dir).status, 'approved');
+
+  fs.writeFileSync(tasks, '- [X] **T019** слайс [files: a.js]\n- [ ] **T020** второй [files: b.js]\n');
+  assert.equal(status(root, dir).status, 'approved', 'первая закрытая задача не должна ронять подпись');
+
+  fs.writeFileSync(tasks, '- [X] **T019** слайс [files: a.js]\n- [x] **T020** второй [files: b.js]\n');
+  assert.equal(status(root, dir).status, 'approved', 'строчная [x] нормализуется так же, как [X]');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+// Обратная сторона той же монеты: нормализация не должна ослепить подпись к сути плана.
+test('018 T001: изменение ТЕКСТА задачи по-прежнему делает подпись stale', () => {
+  const { root, dir } = specRepo('\n');
+  const tasks = path.join(dir, 'tasks.md');
+  fs.writeFileSync(tasks, '- [ ] **T019** слайс [files: a.js]\n');
+  execFileSync('node', [ELT, 'spec', 'approve', '--spec', dir], { cwd: root, encoding: 'utf8' });
+
+  fs.writeFileSync(tasks, '- [X] **T019** слайс [files: b.js]\n');
+  assert.equal(status(root, dir).status, 'stale', 'смена зоны задачи обязана ломать подпись, даже под галочкой');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});

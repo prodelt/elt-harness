@@ -246,8 +246,17 @@ function readSpecHashes(specDir) {
   // имеет другие байты, чем в основном дереве, — approval там всегда `stale`, и fleet на
   // Windows не мог закоммитить НИ ОДИН слайс любой спеки с specApproval:true. Подпись обязана
   // держаться за содержание спеки, а не за перевод строк, которым её записал чекаут.
-  const norm = (f) => sha256(fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n'));
-  return { specHash: norm(specMd), tasksHash: norm(tasksMd) };
+  const text = (f) => fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
+  return { specHash: sha256(text(specMd)), tasksHash: sha256(normalizeTasks(text(tasksMd))) };
+}
+// 018 T001: хеш плана держится за СОСТАВ задач, а не за их состояние. `elt commit` правит в
+// tasks.md ровно один символ — галочку закрытой задачи (см. `.replace('[ ]', '[X]')` выше) — и
+// этого хватало, чтобы подпись протухла для СЛЕДУЮЩЕГО слайса: на спеке из 9 задач 8 лишних
+// переутверждений (D11), а внутри одного прогона fleet — гарантированная смерть всех слайсов
+// после первого merge (D7). Нормализация снимает ровно это и ничего больше: текст задачи, её
+// зона и появление новой задачи по-прежнему ломают подпись, и это правильно.
+function normalizeTasks(text) {
+  return text.replace(/^(\s*[-*]\s*\[)[xX](\])/gm, '$1 $2');
 }
 function readApproval(specDir) {
   try { return JSON.parse(fs.readFileSync(specPaths(specDir).approvalJson, 'utf8')); } catch { return null; }
