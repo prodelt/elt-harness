@@ -1,0 +1,1293 @@
+<title>Пересборка ELT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+
+<style>
+:root{
+  --bg:#E9ECEF; --surface:#F8F9FB; --surface-2:#FFFFFF;
+  --ink:#0F1519; --ink-2:#3D4A54; --ink-3:#6B7A85;
+  --rule:#C9D1D8; --rule-soft:#DDE3E8;
+  --accent:#0A6E70; --accent-2:#08585A; --accent-soft:#DAECEC;
+  --dead:#A81F28; --dead-soft:#F6E2E3;
+  --keep:#87590A; --keep-soft:#F6EBD8;
+  --adopt:#166638; --adopt-soft:#DDEEE3;
+  --shadow:0 1px 2px rgba(15,21,25,.06),0 8px 24px -12px rgba(15,21,25,.16);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1216; --surface:#141B21; --surface-2:#1A232A;
+    --ink:#E6EDF2; --ink-2:#A7B6C1; --ink-3:#74858F;
+    --rule:#27333C; --rule-soft:#1E2830;
+    --accent:#4FD3CE; --accent-2:#7FE3DE; --accent-soft:#0E3336;
+    --dead:#FF7A73; --dead-soft:#3A1A1B;
+    --keep:#E8B84E; --keep-soft:#33280F;
+    --adopt:#5FCB8A; --adopt-soft:#12301F;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1216; --surface:#141B21; --surface-2:#1A232A;
+  --ink:#E6EDF2; --ink-2:#A7B6C1; --ink-3:#74858F;
+  --rule:#27333C; --rule-soft:#1E2830;
+  --accent:#4FD3CE; --accent-2:#7FE3DE; --accent-soft:#0E3336;
+  --dead:#FF7A73; --dead-soft:#3A1A1B;
+  --keep:#E8B84E; --keep-soft:#33280F;
+  --adopt:#5FCB8A; --adopt-soft:#12301F;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px; margin:0 auto; padding:0 24px 120px}
+.col{max-width:70ch}
+
+/* ---------- типографика ---------- */
+h1,h2,h3,h4{font-family:"Fira Sans Condensed","IBM Plex Sans",sans-serif; text-wrap:balance; margin:0}
+h1{font-weight:800; font-size:clamp(2.6rem,6.4vw,4.4rem); line-height:.98; letter-spacing:-.015em}
+h2{font-weight:700; font-size:clamp(1.65rem,3.3vw,2.35rem); line-height:1.08; letter-spacing:-.01em}
+h3{font-weight:700; font-size:1.24rem; line-height:1.22; margin-bottom:.4rem}
+h4{font-weight:600; font-size:1.02rem; line-height:1.3; letter-spacing:.01em}
+p{margin:0 0 1rem}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+strong{font-weight:600}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.88em}
+code{background:var(--surface-2); border:1px solid var(--rule-soft); border-radius:3px; padding:.08em .32em}
+.num{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-weight:600}
+
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace; font-size:.72rem; font-weight:500;
+  letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3); margin:0 0 .7rem;
+}
+
+/* ---------- шапка ---------- */
+header.hero{padding:72px 0 40px; border-bottom:2px solid var(--ink)}
+.hero .lede{font-size:1.22rem; line-height:1.5; color:var(--ink-2); max-width:60ch; margin-top:1.4rem}
+.verdict{
+  margin-top:2rem; padding:18px 22px; background:var(--accent-soft);
+  border-left:3px solid var(--accent); border-radius:0 4px 4px 0; max-width:66ch;
+}
+.verdict p{margin:0; font-size:1.05rem}
+
+/* ---------- панель показаний ---------- */
+.readout{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr));
+  gap:1px; background:var(--rule); border:1px solid var(--rule);
+  margin:44px 0 0; border-radius:4px; overflow:hidden;
+}
+.cell{background:var(--surface); padding:16px 18px 14px}
+.cell .k{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.11em;
+  text-transform:uppercase; color:var(--ink-3); display:block; margin-bottom:6px}
+.cell .v{font-family:"Fira Sans Condensed",sans-serif; font-weight:700; font-size:2.15rem;
+  line-height:1; letter-spacing:-.01em; font-variant-numeric:tabular-nums; display:block}
+.cell .s{font-size:.8rem; color:var(--ink-3); display:block; margin-top:5px; line-height:1.35}
+.cell.bad .v{color:var(--dead)} .cell.warn .v{color:var(--keep)} .cell.good .v{color:var(--adopt)}
+
+/* ---------- секции ---------- */
+section{padding-top:64px}
+.shead{display:flex; align-items:baseline; gap:14px; margin-bottom:8px;
+  border-bottom:1px solid var(--rule); padding-bottom:10px}
+.shead .n{font-family:"IBM Plex Mono",monospace; font-size:.78rem; font-weight:600;
+  color:var(--accent); letter-spacing:.06em; padding-top:.35rem}
+.sub{color:var(--ink-2); font-size:1.04rem; margin:14px 0 26px; max-width:66ch}
+
+/* ---------- улика ---------- */
+.ev{
+  font-family:"IBM Plex Mono",monospace; font-size:.775rem; line-height:1.5;
+  color:var(--ink-3); border-left:2px solid var(--rule); padding:1px 0 1px 12px;
+  margin:-.35rem 0 1.5rem; max-width:78ch;
+}
+.ev b{color:var(--ink-2); font-weight:500}
+
+/* ---------- карточки утверждений ---------- */
+.claims{display:grid; gap:18px; margin:26px 0}
+.claim{background:var(--surface); border:1px solid var(--rule); border-radius:5px;
+  padding:18px 22px 16px; box-shadow:var(--shadow)}
+.claim h3{margin-bottom:.5rem}
+.claim p:last-child{margin-bottom:0}
+.claim .ev{margin-bottom:0}
+
+/* ---------- таблицы ---------- */
+.tw{overflow-x:auto; margin:24px 0; border:1px solid var(--rule); border-radius:5px; background:var(--surface)}
+table{border-collapse:collapse; width:100%; font-size:.885rem; min-width:660px}
+th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+thead th{background:var(--surface-2); font-family:"IBM Plex Mono",monospace; font-weight:600;
+  font-size:.7rem; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3);
+  border-bottom:1px solid var(--rule); position:sticky; top:0}
+tbody tr:last-child td{border-bottom:none}
+td.n{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; white-space:nowrap}
+td .mono{font-size:.82rem}
+
+.tag{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:.68rem;
+  font-weight:600; letter-spacing:.05em; text-transform:uppercase; padding:2px 7px;
+  border-radius:3px; white-space:nowrap}
+.t-dead{background:var(--dead-soft); color:var(--dead)}
+.t-keep{background:var(--keep-soft); color:var(--keep)}
+.t-adopt{background:var(--adopt-soft); color:var(--adopt)}
+
+/* ---------- диаграммы ---------- */
+figure{margin:30px 0; padding:0}
+figure svg{display:block; width:100%; max-width:100%; height:auto;
+  background:var(--surface); border:1px solid var(--rule); border-radius:5px; padding:8px 4px}
+figcaption{font-size:.85rem; color:var(--ink-3); margin-top:10px; max-width:70ch; line-height:1.5}
+
+/* ---------- слои ---------- */
+.layers{display:grid; gap:14px; margin:26px 0}
+.layer{background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--accent);
+  border-radius:0 5px 5px 0; padding:18px 22px}
+.layer h3{color:var(--accent); font-size:1.08rem; letter-spacing:.02em}
+.layer .role{font-size:.9rem; color:var(--ink-2); margin:.15rem 0 .8rem}
+.layer ul{margin:0; padding-left:1.15rem}
+.layer li{margin-bottom:.32rem; font-size:.93rem}
+.layer li:last-child{margin-bottom:0}
+
+/* ---------- законы ---------- */
+.laws{display:grid; gap:0; margin:24px 0; border:1px solid var(--rule);
+  border-radius:5px; overflow:hidden; background:var(--surface)}
+.law{display:grid; grid-template-columns:52px 1fr; gap:0; border-bottom:1px solid var(--rule-soft)}
+.law:last-child{border-bottom:none}
+.law .i{background:var(--surface-2); display:flex; align-items:flex-start; justify-content:center;
+  padding-top:17px; font-family:"IBM Plex Mono",monospace; font-weight:600;
+  font-size:.85rem; color:var(--accent); border-right:1px solid var(--rule-soft)}
+.law .b{padding:15px 20px}
+.law .b b{display:block; font-family:"Fira Sans Condensed",sans-serif; font-size:1.08rem;
+  font-weight:700; margin-bottom:.25rem}
+.law .b p{margin:0; font-size:.92rem; color:var(--ink-2)}
+
+/* ---------- дерево репо ---------- */
+pre.tree{background:var(--surface); border:1px solid var(--rule); border-radius:5px;
+  padding:18px 20px; overflow-x:auto; font-family:"IBM Plex Mono",monospace;
+  font-size:.815rem; line-height:1.62; margin:22px 0; color:var(--ink-2)}
+pre.tree b{color:var(--ink); font-weight:600}
+pre.tree i{color:var(--ink-3); font-style:normal}
+
+/* ---------- фазы ---------- */
+.phase{display:grid; grid-template-columns:auto 1fr; gap:0 20px; padding:20px 0;
+  border-top:1px solid var(--rule)}
+.phase:last-of-type{border-bottom:1px solid var(--rule)}
+.phase .ph{font-family:"IBM Plex Mono",monospace; font-size:.74rem; font-weight:600;
+  letter-spacing:.08em; color:var(--accent); text-transform:uppercase; padding-top:.28rem;
+  white-space:nowrap}
+.phase h3{margin-bottom:.35rem}
+.phase p{margin:0 0 .6rem; font-size:.94rem; color:var(--ink-2)}
+.crit{background:var(--surface); border:1px solid var(--rule-soft); border-radius:4px;
+  padding:9px 13px; font-size:.85rem; margin-top:.5rem}
+.crit b{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--ink-3); display:block; margin-bottom:3px; font-weight:600}
+
+/* ---------- предупреждение ---------- */
+.caveat{background:var(--keep-soft); border:1px solid var(--keep); border-radius:5px;
+  padding:18px 22px; margin:26px 0}
+.caveat h3{color:var(--keep); font-size:1.05rem}
+.caveat ul{margin:.6rem 0 0; padding-left:1.15rem}
+.caveat li{margin-bottom:.4rem; font-size:.92rem}
+.caveat li:last-child{margin-bottom:0}
+
+footer{margin-top:80px; padding-top:22px; border-top:2px solid var(--ink);
+  font-size:.83rem; color:var(--ink-3); line-height:1.6}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  .wrap{padding:0 18px 80px}
+  header.hero{padding:44px 0 30px}
+  .law{grid-template-columns:42px 1fr}
+  .phase{grid-template-columns:1fr; gap:6px}
+  .cell .v{font-size:1.85rem}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">Аудит 383 сессий · 8–22 августа 2026 · концепция релизной версии</p>
+  <h1>Пересборка&nbsp;ELT</h1>
+  <p class="lede">Харнес не «урезает» модель. Он проиграл ей в скорости — и его перестали звать.
+  Это измеримо, и именно это число задаёт всю архитектуру пятой версии.</p>
+
+  <div class="verdict">
+    <p><strong>Вердикт:</strong> фундамент верный, сборка — нет. Оставить нужно три вещи из тридцати
+    двух тысяч строк, остальное заменить поддерживаемыми чужими компонентами и выпустить не движком,
+    а плагином, который сам себя обновляет и сам записывает свои дефекты.</p>
+  </div>
+
+  <div class="readout">
+    <div class="cell bad">
+      <span class="k">коммитов через харнес</span>
+      <span class="v">18,6%</span>
+      <span class="s">41 из 220 за 14 дней, при правиле «коміт лише через elt commit»</span>
+    </div>
+    <div class="cell bad">
+      <span class="k">сигнал / шум фона</span>
+      <span class="v">1 : 7</span>
+      <span class="s">1 истинное срабатывание из 8 вердиктов</span>
+    </div>
+    <div class="cell warn">
+      <span class="k">своего кода</span>
+      <span class="v">31 752</span>
+      <span class="s">строк, 0 внешних зависимостей, 3 238 строк ядра без тестов</span>
+    </div>
+    <div class="cell warn">
+      <span class="k">открытых дефектов</span>
+      <span class="v">14</span>
+      <span class="s">из 19 зафиксированных в полевых отчётах</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================ 1 -->
+<section id="diagnosis">
+  <div class="shead"><span class="n">01</span><h2>Что показали 383 сессии</h2></div>
+  <p class="sub">Я вытащил все сессионные логи Claude Code за две недели и посчитал вызовы напрямую,
+  а не по ощущениям. Ниже — только то, что даёт скрипт.</p>
+
+  <div class="claims">
+
+    <div class="claim">
+      <h3>Харнес обходят в четырёх коммитах из пяти</h3>
+      <p>В трёх основных репозиториях за 14 дней сделано <span class="num">220</span> коммитов.
+      Через <code>elt commit</code> прошёл <span class="num">41</span>. В самом репозитории харнеса —
+      <span class="num">30%</span>, в Izi-translate — <span class="num">13%</span>,
+      в Izi-tracker — <span class="num">16%</span>. При этом <code>CLAUDE.md</code> проекта прямо
+      требует: «Коміт лише через <code>elt commit</code>».</p>
+      <p class="ev"><b>Чем измерено:</b> подсчёт shell-команд по 383 JSONL-логам сессий
+      (<span class="mono">Bash + PowerShell</span>, 6 930 команд) против <span class="mono">git log --since=2026-08-08</span>
+      в каждом репозитории. <b>Это не мнение — это раскрытое предпочтение за две недели.</b></p>
+    </div>
+
+    <div class="claim">
+      <h3>Модель проверяет себя в 18 раз чаще, чем это делает оракул</h3>
+      <p>Прямые запуски тестов (<code>npm test</code>, <code>node --test</code>, <code>vitest</code>,
+      <code>pytest</code>) — <span class="num">585</span> раз. Запусков
+      <code>elt-oracle-runner</code> — <span class="num">33</span>. Флагманский автономный драйвер
+      <code>elt-loop.ps1</code>, объявленный в документации «єдиним активним шляхом», запущен
+      <span class="num">12</span> раз за две недели.</p>
+      <p class="ev"><b>Чем измерено:</b> те же 6 930 shell-команд, регулярные выражения по именам
+      команд. <b>Следствие:</b> проверка не была узким местом — узким местом был путь к ней.</p>
+    </div>
+
+    <div class="claim">
+      <h3>codegraph мёртв: 0,08% вызовов при живом индексе</h3>
+      <p>MCP-инструменты codegraph вызваны <span class="num">10</span> раз на
+      <span class="num">12 047</span> вызовов инструментов. Ещё 28 раз — из шелла. Индекс при этом
+      живой: 322 файла, 4 642 узла. Вместо него модель сделала <span class="num">1 717</span>
+      <code>Read</code>, <span class="num">355</span> <code>Grep</code> и <span class="num">42</span> <code>Glob</code>.</p>
+      <p class="ev"><b>Чем измерено:</b> частотный срез <span class="mono">tool_use</span> по всем
+      сессиям. <b>Косвенно:</b> <code>Context7</code> вызван 2 раза, инструмент субагентов — 15 раз.
+      Три слоя, построенные ради «раскрытия модели», модель не использует.</p>
+    </div>
+
+    <div class="claim">
+      <h3>Фоновая очередь врёт в семи случаях из восьми</h3>
+      <p>Прогон 21 августа, спека 003, четыре коммита: <span class="num">4</span> записи
+      <code>bg-red</code>, из них истинных — <span class="num">1</span>. Остальное — дефекты обвязки:
+      порог диффа не масштабируется на батч, zone-чек видит зону только первой задачи, харнес штрафует
+      за <code>package-lock.json</code> и <code>approval.json</code>, которые генерирует сам.</p>
+      <p class="ev"><b>Источник:</b> <span class="mono">HARNESS-FIELD-REPORT-2026-08-21-run1.md</span>,
+      дефекты D9, D10, D13, D14, D15. <b>Эффект:</b> вердикт перестаёт нести информацию и обучает
+      игнорировать себя.</p>
+    </div>
+
+    <div class="claim">
+      <h3>Судья пропустил дыру в безопасности, дав четыре «pass» подряд</h3>
+      <p>Прогон 15 августа: судья одобрил все четыре слайса. Ручное чтение тех же диффов нашло
+      <span class="num">3</span> дефекта продукта, включая новую уязвимость. Два из трёх пришли
+      из текста самой задачи и прошли <code>spec lint</code> — потому что судья сверяет дифф
+      со спекой, а не с реальностью.</p>
+      <p class="ev"><b>Источник:</b> <span class="mono">HARNESS-FIELD-REPORT-2026-08-15-run2.md:392-406</span>
+      (J1, J2, J3). <b>Ваша реакция в логах, 14.08 и 15.08:</b> «судье не доверяй сильно» и
+      «Судье не доверять: каждый дифф читать самому».</p>
+    </div>
+
+    <div class="claim">
+      <h3>Подпись спеки съедала прогоны оракула впустую</h3>
+      <p>Каждый <code>elt commit</code> правит галочки в <code>tasks.md</code>, меняет
+      <code>tasksHash</code> и делает подпись недействительной для следующего слайса. На спеке из
+      девяти задач это <span class="num">8</span> лишних переподписей, каждая — после полного
+      прогона оракула на <span class="num">35–53 с</span>. Первый боевой прогон флота:
+      <span class="num">28</span> потерянных вызовов модели и <span class="num">1</span> слайс
+      из <span class="num">9</span>, доехавший до merge.</p>
+      <p class="ev"><b>Источник:</b> дефекты D4, D7, D11, D15 в полевых отчётах 15.08 и 21.08.
+      <b>Статус:</b> все четыре открыты. <b>Обход:</b> ручной, зафиксирован в ваших же инструкциях
+      к прогонам.</p>
+    </div>
+
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 880 300" role="img" aria-label="Схема: путь через харнес состоит из семи шагов и содержит четыре точки отказа, тогда как путь модели состоит из трёх шагов; 81 процент коммитов идёт вторым путём">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+      </defs>
+      <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">
+
+        <text x="24" y="26" font-size="10.5" fill="var(--ink-3)" letter-spacing="1.2">ПУТЬ ЧЕРЕЗ ХАРНЕС — 41 КОММИТ (18,6%)</text>
+        <rect x="24" y="38" width="82" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="65" y="59" text-anchor="middle">намерение</text>
+        <line x1="106" y1="55" x2="132" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+        <rect x="134" y="38" width="86" height="34" rx="3" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.2"/>
+        <text x="177" y="53" text-anchor="middle" fill="var(--dead)">spec</text>
+        <text x="177" y="65" text-anchor="middle" fill="var(--dead)">approve</text>
+        <line x1="220" y1="55" x2="246" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+        <rect x="248" y="38" width="78" height="34" rx="3" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.2"/>
+        <text x="287" y="59" text-anchor="middle" fill="var(--dead)">оракул</text>
+        <line x1="326" y1="55" x2="352" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+        <rect x="354" y="38" width="62" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="385" y="59" text-anchor="middle">L0</text>
+        <line x1="416" y1="55" x2="442" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+        <rect x="444" y="38" width="78" height="34" rx="3" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.2"/>
+        <text x="483" y="59" text-anchor="middle" fill="var(--dead)">судья</text>
+        <line x1="522" y1="55" x2="548" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+        <rect x="550" y="38" width="90" height="34" rx="3" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.2"/>
+        <text x="595" y="53" text-anchor="middle" fill="var(--dead)">переподпись</text>
+        <text x="595" y="65" text-anchor="middle" fill="var(--dead)">спеки</text>
+        <line x1="640" y1="55" x2="666" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+        <rect x="668" y="38" width="76" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="706" y="59" text-anchor="middle">commit</text>
+
+        <text x="24" y="98" font-size="10" fill="var(--dead)">красным — четыре шага, где прогон гарантированно падает: D4 · D7 · D11 · D13/D14</text>
+        <text x="24" y="114" font-size="10" fill="var(--ink-3)">ожидание владельца: 4–6 минут на слайс, из них до 53 с — оракул, повторяемый впустую</text>
+
+        <line x1="24" y1="140" x2="856" y2="140" stroke="var(--rule)" stroke-width="1"/>
+
+        <text x="24" y="170" font-size="10.5" fill="var(--accent)" letter-spacing="1.2">ПУТЬ МОДЕЛИ — 179 КОММИТОВ (81,4%)</text>
+        <rect x="24" y="182" width="82" height="34" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="65" y="203" text-anchor="middle" fill="var(--accent)">намерение</text>
+        <line x1="106" y1="199" x2="146" y2="199" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA)"/>
+
+        <rect x="148" y="182" width="86" height="34" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="191" y="203" text-anchor="middle" fill="var(--accent)">правка</text>
+        <line x1="234" y1="199" x2="274" y2="199" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA)"/>
+
+        <rect x="276" y="182" width="112" height="34" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="332" y="203" text-anchor="middle" fill="var(--accent)">npm test ×585</text>
+        <line x1="388" y1="199" x2="428" y2="199" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA)"/>
+
+        <rect x="430" y="182" width="106" height="34" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="483" y="203" text-anchor="middle" fill="var(--accent)">git commit</text>
+
+        <text x="24" y="242" font-size="10" fill="var(--ink-3)">ноль точек отказа обвязки · ноль ожидания · проверка есть, но она в руках модели</text>
+        <text x="24" y="268" font-size="11" fill="currentColor">Пятая версия не возвращает шаги в верхний путь. Она переносит их вправо от commit — на хеш, в фон.</text>
+      </g>
+    </svg>
+    <figcaption>Механизм обхода. Верхний путь добавляет к коммиту шесть шагов и четыре открытых точки
+    отказа; нижний не добавляет ни одного. Пока проверка стоит слева от <code>commit</code>, выбор
+    очевиден — и две недели логов показывают, что он был сделан 179 раз.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="cause">
+  <div class="shead"><span class="n">02</span><h2>Четыре корня, а не сорок симптомов</h2></div>
+  <p class="sub">Девятнадцать дефектов в полевых отчётах сводятся к четырём архитектурным решениям.
+  Чинить нужно их, иначе следующая версия соберёт новые девятнадцать.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Корень</th><th>Как проявился</th><th>Дефекты</th><th>Чем лечится в v5</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Проверка стоит на критическом пути</strong></td>
+          <td>Каждый шаг между намерением и коммитом — точка отказа и ожидание. Отсюда обход в 81% случаев.</td>
+          <td class="n">D4 D7 D11 D13 D14 D15</td>
+          <td>Синхронно — только L0 (миллисекунды). Всё остальное после коммита, на хеше, в фоне.</td>
+        </tr>
+        <tr>
+          <td><strong>Вердикт по умолчанию — «блокировать»</strong></td>
+          <td>Одиночный судья без порога уверенности и без списка типовых ложных срабатываний. Сигнал/шум 1:7.</td>
+          <td class="n">D8 D9 D10 D19</td>
+          <td>Официальный рецепт <code>/code-review</code>: пять независимых линз, скоринг уверенности 0–100, отсечка 80.</td>
+        </tr>
+        <tr>
+          <td><strong>Харнес штрафует за то, что генерирует сам</strong></td>
+          <td><code>package-lock.json</code>, <code>approval.json</code>, <code>review-queue.jsonl</code> считаются нарушением зоны.</td>
+          <td class="n">D9 D15 D19</td>
+          <td>Единый список «принадлежит харнесу», общий для гейта и ревьюера. Подпись спеки снимается целиком.</td>
+        </tr>
+        <tr>
+          <td><strong>Своё вместо штатного</strong></td>
+          <td>Флот, воркдеревья, петля, зеркало инструкций, граф кода — всё написано руками и всё дублирует то, что уже есть в CLI.</td>
+          <td class="n">D1 D2 D5 D6 D12 D16 D17 D18</td>
+          <td>Штатные субагенты, <code>--worktree</code>, <code>claude agents</code>, официальные плагины.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>Пятый, отдельный:</strong> подпись спеки — единственный механизм, который ломал сам себя.
+  <code>elt commit</code> правит <code>tasks.md</code>, хеш уезжает, подпись протухает, следующий слайс
+  падает. Это не баг реализации, это неверная идея: криптографическая цепочка поверх файла, который
+  система обязана менять на каждом шаге.</p>
+  <p class="ev"><b>Основание:</b> D7 и D11 воспроизведены в живых прогонах 15.08 и 21.08;
+  D15 — три воспроизведения. <b>Замена:</b> факт утверждения — это git-trailer в коммите
+  и тег на спеке; ни один хеш не пересчитывается при отметке галочки.</p>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="sources">
+  <div class="shead"><span class="n">03</span><h2>Что говорят те, кто это строит</h2></div>
+  <p class="sub">Не «лучшие практики вообще», а конкретные числа из инженерных публикаций Anthropic
+  и разбор официальной команды <code>/code-review</code>, которая лежит на этой машине.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Утверждение первоисточника</th><th>Число</th><th>Что это значит для ELT</th></tr></thead>
+      <tbody>
+        <tr><td>Мультиагентная система против одиночного чата</td><td class="n">×15 токенов</td>
+            <td>Флот из трёх воркеров оправдан только там, где задача действительно параллельна. Кодовый слайс — нет.</td></tr>
+        <tr><td>Агент против чата</td><td class="n">×4 токена</td>
+            <td>Каждый лишний агентский слой оплачивается. Слой обязан давать то, чего нет.</td></tr>
+        <tr><td>Расход токенов объясняет дисперсию качества</td><td class="n">80%</td>
+            <td>Экономия контекста — не гигиена, а главный рычаг качества. Отсюда прогрессивное раскрытие вместо предзагрузки.</td></tr>
+        <tr><td>Кодовые задачи прямо названы антипаттерном мультиагентности</td><td class="n">—</td>
+            <td>Плохо распараллеливаются, требуют общего контекста. Флот на 2 715 строк построен против этой рекомендации.</td></tr>
+        <tr><td>Оптимизация описаний инструментов</td><td class="n">−40% времени</td>
+            <td>Дешевле переписать описания скилов, чем добавить ещё один гейт.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:34px">Официальный судья устроен иначе — и это объясняет 1:7</h3>
+  <p>Команда <code>/code-review</code> из маркетплейса Anthropic, лежащая в
+  <code>~/.claude/plugins/marketplaces/claude-plugins-official/</code>, работает так:</p>
+
+  <figure>
+    <svg viewBox="0 0 880 320" role="img" aria-label="Сравнение: нынешний судья — одна линза с блокировкой по умолчанию даёт один истинный сигнал из восьми; официальный рецепт — пять независимых линз, оценка уверенности каждой находки и отсечка ниже восьмидесяти">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="arA2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+      </defs>
+      <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">
+        <text x="24" y="24" font-size="10.5" fill="var(--dead)" letter-spacing="1.2">СЕЙЧАС — 1 ЛИНЗА, REJECT ПО УМОЛЧАНИЮ</text>
+        <rect x="24" y="38" width="76" height="36" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="62" y="60" text-anchor="middle">дифф</text>
+        <line x1="100" y1="56" x2="140" y2="56" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+        <rect x="142" y="38" width="118" height="36" rx="3" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.2"/>
+        <text x="201" y="54" text-anchor="middle" fill="var(--dead)">один судья</text>
+        <text x="201" y="66" text-anchor="middle" fill="var(--dead)" font-size="10">сверка со спекой</text>
+        <line x1="260" y1="56" x2="300" y2="56" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+        <rect x="302" y="38" width="94" height="36" rx="3" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.2"/>
+        <text x="349" y="60" text-anchor="middle" fill="var(--dead)">block</text>
+        <text x="412" y="52" font-size="10.5" fill="var(--dead)">→ 1 истинный из 8</text>
+        <text x="412" y="68" font-size="10.5" fill="var(--dead)">→ 3 дефекта продукта пропущено</text>
+
+        <line x1="24" y1="100" x2="856" y2="100" stroke="var(--rule)" stroke-width="1"/>
+
+        <text x="24" y="130" font-size="10.5" fill="var(--accent)" letter-spacing="1.2">ОФИЦИАЛЬНЫЙ РЕЦЕПТ — 5 ЛИНЗ + ПОРОГ УВЕРЕННОСТИ</text>
+        <rect x="24" y="146" width="76" height="126" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="62" y="214" text-anchor="middle" fill="var(--accent)">дифф</text>
+
+        <rect x="126" y="146" width="150" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="134" y="160" font-size="10">1 · правила CLAUDE.md</text>
+        <rect x="126" y="171" width="150" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="134" y="185" font-size="10">2 · явные баги в диффе</text>
+        <rect x="126" y="196" width="150" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="134" y="210" font-size="10">3 · git blame и история</text>
+        <rect x="126" y="221" width="150" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="134" y="235" font-size="10">4 · прошлые PR по файлам</text>
+        <rect x="126" y="246" width="150" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="134" y="260" font-size="10">5 · комментарии в коде</text>
+        <line x1="100" y1="209" x2="122" y2="209" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA2)"/>
+
+        <line x1="276" y1="209" x2="316" y2="209" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA2)"/>
+        <rect x="318" y="176" width="128" height="66" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="382" y="198" text-anchor="middle" fill="var(--accent)">уверенность</text>
+        <text x="382" y="214" text-anchor="middle" fill="var(--accent)">0 — 100</text>
+        <text x="382" y="230" text-anchor="middle" fill="var(--accent)" font-size="9.5">на каждую находку</text>
+
+        <line x1="446" y1="209" x2="486" y2="209" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA2)"/>
+        <rect x="488" y="188" width="104" height="42" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="540" y="207" text-anchor="middle" fill="var(--accent)">отсечка</text>
+        <text x="540" y="221" text-anchor="middle" fill="var(--accent)">&lt; 80 → в мусор</text>
+
+        <line x1="592" y1="209" x2="632" y2="209" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA2)"/>
+        <rect x="634" y="188" width="112" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="690" y="213" text-anchor="middle">вердикт</text>
+
+        <text x="126" y="290" font-size="10" fill="var(--ink-3)">плюс явный список типовых ложных срабатываний: предсуществующие проблемы, придирки,</text>
+        <text x="126" y="304" font-size="10" fill="var(--ink-3)">то, что поймает линтер, строки вне диффа — всё это ревьюер обязан молча отбросить.</text>
+      </g>
+    </svg>
+    <figcaption>Разница не в модели и не в промпте — в конструкции. Ложные срабатывания гасятся тремя
+    независимыми механизмами: разные линзы редко ошибаются одинаково, каждая находка получает оценку
+    уверенности, и всё ниже 80 не доходит до человека. В нынешнем судье нет ни одного из трёх.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="installed">
+  <div class="shead"><span class="n">04</span><h2>Половина нужного уже стоит и выключена</h2></div>
+  <p class="sub">Перед тем как что-то внедрять, я проверил, что установлено на машине. Из 39 плагинов
+  официального маркетплейса Anthropic у вас включено 5, выключено 22. Среди выключенных — ровно те,
+  которые вы просили внедрить.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Плагин</th><th>Статус</th><th>Что даёт</th><th>Апстрим</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">serena</td><td><span class="tag t-dead">выключен</span></td>
+            <td>Семантический поиск и правка через LSP — прямая замена codegraph</td><td class="n">oraios/serena · 28 355★</td></tr>
+        <tr><td class="mono">context7</td><td><span class="tag t-dead">выключен</span></td>
+            <td>Свежая документация библиотек в контекст</td><td class="n">upstash/context7 · 61 074★</td></tr>
+        <tr><td class="mono">github</td><td><span class="tag t-dead">выключен</span></td>
+            <td>Поиск готовых решений и работа с PR прямо из сессии</td><td class="n">github/github-mcp-server · 32 423★</td></tr>
+        <tr><td class="mono">chrome-devtools-mcp</td><td><span class="tag t-dead">выключен</span></td>
+            <td>Браузерная правда для UI-задач</td><td class="n">ChromeDevTools · 49 569★</td></tr>
+        <tr><td class="mono">playwright</td><td><span class="tag t-dead">выключен</span></td>
+            <td>Прогон сценариев в браузере</td><td class="n">microsoft/playwright-mcp · 36 354★</td></tr>
+        <tr><td class="mono">typescript-lsp · pyright-lsp<br>rust-analyzer-lsp · gopls-lsp</td><td><span class="tag t-dead">выключены</span></td>
+            <td>Точные переходы к определению и поиск ссылок вместо grep</td><td class="n">Anthropic, официальные</td></tr>
+        <tr><td class="mono">frontend-design</td><td><span class="tag t-dead">выключен</span></td>
+            <td>Дизайн-контур; закрывает задачу, под которую искался Stitch</td><td class="n">Anthropic, официальный</td></tr>
+        <tr><td class="mono">code-review</td><td><span class="tag t-adopt">включён</span></td>
+            <td>Тот самый пятилинзовый рецепт со скорингом уверенности</td><td class="n">Anthropic, официальный</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="ev"><b>Чем проверено:</b> разбор <span class="mono">enabledPlugins</span> в
+  <span class="mono">~/.claude/settings.json</span> и содержимое
+  <span class="mono">~/.claude/plugins/marketplaces/claude-plugins-official/plugins/</span>;
+  звёзды и даты последних коммитов — через <span class="mono">gh repo view</span> 22.08.2026, все
+  апстримы обновлялись за последние четыре дня.</p>
+
+  <div class="caveat">
+    <h3>Про Stitch — исправление</h3>
+    <p style="font-size:.93rem">Первая редакция этого документа утверждала, что MCP-сервера у Stitch нет.
+    <strong>Это неверно.</strong> Сервер есть, он удалённый: настройка на
+    <code>stitch.withgoogle.com/docs/mcp/setup/</code>, подключается как remote-MCP по URL. Поиск по
+    GitHub его не находил потому, что искать было нечего — сервер не раздаётся репозиторием.</p>
+    <p style="font-size:.93rem;margin-bottom:0">К нему прилагается официальная библиотека скилов
+    <code>google-labs-code/stitch-skills</code> (8 146★, коммит 17.08.2026), поставленная по тому же
+    открытому стандарту Agent Skills и ставящаяся одной командой:
+    <code>npx plugins add google-labs-code/stitch-skills --target claude-code</code>.
+    <strong>Обе части подняты живьём — измерения в разделе 11.</strong> Дизайн-контур v5 строится на
+    связке <strong>Stitch MCP + stitch-skills</strong> для генерации и <code>agent-browser</code> для
+    проверки результата в живом браузере: <code>chrome-devtools-mcp</code> прямо противоречит правилу
+    «любые браузерные задачи — только <code>agent-browser</code>» и потому остаётся выключенным.</p>
+  </div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section id="laws">
+  <div class="shead"><span class="n">05</span><h2>Пять законов пятой версии</h2></div>
+  <p class="sub">Каждый закон выведен из измерения выше, и каждый проверяем. Если предложение
+  нарушает закон — оно не входит в релиз, каким бы красивым ни было.</p>
+
+  <div class="laws">
+    <div class="law"><div class="i">I</div><div class="b">
+      <b>Между намерением и коммитом — только миллисекунды</b>
+      <p>Синхронно исполняется единственный слой: L0. Оракул, ревью, разметка — справа от
+      <code>commit</code>, на хеше, в фоне. Проверок становится <em>больше</em>, а ожидание —
+      нулевым; строгость и скорость перестают конкурировать.</p>
+    </div></div>
+    <div class="law"><div class="i">II</div><div class="b">
+      <b>Ничего не строим, если у этого есть владелец</b>
+      <p>Компонент попадает в свой код, только если доказано, что апстрима нет. Доказательство —
+      ссылка на поиск, а не ощущение. Всё остальное — чужое, обновляемое, с лицензией.</p>
+    </div></div>
+    <div class="law"><div class="i">III</div><div class="b">
+      <b>Блокирует только уверенность</b>
+      <p>Ни один вердикт не доходит до человека без нескольких независимых линз и численной оценки
+      уверенности. Порог 80. Ниже — в реестр, не в лицо.</p>
+    </div></div>
+    <div class="law"><div class="i">IV</div><div class="b">
+      <b>Система записывает свои дефекты сама</b>
+      <p>Каждое ложное срабатывание и каждый пропуск — строка в машинном реестре, а не в отчёте,
+      который кто-то вспомнит написать. Реестр выгружается в issue одной командой.</p>
+    </div></div>
+    <div class="law"><div class="i">V</div><div class="b">
+      <b>Главный показатель — доля работы, прошедшей через харнес</b>
+      <p>Сегодня 18,6%. Не «зелёные тесты», не «покрытие», не «число гейтов». Если доля не растёт,
+      версия провалилась — независимо от того, насколько инженерно она хороша.</p>
+    </div></div>
+  </div>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="arch">
+  <div class="shead"><span class="n">06</span><h2>Архитектура: три слоя и граф режимов</h2></div>
+  <p class="sub">Продукт перестаёт быть движком на Node и PowerShell. Он становится плагином Claude Code,
+  который собирает поддерживаемые компоненты и добавляет ровно три вещи, которых нигде нет.</p>
+
+  <figure>
+    <svg viewBox="0 0 880 420" role="img" aria-label="Архитектура: слой Земля даёт модели контекст и инструменты, слой Петля переключает режимы по механическим сигналам, слой Зеркало проверяет результат после коммита на хеше и пишет реестр дефектов, который возвращается в Землю">
+      <defs>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="arA3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+      </defs>
+      <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">
+
+        <!-- ЗЕМЛЯ -->
+        <rect x="20" y="24" width="840" height="86" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="34" y="44" font-size="10.5" fill="var(--accent)" letter-spacing="1.4">ЗЕМЛЯ — ДАЁТ МОДЕЛИ ТО, ЧЕГО У НЕЁ НЕТ</text>
+        <rect x="34" y="54" width="126" height="42" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="97" y="72" text-anchor="middle" font-size="10">состояние проекта</text>
+        <text x="97" y="86" text-anchor="middle" font-size="9" fill="var(--ink-3)">SessionStart · своё</text>
+        <rect x="170" y="54" width="126" height="42" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="233" y="72" text-anchor="middle" font-size="10">навигация по коду</text>
+        <text x="233" y="86" text-anchor="middle" font-size="9" fill="var(--ink-3)">serena + LSP</text>
+        <rect x="306" y="54" width="126" height="42" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="369" y="72" text-anchor="middle" font-size="10">свежие доки</text>
+        <text x="369" y="86" text-anchor="middle" font-size="9" fill="var(--ink-3)">context7</text>
+        <rect x="442" y="54" width="126" height="42" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="505" y="72" text-anchor="middle" font-size="10">готовые решения</text>
+        <text x="505" y="86" text-anchor="middle" font-size="9" fill="var(--ink-3)">github mcp + gh</text>
+        <rect x="578" y="54" width="126" height="42" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="641" y="72" text-anchor="middle" font-size="10">браузерная правда</text>
+        <text x="641" y="86" text-anchor="middle" font-size="9" fill="var(--ink-3)">chrome-devtools</text>
+        <rect x="714" y="54" width="132" height="42" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="780" y="72" text-anchor="middle" font-size="10">реестр дефектов</text>
+        <text x="780" y="86" text-anchor="middle" font-size="9" fill="var(--ink-3)">своё · читается на входе</text>
+
+        <line x1="440" y1="110" x2="440" y2="134" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA3)"/>
+
+        <!-- ПЕТЛЯ -->
+        <rect x="20" y="136" width="840" height="106" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="34" y="156" font-size="10.5" fill="var(--accent)" letter-spacing="1.4">ПЕТЛЯ — ГРАФ РЕЖИМОВ, ПЕРЕКЛЮЧЕНИЕ ПО МЕХАНИЧЕСКОМУ СИГНАЛУ</text>
+
+        <rect x="40" y="172" width="116" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="98" y="196" text-anchor="middle">РАЗВЕДКА</text>
+        <line x1="156" y1="191" x2="188" y2="191" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+        <text x="172" y="182" text-anchor="middle" font-size="8.5" fill="var(--ink-3)">файлов &gt; 3</text>
+
+        <rect x="190" y="172" width="116" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="248" y="196" text-anchor="middle">ПЛАН</text>
+        <line x1="306" y1="191" x2="338" y2="191" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+        <text x="322" y="182" text-anchor="middle" font-size="8.5" fill="var(--ink-3)">принят</text>
+
+        <rect x="340" y="172" width="116" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="398" y="196" text-anchor="middle">СБОРКА</text>
+        <line x1="456" y1="191" x2="488" y2="191" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+        <text x="472" y="182" text-anchor="middle" font-size="8.5" fill="var(--ink-3)">L0 ок</text>
+
+        <rect x="490" y="172" width="116" height="38" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="548" y="196" text-anchor="middle" fill="var(--accent)">ПОСАДКА</text>
+        <line x1="606" y1="191" x2="638" y2="191" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="640" y="172" width="116" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="698" y="196" text-anchor="middle">РАЗБОР</text>
+
+        <path d="M698 210 L698 228 L98 228 L98 212" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
+        <text x="398" y="240" text-anchor="middle" font-size="9" fill="var(--ink-3)">находка с уверенностью ≥ 80 возвращает петлю в разведку</text>
+
+        <line x1="548" y1="242" x2="548" y2="266" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arA3)"/>
+        <text x="560" y="258" font-size="9.5" fill="var(--accent)">commit — единственная точка выхода</text>
+
+        <!-- ЗЕРКАЛО -->
+        <rect x="20" y="268" width="840" height="112" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="34" y="288" font-size="10.5" fill="var(--accent)" letter-spacing="1.4">ЗЕРКАЛО — ПОСЛЕ КОММИТА, НА ХЕШЕ, В ФОНЕ</text>
+
+        <rect x="34" y="298" width="118" height="40" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="93" y="316" text-anchor="middle" font-size="10">оракул</text>
+        <text x="93" y="330" text-anchor="middle" font-size="9" fill="var(--ink-3)">impact-выборка · своё</text>
+        <line x1="152" y1="318" x2="180" y2="318" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="182" y="298" width="152" height="40" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="258" y="316" text-anchor="middle" font-size="10">5 линз ревью</text>
+        <text x="258" y="330" text-anchor="middle" font-size="9" fill="var(--ink-3)">рецепт /code-review</text>
+        <line x1="334" y1="318" x2="362" y2="318" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="364" y="298" width="140" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+        <text x="434" y="316" text-anchor="middle" font-size="10" fill="var(--accent)">уверенность ≥ 80</text>
+        <text x="434" y="330" text-anchor="middle" font-size="9" fill="var(--accent)">иначе — в реестр</text>
+        <line x1="504" y1="318" x2="532" y2="318" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="534" y="298" width="140" height="40" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="604" y="316" text-anchor="middle" font-size="10">ретро-разметка</text>
+        <text x="604" y="330" text-anchor="middle" font-size="9" fill="var(--ink-3)">вердикт × git · своё</text>
+        <line x1="674" y1="318" x2="702" y2="318" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="704" y="298" width="142" height="40" rx="3" fill="var(--surface-2)" stroke="currentColor" stroke-width="1"/>
+        <text x="775" y="316" text-anchor="middle" font-size="10">issue в GitHub</text>
+        <text x="775" y="330" text-anchor="middle" font-size="9" fill="var(--ink-3)">gh · автоматически</text>
+
+        <path d="M846 318 L866 318 L866 75 L852 75" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#arA3)"/>
+        <text x="34" y="362" font-size="9.5" fill="var(--ink-3)">пунктиром — замыкание: то, что зеркало узнало о своих ошибках, на следующей сессии лежит в земле</text>
+      </g>
+    </svg>
+    <figcaption>Три слоя и одна точка выхода. Критический путь идёт сверху вниз и упирается в
+    <code>commit</code> без единого блокирующего шага; всё зеркало висит справа от него и работает на
+    хеше уже сделанного коммита. Замыкание пунктиром — то, ради чего вообще существует реестр: ошибки
+    системы возвращаются к ней самой на входе следующей сессии.</figcaption>
+  </figure>
+
+  <div class="layers">
+    <div class="layer">
+      <h3>Земля</h3>
+      <p class="role">Отвечает на вопрос «чего у модели нет». Всё, кроме двух пунктов, — чужое и обновляемое.</p>
+      <ul>
+        <li><strong>Состояние проекта</strong> — один файл <code>.elt/state.md</code>, вкладывается хуком <code>SessionStart</code>, переживает компакцию. <em>Своё, ~80 строк.</em></li>
+        <li><strong>Навигация</strong> — <code>serena</code> плюс LSP-плагин под язык проекта. Заменяет codegraph целиком.</li>
+        <li><strong>Документация</strong> — <code>context7</code>, включается плагином, никакого своего кода.</li>
+        <li><strong>Готовые решения</strong> — <code>github</code> MCP и <code>gh</code> как первый шаг перед тем, как что-то писать.</li>
+        <li><strong>Браузер и дизайн</strong> — <code>agent-browser</code> (единственный браузерный путь в этом доме),
+        <code>frontend-design</code> и <strong>Stitch MCP</strong> с библиотекой <code>stitch-skills</code>.</li>
+        <li><strong>Реестр дефектов</strong> — читается на входе, чтобы система знала, где она врала вчера. <em>Своё.</em></li>
+      </ul>
+    </div>
+    <div class="layer">
+      <h3>Петля</h3>
+      <p class="role">Граф режимов с переключением по механическим сигналам, а не по вопросу пользователю. Целиком на штатных механизмах.</p>
+      <ul>
+        <li><strong>Разведка → План</strong> при затронутых файлах больше трёх или незнакомой области; иначе режим плана пропускается.</li>
+        <li><strong>План</strong> — шаблоны spec-kit, но артефакт лёгкий: без подписи, без хеш-цепочки. Факт утверждения — git-trailer.</li>
+        <li><strong>Сборка</strong> — штатные субагенты и <code>claude --worktree</code> там, где задача действительно параллельна; по умолчанию — один поток.</li>
+        <li><strong>Посадка</strong> — L0 и <code>commit</code>. Единственная точка выхода.</li>
+        <li><strong>Разбор</strong> — чтение фоновых находок; возвращает петлю в разведку только при уверенности ≥ 80.</li>
+      </ul>
+    </div>
+    <div class="layer">
+      <h3>Зеркало</h3>
+      <p class="role">Вся проверка. Работает на хеше сделанного коммита, никогда не задерживает человека.</p>
+      <ul>
+        <li><strong>L0</strong> — миллисекундные механические проверки, единственное, что синхронно. <em>Своё, 373 строки, остаётся как есть.</em></li>
+        <li><strong>Оракул</strong> — impact-выборка и кеш по хешу транзитивного замыкания. <em>Своё, 436 строк — измеренная выгода 1,6 с против 150 с.</em></li>
+        <li><strong>Ревью</strong> — пять линз и скоринг уверенности по официальному рецепту.</li>
+        <li><strong>Ретро-разметка</strong> — сопоставление старых вердиктов с последующими правками по git: система узнаёт, где ошиблась. <em>Своё, уникальное.</em></li>
+        <li><strong>Выгрузка</strong> — реестр в issue через <code>gh</code>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="map">
+  <div class="shead"><span class="n">07</span><h2>Карта компонентов: что берём, что оставляем, что хороним</h2></div>
+  <p class="sub">Каждая строка — решение с основанием. Столбец «основание» — это то, чем решение
+  доказано, а не почему оно кажется правильным.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Функция</th><th>Сейчас</th><th></th><th>Станет</th><th>Основание</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Параллельное исполнение</td><td class="mono">fleet/ · 2 715 стр.</td>
+          <td><span class="tag t-dead">хоронить</span></td>
+          <td>Штатные субагенты, <code>claude --worktree</code>, <code>claude agents</code></td>
+          <td>Снимает D1, D2, D5, D6 целиком. Anthropic называет кодовые задачи антипаттерном мультиагентности.</td>
+        </tr>
+        <tr>
+          <td>Автономная петля</td><td class="mono">elt-loop.ps1 · 440 стр.</td>
+          <td><span class="tag t-dead">хоронить</span></td>
+          <td>Штатный фон и хуки</td>
+          <td>12 запусков за 14 дней при 383 сессиях.</td>
+        </tr>
+        <tr>
+          <td>Граф кода</td><td class="mono">codegraph + MCP</td>
+          <td><span class="tag t-dead">хоронить</span></td>
+          <td><code>serena</code> + LSP-плагины</td>
+          <td>10 вызовов из 12 047. Замена уже установлена и выключена.</td>
+        </tr>
+        <tr>
+          <td>Подпись спеки</td><td class="mono">approval.json + хеши</td>
+          <td><span class="tag t-dead">хоронить</span></td>
+          <td>git-trailer и тег на спеке</td>
+          <td>D7, D11, D15 — механизм ломает сам себя, 8 лишних переподписей на спеке из 9 задач.</td>
+        </tr>
+        <tr>
+          <td>Зеркало инструкций</td><td class="mono">sync-agent-surface · 351 стр.</td>
+          <td><span class="tag t-dead">хоронить</span></td>
+          <td>Один файл инструкций, генерация копий на сборке плагина</td>
+          <td>38 проектов держат <code>CLAUDE.md</code> и <code>AGENTS.md</code>, побайтово совпадают только 4 — зеркало не работает.</td>
+        </tr>
+        <tr>
+          <td>Раздача в проекты</td><td class="mono">sync-bin.js + ~/.claude/bin</td>
+          <td><span class="tag t-dead">хоронить</span></td>
+          <td>Плагин + маркетплейс</td>
+          <td>D16, D18: модули не доезжали до deploy-копии, ревью-бенч был недостижим.</td>
+        </tr>
+        <tr>
+          <td>Судья</td><td class="mono">одиночный, REJECT по умолчанию</td>
+          <td><span class="tag t-adopt">взять</span></td>
+          <td>Рецепт официального <code>/code-review</code></td>
+          <td>Три механизма гашения ложных срабатываний против нуля. Прямо лечит 1:7.</td>
+        </tr>
+        <tr>
+          <td>План и спека</td><td class="mono">specs/*/spec.md, своё</td>
+          <td><span class="tag t-adopt">взять</span></td>
+          <td>Шаблоны <code>github/spec-kit</code></td>
+          <td>130 757★, коммит 21.08.2026, MIT. Поддерживается не вами.</td>
+        </tr>
+        <tr>
+          <td>Скилы работы</td><td class="mono">свои, россыпью</td>
+          <td><span class="tag t-adopt">взять</span></td>
+          <td><code>mattpocock/skills</code>, <code>vercel-labs/skills</code>, <code>obra/superpowers</code></td>
+          <td>230 796★ / 29 435★ / 275 898★, все активны на прошлой неделе.</td>
+        </tr>
+        <tr>
+          <td>Оракул</td><td class="mono">436 стр., impact + кеш</td>
+          <td><span class="tag t-keep">оставить</span></td>
+          <td>Без изменений, переносится в <code>bin/</code></td>
+          <td>Измеренная выгода: 1,6 с против 150 с. Апстрима с такой выборкой не нашлось.</td>
+        </tr>
+        <tr>
+          <td>L0-гейт</td><td class="mono">373 стр.</td>
+          <td><span class="tag t-keep">оставить</span></td>
+          <td>Единственный синхронный слой</td>
+          <td>Миллисекунды. Не мешает и ловит механическое до запуска моделей.</td>
+        </tr>
+        <tr>
+          <td>Ретро-разметка вердиктов</td><td class="mono">elt-retro-label · 249 стр.</td>
+          <td><span class="tag t-keep">оставить</span></td>
+          <td>Ядро реестра дефектов</td>
+          <td>Единственный механизм, замыкающий обратную связь. Прямого апстрима нет.</td>
+        </tr>
+        <tr>
+          <td>Диагностика</td><td class="mono">doctor · 1 220 стр.</td>
+          <td><span class="tag t-keep">оставить</span></td>
+          <td>Урезать до проверки самой сборки</td>
+          <td>После удаления флота и петли проверять станет нечего — останется ~200 строк.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>Итог по объёму:</strong> <span class="num">31 752</span> строки своего кода →
+  ориентировочно <span class="num">3 000–3 500</span>. Это не цель сама по себе: сокращение —
+  побочный эффект закона II, а не самостоятельная задача.</p>
+  <p class="ev"><b>Как проверить после миграции:</b> та же команда, которой считалось «до» —
+  <span class="mono">find tools -name "*.js" -o -name "*.ps1" | grep -v node_modules | xargs wc -l</span>.</p>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="repo">
+  <div class="shead"><span class="n">08</span><h2>Как это выглядит на GitHub</h2></div>
+  <p class="sub">Форма релиза — плагин Claude Code со своим маркетплейсом. Установка одной командой,
+  обновление автоматическое по полю <code>version</code>. Мост в Codex, Cursor и OpenCode — не свой
+  сборочный шаг, а тот же открытый формат, которым Google раздаёт <code>stitch-skills</code>.</p>
+
+<pre class="tree"><b>elt/</b>
+├── <b>.claude-plugin/</b>
+│   ├── plugin.json           <i># name, version → отсюда идёт автообновление</i>
+│   └── marketplace.json      <i># свой маркетплейс: claude plugin marketplace add &lt;repo&gt;</i>
+├── <b>skills/</b>
+│   ├── elt/SKILL.md          <i># маршрутизатор режимов; ~120 строк вместо нынешних инструкций</i>
+│   ├── elt-plan/             <i># шаблоны spec-kit, адаптированные</i>
+│   ├── elt-verify/           <i># запуск зеркала на хеше</i>
+│   └── elt-defects/          <i># работа с реестром, выгрузка в issue</i>
+├── <b>agents/</b>
+│   ├── review-claude-md.md   <i>┐</i>
+│   ├── review-bugs.md        <i>│ пять линз официального рецепта,</i>
+│   ├── review-history.md     <i>│ каждая — отдельный субагент с своим набором инструментов</i>
+│   ├── review-prior-prs.md   <i>│</i>
+│   ├── review-comments.md    <i>┘</i>
+│   └── confidence-scorer.md  <i># оценка 0–100, модель haiku</i>
+├── <b>hooks/hooks.json</b>        <i># SessionStart: состояние + реестр · Stop: запуск зеркала</i>
+├── <b>commands/</b>              <i># /elt, /elt-verify, /elt-defects, /elt-doctor</i>
+├── <b>.agents/plugins/</b>        <i># open-plugin манифест: тот же репо ставится через npx plugins</i>
+├── <b>.mcp.json</b>               <i># serena, context7, github, stitch — включаются вместе с плагином</i>
+│                            <i># ключи только через env, в репозиторий не попадают</i>
+├── <b>bin/</b>
+│   ├── oracle.js             <i># impact-выборка и кеш — 436 строк, переносятся как есть</i>
+│   ├── l0.js                 <i># 373 строки, единственный синхронный слой</i>
+│   ├── ledger.js             <i># реестр дефектов + ретро-разметка</i>
+│   └── doctor.js             <i># ~200 строк: проверка этой сборки, не всей машины</i>
+├── <b>templates/</b>             <i># .elt/state.md, конфиг проекта</i>
+├── README.md · LICENSE (MIT) · CHANGELOG.md
+└── <b>.github/workflows/</b>      <i># тесты bin/ на Windows и Linux; релиз по тегу</i>
+</pre>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Вопрос релиза</th><th>Решение</th></tr></thead>
+      <tbody>
+        <tr><td>Установка</td><td><code>claude plugin marketplace add &lt;owner&gt;/elt</code>, затем <code>claude plugin install elt@elt</code></td></tr>
+        <tr><td>Автообновление</td><td>Поле <code>version</code> в <code>plugin.json</code>; Claude Code сам подтягивает новую версию из маркетплейса</td></tr>
+        <tr><td>Codex · Cursor · OpenCode</td><td>Второй канал той же сборки: <code>npx plugins add &lt;owner&gt;/elt</code> по формату open-plugin — тем же, которым ставится <code>stitch-skills</code>. Отдельного сборочного шага и зеркалирования скилов по каталогам не требуется</td></tr>
+        <tr><td>Antigravity</td><td>Сборочный шаг генерирует <code>AGENTS.md</code> из единственного файла инструкций; <code>agy</code> не читает скилы сам — указатель ставится явно</td></tr>
+        <tr><td>Зависимости</td><td>Ноль прод-зависимостей у <code>bin/</code> сохраняется; всё внешнее приходит плагинами и MCP. <code>rtk</code> в зависимости не входит — измерения в разделе 11</td></tr>
+        <tr><td>Дизайн</td><td>Своего дизайн-скилла нет: <code>design</code> встроен в Claude Code. Генерация — Stitch MCP и <code>stitch-skills</code>, проверка результата — <code>agent-browser</code></td></tr>
+        <tr><td>Windows</td><td>CI гоняет <code>bin/</code> на <code>windows-latest</code> и <code>ubuntu-latest</code>; PowerShell-обёрток в релизе не остаётся</td></tr>
+        <tr><td>Лицензия</td><td>MIT — совпадает с лицензиями всех взятых компонентов</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="ledger">
+  <div class="shead"><span class="n">09</span><h2>Как система фиксирует собственные дефекты</h2></div>
+  <p class="sub">Вы просили этого прямо: «баги и проблемы, что находишь по ходу работы, сразу же пиши
+  отчётом». Сейчас это делает человек и делает нерегулярно — три полевых отчёта за две недели,
+  написанные по отдельной просьбе. В v5 это механика.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Событие</th><th>Что записывается</th><th>Куда попадает</th></tr></thead>
+      <tbody>
+        <tr><td>Находка ниже порога уверенности</td><td>Дифф, линза, оценка, причина отсечки</td><td><code>.elt/ledger.jsonl</code>, тип <code>weak-signal</code></td></tr>
+        <tr><td>Вердикт «pass», после которого файл правился в течение 7 дней</td><td>Коммит вердикта, коммит правки, дистанция</td><td>Ретро-разметка, тип <code>miss</code></td></tr>
+        <tr><td>Вердикт «block», снятый человеком без правки</td><td>Правило, сработавшее ложно</td><td>Тип <code>false-positive</code> — прямой счётчик шума</td></tr>
+        <tr><td>Падение шага зеркала</td><td>Команда, код возврата, окружение</td><td>Тип <code>harness-defect</code></td></tr>
+        <tr><td>Накопилось 5 записей одного правила</td><td>Сводка с примерами</td><td>Issue в GitHub через <code>gh</code>, метка <code>harness-defect</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Из этого же реестра считается закон III: <em>сигнал/шум</em> — это доля
+  <code>false-positive</code> среди всех блокирующих вердиктов. Сегодня она равна 7/8, и это число
+  система будет знать о себе сама, а не узнавать из отчёта, написанного по просьбе.</p>
+</section>
+
+<!-- ============================================================ 10 -->
+<section id="plan">
+  <div class="shead"><span class="n">10</span><h2>План: шесть фаз, у каждой — числовой критерий</h2></div>
+  <p class="sub">Фаза закрыта не тогда, когда код написан, а когда критерий выполнен и проверен
+  командой из последнего столбца.</p>
+
+  <div class="phase">
+    <div class="ph">Фаза 0<br>~1 день</div>
+    <div>
+      <h3>Гигиена и включение того, что уже стоит</h3>
+      <p>Включить <code>serena</code>, <code>context7</code>, <code>github</code>,
+      <code>frontend-design</code>, LSP под языки рабочих проектов. <code>chrome-devtools-mcp</code>
+      <strong>не включать</strong> — браузерный путь один и он уже есть. Stitch MCP уже подключён:
+      <code>claude mcp get stitch</code> → Connected, 15 инструментов. Снести 704 МБ
+      <code>tools/red-team/</code> и дубликаты в корне (<code>CLAUDE (1).md</code>,
+      <code>AGENTS (1).md</code>, <code>MEMORY (1).md</code>). <code>ponytail</code> уже снят.</p>
+      <div class="crit"><b>Критерий</b><code>claude plugin list</code> показывает ≥ 10 включённых;
+      в корне репозитория ≤ 8 файлов <code>.md</code>; <code>du -sh tools/</code> меньше 50 МБ.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph">Фаза 1<br>~2 дня</div>
+    <div>
+      <h3>Снять блокираторы с критического пути</h3>
+      <p>Убрать подпись спеки целиком: <code>specApproval</code>, <code>approval.json</code>,
+      пересчёт <code>tasksHash</code>. Факт утверждения — git-trailer. Оракул и ревью уходят вправо
+      от <code>commit</code>.</p>
+      <div class="crit"><b>Критерий</b>D4, D7, D11, D15 не воспроизводятся на спеке из 9 задач;
+      доля коммитов через харнес за неделю ≥ 50% — меряется тем же скриптом по JSONL.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph">Фаза 2<br>~3 дня</div>
+    <div>
+      <h3>Ревью по официальному рецепту</h3>
+      <p>Пять линз как отдельные субагенты, оценщик уверенности на haiku, отсечка 80, явный список
+      типовых ложных срабатываний. Общий список «принадлежит харнесу» для гейта и ревьюера — это
+      закрывает D9, D15, D19 одной правкой.</p>
+      <div class="crit"><b>Критерий</b>На 20 диффах подряд сигнал/шум ≥ 1:1; ни одного вердикта
+      по <code>package-lock.json</code>, <code>approval.json</code>, <code>review-queue.jsonl</code>.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph">Фаза 3<br>~2 дня</div>
+    <div>
+      <h3>Удаление</h3>
+      <p><code>fleet/</code>, <code>elt-loop.ps1</code>, <code>sync-agent-surface.js</code>,
+      <code>codegraph</code>-интеграция, <code>sync-bin.js</code>. Параллельность — штатными
+      субагентами и <code>--worktree</code> там, где она действительно нужна.</p>
+      <div class="crit"><b>Критерий</b>Своего кода ≤ 5 000 строк; суита <code>bin/</code> зелёная
+      на Windows и Linux; ни один сценарий из PLAYBOOK не потерян.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph">Фаза 4<br>~2 дня</div>
+    <div>
+      <h3>Упаковка в плагин</h3>
+      <p>Структура из раздела 08, свой маркетплейс, CI на двух платформах, генерация
+      <code>AGENTS.md</code> из единственного файла инструкций.</p>
+      <div class="crit"><b>Критерий</b>В чистом проекте: <code>claude plugin install elt@elt</code> →
+      <code>/elt-doctor</code> зелёный, без ручных шагов и без правки <code>~/.claude/bin</code>.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph">Фаза 5<br>~1 день</div>
+    <div>
+      <h3>Релиз</h3>
+      <p>README с честными числами «до и после», CHANGELOG, тег, лицензия MIT. Реестр дефектов
+      публикуется как раздел README — система заявляет о своих известных проблемах сама.</p>
+      <div class="crit"><b>Критерий</b>Установка из чистой машины по README без обращения к автору;
+      открытых блокирующих дефектов — ноль, остальные висят как issue.</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:40px">Панель, по которой считается успех</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Показатель</th><th class="n">Сейчас</th><th class="n">Цель</th><th>Чем меряется</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Доля коммитов через харнес</strong></td><td class="n">18,6%</td><td class="n">≥ 80%</td>
+            <td>Скрипт по JSONL-логам — тот же, что дал число «сейчас»</td></tr>
+        <tr><td>Сигнал/шум блокирующих вердиктов</td><td class="n">1 : 7</td><td class="n">≥ 1 : 1</td><td><code>ledger.jsonl</code>, доля <code>false-positive</code></td></tr>
+        <tr><td>Ожидание между «готово» и коммитом</td><td class="n">4–6 мин</td><td class="n">&lt; 5 с</td><td>Время исполнения L0</td></tr>
+        <tr><td>Своего кода</td><td class="n">31 752</td><td class="n">≤ 3 500</td><td><code>wc -l</code>, та же команда</td></tr>
+        <tr><td>Открытых дефектов харнеса</td><td class="n">14</td><td class="n">0 блокирующих</td><td>Реестр и issue</td></tr>
+        <tr><td>Строк ядра без тестов</td><td class="n">3 238</td><td class="n">0</td><td>Покрытие <code>bin/</code></td></tr>
+        <tr><td><strong>Новых токенов за две недели</strong><br><span style="font-size:.85em;opacity:.72">запись в кеш + вывод — то, что реально жжёт лимит подписки</span></td>
+            <td class="n">127,0 млн</td><td class="n">≤ 95 млн</td>
+            <td>Поля <code>usage</code> в JSONL: <code>cache_creation</code> + <code>output_tokens</code></td></tr>
+        <tr><td>Множитель перечитывания контекста</td><td class="n">30,2×</td><td class="n">≤ 20×</td>
+            <td><code>cache_read / cache_creation</code> по тем же логам</td></tr>
+        <tr><td>Символов вывода инструментов<br><span style="font-size:.85em;opacity:.72">без изображений</span></td>
+            <td class="n">14,6 млн</td><td class="n">≤ 10 млн</td>
+            <td>Сопоставление <code>tool_use</code> → <code>tool_result</code>, скрипт <code>measure-io.js</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ 11 -->
+<section id="inputs">
+  <div class="shead"><span class="n">11</span><h2>Четыре входа, проверенные на этой машине</h2></div>
+  <p class="sub">Первая редакция называла эти четыре вещи, но не проверяла ни одну. Здесь каждая
+  поднята живьём на Windows, и у каждой есть число. Один из четырёх после проверки в релиз не идёт.</p>
+
+  <h3 style="margin-top:34px">Сначала — из чего вообще состоит контекст</h3>
+  <p>Решать про <code>rtk</code> без этой таблицы нельзя: он сокращает вывод <em>шелла</em>, а доля
+  шелла в контексте до сих пор не была измерена. Я сопоставил каждый <code>tool_use</code> с его
+  <code>tool_result</code> по 383 логам и посчитал символы.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Инструмент</th><th class="n">Вызовов</th><th class="n">Символов вывода</th><th class="n">Доля</th><th>Идёт ли через Bash-хук</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Read</td><td class="n">1 541</td><td class="n">85 045 112</td><td class="n">90,9%</td><td>нет</td></tr>
+        <tr><td class="mono">Bash</td><td class="n">5 114</td><td class="n">5 840 408</td><td class="n">6,2%</td><td><strong>да</strong></td></tr>
+        <tr><td class="mono">PowerShell</td><td class="n">1 586</td><td class="n">1 348 332</td><td class="n">1,4%</td><td>нет — matcher хука <code>Bash</code></td></tr>
+        <tr><td class="mono">Grep</td><td class="n">311</td><td class="n">433 807</td><td class="n">0,5%</td><td>нет</td></tr>
+        <tr><td class="mono">Edit · Write · Glob · прочее</td><td class="n">2 631</td><td class="n">862 079</td><td class="n">0,9%</td><td>нет</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="ev"><b>Разворот, которого я не ожидал:</b> из 85 млн символов <code>Read</code>
+  <span class="num">86,4%</span> — это <code>.png</code> и ещё 6,4% — <code>.jpg</code>: скриншоты
+  вёрстки в Izi-translate. Это не чтение кода, это суть той работы, и сжимать там нечего.
+  <b>Если убрать изображения</b>, весь текстовый вывод инструментов — <span class="num">14,57</span> млн
+  символов, и <code>Bash</code> с <code>PowerShell</code> составляют в нём
+  <span class="num">49,3%</span>. Вот в эту половину и целится <code>rtk</code>.</p>
+
+  <div class="claims" style="margin-top:34px">
+    <div class="claim">
+      <h3>Вход 1. rtk — установлен, измерен, в релиз не берётся</h3>
+      <p><b>Установка оказалась проще, чем записано в моей же памяти.</b> WSL не нужен, сборка из
+      исходников не нужна: в релизах лежит готовый <code>rtk-x86_64-pc-windows-msvc.zip</code>,
+      <code>rtk 0.45.0</code> запускается нативно. Хук тоже сменил природу: старый
+      <code>rtk-rewrite.sh</code> требовал <code>jq</code>, которого на машине нет; новый —
+      <code>rtk hook claude</code>, где сам бинарь читает stdin и отвечает JSON.</p>
+      <p><b>Покрытие на моих собственных командах.</b> Я взял все <span class="num">6 700</span>
+      shell-вызовов за две недели (6 454 уникальных) и прогнал через каждую тот самый
+      <code>rtk rewrite</code>, который вызывает хук:</p>
+      <div class="readout">
+        <div class="cell"><b>26,9%</b><span>вызовов имеют rtk-эквивалент</span></div>
+        <div class="cell"><b>29,7%</b><span>объёма вывода покрыто</span></div>
+        <div class="cell"><b>≈26%</b><span>экономия на покрытом, взвешенно</span></div>
+        <div class="cell"><b>≈3,8%</b><span>итог для текстового контекста</span></div>
+      </div>
+      <p><b>Почему так мало — видно поимённо.</b> Внутри покрытого объёма
+      <span class="num">40,2%</span> — это <code>cat</code>, который переписывается в
+      <code>rtk read</code>. А <code>rtk read</code> по умолчанию идёт с уровнем
+      <code>none</code>, то есть отдаёт файл байт в байт: экономия ровно ноль, и конфигом это не
+      переключается. Уровень <code>aggressive</code> даёт −85%, но вырезает тела функций — читать так
+      код перед правкой нельзя, и хук его не включает. Второй по объёму способ, которым я читаю
+      файлы, — <code>sed -n</code> с диапазоном строк — не покрыт вовсе и даёт
+      <span class="num">29%</span> всего непокрытого вывода.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:8px"><b>A/B на живых командах в этом репозитории.</b> Команду переписывал сам
+  <code>rtk rewrite</code>, обе версии исполнялись подряд, сравниваются байты:</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Команда</th><th class="n">Без rtk</th><th class="n">С rtk</th><th class="n">Экономия</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">grep -rn по tools, только *.js</td><td class="n">1 791 937</td><td class="n">15 421</td><td class="n">−99%</td></tr>
+        <tr><td class="mono">find tools -name *.js</td><td class="n">171 708</td><td class="n">1 092</td><td class="n">−99%</td></tr>
+        <tr><td class="mono">ls -la tools</td><td class="n">9 334</td><td class="n">4 413</td><td class="n">−53%</td></tr>
+        <tr><td class="mono">git status</td><td class="n">887</td><td class="n">497</td><td class="n">−44%</td></tr>
+        <tr><td class="mono">head -50 tools/elt.js</td><td class="n">2 502</td><td class="n">1 394</td><td class="n">−44%</td></tr>
+        <tr><td class="mono">wc -l tools/*.js</td><td class="n">4 270</td><td class="n">3 019</td><td class="n">−29%</td></tr>
+        <tr><td class="mono">git diff</td><td class="n">18 169</td><td class="n">16 086</td><td class="n">−11%</td></tr>
+        <tr><td class="mono">cat tools/elt.js</td><td class="n">69 776</td><td class="n">69 776</td><td class="n">0%</td></tr>
+        <tr><td class="mono">rg -n по tools</td><td class="n">195 478</td><td class="n">195 450</td><td class="n">0%</td></tr>
+        <tr><td class="mono">git status --short · git log --oneline</td><td class="n">459 · 1 382</td><td class="n">458 · 1 382</td><td class="n">0%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="caveat">
+    <h3>Вердикт по rtk: в релиз v5 не входит</h3>
+    <p style="font-size:.93rem">Не потому, что инструмент плохой — его README честнее большинства:
+    там прямо написано, что «−90% вывода bash» это не «−90% к счёту», и что счётчики токенов у него
+    оценочные (<code>bytes/4</code>, без токенизатора). Дело в профиле работы: половина покрытого
+    объёма — чтение файлов, где rtk работает один к одному; весь инструмент <code>PowerShell</code>
+    (1 586 вызовов) и все <code>Read</code> / <code>Grep</code> / <code>Glob</code> идут мимо хука
+    в принципе. Ради ≈3,8% контекста ставить релиз в зависимость от внешнего бинаря, который
+    перехватывает каждую команду, — плохая сделка.</p>
+    <p style="font-size:.93rem;margin-bottom:0"><b>Что берётся вместо него, бесплатно:</b> оба случая
+    с −99% — это <code>grep -rn</code> и <code>find</code> через шелл, которым в Claude Code есть
+    штатная замена (<code>Grep</code>, <code>Glob</code>) с тем же эффектом и без новой зависимости.
+    Это строчка дисциплины в <code>SKILL.md</code>, а не софт. Сам <code>rtk</code> остаётся
+    в реестре как опция для проектов, где агент гоняет тестовые раннеры и линтеры через шелл.</p>
+  </div>
+
+  <div class="claims" style="margin-top:34px">
+    <div class="claim">
+      <h3>Вход 2. Stitch — сервер поднят, 15 инструментов отвечают</h3>
+      <p>MCP подключён как <code>http</code> на <code>stitch.googleapis.com/mcp</code>
+      с заголовком-ключом и областью <code>local</code>: ключ лежит в <code>~/.claude.json</code>
+      и в репозиторий не попадает. <code>claude mcp get stitch</code> → <b>Connected</b>.
+      Прямой MCP-хендшейк подтвердил протокол <code>2025-06-18</code>,
+      <code>serverInfo: StatelessServer</code> и <span class="num">15</span> инструментов:</p>
+      <p class="mono" style="font-size:.86rem;line-height:1.7">create_project · get_project · delete_project ·
+      list_projects · list_screens · get_screen · generate_screen_from_text · edit_screens ·
+      generate_variants · upload_design_md · create_design_system ·
+      create_design_system_from_design_md · update_design_system · list_design_systems ·
+      apply_design_system</p>
+      <p><b>Библиотека скилов:</b> <code>google-labs-code/stitch-skills</code> — три плагина
+      (<code>stitch-design</code>, <code>stitch-build</code>, <code>stitch-utilities</code>),
+      <span class="num">16</span> скилов. Десять обращаются к перечисленным выше MCP-инструментам,
+      шесть работают и без сервера: <code>taste-design</code>, <code>design-md</code>,
+      <code>site-md</code>, <code>enhance-prompt</code>, <code>extract-static-html</code>,
+      <code>shadcn-ui</code>.</p>
+      <p class="ev"><b>Поправка к плану:</b> проверять результат предполагалось через
+      <code>chrome-devtools-mcp</code>. Это противоречит вашему собственному правилу — «любые
+      браузерные задачи только <code>agent-browser</code>». Плагин остаётся выключенным, а проверку
+      вёрстки делает <code>agent-browser</code>, у которого для этого есть ровно нужное:
+      <code>a11y</code> (аудит axe-core), <code>vitals</code> (LCP/CLS/INP) и
+      <code>diff screenshot --baseline</code> (визуальная регрессия).</p>
+    </div>
+
+    <div class="claim">
+      <h3>Вход 3. Скилл design встроен, а дистрибуция становится двухканальной</h3>
+      <p>Скилл <code>design</code> («design canvas — multi-artboard visual design published as an
+      Artifact») поставляется <em>вместе с бинарём Claude Code</em>. В <code>~/.claude/skills</code>
+      его нет, клонировать и устанавливать нечего. Прямое следствие для раздела 08: <b>своего
+      дизайн-скилла в плагине ELT не заводим</b> — он дублировал бы встроенный.</p>
+      <p>Экосистема <code>npx plugins</code> / <code>npx skills</code> — та же, через которую ставится
+      <code>stitch-skills</code>, — проверена командами: <code>plugins add · discover · targets</code>
+      с областями <code>user | project | local</code> и целями <code>claude-code</code>,
+      <code>cursor</code> и другими; <code>skills add · use · list · find · update · init</code>,
+      установка сразу в несколько агентов (<code>-a</code>), <code>--copy</code> вместо симлинков
+      и <code>skills-lock.json</code> для воспроизводимости.</p>
+      <p class="ev"><b>Что это меняет в разделе 08:</b> у релиза появляется второй канал. Тот же
+      репозиторий, размеченный по формату open-plugin, ставится и в Claude Code
+      (<code>claude plugin install</code>), и в Codex, Cursor, OpenCode
+      (<code>npx plugins add &lt;owner&gt;/elt</code>) — без отдельного сборочного шага и без
+      зеркалирования скилов по трём каталогам, чем сейчас занят
+      <code>sync-agent-surface.js</code>. Ещё один довод удалить его в фазе 3.</p>
+    </div>
+
+    <div class="claim">
+      <h3>Вход 4. Деньги: считать надо не долларами, а токенами</h3>
+      <p><code>--max-budget-usd</code> в 2.1.239 существует и делает ровно то, что обещает:
+      «maximum dollar amount to spend on <b>API calls</b>», и <b>только вместе с
+      <code>--print</code></b>. Работа идёт по подписке, а не по API-ключу — значит рычагом бюджета
+      в нашем контуре этот флаг не является. Он остаётся полезен ровно в одном месте: headless-прогон
+      в CI, если там когда-нибудь появится ключ.</p>
+      <p><b>Зато сам пробел закрыт.</b> Поля <code>usage</code> в логах дают раскладку, которой
+      в первой редакции не было — там стояло одно смешанное число «3,57 млрд входных»:</p>
+      <div class="readout">
+        <div class="cell"><b>103,4 млн</b><span>запись в кеш</span></div>
+        <div class="cell"><b>23,6 млн</b><span>вывод модели</span></div>
+        <div class="cell"><b>3,12 млрд</b><span>чтение из кеша</span></div>
+        <div class="cell"><b>30,2×</b><span>множитель перечитывания</span></div>
+      </div>
+      <p>Множитель — главное число здесь. Каждый токен, попавший в контекст, потом перечитывается
+      в среднем <span class="num">30</span> раз. Поэтому лишний вывод инструмента стоит не один раз,
+      а тридцать, и поэтому «новых токенов» — запись в кеш плюс вывод, <span class="num">127,0</span> млн
+      за две недели — правильная единица расхода лимита подписки. По опубликованной шкале Opus это
+      порядка <span class="num">$8,4 тыс.</span> за две недели: <b>шкала, а не счёт</b> — часть
+      вызовов шла на haiku и sonnet, где цена ниже.</p>
+      <p class="ev"><b>Флаги, которые действительно входят в дизайн v5:</b>
+      <code>--json-schema</code> — вердикт судьи структурой, а не разбором текста;
+      <code>--agents</code> — пять линз ревью одним флагом, без файлов в репозитории;
+      <code>--include-hook-events</code> и <code>--forward-subagent-text</code> — система видит
+      собственную работу и пишет её в реестр; <code>--worktree</code> — изоляция вместо самодельного
+      <code>fleet/worktree.js</code>; <code>--bg</code> — фон вместо <code>elt-verify-bg</code>;
+      <code>--exclude-dynamic-system-prompt-sections</code> — прямое уменьшение того самого
+      множителя 30,2×; <code>--safe-mode</code> — диагностика, которая нужна уже сейчас: на
+      <code>PreToolUse</code> висят четыре сторонних хука.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 12 -->
+<section id="honest">
+  <div class="shead"><span class="n">12</span><h2>Чего я не подтвердил</h2></div>
+  <p class="sub">Разделять доказанное и предполагаемое — часть работы. Ниже то, что в основание
+  концепции не заложено.</p>
+
+  <div class="caveat">
+    <h3>Отброшено при проверке</h3>
+    <ul>
+      <li><strong>Часть «дефектов харнеса» ими не является.</strong> Ошибки вида «PowerShell-синтаксис
+      в bash» — это ручной ввод через <code>!</code> в терминале, а блокировка <code>.env</code> —
+      политика рабочих каталогов самого Claude Code. К ELT отношения не имеют, из реестра исключены.</li>
+      <li><strong>«Ошибок в чужих проектах в 3,5 раза больше»</strong> — арифметика не сходится:
+      0,4 против 0,61 на реплику, и это разные знаменатели. Утверждение снято.</li>
+      <li><strong>Пакет <code>@chrome/mcp-server</code> не существует</strong> — проверено через npm.
+      Правильное имя <code>chrome-devtools-mcp</code>. Такие имена в плане перепроверены поштучно.</li>
+      <li><strong>Ошибка первой редакции, исправлена:</strong> я написал, что MCP-сервера у Stitch
+      нет. Он есть — удалённый, настраивается на сайте Google, плюс официальная библиотека скилов
+      <code>google-labs-code/stitch-skills</code>. Вывод «дизайн без Stitch» отменён.</li>
+    </ul>
+  </div>
+
+  <div class="caveat">
+    <h3>Не измерено — и потому не обещано</h3>
+    <ul>
+      <li><strong>Абсолютная стоимость в деньгах.</strong> Токены теперь разложены точно (раздел 11), но
+      работа идёт по подписке, а не по API-ключу, поэтому счёта в долларах не существует — есть только
+      расход лимита. Долларовый эквивалент приведён как шкала, не как счёт.</li>
+      <li><strong>Генерация в Stitch.</strong> Сервер поднят и опрошен, 15 инструментов перечислены,
+      но ни один экран через него не сгенерирован — контур проверен до вызова, не после.</li>
+      <li><strong>rtk внутри живой сессии.</strong> Хук в <code>settings.json</code> не ставился;
+      экономия измерена воспроизведением того же <code>rtk rewrite</code>, который вызвал бы хук.</li>
+      <li><strong>Путь через <code>agy</code>.</strong> В этой сессии Antigravity живьём не запускался;
+      мост в v5 спроектирован, но не проверен прогоном.</li>
+      <li><strong>Замена оракула на Stryker</strong> (задача T013 в текущем плане) не оценивалась —
+      осталась за рамками.</li>
+      <li><strong><code>codebase-memory-mcp</code></strong> (39 846★, коммит сегодня) выглядит
+      сильным кандидатом, но на Windows я его не проверял. Первым выбором ставлю <code>serena</code>
+      именно потому, что он официальный плагин и уже стоит на машине.</li>
+      <li><strong>Цель «доля коммитов ≥ 80%»</strong> — проектная, а не измеренная. Проверяется
+      только прогоном фазы 1 в течение недели.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <p>Основание: 383 сессионных лога Claude Code за 8–22 августа 2026 (368 с данными, 12 047 вызовов
+  инструментов, 6 930 shell-команд); три полевых отчёта по харнесу; инвентаризация 31 752 строк
+  в <code>tools/</code>; локальная установка Claude Code 2.1.239 и её официальный маркетплейс;
+  проверка апстримов через <code>gh repo view</code> 22.08.2026. Раздел 11 добавлен после живых
+  прогонов на этой машине: <code>rtk 0.45.0</code> из релизного бинаря против 6 700 собственных
+  shell-команд, MCP-хендшейк со Stitch, <code>npx plugins</code> и <code>npx skills</code>, полный
+  список флагов <code>claude --help</code>. Числа, отмеченные как измеренные,
+  воспроизводятся командами, приведёнными рядом с ними.</p>
+</footer>
+
+</div>
