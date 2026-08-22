@@ -10,10 +10,18 @@ const { execFileSync } = require('node:child_process');
 
 const ELT = path.join(__dirname, 'elt.js');
 
+function git(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' });
+}
+
 function specRepo(eol) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'approval-eol-'));
   const dir = path.join(root, 'specs', '011-x');
   fs.mkdirSync(dir, { recursive: true });
+  // 018 T003: подпись — это коммит, поэтому фикстуре нужен настоящий репозиторий.
+  git(root, ['init', '-q']);
+  git(root, ['config', 'user.email', 'test@example.com']);
+  git(root, ['config', 'user.name', 'Test']);
   const write = (name, text) => fs.writeFileSync(path.join(dir, name), text.replace(/\n/g, eol));
   write('spec.md', ['# спека', '## Проблема', 'п', '## Решения', 'р', '## User stories', 'u',
     '## Критерии приёмки', '- **AC1.** критерий', '## Риски', 'риск', '## Вне scope', 'вне', ''].join('\n'));
@@ -31,12 +39,14 @@ function status(root, dir) {
 test('approval переживает смену перевода строк: LF-подпись валидна на CRLF-чекауте', () => {
   const lf = specRepo('\n');
   execFileSync('node', [ELT, 'spec', 'approve', '--spec', lf.dir], { cwd: lf.root, encoding: 'utf8' });
-  const approval = fs.readFileSync(path.join(lf.dir, 'approval.json'), 'utf8');
   assert.equal(status(lf.root, lf.dir).status, 'approved');
+  const signature = git(lf.root, ['log', '-1', '--format=%B']);
 
   // тот же контент, каким его отдаёт checkout при core.autocrlf=true — байты другие
   const crlf = specRepo('\r\n');
-  fs.writeFileSync(path.join(crlf.dir, 'approval.json'), approval);
+  git(crlf.root, ['add', '-A']);
+  git(crlf.root, ['commit', '-qm', 'spec']);
+  git(crlf.root, ['commit', '--allow-empty', '-m', signature]);
   assert.equal(status(crlf.root, crlf.dir).status, 'approved', 'CRLF-чекаут не должен делать approval stale');
 
   for (const r of [lf.root, crlf.root]) fs.rmSync(r, { recursive: true, force: true });

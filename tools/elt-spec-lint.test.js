@@ -69,14 +69,14 @@ test('spec approve: refuses to write approval.json when lint fails', () => {
   const root = fixture('# fixture spec\n\n## Проблема\ntest\n');
   const r = run(root, ['spec', 'approve']);
   assert.notEqual(r.status, 0);
-  assert.ok(!fs.existsSync(path.join(root, 'specs', '001-fixture', 'approval.json')), 'approve must not write approval.json when lint fails');
+  assert.ok(!git(root, ['log', '-1', '--format=%B']).includes('Spec-Approved:'), 'провал линта не должен оставлять подпись в истории');
 });
 
 test('spec approve: proceeds once lint passes', () => {
   const root = fixture(COMPLETE_SPEC_MD);
   const r = run(root, ['spec', 'approve']);
   assert.equal(r.status, 0, r.stderr.toString());
-  assert.ok(fs.existsSync(path.join(root, 'specs', '001-fixture', 'approval.json')));
+  assert.ok(git(root, ['log', '-1', '--format=%B']).includes('Spec-Approved: specs/001-fixture'), 'подпись ушла в трейлер коммита');
 });
 
 test('spec lint: missing spec.md fails closed with the full section list', () => {
