@@ -567,9 +567,15 @@ function appendRunLog(entry) {
   runLog.appendRunLog(cwd, entry);
 }
 function changedFiles() {
+  // `core.quotepath=false` обязателен: иначе git отдаёт путь с не-ASCII байтами в C-кавычках
+  // (`"\320\234\320\265..."`), и всё, что матчит имя строкой, промахивается — путь больше не
+  // начинается с `.planning/` и не оканчивается на `.md`. Живьём 2026-08-22: документная дверь
+  // (DOC_COMMIT_RE ниже) объявила кодом файл `Методология Agent Harness.md` и потребовала
+  // `--task`, то есть закрылась на единственном файле с кириллицей в имени.
+  const raw = ["-c", "core.quotepath=false"];
   return [...new Set([
-    ...git(['diff', '--name-only', 'HEAD']).out.split('\n'),
-    ...git(['ls-files', '--others', '--exclude-standard']).out.split('\n'),
+    ...git([...raw, 'diff', '--name-only', 'HEAD']).out.split('\n'),
+    ...git([...raw, 'ls-files', '--others', '--exclude-standard']).out.split('\n'),
   ].filter(Boolean))].sort();
 }
 function isCheckpointFile(file) {

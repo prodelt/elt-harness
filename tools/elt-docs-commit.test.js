@@ -56,3 +56,16 @@ test('есть код — без --task по-прежнему отказ, нич
   assert.match(r.stderr.toString(), /app\.js/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), before);
 });
+
+test('документ с не-ASCII именем — дверь открыта, а не объявлена кодом', () => {
+  const root = fixture();
+  // Кириллица в имени: git отдаёт такой путь в C-кавычках ("\320\234..."), и до 017 T005
+  // документная дверь видела имя, которое не оканчивается на `.md`, и требовала `--task`.
+  fs.writeFileSync(path.join(root, 'Методология.md'), '# метод\n');
+  const before = git(root, ['rev-parse', 'HEAD']);
+  const r = run(root, ['commit', '-m', 'docs: метод']);
+  assert.equal(r.status, 0, r.stderr.toString());
+  assert.notEqual(git(root, ['rev-parse', 'HEAD']), before, 'коммит обязан состояться');
+  const log = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n');
+  assert.equal(JSON.parse(log[log.length - 1]).status, 'docs-commit');
+});
