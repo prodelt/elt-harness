@@ -67,8 +67,22 @@ const IMPORT_RE = /(?:require\s*\(\s*|from\s+|import\s+)['"]([^'"]+)['"]/g;
 const CTX7_FRESH_DAYS = 30;
 function externalImports(diff) {
   const names = new Set();
+  // 017 T004: импорт считается ТОЛЬКО в кодовом файле. Заголовок ханка (`+++ b/path`)
+  // объявляет файл; до первого заголовка считаем кодом — юнит-вызовы передают голый
+  // фрагмент диффа без шапки. Живой блок 2026-08-22: документный коммит архива (11 `.md`,
+  // 2955 строк) остановлен на слове `vitest` из ЛИСТИНГА КОДА внутри field report.
+  // Документная дверь (`elt commit` без --task) сделана ровно для таких коммитов, но L0
+  // стоит ПЕРЕД ней, а external-import-no-ctx7 — единственный триггер, который сам выносит
+  // `block`, а не будит судью: одна строка в отчёте закрывала дверь целиком.
+  let inCode = true;
   for (const line of String(diff || '').split(/\r?\n/)) {
-    if (!line.startsWith('+') || line.startsWith('+++')) continue; // только ДОБАВЛЕННЫЕ строки
+    if (line.startsWith('+++')) {
+      const file = line.replace(/^\+\+\+\s*/, '').trim().replace(/^b\//, '');
+      inCode = file !== '/dev/null' && CODE_PATH.test(file);
+      continue;
+    }
+    // только ДОБАВЛЕННЫЕ строки кодовых файлов
+    if (!inCode || !line.startsWith('+')) continue;
     for (const m of line.matchAll(IMPORT_RE)) {
       const spec = m[1];
       // `@/…`, `~/…`, `#…` — path-алиасы (tsconfig paths, imports-поле package.json), не
