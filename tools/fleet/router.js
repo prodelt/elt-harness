@@ -13,7 +13,7 @@ const path = require('node:path');
 // agy: 'gemini-3.1-pro-preview' протух — live-fire 2026-07-22 (прогон 007) показал, что CLI
 // его больше не знает («invalid model selection»), и КАЖДЫЙ agy-воркер умирал за секунду.
 // Актуальное имя сверено с `agy models`.
-const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.6-flash-high' };
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.7-flash-high' };
 
 // T020: hard caps до spawn — Infinity = выключено (дефолт не ломает существующие прогоны,
 // caps включаются явно через fleet.json). maxMinutes считается от старта fleet.run().

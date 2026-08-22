@@ -602,7 +602,7 @@ if (cmd === 'init') {
   if (flag('--verify-provider') || flag('--verify-model')) {
     die('elt init: --verify-provider/--verify-model удалены в ELT v3; используется один независимый judge', 4);
   }
-  const JUDGE_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.6-flash-high' };
+  const JUDGE_MODELS = { claude: 'sonnet', codex: 'gpt-5.6-sol', agy: 'gemini-3.7-flash-high' };
   const judgeProvider = opt('--judge-provider', 'claude');
   const cfg = {
     kind: 'code',

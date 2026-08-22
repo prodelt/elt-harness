@@ -84,3 +84,6 @@ vendor/
 
 # oracle-cache (014 T001): рантайм-кэш попаданий по хешу замыкания, не исходник
 .harness/oracle-cache.json
+
+# рантайм-след прогонов fleet в tools/ (корневой .harness/ уже закрыт выше)
+tools/.harness/

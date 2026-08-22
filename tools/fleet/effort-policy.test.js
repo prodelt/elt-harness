@@ -104,7 +104,7 @@ process.stdin.on("data",(c)=>{s+=c}).on("end",()=>{
 
     assert.ok(fs.existsSync(capture), 'драйвер обязан дойти до вызова имплементатора');
     const { argv, prompt } = JSON.parse(fs.readFileSync(capture, 'utf8'));
-    assert.match(argv.join(' '), /--model gemini-3\.6-flash-high\b/, 'writer обязан идти через Antigravity с явной моделью');
+    assert.match(argv.join(' '), /--model gemini-3.7-flash-high\b/, 'writer обязан идти через Antigravity с явной моделью');
     assert.match(prompt, /\.gemini\\skills\\elt\\SKILL\.md/, 'agy должен явно прочитать ELT skill: сам он его не загружает');
     // Разведка названа полностью: зона через codegraph, рубрика (spec+constitution), тесты зоны.
     assert.match(prompt, /codegraph_context/, 'секция разведки обязана называть codegraph');
