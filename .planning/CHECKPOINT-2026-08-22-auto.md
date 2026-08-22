@@ -6,8 +6,8 @@
 ## Git
 - branch: `feature/judge-bench-parallel-oracle`
 - база сессии: `cd4ca2d`
-- слайсы спеки 017: `324bfb4` (T003), `76c40bb` (T001), `64b6047` (T002), `1d0ce81` (T004)
-  + документный коммит
+- слайсы спеки 017: `324bfb4` (T003), `76c40bb` (T001), `64b6047` (T002), `1d0ce81` (T004), `908920c` (T005), `567fed7` (T006)
+  + документный коммит `6ae062b`
 
 ## Last Run
 - oracle: exit 0 (T003 — 82/82 за 11 с на кэше замыкания; T001 — 40/82 impact за 300 с;
@@ -18,7 +18,7 @@
 - verdict: фоновая проверка (`verify: background`) запускалась после каждого коммита
 
 ## План
-- `specs/017-harness-fixes-backlog/tasks.md` — T001, T002, T003, T004 закрыты `[X]`
+- `specs/017-harness-fixes-backlog/tasks.md` — T001–T006 закрыты `[X]` (шесть задач)
 - вне спеки и остаётся в дереве: `tools/elt-gate-l0.js` (D13/D14/D15, без regression-тестов)
 
 ## Resume Prompt
