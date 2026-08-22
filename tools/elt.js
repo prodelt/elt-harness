@@ -234,7 +234,6 @@ function specPaths(specDir) {
   return {
     specMd: path.join(specDir, 'spec.md'),
     tasksMd: path.join(specDir, 'tasks.md'),
-    approvalJson: path.join(specDir, 'approval.json'),
   };
 }
 function readSpecHashes(specDir) {
@@ -257,9 +256,6 @@ function readSpecHashes(specDir) {
 // зона и появление новой задачи по-прежнему ломают подпись, и это правильно.
 function normalizeTasks(text) {
   return text.replace(/^(\s*[-*]\s*\[)[xX](\])/gm, '$1 $2');
-}
-function readApproval(specDir) {
-  try { return JSON.parse(fs.readFileSync(specPaths(specDir).approvalJson, 'utf8')); } catch { return null; }
 }
 // 018 T002: подпись спеки живёт в ИСТОРИИ, а не в рабочем дереве. D4 (9 отказов за один
 // полевой прогон 15.08): approval-guard читал файл основного дерева, а срез внутри
@@ -329,21 +325,14 @@ function specLint(specDir) {
 function specApprovalStatus(specDir) {
   const hashes = readSpecHashes(specDir);
   if (hashes.error) return { status: 'error', reason: hashes.error };
-  // 018 T002 поднимает трейлер как источник подписи и НЕ трогает ветку файла ниже: снятие
-  // `approval.json` — отдельный шаг (T005), а порядок спеки требует сперва поднять новое
-  // джерело істини и только потом убирать старое.
+  // 018 T004: единственный источник подписи — история. Рабочее дерево спрашивать не о чем:
+  // именно расхождение «файл основного дерева против файла worktree» и было D4.
   const trailers = readApprovalTrailers(specDir);
   const hit = trailers.find((t) => t.specHash === hashes.specHash && t.tasksHash === hashes.tasksHash);
   if (hit) return { status: 'approved', approvedAt: hit.approvedAt, approvedIn: hit.sha, source: 'trailer', ...hashes };
-  // Трейлер есть, но под другие хеши — это протухшая подпись, а не её отсутствие, и файл
-  // перебить её не может: иначе изменённый план проезжал бы гейт по забытому `approval.json`.
+  // Трейлер есть, но под другие хеши — это протухшая подпись, а не её отсутствие.
   if (trailers.length) return { status: 'stale', approvedAt: trailers[0].approvedAt, approvedIn: trailers[0].sha, source: 'trailer', ...hashes };
-  const approval = readApproval(specDir);
-  if (!approval) return { status: 'unapproved', ...hashes };
-  if (approval.specHash !== hashes.specHash || approval.tasksHash !== hashes.tasksHash) {
-    return { status: 'stale', approvedAt: approval.approvedAt, ...hashes };
-  }
-  return { status: 'approved', approvedAt: approval.approvedAt, ...hashes };
+  return { status: 'unapproved', ...hashes };
 }
 // 006 T002: entry gate. specDir here is the plan actually in play for the
 // caller (slice next's auto-selected plan, or the specific task's own spec
@@ -828,7 +817,7 @@ if (cmd === 'slice' && sub === 'next') {
       if (flag('--skip-approval')) {
         console.error(`elt slice next: --skip-approval (спека не утверждена: ${gate.status}, ${path.relative(cwd, gate.specDir)})`);
       } else {
-        die(`спека не утверждена: elt spec approve (status: ${gate.status}, ${path.relative(cwd, gate.specDir)})`, 4);
+        die(`спека не подписана: elt spec approve --spec ${path.relative(cwd, gate.specDir).split(path.sep).join('/')} (статус: ${gate.status})`, 4);
       }
     }
   }
@@ -1184,7 +1173,7 @@ if (cmd === 'commit') {
         approvalSkipped = true;
         console.error(`elt commit: --skip-approval (спека не утверждена: ${gate.status}, ${path.relative(cwd, gate.specDir)})`);
       } else {
-        die(`спека не утверждена: elt spec approve (status: ${gate.status}, ${path.relative(cwd, gate.specDir)})`, 4);
+        die(`спека не подписана: elt spec approve --spec ${path.relative(cwd, gate.specDir).split(path.sep).join('/')} (статус: ${gate.status})`, 4);
       }
     }
   }
@@ -1330,7 +1319,7 @@ console.log(`elt — ядро ELT v3 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt status [--spec specs/NNN-slug]                        git + план + последний прогон
   elt slice next [--json] [--count N] [--spec specs/NNN-slug]  следующая [ ] задача (--count N → N первых; exit 3 = план закрыт)
-  elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md (approval.json, идемпотентно)
+  elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md коммитом-трейлером (идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает

@@ -184,33 +184,30 @@ test('018 T002: подпись чужой спеки не засчитывает
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-// Два теста ниже фиксируют ГРАНИЦУ слайса: T002 только ДОБАВЛЯЕТ трейлер как источник и
-// ничего не отнимает у файла — снятие `approval.json` это T005, отдельный шаг спеки.
-// Без них ветка сосуществования осталась бы непокрытой, а «не тронул» — недоказанным.
-test('018 T002: одинокий approval.json без трейлера подписывает по-прежнему (снимет T005)', () => {
+// 018 T004 переворачивает эти два теста: пока трейлер поднимался (T002), файл рядом был
+// равноправной подписью. Теперь источник ровно один — история, — и `approval.json` не значит
+// ничего. Миграционной льготы нет намеренно: по реестру из 353 проектов живых файлов осталось
+// 7 директорий, и валидны они были лишь под старой хеш-функцией, которую T001 уже сменил.
+test('018 T004: одинокий approval.json больше НЕ подписывает спеку', () => {
   const { root, dir } = repoWithSpec();
   const s = status(root);
   fs.writeFileSync(path.join(dir, 'approval.json'), JSON.stringify({
     approvedAt: new Date().toISOString(), specHash: s.specHash, tasksHash: s.tasksHash,
-  }, null, 2) + '\n');
+  }, null, 2));
 
-  const after = status(root);
-  assert.equal(after.status, 'approved');
-  assert.equal(after.source, undefined, 'источник — файл, а не трейлер');
+  assert.equal(status(root).status, 'unapproved', 'файл рядом с планом подписью не является');
 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('018 T002: протухший трейлер перебивает свежий approval.json', () => {
+test('018 T004: свежий approval.json не чинит протухший трейлер', () => {
   const { root, dir } = repoWithSpec();
   const s = status(root);
   signByTrailer(root, { specHash: 'deadbeef'.repeat(8) });
   fs.writeFileSync(path.join(dir, 'approval.json'), JSON.stringify({
     approvedAt: new Date().toISOString(), specHash: s.specHash, tasksHash: s.tasksHash,
-  }, null, 2) + '\n');
+  }, null, 2));
 
-  // Файл не может «починить» подпись, которую история уже объявила протухшей: иначе
-  // забытый approval.json тихо проводил бы изменённый план через гейт.
   const after = status(root);
   assert.equal(after.status, 'stale');
   assert.equal(after.source, 'trailer');

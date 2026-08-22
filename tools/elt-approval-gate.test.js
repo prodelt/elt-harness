@@ -210,6 +210,28 @@ test('slice next --spec: targets one spec directly, unaffected by an earlier una
   assert.equal(result(passed).id, 'T001');
 });
 
+// 018 T004: подпись читается ЛИШЬ из истории. Эти два теста держат решение спеки «миграционной
+// льготы нет»: файл рядом с планом больше не пропуск, а отказ обязан нести КОМАНДУ, которой его
+// чинят, — иначе он выгоняет в ручной git commit, то есть мимо харнеса, что и есть корень D4.
+test('018 T004: одинокий approval.json больше не пускает через гейт', () => {
+  const root = fixture();
+  const st = JSON.parse(run(root, ['spec', 'status']).stdout.toString());
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'approval.json'), JSON.stringify({
+    approvedAt: new Date().toISOString(), specHash: st.specHash, tasksHash: st.tasksHash,
+  }));
+
+  const r = run(root, ['slice', 'next']);
+  assert.equal(r.status, 4, r.stderr.toString());
+});
+
+test('018 T004: отказ называет точную команду со --spec той спеки, из-за которой он пришёл', () => {
+  const root = fixture();
+  const r = run(root, ['slice', 'next']);
+  assert.equal(r.status, 4);
+  const err = r.stderr.toString();
+  assert.ok(err.includes('elt spec approve --spec specs/001-fixture'), err);
+});
+
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });
