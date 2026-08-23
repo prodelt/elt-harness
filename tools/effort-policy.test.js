@@ -11,7 +11,7 @@ const path = require('node:path');
 const { effortFor, IMPL_EFFORT, HEAL_EFFORT } = require('./effort-policy');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'effort-policy-'));
-const CLAUDE_INVOKE = path.join(__dirname, '..', 'claude-invoke.js');
+const CLAUDE_INVOKE = path.join(__dirname, 'claude-invoke.js');
 let ARGV_STUB;
 before(() => {
   ARGV_STUB = path.join(TMP, 'argv.js');
@@ -98,7 +98,7 @@ process.stdin.on("data",(c)=>{s+=c}).on("end",()=>{
   if(!fs.existsSync(${JSON.stringify(capture)})) fs.writeFileSync(${JSON.stringify(capture)},JSON.stringify({argv:process.argv.slice(2),prompt:s}));
   fs.appendFileSync(${JSON.stringify(path.join(repo, 'seed.txt'))},"impl\\n");console.log("stub");process.exit(0);});`);
 
-    spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, '..', 'elt-loop.ps1'),
+    spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, 'elt-loop.ps1'),
       '-Project', repo, '-Slices', '1', '-Batch', '1'],
     { cwd: repo, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
 
@@ -122,6 +122,6 @@ process.stdin.on("data",(c)=>{s+=c}).on("end",()=>{
   });
 
 test('T006: elt-loop.ps1 остаётся UTF-8 с BOM (PS 5.1 иначе читает кириллицу как mojibake)', () => {
-  const head = fs.readFileSync(path.join(__dirname, '..', 'elt-loop.ps1')).subarray(0, 3);
+  const head = fs.readFileSync(path.join(__dirname, 'elt-loop.ps1')).subarray(0, 3);
   assert.deepEqual([...head], [0xef, 0xbb, 0xbf]);
 });

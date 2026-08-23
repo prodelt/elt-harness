@@ -121,7 +121,7 @@ test('judge run: сработали триггеры → статус прежн
     runOk: true, verdict: 'pass', reasons: ['в границах'], judgeLog: 'log.txt',
     judges: [{ provider: 'agy', model: 'gemini', verdict: 'pass', runOk: true }],
     grounding: { filesReviewed: ['slice.txt'] }, redProof: null,
-    l0: { triggers: [{ name: 'hot-path', files: ['tools/fleet/gate.js'], reason: 'тронут горячий путь' }], judgeNeeded: true },
+    l0: { triggers: [{ name: 'hot-path', files: ['tools/judge-core.js'], reason: 'тронут горячий путь' }], judgeNeeded: true },
   });
   assert.equal(run(root, ['judge', 'run', '--task', 'T001', '--invoke', invoke]).status, 0);
   const tail = runLogTail(root);

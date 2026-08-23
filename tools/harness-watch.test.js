@@ -367,36 +367,6 @@ test('действия из закрытого списка: cooldown / park / j
   assert.equal(health.filter((r) => r.applied).length, 3, 'и подтверждено один раз');
 });
 
-// Остывает СЕРЕДИНА цепочки — единственный случай, где «маршрут в действии» и реальный
-// выбор fleet расходятся. Проверяем ФАКТИЧЕСКИЙ следующий выбор роутера после применения
-// решения настоящим fleet.applyWatchdog, а не поле действия: поле можно заполнить чем
-// угодно, оно на выбор не влияет.
-test('cooldown воркера: следующий выбор делает router.pick по приоритету цепочки', () => {
-  const root = fixture();
-  const router = require('./fleet/router');
-  const { applyWatchdog } = require('./fleet/fleet');
-  fs.mkdirSync(path.join(root, '.harness', 'fleet'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.harness', 'fleet', 'fleet.json'),
-    JSON.stringify({ policy: { S: ['agy', 'codex', 'claude'] }, default: ['agy', 'codex', 'claude'] }));
-  runlog(root, [
-    { tid: 'T001', provider: 'codex', limitHit: true },
-    { tid: 'T002', provider: 'codex', limitHit: true },
-  ]);
-  const [action] = runOnce(root).actions;
-  assert.equal(action.action, 'cooldown');
-  assert.equal(action.from, 'codex');
-
-  const routerState = router.makeState();
-  const policy = router.loadPolicy(root);
-  applyWatchdog([action], { cwd: root, routerState, policy, judgeProvider: 'agy', judgeModel: 'x', parked: new Set() });
-
-  const chain = router.chainFor('S', policy);
-  assert.deepEqual(chain, ['agy', 'codex', 'claude'], 'цепочка размера слайса, а не default');
-  assert.equal(router.pick(chain, routerState), 'agy',
-    'остывшая середина уступает ГОЛОВЕ цепочки: agy приоритетнее и здоров — «следующий по цепочке» здесь был бы ложью');
-  router.cool(routerState, 'agy', policy.cooldownSec);
-  assert.equal(router.pick(chain, routerState), 'claude', 'остыли двое — выбор идёт дальше по приоритету');
-});
 
 // Судья маршрутизируется по цепочке СУДЕЙ, а не воркеров: он в конфиге один и сам себя
 // не заменит, поэтому здесь маршрут обязан быть — из закрытого списка judge-провайдеров.
@@ -418,7 +388,7 @@ test('cooldown судьи: маршрут из цепочки судей, пар
 
 test('fallback судьи пропускает отсутствующий CLI и не выдумывает маршрут', () => {
   const root = fixture();
-  const providers = require('./fleet/providers');
+  const providers = require('./providers');
   const original = providers.available;
   try {
     providers.available = (provider) => provider === 'codex';
@@ -444,99 +414,7 @@ test('классы вне закрытого списка действий не 
 // ── T008: проводка. Детекторы без потребителя бесполезны, поэтому оба консьюмера
 // проверяются на РЕАЛЬНОМ коде: fleet — своей функцией применения, драйвер — прогоном.
 
-test('fleet уважает все три решения: cooldown, park, judge-fallback', () => {
-  const root = fixture();
-  const router = require('./fleet/router');
-  const { applyWatchdog } = require('./fleet/fleet');
-  const routerState = router.makeState();
-  const policy = router.loadPolicy(root);
-  const parked = new Set();
-  const judge = applyWatchdog([
-    { action: 'cooldown', subject: 'worker', reason: 'limit-streak', from: 'agy', to: null },
-    { action: 'park', subject: 'task', reason: 'red-repeat', from: 'T003', to: 'parked' },
-    { action: 'judge-fallback', reason: 'judge-dead-streak', from: 'agy', to: 'codex', toModel: 'gpt-5.6-sol' },
-  ], { cwd: root, routerState, policy, judgeProvider: 'agy', judgeModel: 'gemini-3.6-flash-high', parked });
 
-  assert.ok(router.inCooldown(routerState, 'agy'), 'провайдер ушёл в cooldown');
-  // Не только флаг состояния: СЛЕДУЮЩИЙ реальный выбор роутера обязан уйти по цепочке.
-  assert.notEqual(router.pick(['agy', 'codex', 'claude'], routerState), 'agy');
-  assert.ok(parked.has('T003'), 'задача выпала из батчей');
-  assert.equal(judge.provider, 'codex', 'судья переключён на остаток прогона');
-  assert.equal(judge.model, 'gpt-5.6-sol', 'вместе с моделью — чужая модель у нового провайдера = fatal config');
-
-  const events = fs.readFileSync(path.join(root, '.harness', 'fleet', 'events.jsonl'), 'utf8')
-    .trim().split('\n').map(JSON.parse).map((e) => e.event);
-  assert.deepEqual(events, ['watchdog-cooldown', 'watchdog-park', 'watchdog-judge-fallback']);
-});
-
-// Живой fleet-цикл, а не только helper: все три решения применяются САМИМ циклом между
-// батчами. Слайс с двумя красными прогонами не получает третьей попытки (и парковка
-// переживает прогон), лимитированный воркер уходит в cooldown, а судья, дважды мёртвый
-// В ФОРМАТЕ FLEET-LEDGER, заменяется — и заменённый провайдер виден в следующей записи фазы.
-// 016 T004: дедлайны в этом файле были 120 c (внутренний spawnSync — 110 c), а сам файл в
-// фоновой полосе молотил 118,0 c и 107,8 c — то есть зелёный тут держался на секундах запаса и
-// под нагрузкой срывался бы в СВОЙ таймаут, а не в реальную ошибку. Запас поднят до 300/280 c.
-// Это не ослабление проверки: таймаут ловит зависание, а не медленную машину, и ни один assert
-// не тронут.
-test('fleet между батчами: park + cooldown + judge-fallback применяются живым циклом', { timeout: 300000 }, async () => {
-  const fleet = require('./fleet/fleet');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-watch-fleet-'));
-  roots.push(root);
-  const g = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
-  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
-  fs.mkdirSync(path.join(root, 'specs'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'specs', 'tasks.md'),
-    '- [ ] **T1** пишет a [P] [files:a*]\n- [ ] **T2** пишет b [P] [files:b*]\n');
-  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code', oracle: 'node --version', shell: process.platform === 'win32' ? 'powershell' : 'bash',
-    branchPolicy: 'feature', push: false, judge: { enabled: true, model: 'sonnet' },
-  }));
-  const judgeStub = path.join(root, 'judge-pass.js');
-  fs.writeFileSync(judgeStub, "console.log('{\"verdict\":\"pass\",\"reasons\":[\"stub\"]}');");
-  g(['add', '-A']); g(['commit', '-q', '-m', 'base']);
-  runlog(root, [
-    { task: 'T1', result: 'red-stop', oracle: { exit: 1 } },
-    { task: 'T1', result: 'red-stop', oracle: { exit: 1 } },
-    { tid: 'T0', provider: 'agy', limitHit: true },
-    { tid: 'T0', provider: 'agy', limitHit: true },
-    // Именно fleet-формат мёртвого судьи — как его пишет logSpawn, а не синтетика драйвера.
-    { tid: 'T0', phase: 'judge', provider: 'claude', verdict: 'judge-unavailable' },
-    { tid: 'T0', phase: 'judge', provider: 'claude', verdict: 'judge-unavailable' },
-  ]);
-
-  const touched = [];
-  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', judgeStub]);
-  process.env.FLEET_BIN_CODEX = JSON.stringify(['node', judgeStub]); // судья после фолбэка
-  try {
-    await fleet.run({
-      cwd: root, tasksPath: path.join(root, 'specs', 'tasks.md'), integration: 'main', workers: 1,
-      // 009 T009: стаб отвечает по контракту воркера (заявка о файлах), иначе attest
-      // режет его как no-attestation и цикл до watchdog-решений не доходит.
-      worker: async (slice, wtPath) => {
-        touched.push(slice.id);
-        fs.writeFileSync(path.join(wtPath, `${slice.id}.txt`), 'x\n');
-        return { ok: true, exit: 0, stdout: JSON.stringify({ filesChanged: [`${slice.id}.txt`], testsAdded: [] }) };
-      },
-    });
-  } finally { delete process.env.FLEET_BIN_CLAUDE; delete process.env.FLEET_BIN_CODEX; }
-
-  assert.ok(!touched.includes('T1'), `T1 не должен получить третью попытку, а получил: ${touched.join(',')}`);
-  const events = fs.readFileSync(path.join(root, '.harness', 'fleet', 'events.jsonl'), 'utf8');
-  assert.match(events, /"watchdog-park"/);
-  assert.match(events, /"watchdog-cooldown"/, 'лимит воркера обязан применяться самим циклом');
-  assert.match(events, /"watchdog-judge-fallback"/, 'мёртвый в fleet-формате судья обязан быть заменён циклом');
-  const parkedFile = path.join(root, '.harness', 'parked.json');
-  assert.ok(fs.existsSync(parkedFile), 'парковка обязана пережить прогон, а не жить в памяти');
-  assert.equal(JSON.parse(fs.readFileSync(parkedFile, 'utf8'))[0].tid, 'T1');
-
-  // Фолбэк не просто объявлен: СЛЕДУЮЩИЙ реальный вызов судьи в этом прогоне уходит новому
-  // провайдеру — видно в ledger-записи фазы judge, которую пишет сам цикл.
-  const ledger = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8')
-    .trim().split('\n').map(JSON.parse).filter((e) => e.phase === 'judge' && e.verdict !== 'judge-unavailable');
-  assert.ok(ledger.length && ledger.every((e) => e.provider === 'codex'),
-    `судья прогона обязан стать фолбэк-провайдером: ${JSON.stringify(ledger)}`);
-});
 
 test('драйвер паркует задачу по решению watchdog, не запуская имплементатора', { timeout: 300000 }, () => {
   const root = fixture({ specApproval: false, codegraphGuard: false, judge: { enabled: true, provider: 'agy', model: 'gemini-3.6-flash-high' } });
@@ -706,3 +584,9 @@ test('--once: exit 1 пока инцидент в окне (в т.ч. на по�
   runlog(healthy, [{ task: 'T001', commit: 'abc' }]);
   assert.equal(spawnSync(process.execPath, [WATCH, '--once'], { cwd: healthy, encoding: 'utf8' }).status, 0);
 });
+
+
+// 019 T006: снято три кейса — они проверяли fleet.applyWatchdog (cooldown воркера, park,
+// judge-fallback между батчами). Оркестратор удалён вместе с fleet/, предмета проверки
+// больше нет. Сами решения watchdog (что он их ВЫДАЁТ) проверяются кейсами выше — снят
+// только слой «как их применял оркестратор».

@@ -93,13 +93,6 @@ test('проводка solo: без judge в harness.json → claude/sonnet (о�
   assert.ok(argv.includes('-p'), 'claude headless-флаг');
 });
 
-test('проводка fleet: run() берёт судью из harness.json (не литерал claude)', async () => {
-  // fleet.run без плана завершится сразу, но judgeProvider резолвится ДО этого — проверяем
-  // сам резолв через ту же функцию, которой пользуется fleet.js (импорт-контракт).
-  const repo = makeRepo({ enabled: true, provider: 'codex', model: 'gpt-5.6-sol' });
-  const fleetSrc = fs.readFileSync(path.join(__dirname, 'fleet', 'fleet.js'), 'utf8');
-  assert.match(fleetSrc, /judgeSettings\(cwd\)/, 'fleet.js обязан читать harness.json');
-  assert.match(fleetSrc, /opts\.judgeProvider \|\| judgeCfg\.provider/, 'явный opts побеждает конфиг');
-  assert.doesNotMatch(fleetSrc, /phase: 'judge', provider: 'claude'/, 'ledger не должен врать про провайдера');
-  assert.deepEqual(judgeSettings(repo.root), { provider: 'codex', model: 'gpt-5.6-sol' });
-});
+// 019 T006: кейс «проводка fleet: run() берёт судью из harness.json» снят вместе с fleet.js.
+// Он читал ИСХОДНИК оркестратора; оркестратора нет. Сам резолв провайдера (judgeSettings
+// вместо литерала «claude») проверяют кейсы выше — они зовут функцию, а не грепают файл.

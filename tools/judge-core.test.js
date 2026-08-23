@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const gate = require('./gate');
+const gate = require('./judge-core');
 
 // --- parseVerdict: чистая функция, REJECT-default ---
 test('parseVerdict: JSON/проза → verdict, иначе block', () => {
@@ -53,9 +53,9 @@ test('parseReasons: читает reasons из JSON-фолбэка', () => {
 test('parseReasons/parseFilesReviewed: квадратные скобки ВНУТРИ reason не обрезают ответ', () => {
   // Живой ложный block 2026-07-27 (009 T006, дважды подряд): regex `\[[^\]]*\]` рвался на
   // первой `]` внутри строки → reasons:[] → безусловный grounding:no-reasons на честном pass.
-  const out = 'проза судьи\n{"verdict":"pass","reasons":["эффорт по тегу [L]->max, [S]/[M]->high","в границах"],"filesReviewed":["gate.js","gate.test.js"]}';
+  const out = 'проза судьи\n{"verdict":"pass","reasons":["эффорт по тегу [L]->max, [S]/[M]->high","в границах"],"filesReviewed":["judge-core.js","judge-core.test.js"]}';
   assert.deepEqual(gate.parseReasons(out), ['эффорт по тегу [L]->max, [S]/[M]->high', 'в границах']);
-  assert.deepEqual(gate.parseFilesReviewed(out), ['gate.js', 'gate.test.js']);
+  assert.deepEqual(gate.parseFilesReviewed(out), ['judge-core.js', 'judge-core.test.js']);
   assert.equal(gate.checkGrounding('', gate.parseFilesReviewed(out), gate.parseReasons(out), __dirname), null,
     'честный ответ со скобками обязан проходить grounding-чек');
 });
@@ -577,4 +577,33 @@ test('019 T001: смесь шума и настоящей причины бло�
     diff: NOISE_DIFF, status: NOISE_STATUS });
   delete process.env.FLEET_BIN_CLAUDE;
   assert.equal(r.verdict, 'block', 'настоящая причина в списке — блок остаётся');
+});
+
+// 019 T006 — НЕОТСЛЕЖИВАЕМАЯ ветка нормализации, которой не было теста.
+//
+// У отката два режима, и они не симметричны: отслеживаемый файл возвращается к base
+// (`git checkout base -- <path>`), а неотслеживаемый вернуть НЕЧЕМ — его можно только
+// снести. Для состояния прогона снос правильный. Для КОНФИГА гейта — нет: снести
+// `.harness/harness.json` значит оставить следующий шаг (оракул) без конфига, и это
+// поймано живьём — шесть тестов легли на `stage: oracle` с пустым выводом.
+test('019 T006: неотслеживаемый конфиг гейта не сносится, состояние прогона — сносится', () => {
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'norm-untracked-'));
+  const g = (a) => execFileSync('git', a, { cwd: wt, encoding: 'utf8' });
+  g(['init', '-q']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  fs.writeFileSync(path.join(wt, 'seed.txt'), 'seed\n');
+  g(['add', '-A']); g(['commit', '-q', '-m', 'seed']);
+  const base = g(['rev-parse', 'HEAD']).trim();
+
+  // оба файла НЕотслеживаемые и оба вне зоны слайса
+  fs.mkdirSync(path.join(wt, '.harness', 'loop-logs'), { recursive: true });
+  fs.writeFileSync(path.join(wt, '.harness', 'harness.json'), '{"kind":"code"}');
+  fs.writeFileSync(path.join(wt, '.harness', 'review-queue.jsonl'), '{}\n');
+
+  gate.normalizeWorktree(wt, base, ['src/**']);
+
+  assert.equal(fs.existsSync(path.join(wt, '.harness', 'harness.json')), true,
+    'конфиг гейта не сносится: вернуть его к base нечем, а без него не запустится оракул');
+  assert.equal(fs.existsSync(path.join(wt, '.harness', 'review-queue.jsonl')), false,
+    'состояние прогона воркер писать не имел права — сносится');
+  fs.rmSync(wt, { recursive: true, force: true });
 });

@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const gate = require('./fleet/gate');
+const gate = require('./judge-core');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-grounding-'));
 
@@ -287,7 +287,7 @@ test('slurpDiff: дефолтный DIFF_CAP показывает 60K-дифф �
 
   // Override читается из env при загрузке модуля — проверяем в отдельном процессе.
   const out = execFileSync(process.execPath, ['-e',
-    `const g=require(${JSON.stringify(path.resolve('tools/fleet/gate.js'))});` +
+    `const g=require(${JSON.stringify(path.resolve('tools/judge-core.js'))});` +
     `const r=g.slurpDiff(${JSON.stringify(root)});` +
     `console.log(JSON.stringify({len:r.diff.length,cut:/файл обрезан/.test(r.diff)}));`],
   { encoding: 'utf8', env: { ...process.env, JUDGE_DIFF_CAP: '3000' } });

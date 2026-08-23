@@ -19,8 +19,8 @@
 // кавычек внутри.
 const fs = require('node:fs');
 const path = require('node:path');
-const { run, DEFAULT_TIMEOUT_MS } = require('./fleet/providers');
-const { effortFor } = require('./fleet/effort-policy');
+const { run, DEFAULT_TIMEOUT_MS } = require('./providers');
+const { effortFor } = require('./effort-policy');
 
 async function main() {
   const descPath = process.argv[2];

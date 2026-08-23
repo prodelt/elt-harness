@@ -230,7 +230,7 @@ function detectCircuitOff(root, config) {
 // agy (он приоритетнее и здоров), а не заявленный claude.
 function hasWorkerAlternative(root, provider) {
   try {
-    const { loadPolicy } = require('./fleet/router');
+    const { loadPolicy } = require('./judge-router');
     const pol = loadPolicy(root);
     const all = [...Object.values(pol.policy || {}).flat(), ...(pol.default || [])];
     return all.some((p) => p !== provider);
@@ -242,7 +242,7 @@ function hasWorkerAlternative(root, provider) {
 function fallbackJudge(root, config, current) {
   try {
     const { JUDGE_PROVIDERS } = require('./elt-config'); // Set, не массив
-    const { available } = require('./fleet/providers');
+    const { available } = require('./providers');
     const to = [...JUDGE_PROVIDERS].find((p) => p !== current && available(p)) || null;
     return to ? { to, toModel: modelFor(root, to) } : null;
   } catch { return null; }
@@ -250,7 +250,7 @@ function fallbackJudge(root, config, current) {
 
 function modelFor(root, provider) {
   try {
-    const { loadPolicy, modelFor: pick } = require('./fleet/router');
+    const { loadPolicy, modelFor: pick } = require('./judge-router');
     return pick(provider, loadPolicy(root)) || null;
   } catch { return null; }
 }

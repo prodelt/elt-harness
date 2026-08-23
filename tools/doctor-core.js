@@ -16,9 +16,7 @@ const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const { resolveBinary, scannerVersion } = require('./skill-scan');
 const { inspectProject } = require('./project-bootstrap');
-const fleetClaims = require('./fleet/claims');
-const fleetWorktree = require('./fleet/worktree');
-const fleetRouter = require('./fleet/router');
+const fleetRouter = require('./judge-router');
 // ponytail: normalizePath/projectKey were the only live imports from the retired
 // pipeline-state module (spec 005 T019) — inlined; the module is deleted.
 function normalizePath(value) {
@@ -896,27 +894,27 @@ function checkGitWorkflowAudit(root, now = new Date()) {
 // T013 (004-elt-selfdrive): единый self-drive-обзор — effort-эскалация (T004) и
 // judge-liveness-инвариант (T002) раньше были проверяемы только юнит-тестами fleet-модулей,
 // не видны в обычном `node tools/doctor.js`. Статическая проверка "на месте" (файл несёт
-// ожидаемый контракт), не рантайм-вызов — те же fleet/effort-policy.js и fleet/gate.js,
+// ожидаемый контракт), не рантайм-вызов — те же effort-policy.js и judge-core.js,
 // которыми реально пользуются driver'ы, требовать require заново было бы дублированием.
 function checkSelfDriveInvariants() {
   const checks = [];
 
   let effortOk = false;
-  try { effortOk = typeof require('./fleet/effort-policy').effortFor === 'function'; } catch { effortOk = false; }
+  try { effortOk = typeof require('./effort-policy').effortFor === 'function'; } catch { effortOk = false; }
   checks.push(effortOk
     ? result('pass', 'selfdrive:effort', 'Self-drive: effort-политика активна',
-      'fleet/effort-policy.js: effortFor(phase) — impl=high, heal=max')
+      'effort-policy.js: effortFor(phase) — impl=high, heal=max')
     : result('warn', 'selfdrive:effort', 'Self-drive: effort-policy сломан/отсутствует',
-      'tools/fleet/effort-policy.js', 'T004 (specs/004-elt-selfdrive) — эскалация self-heal на max'));
+      'tools/effort-policy.js', 'T004 (specs/004-elt-selfdrive) — эскалация self-heal на max'));
 
-  const gateRead = readText(path.join(__dirname, 'fleet', 'gate.js'));
+  const gateRead = readText(path.join(__dirname, 'judge-core.js'));
   const gateSrc = gateRead.ok ? gateRead.value : '';
   const judgeLivenessOk = /runOk\s*:\s*false/.test(gateSrc) && /judge_pending|judge-unavailable/.test(gateSrc);
   checks.push(judgeLivenessOk
     ? result('pass', 'selfdrive:judge-liveness', 'Self-drive: judge-liveness-инвариант на месте',
-      'fleet/gate.js: runOk различает dead-judge (park) от реального block')
+      'judge-core.js: runOk различает dead-judge (park) от реального block')
     : result('warn', 'selfdrive:judge-liveness', 'Self-drive: judge-liveness-инвариант не найден',
-      'tools/fleet/gate.js', 'T002 (specs/004-elt-selfdrive) — пустой/timeout судья не должен маскироваться под block'));
+      'tools/judge-core.js', 'T002 (specs/004-elt-selfdrive) — пустой/timeout судья не должен маскироваться под block'));
 
   return checks;
 }
@@ -1048,43 +1046,15 @@ function checkLoopReady(home) {
   return [result(status, 'loop:ready', `Loop Ready score: ${score}/${LOOP_READY_ITEMS.length}`, detail, score < LOOP_READY_ITEMS.length ? 'Missing items are informational — see elt-loop SKILL.md.' : '')];
 }
 
-// Здоровье fleet-воркеров текущего проекта: залежавшиеся claims, брошенные worktrees,
-// доступность CLI провайдеров из политики. НЕ путать с runFleet/--fleet (тот = здоровье
-// парка ЗАРЕГИСТРИРОВАННЫХ проектов, 549f15a). Тихо, если проект не использует fleet.
-function checkFleetWorkers(root, runner = run) {
+// Доступность CLI провайдера судьи. Раньше функция звалась checkFleetWorkers и проверяла
+// ещё две вещи — залежавшиеся claims воркеров и брошенные worktrees. Обе умерли вместе с
+// оркестратором (019 T006): параллельность делают штатные субагенты Claude Code. Проверка
+// транспорта пережила его, потому что тем же транспортом ходит судья.
+function checkJudgeProviders(root, runner = run) {
   const fleetDir = path.join(root, '.harness', 'fleet');
   const hasPolicy = fs.existsSync(path.join(fleetDir, 'fleet.json'));
-  const claimsDir = path.join(fleetDir, 'claims');
-  // по claim-ФАЙЛАМ, не по пустой папке: сам read-чек (claims.stale) делает mkdir,
-  // так что пустая .fleet/claims/ не должна считаться признаком использования fleet.
-  const hasClaims = fs.existsSync(claimsDir) && fs.readdirSync(claimsDir).some((f) => f.endsWith('.json'));
-  const usesFleet = hasPolicy || hasClaims || fs.existsSync(path.join(fleetDir, 'events.jsonl'));
-  if (!usesFleet) return [];
-
+  if (!hasPolicy) return [];
   const checks = [];
-  // 1. залежавшиеся claims (pid воркера мёртв) — T013: doctor сам метёт (sweep — то же
-  // release, что делает resume-sweep перед fleet run), не только предупреждает; идемпотентно
-  // (второй прогон подряд не находит уже снятых claims).
-  let swept = [];
-  try { swept = fleetClaims.sweep({ cwd: root }); } catch { swept = []; }
-  checks.push(swept.length
-    ? result('pass', 'fleet:claims', `Fleet: ${swept.length} залежавшихся claim(ов) подметено`,
-      `мёртвые воркеры (claim снят): ${swept.join(', ')}`)
-    : result('pass', 'fleet:claims', 'Fleet: claims чисты', 'нет залежавшихся claims'));
-
-  // 2. брошенные worktrees (.fleet-wt без активного воркера)
-  let wts = [];
-  try { wts = fleetWorktree.list({ cwd: root }); } catch { wts = []; }
-  let active = new Set();
-  try { active = new Set(fleetClaims.list({ cwd: root }).filter((c) => !c.stale).map((c) => c.tid)); } catch { /* пусто */ }
-  const orphan = wts.filter((w) => !active.has(w.tid));
-  if (orphan.length) {
-    checks.push(result('warn', 'fleet:worktrees', `Fleet: ${orphan.length} брошенных worktree`,
-      orphan.map((w) => w.tid).join(', '), 'git worktree remove .fleet-wt/<Tid> --force (или fleet run приберёт)'));
-  } else if (wts.length) {
-    checks.push(result('pass', 'fleet:worktrees', 'Fleet: worktrees', 'брошенных нет'));
-  }
-
   // 3. CLI pre-flight — только при явной политике (fleet.json), чтобы не шуметь зря
   if (hasPolicy) {
     let policy;
@@ -1093,8 +1063,8 @@ function checkFleetWorkers(root, runner = run) {
     for (const p of provs) {
       const r = runner(p, ['--version'], root, 4000);
       checks.push(r && r.status === 0 && !r.error
-        ? result('pass', `fleet:cli:${p}`, `Fleet CLI ${p} доступен`, (r.output || '').split('\n')[0] || '')
-        : result('warn', `fleet:cli:${p}`, `Fleet CLI ${p} недоступен`,
+        ? result('pass', `fleet:cli:${p}`, `CLI судьи ${p} доступен`, (r.output || '').split('\n')[0] || '')
+        : result('warn', `fleet:cli:${p}`, `CLI судьи ${p} недоступен`,
           `провайдер в политике, но '${p} --version' не отвечает`,
           `установить/залогинить ${p} или убрать из .harness/fleet/fleet.json`));
     }
@@ -1184,7 +1154,7 @@ module.exports = {
   checkHarnessGlobal,
   checkGitWorkflowAudit,
   checkFleet,
-  checkFleetWorkers,
+  checkJudgeProviders,
   checkSelfDriveInvariants,
   runFleet,
   runDoctor,

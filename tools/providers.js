@@ -21,7 +21,7 @@ const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const router = require('./router');
+const router = require('./judge-router');
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const KILL_GRACE_MS = 3000;

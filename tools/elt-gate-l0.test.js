@@ -14,8 +14,8 @@ const path = require('node:path');
 
 const { verifySettings, readHarnessConfig } = require('./elt-config');
 const { evaluate, externalImports, DEFAULT_DIFF_SIZE } = require('./elt-gate-l0');
-const providers = require('./fleet/providers');
-const { runJudge } = require('./fleet/gate');
+const providers = require('./providers');
+const { runJudge } = require('./judge-core');
 
 const ROOT = path.join(__dirname, '..');
 const BENCH = path.join(ROOT, '.planning', 'JUDGE-BENCH-011-T001.json');
@@ -189,7 +189,7 @@ function testPathAliasesAreNotDependencies() {
 
 function testHotPath() {
   // Дефолтный список: гейт/авторизация/секреты.
-  assert.deepEqual(names(evaluate({ diff: diffFor('tools/fleet/gate.js', { removed: 1, added: 1 }), config: {} })), ['hot-path']);
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/judge-core.js', { removed: 1, added: 1 }), config: {} })), ['hot-path']);
   // Свой список из harness.json вытесняет дефолт целиком.
   const custom = evaluate({
     diff: diffFor('src/billing/charge.js', { removed: 1, added: 1 }),
@@ -198,14 +198,14 @@ function testHotPath() {
   assert.deepEqual(names(custom), ['hot-path']);
   assert.deepEqual(custom.triggers[0].files, ['src/billing/charge.js']);
   // ...и то, что было горячим по дефолту, при своём списке горячим быть перестаёт.
-  assert.deepEqual(names(evaluate({ diff: diffFor('tools/fleet/gate.js', { removed: 1, added: 1 }), config: { hotPaths: ['src/billing/**'] } })), []);
+  assert.deepEqual(names(evaluate({ diff: diffFor('tools/judge-core.js', { removed: 1, added: 1 }), config: { hotPaths: ['src/billing/**'] } })), []);
   // Абсолютный путь вне cwd (009 T014) обязан срезаться до репо-относительного.
   const external = evaluate({
-    diff: diffFor('C:/repo/tools/fleet/gate.js', { removed: 1, added: 1 }),
+    diff: diffFor('C:/repo/tools/judge-core.js', { removed: 1, added: 1 }),
     cwd: 'C:\\repo',
     config: {},
   });
-  assert.deepEqual(external.triggers[0].files, ['tools/fleet/gate.js']);
+  assert.deepEqual(external.triggers[0].files, ['tools/judge-core.js']);
 }
 
 function testDiffSize() {
@@ -307,13 +307,13 @@ function testOutOfScopeFiresOnFileOutsideZone() {
   const result = evaluate({
     diff: [
       diffFor('tools/widget.js', { removed: 1, added: 1 }),
-      diffFor('tools/fleet/router.js', { removed: 1, added: 1 }),
+      diffFor('tools/other-module.js', { removed: 1, added: 1 }),
     ].join('\n'),
     config: {},
     taskText: 'починить виджет [files: tools/widget.js]',
   });
   assert.deepEqual(names(result), ['out-of-scope']);
-  assert.deepEqual(result.triggers[0].files, ['tools/fleet/router.js']);
+  assert.deepEqual(result.triggers[0].files, ['tools/other-module.js']);
   assert.equal(result.judgeNeeded, true);
 }
 

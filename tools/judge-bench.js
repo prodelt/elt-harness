@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { judgeDiff } = require('./fleet/gate');
+const { judgeDiff } = require('./judge-core');
 const { cases } = require('./judge-bench/cases');
 
 function parseArgs(argv) {

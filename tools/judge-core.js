@@ -10,11 +10,11 @@ const os = require('node:os');
 const path = require('node:path');
 const providers = require('./providers');
 const exec = require('./exec');
-const plan = require('./plan');
-const router = require('./router');
-const { redProof, applyRedProof } = require('../red-proof');
-const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('../elt-gate-l0');
-const { isHarnessOwned, isIgnoredForReview, isHarnessManaged } = require('../harness-files');
+const plan = require('./judge-plan');
+const router = require('./judge-router');
+const { redProof, applyRedProof } = require('./red-proof');
+const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('./elt-gate-l0');
+const { isHarnessOwned, isIgnoredForReview, isHarnessManaged } = require('./harness-files');
 
 const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
 // 009 T010 (четыре замера на живом слайсе, причины у CLI РАЗНЫЕ — одной формулой не лечатся):
@@ -672,10 +672,17 @@ function normalizeWorktree(cwd, base, files) {
   for (const line of status.split(/\r?\n/)) {
     if (line.length < 4) continue;                     // "XY path" — минимум 4 символа
     const rel = line.slice(3).replace(/^"|"$/g, '').trim();
-    if (!rel || !isHarnessManaged(rel) || inScope(rel, files)) continue; // трогаем ТОЛЬКО харнесс-файлы вне явной зоны
+    if (!rel || inScope(rel, files)) continue;         // явная зона слайса неприкосновенна
+    const untracked = line.startsWith('??');
+    // 019 T006: у отката ДВА режима, и путать их нельзя. Неотслеживаемый файл откатить
+    // нечем — его можно только снести, поэтому сносим лишь СОСТОЯНИЕ прогона. Конфиг гейта
+    // в этом случае не трогаем вовсе: снести его значит оставить следующий шаг (оракул) без
+    // конфига, что и случилось живьём — шесть тестов упали на `stage: oracle` с пустым выводом.
+    const target = untracked ? isHarnessOwned(rel) : isHarnessManaged(rel);
+    if (!target) continue;
     // ponytail: rename в porcelain ("R old -> new") checkout не разберёт — редко; gitSilent молча мимо.
-    if (line.startsWith('??')) { try { fs.rmSync(path.join(cwd, rel), { force: true, recursive: true }); } catch { /* уже нет */ } }
-    else gitSilent(['checkout', base, '--', rel], cwd); // вернуть харнесс-файл к base
+    if (untracked) { try { fs.rmSync(path.join(cwd, rel), { force: true, recursive: true }); } catch { /* уже нет */ } }
+    else gitSilent(['checkout', base, '--', rel], cwd); // вернуть харнесс-файл (включая конфиг) к base
   }
 }
 
@@ -761,7 +768,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
     ...(redProofResult ? { redProof: redProofResult } : {}),
     ...(j.l0 ? { l0: j.l0 } : {}),
   }));
-  const replayBridge = path.join(__dirname, '..', 'judge-replay.js');
+  const replayBridge = path.join(__dirname, 'judge-replay.js');
   const proof = await exec.run('node', [elt, 'judge', 'run', '--task', tid, ...specArgsFor(specFile), '--invoke', replayBridge], {
     cwd, env: { ...process.env, ELT_JUDGE_REPLAY: replayPath },
   });

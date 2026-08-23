@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const gate = require('./gate');
+const gate = require('./judge-core');
 
 test('specArgsFor: путь к tasks.md → флаг --spec с ПАПКОЙ спеки', () => {
   // path.dirname сохраняет разделители входа — fleet отдаёт tasksPath как пришёл из CLI.
@@ -28,10 +28,6 @@ test('findSpecDir: одинаковый tid в двух спеках — specFil
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('fleet: все вызовы gate.gate несут specFile, а gate-reject несёт причину', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'fleet.js'), 'utf8');
-  const calls = src.match(/gate\.gate\(\{[^}]*\}\)/g) || [];
-  assert.ok(calls.length >= 3, `ожидалось ≥3 вызовов gate.gate, найдено ${calls.length}`);
-  for (const c of calls) assert.match(c, /specFile:\s*tasksPath/, `вызов без specFile: ${c.slice(0, 80)}`);
-  assert.match(src, /event: g\.ok \? 'gate-pass' : 'gate-reject'[^;]*err:/, 'gate-reject снова слепой — нет err');
-});
+// 019 T006: кейс «все вызовы gate.gate в fleet.js несут specFile» снят вместе с самим
+// fleet.js — оркестратора параллельных воркеров больше нет, а значит нет и вызовов, которые
+// он проверял. Проводку specFile у ЖИВОГО вызывающего держит tools/judge-invoke.test.js.

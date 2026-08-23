@@ -17,14 +17,14 @@ const CLOSURE = [
   'red-proof.js',
   'elt-config.js',
   'elt-gate-l0.js',   // 011 T003: gate.js требует его ДО судьи — без него мост мёртв в проектах
-  'harness-files.js', // 019 T001: elt-gate-l0.js и fleet/gate.js требуют его — единый список владения
+  'harness-files.js', // 019 T001: elt-gate-l0.js и judge-core.js требуют его — единый список владения
   'elt-oracle-select.js', // 011 T025: elt-gate-l0.js требует его для фан-ин (walkJs+dependents)
   'judge-replay.js',  // 011 T011: им fleet пишет proof тем же путём, что интерактив
-  path.join('fleet', 'gate.js'),
-  path.join('fleet', 'providers.js'),
-  path.join('fleet', 'exec.js'),
-  path.join('fleet', 'plan.js'),
-  path.join('fleet', 'router.js'),
+  'judge-core.js',    // 019 T006: бывший fleet/gate.js — судья пережил оркестратор
+  'providers.js',     // транспорт к claude/codex/agy: им ходит судья
+  'exec.js',
+  'judge-plan.js',
+  'judge-router.js',
 ];
 
 const ROOT_CLOSURE = [
@@ -38,7 +38,7 @@ const ROOT_CLOSURE = [
   'elt-brief.js',
   'harness-watch.js',
   'elt-verify-bg.js', // 014 T005: elt.js commit требует его лениво в verify:"background" ветке
-  // 014 T009: слои фона тянут мутатор (верхний require) и судью (ленивый require fleet/gate.js
+  // 014 T009: слои фона тянут мутатор (верхний require) и судью (ленивый require judge-core.js
   // со всем его замыканием). Без них deploy-копия падала MODULE_NOT_FOUND ДО открытия лога —
   // фон не стартовал вовсе, и это выглядело как «всё тихо», ровно та слепота, ради которой
   // написан T008. Поймано живым прогоном T009/T010, а не тестом: тесты требуют tools/ напрямую.
@@ -47,8 +47,8 @@ const ROOT_CLOSURE = [
   // репо-разработчика необязательно, а deploy-копия без этого файла падала бы ENOENT в spawn.
   'elt-harness-sync-all.js',
   ...CLOSURE,
-  path.join('fleet', 'providers.js'),
-  path.join('fleet', 'router.js'),
+  'providers.js',
+  'judge-router.js',
 ];
 
 const DEPRECATED_SHIMS = {

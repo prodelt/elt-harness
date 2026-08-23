@@ -9,10 +9,10 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const gate = require('./gate');
+const gate = require('./judge-core');
 
 const REPO = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-invoke-'));
-const BRIDGE = path.join(__dirname, '..', 'judge-invoke.js');
+const BRIDGE = path.join(__dirname, 'judge-invoke.js');
 const git = (args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8' });
 const stub = (name, body) => { const p = path.join(REPO, name); fs.writeFileSync(p, body); return p; };
 
