@@ -23,7 +23,7 @@ const {
   checkHarnessGlobal,
   checkJudgeBridge,
   checkFleet,
-  checkFleetWorkers,
+  checkJudgeProviders,
   checkSelfDriveInvariants,
   checkExoskeleton,
   runDoctor,
@@ -612,10 +612,10 @@ function testJudgeBridgeCheck() {
   for (const rel of JUDGE_BRIDGE_CLOSURE) write(path.join(root, 'tools', rel), `// ${rel}\n`);
   assert.equal(checkJudgeBridge(root, home)[0].status, 'pass', 'копия идентична репо');
 
-  write(path.join(root, 'tools', 'fleet', 'gate.js'), '// gate.js изменился в репо\n');
+  write(path.join(root, 'tools', 'judge-core.js'), '// judge-core.js изменился в репо\n');
   const drifted = checkJudgeBridge(root, home);
   assert.equal(drifted[0].status, 'warn', 'копия отстала от репо — WARN');
-  assert.match(drifted[0].detail, /gate\.js/, 'в детали видно, какой файл разъехался');
+  assert.match(drifted[0].detail, /judge-core\.js/, 'в детали видно, какой файл разъехался');
 
   // judge выключен — доктор не шумит про мост вовсе
   write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
@@ -733,35 +733,26 @@ function testFleetCheck() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-function testFleetWorkersCheck() {
-  // проект без fleet → тихо (пустой массив)
-  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-fleet-bare-'));
-  assert.deepEqual(checkFleetWorkers(bare), [], 'нет fleet → нет чеков');
+// 019 T006: было testFleetWorkersCheck и проверяло ТРИ вещи — подметание залежавшихся
+// claims воркеров, брошенные worktrees и доступность CLI. Первые две умерли вместе с
+// оркестратором: параллельность делают штатные субагенты Claude Code. Третья пережила его,
+// потому что тем же транспортом ходит судья, — тест сужен ровно до неё.
+function testJudgeProvidersCheck() {
+  // проект без политики провайдеров → тихо (пустой массив)
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-judge-bare-'));
+  assert.deepEqual(checkJudgeProviders(bare), [], 'нет политики → нет чеков');
   fs.rmSync(bare, { recursive: true, force: true });
 
-  // проект с политикой + залежавшийся claim + CLI pre-flight (инжект runner)
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-fleet-'));
-  require('node:child_process').execFileSync('git', ['init', '-q'], { cwd: root }); // worktree.list тихо
-  const claimsDir = path.join(root, '.harness', 'fleet', 'claims');
-  write(path.join(claimsDir, 'T1.json'), JSON.stringify({ tid: 'T1', pid: 2147480000, worker: 'ghost' }));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-judge-'));
   write(path.join(root, '.harness', 'fleet', 'fleet.json'), JSON.stringify({ default: ['claude'], policy: { S: ['codex'] } }));
   const fakeRunner = (cmd) => (cmd === 'claude' ? { status: 0, output: 'claude 2.1.0' } : { status: 1, error: 'not found' });
 
-  const checks = checkFleetWorkers(root, fakeRunner);
+  const checks = checkJudgeProviders(root, fakeRunner);
   const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
-  // T013: doctor сам метёт залежавшийся claim (sweep), не только предупреждает — pass, не warn.
-  assert.equal(byId['fleet:claims'].status, 'pass');
-  assert.match(byId['fleet:claims'].detail, /T1/);
-  assert.equal(fs.existsSync(path.join(claimsDir, 'T1.json')), false, 'claim-файл реально снят');
   assert.equal(byId['fleet:cli:claude'].status, 'pass', 'claude --version ок → pass');
   assert.equal(byId['fleet:cli:codex'].status, 'warn', 'codex недоступен → warn');
-
-  // идемпотентность: повторный прогон подряд не находит уже подметённых claims
-  const again = checkFleetWorkers(root, fakeRunner);
-  const againById = Object.fromEntries(again.map((c) => [c.id, c]));
-  assert.equal(againById['fleet:claims'].status, 'pass');
-  assert.match(againById['fleet:claims'].detail, /нет залежавшихся/);
-
+  // проверок ровно столько, сколько провайдеров в политике: claims и worktrees больше нет
+  assert.equal(checks.length, 2, 'лишних чеков не осталось');
   fs.rmSync(root, { recursive: true, force: true });
 }
 
@@ -769,7 +760,7 @@ function testSelfDriveInvariantsCheck() {
   const checks = checkSelfDriveInvariants();
   const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
   // T013: effort-политика (T004) и judge-liveness-инвариант (T002) реально на месте
-  // в этом репо (fleet/effort-policy.js, fleet/gate.js) — доктор их видит, не только тесты.
+  // в этом репо (effort-policy.js, judge-core.js) — доктор их видит, не только тесты.
   assert.equal(byId['selfdrive:effort'].status, 'pass', 'effort-policy.js на месте, effortFor — функция');
   assert.equal(byId['selfdrive:judge-liveness'].status, 'pass', 'gate.js несёт runOk-инвариант (dead-judge ≠ block)');
 
@@ -1117,7 +1108,7 @@ function testEltSelfhealMergeLib() {
 // T011 OPTIONAL (004-elt-selfdrive): полный ПОЗИТИВНЫЙ путь через реальный CLI
 // elt-selfheal.ps1 -AutoMerge (БЕЗ -DryRun) — watchdog → elt-loop.ps1 (impl → оракул →
 // судья → elt commit, авто-ветка) → merge в main. Живого claude не спавним: FLEET_BIN_CLAUDE
-// (существующий стаб-механизм tools/fleet/providers.js, уже используемый в gate.test.js/
+// (существующий стаб-механизм tools/providers.js, уже используемый в gate.test.js/
 // fleet.test.js) подменяет бинарник на node-стаб. Судья T011 (2-й проход) указал: тест на
 // саму функцию Invoke-SelfHealMerge доказывает механику, но НЕ доказывает, что гейт
 // elt-selfheal.ps1 реально дошёл до merge через полный CLI-путь под явным флагом — это
@@ -1262,7 +1253,7 @@ function main() {
   testHarnessGlobalCheck();
   testJudgeBridgeCheck();
   testFleetCheck();
-  testFleetWorkersCheck();
+  testJudgeProvidersCheck();
   testSelfDriveInvariantsCheck();
   testExoskeletonCheck();
   process.stdout.write('doctor tests: PASS\n');

@@ -64,9 +64,9 @@ test('D15/D19: владения харнеса не выносятся за зо
 
 // Главное, ради чего модуль вообще заведён: копий больше нет. Тест смотрит ИСХОДНИК обоих
 // потребителей — если кто-то заведёт локальный `function isHarnessOwned`, списки снова
-// разойдутся молча, ровно как это уже случилось между L0 и gate.js.
+// разойдутся молча, ровно как это уже случилось между L0 и судьёй.
 test('копий списка не осталось: оба потребителя зовут модуль', () => {
-  for (const rel of ['elt-gate-l0.js', path.join('fleet', 'gate.js')]) {
+  for (const rel of ['elt-gate-l0.js', 'judge-core.js']) {
     const src = fs.readFileSync(path.join(__dirname, rel), 'utf8');
     assert.ok(/require\((['"])\.\.?\/?harness-files\1\)/.test(src), `${rel} обязан звать harness-files`);
     assert.ok(!/function\s+isHarnessOwned\s*\(/.test(src), `${rel} держит собственную копию списка`);
@@ -86,7 +86,7 @@ test('модуль остаётся листом замыкания судьи',
 // который держится ТОЛЬКО на таких файлах, понижается до inconclusive: причина не теряется,
 // коммит не встаёт. Проверка идёт в обе стороны — настоящий блок обязан выжить.
 test('D19: блок только по файлам харнеса — не блок', () => {
-  const { reasonsAreNoiseOnly } = require('./fleet/gate');
+  const { reasonsAreNoiseOnly } = require('./judge-core');
   assert.equal(reasonsAreNoiseOnly(['scope creep: изменён .harness/review-queue.jsonl вне зоны']), true);
   assert.equal(reasonsAreNoiseOnly(['дифф раздут: package-lock.json 694 строки']), true);
   assert.equal(reasonsAreNoiseOnly(['tools/elt.js: проглочена ошибка в catch']), false);
@@ -111,7 +111,7 @@ test('конфиг гейта — не владение харнеса', () => {
 });
 
 test('D19: блок по конфигу гейта не снимается', () => {
-  const { reasonsAreNoiseOnly } = require('./fleet/gate');
+  const { reasonsAreNoiseOnly } = require('./judge-core');
   assert.equal(reasonsAreNoiseOnly(['.harness/harness.json: redProof выключен']), false,
     'слайс, ослабляющий собственный гейт, обязан остаться заблокированным');
 });

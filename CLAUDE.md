@@ -12,7 +12,7 @@ Node.js 18+, PowerShell 5.1+, Git, Claude Code CLI, Codex CLI, Antigravity (`agy
 
 - `tools/elt.js` — єдиний CLI та гейти слайса.
 - `tools/elt-loop.ps1` — послідовний автономний драйвер `agy → oracle → поточний суддя → commit`.
-- `tools/fleet/providers.js` — спільний транспорт до Claude, Codex і `agy`.
+- `tools/providers.js` — спільний транспорт до Claude, Codex і `agy`; `tools/judge-core.js` — суддя.
 - `.harness/harness.json` — механічний oracle, smoke, impact-вибір і один judge.
 - `specs/*/{spec,tasks}.md` — затверджені плани; без `--spec` береться найновіший план.
 - `.planning/STATE.md` — живий стан; `PLAYBOOK.md` — коротка карта маршрутизації.

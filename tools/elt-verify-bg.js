@@ -188,7 +188,7 @@ async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile =
   const back = spawnSync('git', ['reset', '--soft', 'HEAD~1'], { cwd: wt, encoding: 'utf8' });
   if (back.status !== 0) return { verdict: 'dead', reasons: [`reset --soft не удался: ${back.stderr || back.stdout}`] };
   const cfg = harnessField(cwd, 'judge') || {};
-  const runJudge = judgeImpl || require('./fleet/gate').runJudge;
+  const runJudge = judgeImpl || require('./judge-core').runJudge;
   try {
     const r = await runJudge({
       cwd: wt, tid: taskId || commitHash, taskText: taskText || '',

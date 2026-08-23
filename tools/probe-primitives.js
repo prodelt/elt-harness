@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { claudeExe } = require('./fleet/providers');
+const { claudeExe } = require('./providers');
 
 const FLAG_CHECKS = [
   { id: '--session-id', re: /--session-id\s*<uuid>/ },

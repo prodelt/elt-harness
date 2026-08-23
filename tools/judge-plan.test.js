@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { parse, nextBatch, filesConflict } = require('./plan');
+const { parse, nextBatch, filesConflict } = require('./judge-plan');
 
 const MD = `
 # tasks — sample

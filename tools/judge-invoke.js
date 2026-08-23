@@ -16,7 +16,7 @@
 //   runOk:true, verdict  → реальный вердикт (pass|block, REJECT-default внутри gate)
 const fs = require('node:fs');
 const path = require('node:path');
-const { runJudge } = require('./fleet/gate');
+const { runJudge } = require('./judge-core');
 const { redProof, applyRedProof } = require('./red-proof');
 const { judgeSettings } = require('./elt-config');
 

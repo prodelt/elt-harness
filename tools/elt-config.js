@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const KINDS = new Set(['code', 'docs', 'office']);
-// Кто может быть судьёй. Те же имена, что у fleet-провайдеров (tools/fleet/providers.js).
+// Кто может быть судьёй. Те же имена, что у fleet-провайдеров (tools/providers.js).
 const JUDGE_PROVIDERS = new Set(['claude', 'codex', 'agy']);
 // 014 T005 (AC3) — `sync` умолчание = поведение 011 (побайтово прежнее, AC12 обратная
 // совместимость). `background` — commit возвращает управление после L0+быстрого оракула,

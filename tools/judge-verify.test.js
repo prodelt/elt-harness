@@ -10,7 +10,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const gate = require('./fleet/gate');
+const gate = require('./judge-core');
 
 test('legacy judge.verify игнорируется: запускается один judge', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-verify-ignored-'));
