@@ -52,7 +52,9 @@
   тестів). Спершу перенести несучі частини `fleet/gate.js` (`judgeDiff`, схема вердикту,
   grounding) у `tools/judge-invoke.js`, який сьогодні їх імпортує, — це найризикованіша ланка за
   розвідкою. Потім відрізати посилання в `claude-invoke.js`, `elt-verify-bg.js`, `judge-bench.js`,
-  `probe-primitives.js`. Перевірка: `grep -rn "fleet/" tools/*.js` порожній,
+  `probe-primitives.js`. Разом із переїздом розводяться два режими нормалізації worktree: не/відстежуваний конфіг
+  гейта не зноситься (повернути його до base нічим, а без нього не стартує оракул), стан
+  прогону — зноситься. Перевірка: `grep -rn "fleet/" tools/*.js` порожній,
   `node --test tools/judge-bench.test.js tools/elt-judge-contract.test.js` зелений,
   `node tools/elt.js status` працює.
 
