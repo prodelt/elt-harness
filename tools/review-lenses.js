@@ -21,7 +21,13 @@ const path = require('path');
 // tools: [Read, Bash]
 // ---
 function parseFrontmatter(content) {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  // D23: переводы строк нормализуются ДО разбора. Регулярка ждала ровно `\n`, а Windows отдаёт
+  // `\r\n` на любом свежем checkout (`core.autocrlf`) — фронтматтер не матчился вовсе, и
+  // `loadLenses` падал на первой же линзе с «missing name or description». В рабочем дереве
+  // файлы лежат с LF, поэтому локально всё было зелёным, а у нового пользователя ревью не
+  // стартовало ни разу. Поймано фоновой верификацией на detached-worktree, не тестом.
+  const text = String(content == null ? '' : content).replace(/\r\n/g, '\n');
+  const match = text.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return null;
 
   const fm = {};
