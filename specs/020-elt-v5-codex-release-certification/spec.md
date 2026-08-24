@@ -471,7 +471,7 @@ blocker, але не фальшивий tag `v5.0.0`.
 
 Self-contained implementation entrypoint:
 
-Implementation-Packet-SHA256: `516E0E567844B1906D13BEB122DD32AA9D279A44ABD1E89AE48DF66AABD5548D`
+Implementation-Packet-SHA256: `1D123F6AEADF8FCDDCA246530E6C02301D480CEC5E3CC05717D016D1279DF8B5`
 
 - `CLAUDE-CODE-1H-LAUNCH.md` — точний one-hour orchestration, safety і evidence contract;
 - `upstreams.lock.json` — exact upstream/benchmark commits без mutable `latest`.

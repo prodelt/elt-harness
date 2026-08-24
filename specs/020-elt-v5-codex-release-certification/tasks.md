@@ -6,6 +6,13 @@
   `~/.claude/hooks/checkpoint-writer.js` і довести SHA-256 equality.
   [files: tools/checkpoint-writer.js tools/elt-checkpoint.test.js .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md]
 
+- [ ] **T007** Background fail-closed: `dead`, malformed, timeout, exception та несподіваний
+  verdict не можуть дати `background-verify-pass`; `inconclusive` має окремий terminal-state і
+  queue item. Після `ensureWorktree` cleanup завжди у `finally`, terminal error пишеться навіть
+  при exception, а конфіг береться з commit/worktree snapshot. Додати дискримінуючі регреси й
+  reconcile `5a9bf7a`/`8af6c73` доказом у звіті, не тихим видаленням.
+  [files: tools/elt-verify-bg.js tools/elt-verify-bg.test.js tools/harness-watch.js tools/harness-watch.test.js .planning/ELT-V5-BACKGROUND-RECONCILIATION-2026-08-24.md]
+
 - [ ] **T002** Закрити background finding T018: language-aware import scan не гасить JS
   private field `#client = require('pkg')` і `${require('pkg')}`, але ігнорує текст у
   звичайній quoted/template string та справжні коментарі. Після green proof закрити
@@ -23,13 +30,6 @@
   drift синхронізувати; невідомі/сторонні hooks не видаляти. Зберегти відтворюваний звіт із
   командами, SHA-256 і exact counts.
   [files: .planning/ELT-V5-GLOBAL-HOOKS-AUDIT-2026-08-24.md]
-
-- [ ] **T007** Background fail-closed: `dead`, malformed, timeout, exception та несподіваний
-  verdict не можуть дати `background-verify-pass`; `inconclusive` має окремий terminal-state і
-  queue item. Після `ensureWorktree` cleanup завжди у `finally`, terminal error пишеться навіть
-  при exception, а конфіг береться з commit/worktree snapshot. Додати дискримінуючі регреси й
-  reconcile `5a9bf7a`/`8af6c73` доказом у звіті, не тихим видаленням.
-  [files: tools/elt-verify-bg.js tools/elt-verify-bg.test.js tools/harness-watch.js tools/harness-watch.test.js .planning/ELT-V5-BACKGROUND-RECONCILIATION-2026-08-24.md]
 
 - [ ] **T008** Spec-bound runtime identity: parked/review rows несуть `specPath`; background rows
   додатково мають `commit` і `layer`. `slice next --spec specs/019-...` бачить 019/T020 попри
