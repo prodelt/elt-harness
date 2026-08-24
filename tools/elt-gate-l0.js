@@ -65,7 +65,41 @@ function weakenedTestFiles(tests, originalLineCount) {
 // кто выдумал API). Пруф свежего обращения к ctx7 — механическая замена «я помню эту либу».
 const BUILTINS = new Set(require('node:module').builtinModules);
 const IMPORT_RE = /(?:require\s*\(\s*|from\s+|import\s+)['"]([^'"]+)['"]/g;
+// Строка комментария в любом из языков, которые ловит CODE_PATH: `//`, `#`, `*` (продолжение
+// блочного), `/*`. Намеренно только НАЧАЛО строки: хвостовой комментарий после живого кода
+// (`const x = require('y'); // почему`) обязан остаться видимым.
+const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|#)/;
 const CTX7_FRESH_DAYS = 30;
+
+// `IMPORT_RE` ищет ключевое слово, но не знает, находится ли оно в исполняемом коде или
+// внутри строковой фикстуры/хвостового комментария. Полный parser здесь был бы новой
+// зависимостью ради одного вопроса, поэтому достаточно узкого лексера до позиции match:
+// кавычки, escape и оба вида JS-комментариев. Аргумент самого import/require намеренно не
+// сканируется — match начинается на ключевом слове, которое обязано быть в code position.
+function isCodePosition(source, index) {
+  let quote = null;
+  let escaped = false;
+  let blockComment = false;
+  for (let i = 0; i < index; i += 1) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (blockComment) {
+      if (ch === '*' && next === '/') { blockComment = false; i += 1; }
+      continue;
+    }
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '/' && next === '/') return false;
+    if (ch === '/' && next === '*') { blockComment = true; i += 1; continue; }
+    if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+  }
+  return quote === null && !blockComment;
+}
+
 function externalImports(diff) {
   const names = new Set();
   // 017 T004: импорт считается ТОЛЬКО в кодовом файле. Заголовок ханка (`+++ b/path`)
@@ -84,7 +118,15 @@ function externalImports(diff) {
     }
     // только ДОБАВЛЕННЫЕ строки кодовых файлов
     if (!inCode || !line.startsWith('+')) continue;
-    for (const m of line.matchAll(IMPORT_RE)) {
+    // 019 T018, продолжение D20: строка КОММЕНТАРИЯ не является импортом. Поймано дважды на
+    // одном слайсе — сначала фикстура регресса, потом комментарий, объясняющий эту же фикстуру:
+    // оба содержали `from 'vitest'` текстом, и гейт блокировал правку собственного правила.
+    // Живой импорт в комментарии не живёт никогда, поэтому потери сигнала здесь нет, а
+    // закомментированный импорт и не должен требовать пруфа — он не исполняется.
+    if (COMMENT_LINE.test(line.slice(1))) continue;
+    const source = line.slice(1);
+    for (const m of source.matchAll(IMPORT_RE)) {
+      if (!isCodePosition(source, m.index)) continue;
       const spec = m[1];
       // `@/…`, `~/…`, `#…` — path-алиасы (tsconfig paths, imports-поле package.json), не
       // пакеты: у npm-скоупа имя непустое (`@scope/name`), а `@/lib/x` даёт скоуп `@`.
@@ -302,8 +344,18 @@ function evaluate({ diff = '', status = '', config = {}, cwd = '', taskText = ''
   // внешний импорт без свежего обращения к ctx7 — это не «подозрительно», это неподтверждённый
   // API, и спорить тут не о чем. R5: если мёртв САМ ctx7 (а не пруф отсутствует) — это
   // `inconclusive` с причиной: внешний сервис не должен останавливать работу.
+  //
+  // 019 T018 (D10): «новый внешний импорт» — это пакет, которого НЕ БЫЛО в манифесте до
+  // слайса, а не любое первое упоминание пакета в диффе. Четыре воспроизведения подряд:
+  // слайс добавляет тест-файл с `import { test } from 'vitest'`, vitest стоит в
+  // `package.json` с первого коммита и в 48 файлах, — и гейт выносил `block` за
+  // «неподтверждённый API». Флаг срабатывал автоматически на каждом слайсе с новым тестом,
+  // не нёс информации и учил игнорировать вердикт целиком.
+  // Список берётся с БАЗЫ (`git show HEAD:package.json`), а не из рабочего дерева: пакет,
+  // добавленный этим же слайсом, обязан остаться поводом сходить в ctx7.
   const ctx7 = (config.ctx7 && typeof config.ctx7 === 'object') ? config.ctx7 : {};
-  const imports = externalImports(diff);
+  const known = config.knownPackages instanceof Set ? config.knownPackages : new Set();
+  const imports = externalImports(diff).filter((pkg) => !known.has(pkg));
   if (imports.length) {
     const proofs = Array.isArray(ctx7.proofs) ? ctx7.proofs : [];
     const freshDays = Number.isFinite(ctx7.freshDays) && ctx7.freshDays > 0 ? ctx7.freshDays : CTX7_FRESH_DAYS;
@@ -389,12 +441,37 @@ function loadConfig(cwd) {
       .map((line) => { try { return JSON.parse(line); } catch { return null; } })
       .filter(Boolean);
   } catch { /* файла нет — пруфов нет, и это значимо: новый внешний импорт даст block */ }
-  return { ...cfg, ctx7: { ...(cfg.ctx7 || {}), proofs }, fanIn: computeFanIn(cwd), originalLineCount: originalLineCounter(cwd) };
+  return {
+    ...cfg,
+    ctx7: { ...(cfg.ctx7 || {}), proofs },
+    fanIn: computeFanIn(cwd),
+    originalLineCount: originalLineCounter(cwd),
+    knownPackages: knownPackagesAtBase(cwd),
+  };
+}
+
+// 019 T018 (D10): пакеты, объявленные в манифесте НА БАЗЕ слайса. Читается через git, а не с
+// диска: рабочее дерево уже содержит пакет, который слайс только что добавил, и по нему
+// «новый импорт» стал бы неотличим от «импорт того, что стояло всегда».
+// Манифеста нет, git недоступен, json битый → пустое множество: тогда поведение ровно такое,
+// каким было до этой правки, — не тише, чем раньше.
+function knownPackagesAtBase(cwd) {
+  const { spawnSync } = require('child_process');
+  const out = new Set();
+  const r = spawnSync('git', ['show', 'HEAD:package.json'], { cwd, encoding: 'utf8', timeout: 5000 });
+  if (r.error || r.status !== 0) return out;
+  let pkg = null;
+  try { pkg = JSON.parse(r.stdout); } catch { return out; }
+  for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    const section = pkg && pkg[field];
+    if (section && typeof section === 'object') for (const name of Object.keys(section)) out.add(name);
+  }
+  return out;
 }
 
 module.exports = {
   evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
   taskScopeFiles, inTaskScope, isHarnessOwned, isIgnoredForReview, taskCountOf,
-  computeFanIn, DEFAULT_FANIN_THRESHOLD,
-  weakenedTestFiles, originalLineCounter, ASSERT_REMOVE_RE, TEST_BLOCK_RE, REWRITE_RATIO,
+  computeFanIn, DEFAULT_FANIN_THRESHOLD, knownPackagesAtBase,
+  weakenedTestFiles, originalLineCounter, ASSERT_REMOVE_RE, TEST_BLOCK_RE, REWRITE_RATIO, isCodePosition,
 };

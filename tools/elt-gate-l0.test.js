@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { verifySettings, readHarnessConfig } = require('./elt-config');
-const { evaluate, externalImports, DEFAULT_DIFF_SIZE } = require('./elt-gate-l0');
+const { evaluate, externalImports, DEFAULT_DIFF_SIZE, knownPackagesAtBase } = require('./elt-gate-l0');
 const providers = require('./providers');
 const { runJudge } = require('./judge-core');
 
@@ -262,6 +262,117 @@ function testDiffSizeScalesWithBatchSize() {
 // D9 (019 T001): `package-lock.json` давал 694 строки при пороге 400, а объявить его в
 // `[files:]` невозможно — он генерируется всегда. Сгенерированное не считается в объёме
 // и не выносится за зону.
+// Фикстуры намеренно буквальные. Прежняя версия собирала кавычку через char code, чтобы сам
+// diff теста не сработал как импорт. Это маскировало корень: правило должно отличать
+// исполняемый import/require от текста внутри строкового литерала.
+const importLine = (pkg) => `+import x from '${pkg}';`;
+const requireLine = (pkg) => `+const x = require('${pkg}');`;
+
+// 019 T018 (D10, четыре воспроизведения): пакет, который стоял в манифесте ДО слайса, не
+// является «новым внешним импортом». Регресс дискриминирующий — он падал бы на прежней
+// реализации, где флаг ставился на любое первое упоминание пакета в диффе.
+function testKnownPackageIsNotANewImport() {
+  const diff = [
+    'diff --git a/src/a.test.js b/src/a.test.js',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/src/a.test.js',
+    importLine('vitest'),
+    importLine('next'),
+  ].join('\n');
+
+  // без списка манифеста — прежнее поведение: block
+  const blind = evaluate({ diff, config: {} });
+  assert.ok(names(blind).includes('external-import-no-ctx7'), 'без списка манифеста флаг остаётся');
+  assert.equal(blind.verdict, 'block');
+
+  // с манифестом, где оба пакета стояли всегда — тишина
+  const informed = evaluate({ diff, config: { knownPackages: new Set(['vitest', 'next']) } });
+  assert.ok(!names(informed).includes('external-import-no-ctx7'), JSON.stringify(informed.triggers));
+  assert.notEqual(informed.verdict, 'block');
+}
+
+// Обратная сторона: пакет, которого в манифесте на базе НЕ было, обязан по-прежнему требовать
+// пруфа. Без этого случая правка была бы просто выключением триггера.
+function testGenuinelyNewPackageStillBlocks() {
+  const diff = [
+    'diff --git a/src/a.js b/src/a.js',
+    '--- a/src/a.js',
+    '+++ b/src/a.js',
+    requireLine('shiny-new-lib'),
+  ].join('\n');
+
+  const res = evaluate({ diff, config: { knownPackages: new Set(['vitest', 'next']) } });
+  assert.ok(names(res).includes('external-import-no-ctx7'), 'незнакомый пакет по-прежнему требует ctx7');
+  assert.equal(res.verdict, 'block');
+  const trigger = res.triggers.find((t) => t.name === 'external-import-no-ctx7');
+  assert.deepEqual(trigger.files, ['shiny-new-lib'], 'в вердикте назван только действительно новый пакет');
+}
+
+// Список читается с БАЗЫ, а не с диска: иначе пакет, добавленный этим же слайсом, оказался бы
+// «известным» и молча прошёл бы мимо ctx7.
+function testKnownPackagesComeFromBaseNotWorkingTree() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-l0-pkg-'));
+  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.email', 't@e.com');
+  git('config', 'user.name', 't');
+  git('config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { old: '1.0.0' } }));
+  git('add', '-A');
+  git('-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'base');
+
+  // рабочее дерево уже содержит новый пакет — но на базе его не было
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { old: '1.0.0', fresh: '2.0.0' } }));
+
+  const known = knownPackagesAtBase(dir);
+  assert.ok(known.has('old'), 'пакет с базы в списке');
+  assert.ok(!known.has('fresh'), 'пакет, добавленный слайсом, в список НЕ попадает');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 019 T018, продолжение D20: импорт в КОММЕНТАРИИ не импорт. Поймано живьём дважды на одном
+// слайсе — сначала фикстура регресса, потом комментарий, объясняющий эту фикстуру.
+function testImportInCommentIsNotAnImport() {
+  const head = ['diff --git a/src/a.js b/src/a.js', '--- a/src/a.js', '+++ b/src/a.js'];
+
+  const commented = [
+    ...head,
+    `+// раньше здесь был ${importLine('ghost-lib').slice(1)}`,
+    `+ * ${requireLine('ghost-jsdoc').slice(1)}`,
+    `+  # ${importLine('ghost-python').slice(1)}`,
+  ].join('\n');
+  assert.deepEqual(externalImports(commented), [], 'комментарии не дают импортов');
+
+  // Хвостовой комментарий после ЖИВОГО кода строку не гасит — иначе правило обходилось бы
+  // припиской `// ok` в конце строки.
+  const live = [...head, `${requireLine('real-lib')} // почему именно она`].join('\n');
+  assert.deepEqual(externalImports(live), ['real-lib'], 'живой импорт с хвостовым комментарием виден');
+}
+
+// Дискриминирующий регресс по находке судьи батча D: текст фикстуры внутри строки не импорт.
+// На старом regex оба имени попадали в результат; настоящие строки рядом остаются видимыми.
+function testImportTextInsideStringLiteralIsNotAnImport() {
+  const head = ['diff --git a/src/a.test.js b/src/a.test.js', '--- a/src/a.test.js', '+++ b/src/a.test.js'];
+  const diff = [
+    ...head,
+    `+const fixture = "+import x from 'fixture-only';";`,
+    `+const second = "require('fixture-require')";`,
+    importLine('real-import'),
+    requireLine('real-require'),
+  ].join('\n');
+  assert.deepEqual(externalImports(diff), ['real-import', 'real-require']);
+}
+
+// Не-git каталог и битый манифест дают пустое множество, а не исключение: гейт не имеет права
+// падать из-за того, что чужой проект устроен иначе.
+function testKnownPackagesDegradesQuietly() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-l0-nogit-'));
+  assert.equal(knownPackagesAtBase(dir).size, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 function testDiffSizeIgnoresGeneratedFiles() {
   const diff = [
     diffFor('package-lock.json', { added: DEFAULT_DIFF_SIZE + 50 }),
@@ -633,6 +744,12 @@ async function main() {
   testBatchZoneReadsEveryFilesTag();
   testDiffSizeScalesWithBatchSize();
   testDiffSizeIgnoresGeneratedFiles();
+  testKnownPackageIsNotANewImport();
+  testGenuinelyNewPackageStillBlocks();
+  testKnownPackagesComeFromBaseNotWorkingTree();
+  testImportInCommentIsNotAnImport();
+  testImportTextInsideStringLiteralIsNotAnImport();
+  testKnownPackagesDegradesQuietly();
   testOutOfScopeGlobPrefixMatchesSubpath();
   testHighFaninTriggersOnCentralModule();
   testHighFaninSilentOnLeafFile();
