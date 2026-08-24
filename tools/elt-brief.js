@@ -49,7 +49,12 @@ function statusOf(e) { return e.status || e.result || null; }
 // правкой это один класс «здесь уже спотыкались», а не три разных счётчика.
 function isRed(e) {
   const s = statusOf(e);
-  return s === 'red-stop' || s === 'l0-block' || s === 'judge-block' || s === 'background-verify-red'
+  // 020 T007: у фона теперь четыре не-зелёных терминала, не один. `dead`/`inconclusive`/`error`
+  // — это «здесь не смогли проверить», и для человека перед правкой это тот же сигнал
+  // «смотреть глазами», что и красное. Молча считать их зелёными значило бы вернуть ровно тот
+  // дефект, который T007 и закрывает.
+  return s === 'red-stop' || s === 'l0-block' || s === 'judge-block'
+    || (typeof s === 'string' && s.startsWith('background-verify') && s !== 'background-verify-pass')
     || e.verdict === 'block';
 }
 // В run-log встречаются и строковые причины, и объекты (запись судьи/фона несёт структуру).

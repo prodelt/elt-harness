@@ -1,12 +1,12 @@
 # Tasks — 020 ELT v5 fail-closed Codex release certification
 
-- [ ] **T001** Закрити D25 чотирма регресами: `opus-5` → 1M і small-моделі → 200k;
+- [X] **T001** Закрити D25 чотирма регресами: `opus-5` → 1M і small-моделі → 200k;
   ручний хвіст checkpoint переживає повторну ротацію; deployed hook знаходить CLI проєкту;
   gateActive блокує запис під час oracle/judge/commit. Розгорнути source у
   `~/.claude/hooks/checkpoint-writer.js` і довести SHA-256 equality.
   [files: tools/checkpoint-writer.js tools/elt-checkpoint.test.js .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md]
 
-- [ ] **T007** Background fail-closed: `dead`, malformed, timeout, exception та несподіваний
+- [X] **T007** Background fail-closed: `dead`, malformed, timeout, exception та несподіваний
   verdict не можуть дати `background-verify-pass`; `inconclusive` має окремий terminal-state і
   queue item. Після `ensureWorktree` cleanup завжди у `finally`, terminal error пишеться навіть
   при exception, а конфіг береться з commit/worktree snapshot. Додати дискримінуючі регреси й

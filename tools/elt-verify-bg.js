@@ -37,11 +37,12 @@ const REVIEW_QUEUE = path.join('.harness', 'review-queue.jsonl');
 // заводить — иначе разбор красного зависел бы от того, какой слой его нашёл. `kind:"bg-red"`
 // отличает запись от inconclusive-строк (у тех поля kind нет — старые не размечаем).
 // `elt review close --task` работает без правок: строка несёт `task`.
-function enqueueBgRed(cwd, { task, commit, layer, reason, logPath }) {
+function enqueueBgRed(cwd, { task, commit, layer, reason, logPath, kind = 'bg-red' }) {
   const queue = path.join(cwd, REVIEW_QUEUE);
   fs.mkdirSync(path.dirname(queue), { recursive: true });
   const row = {
-    kind: 'bg-red', task: task || null, commit, layer, reason,
+    // 020 T007: `bg-dead`/`bg-inconclusive` — отдельные kind, см. finish().
+    kind, task: task || null, commit, layer, reason,
     logPath, ts: new Date().toISOString(),
   };
   fs.appendFileSync(queue, JSON.stringify(row) + '\n');
@@ -125,6 +126,38 @@ function harnessField(cwd, key) {
   try { return JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'))[key]; }
   catch { return undefined; }
 }
+
+// 020 T007: конфиг фона брался из ЖИВОГО дерева, а слои исполнялись на снапшоте коммита.
+// Человек правит `.harness/harness.json` сразу после `elt commit` — и фон судит старый коммит
+// новыми правилами: другой оракул, другой набор слоёв, другой судья. Расхождение молчаливое,
+// в отчёте от него не остаётся следа. Источник истины — тот же коммит, что и дифф.
+// Живое дерево остаётся фолбеком ТОЛЬКО когда коммита ещё нет (тесты гоняют слои напрямую),
+// и это записывается в отчёт полем `configSource`, а не подразумевается.
+function harnessConfigAt(cwd, commitHash) {
+  if (commitHash) {
+    const r = spawnSync('git', ['show', `${commitHash}:.harness/harness.json`], { cwd, encoding: 'utf8' });
+    if (r.status === 0 && r.stdout) {
+      try { return { cfg: JSON.parse(r.stdout), source: `commit:${commitHash}` }; }
+      catch { /* битый снапшот — ниже честный фолбек с пометкой */ }
+    }
+  }
+  try {
+    return { cfg: JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8')), source: 'worktree' };
+  } catch { return { cfg: {}, source: 'none' }; }
+}
+
+// Известные вердикты судьи. Всё остальное — НЕ вердикт, а неизвестность: см. classifyJudge.
+const JUDGE_VERDICTS = ['pass', 'block', 'inconclusive'];
+
+// 020 T007. До этой задачи фон метил красным только `verdict === 'block'`, поэтому `dead`,
+// битый JSON, таймаут, исключение и любой незнакомый вердикт давали `background-verify-pass` —
+// зелёный, за которым НИКТО не смотрел на дифф. Решение 014/4 («не отработавший судья — не
+// красное») остаётся в силе в своей верной части: это не `block`. Но и не `pass`: у такого
+// исхода теперь собственное терминальное состояние и собственная строка очереди.
+function classifyJudge(verdict) {
+  if (JUDGE_VERDICTS.includes(verdict)) return { verdict, conclusive: true };
+  return { verdict: verdict || 'dead', conclusive: false };
+}
 // 016 T005: команду проекта запускает ШЕЛЛ из его же harness.json — тот же разбор, что у
 // синхронного гейта (`elt.js:42` sh()). Наивный `split(' ')` стоял здесь с 014 и жил только
 // потому, что домашний оракул — одно слово плюс путь. Живой прогон в Portfolio
@@ -184,10 +217,11 @@ function commitFiles(cwd, commitHash) {
 // T016/T017 спеки 014 получили рубрику из specs/002-elt-fleet и были заблокированы «не по той
 // задаче». Без taskText молчит и scope-триггер L0 (011 T024 берёт зону из `[files:]`).
 // Оба поля есть у `elt commit` в момент запуска фона — их надо просто донести.
-async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile = null, judgeImpl = null }) {
+async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile = null, judgeImpl = null, judgeCfg = null }) {
   const back = spawnSync('git', ['reset', '--soft', 'HEAD~1'], { cwd: wt, encoding: 'utf8' });
   if (back.status !== 0) return { verdict: 'dead', reasons: [`reset --soft не удался: ${back.stderr || back.stdout}`] };
-  const cfg = harnessField(cwd, 'judge') || {};
+  // 020 T007: конфиг судьи — из того же снапшота коммита, что и остальные слои.
+  const cfg = judgeCfg || harnessField(cwd, 'judge') || {};
   const runJudge = judgeImpl || require('./judge-core').runJudge;
   try {
     const r = await runJudge({
@@ -201,10 +235,30 @@ async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile =
     // его сделать значило бы завести очередь ложных задач на каждый упавший CLI; молчание фона
     // ловит T008 (`bg-silent`), а не эта ветка.
     if (!r || r.ok === false || r.runOk === false) return { verdict: 'dead', reasons: (r && r.reasons) || ['судья не отработал'] };
+    // 020 T007: незнакомый вердикт — не «почти pass». Ловится ЗДЕСЬ, у источника, иначе он
+    // просто не совпадёт с 'block' этажом ниже и утечёт в зелёное.
+    if (!JUDGE_VERDICTS.includes(r.verdict)) {
+      return { verdict: 'unknown', reasons: [`судья вернул неизвестный вердикт: ${JSON.stringify(r.verdict)}`] };
+    }
     return { verdict: r.verdict, reasons: r.reasons || [] };
   } catch (e) {
     return { verdict: 'dead', reasons: [`судья упал: ${e.message}`] };
   }
+}
+
+// 020 T007: судья, который не вернулся НИКОГДА, — не зелёное и не молчание фона: у процесса
+// есть свой предел терпения. Без него `runJudge`, зависший на сетевом вызове, держал бы
+// фоновый процесс до бесконечности, а `bg-silent` T008 срабатывал бы лишь по внешнему таймеру.
+function withJudgeTimeout(promise, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timer = null;
+  const guard = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({
+      verdict: 'timeout', reasons: [`судья не ответил за ${Math.round(timeoutMs / 1000)} c`],
+    }), timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+  });
+  return Promise.race([promise, guard]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
 // Тело фонового процесса. Вынесено из require.main-ветки, чтобы тест мог прогнать его
@@ -224,11 +278,16 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   // правила — и мёртвую ветку, ведь родитель всегда перекрывал бы конфиг. cwd дочернего
   // процесса и есть корень проекта, поэтому читается тот же самый harness.json.
   // Порядок: параметр (тесты) > env (шов для spawn-тестов) > конфиг > громкий отказ.
-  const cmd = oracleCmd || process.env.ELT_VERIFY_BG_ORACLE_CMD || harnessField(cwd, 'oracle');
+  // 020 T007: конфиг — из снапшота коммита, а не из живого дерева (см. harnessConfigAt).
+  const { cfg: snapCfg, source: configSource } = harnessConfigAt(cwd, commitHash);
+  const snapField = (key) => snapCfg[key];
+  const cmd = oracleCmd || process.env.ELT_VERIFY_BG_ORACLE_CMD || snapField('oracle');
   // 016 T005: шелл берётся из конфига ОСНОВНОГО дерева (тот же файл, что и `oracle`), а не из
   // worktree — читается один раз здесь, чтобы слои не расходились в способе запуска.
-  const shell = harnessField(cwd, 'shell');
-  const on = enabledLayers(cwd);
+  const shell = snapField('shell');
+  const bgCfg = snapCfg.background && typeof snapCfg.background === 'object' ? snapCfg.background : {};
+  const on = new Set(Array.isArray(bgCfg.layers) ? bgCfg.layers.filter((l) => LAYERS.includes(l)) : LAYERS);
+  const judgeTimeoutMs = Number.isFinite(bgCfg.judgeTimeoutMs) ? bgCfg.judgeTimeoutMs : 15 * 60 * 1000;
   // До ensureWorktree: отказ после него оставил бы осиротевший .fleet-wt/bg-<hash> — cleanup
   // живёт только в конце функции. Отказ ровно тогда, когда команда кому-то нужна: с
   // `background.layers` без `suite` и `mutate` фону оракул не требуется, и требовать его было бы
@@ -240,76 +299,143 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
   const logPath = path.join(BG_LOG_DIR, `bg-${commitHash}.log`);
   const logFile = path.join(cwd, logPath); // 014 T023: тот же файл, что уже указан в очереди
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  // 020 T007: всё, что после ensureWorktree, живёт под try/finally. Раньше исключение в любом
+  // слое уносило функцию наружу ДО cleanupWorktree и ДО записи в run-log: оставался осиротевший
+  // `.fleet-wt/bg-<hash>` и — что хуже — фоновой прогон не оставлял вообще никакого следа.
+  // Терминальная запись пишется всегда: без неё падение неотличимо от «фон ещё идёт».
   const sections = [];
-  // Секция на КАЖДЫЙ слой, включая выключенный: отчёт без строки о слое неотличим от отчёта,
-  // где слой молча не сработал — ровно та слепота, ради которой написан T008.
-  const section = (layer, body) => {
-    if (!on.has(layer)) { sections.push({ layer, skipped: true, reason: 'выключен в background.layers', durationSec: 0 }); return null; }
-    const t = Date.now();
-    const out = body();
-    return sections.push({ layer, ...out, durationSec: (Date.now() - t) / 1000 }), out;
-  };
+  try {
+      // Секция на КАЖДЫЙ слой, включая выключенный: отчёт без строки о слое неотличим от отчёта,
+    // где слой молча не сработал — ровно та слепота, ради которой написан T008.
+    const section = (layer, body) => {
+      if (!on.has(layer)) { sections.push({ layer, skipped: true, reason: 'выключен в background.layers', durationSec: 0 }); return null; }
+      const t = Date.now();
+      const out = body();
+      return sections.push({ layer, ...out, durationSec: (Date.now() - t) / 1000 }), out;
+    };
 
-  // cwd: wt — AC4, сердце T006: слои исполняются в ИЗОЛИРОВАННОМ checkout на хеше коммита,
-  // а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
-  section('suite', () => {
-    const exit = runCmd(cmd, wt, logFile, shell);
-    return { exit, red: exit !== 0, reason: exit !== 0 ? `сьют: exit ${exit}` : null };
-  });
-  section('mutate', () => {
-    // Мутатор написан 011 T008 и до сих пор ни разу не был подключён к гейту (спека, п. 30).
-    // Тесты гоняются impact-выборкой, а не `--full`: мутация трогает одну строку одного файла.
-    const files = commitFiles(cwd, commitHash);
-    // 016 T003: та же команда проекта, что и у слоя `suite`. Здесь стоял второй захардкоженный
-    // `node tools/elt-oracle-runner.js` — тот же дефект, что чинил T001, просто этажом ниже:
-    // в чужом проекте каждая мутация «убивалась» падением `Cannot find module`, то есть слой
-    // рапортовал бы чистоту, ничего не проверив.
-    const r = mutate({ cwd: wt, files, runTests: () => runCmd(cmd, wt, logFile, shell) !== 0 });
-    return { status: r.status, reason: r.reason, survived: r.survived.length, red: r.status === 'block' };
-  });
-  section('smoke', () => {
-    const smoke = harnessField(cwd, 'smoke');
-    if (typeof smoke !== 'string' || !smoke.trim()) return { skipped: true, reason: 'smoke не задан' };
-    // 014 T010 (R2): внешние сервисы, БД и порты не терпят второго экземпляра — фоновый smoke
-    // на worktree стартовал бы параллельно тому, что уже гоняет человек. Пропуск, а НЕ падение:
-    // «мы это не проверяли» не то же самое, что «проверили и красное» (та же дисциплина, что у
-    // бюджета мутатора). Разрешение даёт только владелец проекта полем smokeParallel:true.
-    if (harnessField(cwd, 'smokeParallel') !== true) return { skipped: true, reason: 'skipped: smokeParallel=false' };
-    const exit = runCmd(smoke, wt, logFile, shell);
-    return { exit, red: exit !== 0, reason: exit !== 0 ? `smoke: exit ${exit}` : null };
-  });
-  if (on.has('judge')) {
-    const t = Date.now();
-    const j = await runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile, judgeImpl });
-    sections.push({ layer: 'judge', verdict: j.verdict, red: j.verdict === 'block',
-      reason: j.verdict === 'block' ? `судья: ${(j.reasons || []).join('; ')}` : null,
-      durationSec: (Date.now() - t) / 1000 });
-  } else {
-    sections.push({ layer: 'judge', skipped: true, reason: 'выключен в background.layers', durationSec: 0 });
+    // cwd: wt — AC4, сердце T006: слои исполняются в ИЗОЛИРОВАННОМ checkout на хеше коммита,
+    // а не в основном дереве, которое к этому моменту уже могло уйти вперёд.
+    section('suite', () => {
+      const exit = runCmd(cmd, wt, logFile, shell);
+      return { exit, red: exit !== 0, reason: exit !== 0 ? `сьют: exit ${exit}` : null };
+    });
+    section('mutate', () => {
+      // Мутатор написан 011 T008 и до сих пор ни разу не был подключён к гейту (спека, п. 30).
+      // Тесты гоняются impact-выборкой, а не `--full`: мутация трогает одну строку одного файла.
+      const files = commitFiles(cwd, commitHash);
+      // 016 T003: та же команда проекта, что и у слоя `suite`. Здесь стоял второй захардкоженный
+      // `node tools/elt-oracle-runner.js` — тот же дефект, что чинил T001, просто этажом ниже:
+      // в чужом проекте каждая мутация «убивалась» падением `Cannot find module`, то есть слой
+      // рапортовал бы чистоту, ничего не проверив.
+      const r = mutate({ cwd: wt, files, runTests: () => runCmd(cmd, wt, logFile, shell) !== 0 });
+      return { status: r.status, reason: r.reason, survived: r.survived.length, red: r.status === 'block' };
+    });
+    section('smoke', () => {
+      const smoke = snapField('smoke');
+      if (typeof smoke !== 'string' || !smoke.trim()) return { skipped: true, reason: 'smoke не задан' };
+      // 014 T010 (R2): внешние сервисы, БД и порты не терпят второго экземпляра — фоновый smoke
+      // на worktree стартовал бы параллельно тому, что уже гоняет человек. Пропуск, а НЕ падение:
+      // «мы это не проверяли» не то же самое, что «проверили и красное» (та же дисциплина, что у
+      // бюджета мутатора). Разрешение даёт только владелец проекта полем smokeParallel:true.
+      if (snapField('smokeParallel') !== true) return { skipped: true, reason: 'skipped: smokeParallel=false' };
+      const exit = runCmd(smoke, wt, logFile, shell);
+      return { exit, red: exit !== 0, reason: exit !== 0 ? `smoke: exit ${exit}` : null };
+    });
+    if (on.has('judge')) {
+      const t = Date.now();
+      const raw = await withJudgeTimeout(
+        runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile, judgeImpl, judgeCfg: snapField('judge') }),
+        judgeTimeoutMs,
+      );
+      const j = classifyJudge(raw && raw.verdict);
+      const why = (raw && raw.reasons || []).join('; ');
+      sections.push({
+        layer: 'judge', verdict: j.verdict, conclusive: j.conclusive,
+        red: j.verdict === 'block',
+        // 020 T007: неконклюзивный судья и `inconclusive` больше не «ничего»: у каждого есть
+        // причина в отчёте, потому что зелёным они уже не станут.
+        inconclusive: j.verdict === 'inconclusive',
+        nonConclusive: !j.conclusive,
+        reason: j.verdict === 'pass' ? null : `судья: ${j.verdict}${why ? ` — ${why}` : ''}`,
+        durationSec: (Date.now() - t) / 1000,
+      });
+    } else {
+      sections.push({ layer: 'judge', skipped: true, reason: 'выключен в background.layers', durationSec: 0 });
+    }
+
+    return finish({ sections, started, cwd, commitHash, taskId, logPath, wt, configSource });
+  } catch (e) {
+    const durationSec = (Date.now() - started) / 1000;
+    sections.push({ layer: 'runner', nonConclusive: true, red: false, reason: `фон упал: ${e.message}`, durationSec });
+    enqueueBgRed(cwd, {
+      task: taskId || null, commit: commitHash, layer: 'runner',
+      reason: `фон упал: ${e.message}`, logPath, kind: 'bg-dead',
+    });
+    const cleanup = cleanupWorktree(cwd, commitHash);
+    runLog.appendRunLog(cwd, {
+      task: taskId || null, commit: commitHash, status: BG_TERMINAL.error,
+      background: {
+        layer: 'runner', exit: 1, outcome: 'error', durationSec, sections, configSource,
+        error: e.stack || e.message,
+        worktree: path.relative(cwd, cleanup.path), worktreeRemoved: cleanup.removed,
+      },
+    });
+    return { exit: 1, outcome: 'error', status: BG_TERMINAL.error, durationSec, sections, worktree: wt, worktreeRemoved: cleanup.removed, configSource };
+  } finally {
+    // Идемпотентно: в happy-path его уже снял finish(), здесь снимается только осиротевший.
+    cleanupWorktree(cwd, commitHash);
   }
+}
 
-  const red = sections.filter((s) => s.red);
+// 020 T007. Единственное место, где фоновой прогон получает терминальное состояние. Раньше
+// оно вычислялось одной тернаркой `exit === 0 ? pass : red`, и всё, что не помечено `red`,
+// автоматически становилось зелёным — то есть КАЖДЫЙ неучтённый исход по умолчанию был pass.
+// Здесь умолчание перевёрнуто: зелёное выдаётся только когда все слои закончились
+// конклюзивно и ни один не красный. Порядок приоритетов зафиксирован: red > dead > inconclusive.
+const BG_TERMINAL = {
+  pass: 'background-verify-pass',
+  red: 'background-verify-red',
+  dead: 'background-verify-dead',
+  inconclusive: 'background-verify-inconclusive',
+  error: 'background-verify-error',
+};
+
+function classifyRun(sections) {
+  if (sections.some((s) => s.red)) return 'red';
+  if (sections.some((s) => s.nonConclusive)) return 'dead';
+  if (sections.some((s) => s.inconclusive)) return 'inconclusive';
+  return 'pass';
+}
+
+function finish({ sections, started, cwd, commitHash, taskId, logPath, wt, configSource }) {
+  const outcome = classifyRun(sections);
   const durationSec = (Date.now() - started) / 1000;
   // Убирается независимо от вердикта — «остаётся» относится к отказу самого remove, не к
   // красному слою (иначе .fleet-wt/ пух бы одним каталогом на каждый красный слайс).
   const cleanup = cleanupWorktree(cwd, commitHash);
   // AC5: красное не роняет и не откатывает чужую работу — оно становится строкой в очереди.
-  // Строка НА КАЖДЫЙ красный слой: одна общая скрывала бы, что упало и сьютом, и судьёй.
-  for (const s of red) {
-    enqueueBgRed(cwd, { task: taskId || null, commit: commitHash, layer: s.layer, reason: s.reason, logPath });
+  // Строка НА КАЖДЫЙ проблемный слой: одна общая скрывала бы, что упало и сьютом, и судьёй.
+  // 020 T007: у неконклюзивного и `inconclusive` — СВОИ kind, иначе разбор очереди не отличит
+  // «проверили и красное» от «не смогли проверить».
+  const KIND = { red: 'bg-red', dead: 'bg-dead', inconclusive: 'bg-inconclusive' };
+  for (const s of sections) {
+    const kind = s.red ? KIND.red : s.nonConclusive ? KIND.dead : s.inconclusive ? KIND.inconclusive : null;
+    if (!kind) continue;
+    enqueueBgRed(cwd, { task: taskId || null, commit: commitHash, layer: s.layer, reason: s.reason, logPath, kind });
   }
-  const exit = red.length ? 1 : 0;
+  const exit = outcome === 'pass' ? 0 : 1;
   runLog.appendRunLog(cwd, {
     task: taskId || null,
     commit: commitHash,
     // Префикс `background-verify` держит T008: его детектор `bg-silent` ищет именно его.
-    status: exit === 0 ? 'background-verify-pass' : 'background-verify-red',
+    status: BG_TERMINAL[outcome],
     background: {
-      layer: 'suite', exit, durationSec, sections,
+      layer: 'suite', exit, outcome, durationSec, sections, configSource,
       worktree: path.relative(cwd, cleanup.path), worktreeRemoved: cleanup.removed,
     },
   });
-  return { exit, durationSec, sections, worktree: wt, worktreeRemoved: cleanup.removed };
+  return { exit, outcome, status: BG_TERMINAL[outcome], durationSec, sections, worktree: wt, worktreeRemoved: cleanup.removed, configSource };
 }
 
 if (require.main === module) {
@@ -332,4 +458,5 @@ module.exports = {
   ensureWorktree, cleanupWorktree, worktreePath, WT_ROOT,
   enqueueBgRed, REVIEW_QUEUE, LAYERS, enabledLayers,
   bgChildEnv, bgChildContextFromEnv, runJudgeLayer,
+  classifyJudge, classifyRun, harnessConfigAt, withJudgeTimeout, BG_TERMINAL, JUDGE_VERDICTS,
 };
