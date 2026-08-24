@@ -1353,12 +1353,17 @@ if (cmd === 'gate') {
       let oracleRaw = null;
       try { oracleRaw = fs.readFileSync(oracleProofPath(), 'utf8'); } catch { /* нет пруфа — ниже отказ */ }
       if (!oracleRaw) die('elt gate: нет оракул-пруфа (verify:"background") — коммить через elt commit', 4);
-      if (process.env.ELT_GATE_TRUST_ORACLE && process.env.ELT_GATE_TRUST_ORACLE === sha256(oracleRaw)) {
+      let parsed = null;
+      try { parsed = JSON.parse(oracleRaw); } catch { /* битый — отказ ниже */ }
+      // Доверие к байтам пруфа снимает ТОЛЬКО проверку дерева (она заведомо не сойдётся: между
+      // валидацией в `elt commit` и этим хуком успел смениться `[X]` в tasks.md), но НЕ
+      // проверку самого вердикта. Красный оракул не проходит ни по какому пути — иначе
+      // «доверенный коммит» стал бы дырой шире той, что закрывает T009.
+      if (process.env.ELT_GATE_TRUST_ORACLE && parsed && parsed.exit === 0
+          && process.env.ELT_GATE_TRUST_ORACLE === sha256(oracleRaw)) {
         console.log('elt gate: trusted elt commit (оракул-пруф проверен до markDone)');
         process.exit(0);
       }
-      let parsed = null;
-      try { parsed = JSON.parse(oracleRaw); } catch { /* битый — отказ ниже */ }
       if (!parsed || parsed.exit !== 0 || parsed.hash !== treeHash()) {
         die('elt gate: оракул-пруф отсутствует, красный или не про это дерево — коммить через elt commit', 4);
       }
