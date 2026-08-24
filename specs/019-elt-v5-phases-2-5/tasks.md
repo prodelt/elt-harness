@@ -130,3 +130,18 @@
 - [ ] **T020** Фінальне закриття: повний оракул exit 0, зведений KPI по всіх проєктах тим самим
   скриптом, тег `v5.0.0`. Перевірка: `node tools/elt-oracle-runner.js --full` exit 0; число долі
   комітів через харнес із датою в `.planning/STATE.md`; `PROJECT-HISTORY.md` доповнено підсумком.
+
+## Хвіст фази 2 — знайдено після батчу A
+
+- [ ] **T021** Два владіння харнеса, які він пише сам, а суддя ловив як scope creep:
+  `.planning/CHECKPOINT-*-auto.md` (пише `checkpoint-writer.js` по токен-порогу, ім'я по
+  штампу — фіксованим рядком не описується) і `tools/judge-bench/cases-ingested.json`
+  (ретро-розмітка bench). Дефект відомий і відкритий — див. коментар у
+  `tools/checkpoint-writer.js` (`gateActive`): маркер гейта закриває лише половину (stale-oracle
+  від зсуву treeHash), а чекпоінт, написаний ДО старту ланцюжка, усе одно потрапляє в дифф.
+  Список владінь дістає другий, окремий список регулярок — глоб-матчер не заводити, список
+  короткий і мусить читатися очима. Перевірка: `tools/harness-files.test.js` — обидва файли
+  дають `isHarnessOwned` і `isIgnoredForReview`, а рукописний `CHECKPOINT-<дата>.md`,
+  `.planning/STATE.md` і `tools/judge-bench/cases.json` — НЕ дають; регрес на `l0.evaluate`:
+  авточекпоінт у диффі не тригерить `out-of-scope`.
+  [files: tools/harness-files.js tools/harness-files.test.js tools/checkpoint-writer.js]
