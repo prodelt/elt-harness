@@ -8,8 +8,14 @@ const root = __dirname;
 const specPath = path.join(root, 'spec.md');
 const manifestPath = path.join(root, 'implementation-packet.lock.json');
 
+function canonicalBytes(filePath) {
+  const bytes = fs.readFileSync(filePath);
+  if (path.extname(filePath).toLowerCase() === '.png') return bytes;
+  return Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n').normalize('NFC'), 'utf8');
+}
+
 function sha256(filePath) {
-  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex').toUpperCase();
+  return crypto.createHash('sha256').update(canonicalBytes(filePath)).digest('hex').toUpperCase();
 }
 
 function fail(message) {
@@ -30,7 +36,8 @@ if (actualManifest !== expectedManifest[1].toUpperCase()) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files)) fail('unsupported manifest schema');
+if (manifest.schemaVersion !== 1 || manifest.algorithm !== 'SHA-256-canonical-text-v1' ||
+    !Array.isArray(manifest.files)) fail('unsupported manifest schema');
 
 for (const entry of manifest.files) {
   if (!entry || typeof entry.path !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(entry.sha256 || '')) {

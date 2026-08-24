@@ -471,12 +471,13 @@ blocker, але не фальшивий tag `v5.0.0`.
 
 Self-contained implementation entrypoint:
 
-Implementation-Packet-SHA256: `87EC9211AEB5C5A69BBD58B0223BEB08D8F81C5FBD2BE6F95C9720BC3F336510`
+Implementation-Packet-SHA256: `516E0E567844B1906D13BEB122DD32AA9D279A44ABD1E89AE48DF66AABD5548D`
 
 - `CLAUDE-CODE-1H-LAUNCH.md` — точний one-hour orchestration, safety і evidence contract;
 - `upstreams.lock.json` — exact upstream/benchmark commits без mutable `latest`.
-- `implementation-packet.lock.json` + `verify-packet.js` — spec-bound hashes усіх control inputs;
-  preflight має завершитися `status: pass` до T001.
+- `implementation-packet.lock.json` + `verify-packet.js` — spec-bound hashes усіх control inputs
+  за canonical UTF-8/NFC/LF bytes (PNG лишається raw); preflight має завершитися `status: pass`
+  однаково у Windows/Linux worktree до T001.
 
 Графічні джерела та render artifacts:
 
