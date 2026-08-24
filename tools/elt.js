@@ -564,7 +564,13 @@ function batchItems(taskId) {
       specPath: relPosix(found.plan.file),
     });
   }
-  return { items };
+  // 020 T016 (поколение 2): `isDone` отдаётся планировщику отдельно — закрытость зависимости
+  // знает только план целиком, а планировщик обязан остаться без git и без fs.
+  const isDone = (id) => {
+    const f = findTaskItem(id, false);
+    return !!(f && f.plan.done.some((x) => x.id === id));
+  };
+  return { items, isDone };
 }
 // Карантин ВЫВОДИТСЯ, а не хранится: батч красный ровно тогда, когда на его `batchHead` висит
 // открытая строка очереди от фона. Второго источника правды не заводим — иначе «красный» и
@@ -908,7 +914,7 @@ if (cmd === 'batch') {
     const built = batchItems(normalizeTaskArg(opt('--task')));
     if (built.error) die(`elt batch plan: ${built.error}`, 4);
     const cfgB = fs.existsSync(CONFIG) ? loadConfig() : {};
-    const p = planBatch({ items: built.items, baseHead: headSha(), max: Number(cfgB.batch) || DEFAULT_BATCH, repair: flag('--repair') });
+    const p = planBatch({ items: built.items, isDone: built.isDone, baseHead: headSha(), max: Number(cfgB.batch) || DEFAULT_BATCH, repair: flag('--repair') });
     console.log(JSON.stringify(p, null, 2));
     process.exit(p.ok ? 0 : 4);
   }
@@ -1381,7 +1387,7 @@ if (cmd === 'commit') {
   const built = batchItems(taskId);
   if (built.error) die(`elt commit: ${built.error}`, 4);
   const batchPlan = planBatch({
-    items: built.items, baseHead: headSha(),
+    items: built.items, isDone: built.isDone, baseHead: headSha(),
     max: Number(cfg.batch) || DEFAULT_BATCH, repair,
   });
   if (!batchPlan.ok) die(`elt commit: батч отвергнут (${batchPlan.reason}) — ${batchPlan.detail}`, 4);

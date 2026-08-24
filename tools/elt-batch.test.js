@@ -248,6 +248,41 @@ test('T016: батч из разных спек и пересечение зон
   assert.match(tasksMd(root), /\[ \] \*\*T001\*\*/);
 });
 
+test('T016 gen2: dependency-open и risk-high валят САМ коммит, а не только предпросмотр', () => {
+  const root = fixture();
+  fs.writeFileSync(path.join(root, 'specs', '001-fixture', 'tasks.md'),
+    '- [ ] **T001** первая [files: tools/a.js]\n'
+    + '- [ ] **T002** вторая [files: tools/b.js] [deps: T003]\n'
+    + '- [ ] **T003** третья [files: tools/c.js] [risk: high]\n');
+
+  // T002 зависит от открытой T003, которой нет в батче.
+  writeProof(root, 'T002');
+  let before = commitCount(root);
+  let c = run(root, ['commit', '--task', 'T002', '--skip-oracle', '-m', 'feat: T002']);
+  assert.equal(c.status, 4);
+  assert.match(c.stderr, /dependency-open/);
+  assert.equal(commitCount(root), before);
+  assert.match(tasksMd(root), /\[ \] \*\*T002\*\*/, 'отказ не смеет закрывать задачу');
+
+  // Рискованная задача в компании соседа — тоже отказ.
+  writeProof(root, 'T001,T003');
+  before = commitCount(root);
+  c = run(root, ['commit', '--task', 'T001,T003', '--skip-oracle', '-m', 'feat: T001,T003']);
+  assert.equal(c.status, 4);
+  assert.match(c.stderr, /risk-incompatible/);
+  assert.equal(commitCount(root), before);
+
+  // А одна — законна: зоны совместимы, зависимостей нет.
+  writeProof(root, 'T003');
+  c = run(root, ['commit', '--task', 'T003', '--skip-oracle', '-m', 'feat: T003']);
+  assert.equal(c.status, 0, c.stderr);
+  assert.match(tasksMd(root), /\[X\] \*\*T003\*\*/);
+  // ...и теперь T002 проходит: её зависимость закрыта.
+  fs.writeFileSync(path.join(root, 'more.txt'), 'ещё\n');
+  writeProof(root, 'T002');
+  assert.equal(run(root, ['commit', '--task', 'T002', '--skip-oracle', '-m', 'feat: T002']).status, 0);
+});
+
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });

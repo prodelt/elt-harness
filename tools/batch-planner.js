@@ -51,6 +51,58 @@ function zonesOf(text) {
   }
   return out;
 }
+// ── Зоны совместимости, поколение 2 ────────────────────────────────────────────────────
+// Первое поколение T016 закрывало только ФАЙЛОВЫЕ зоны, и судья справедливо заблокировал
+// батч: контракт задачи требует «dependency-closed И compatible file/risk/platform zones»,
+// а формат для двух последних не был даже введён. Вводится здесь, теми же квадратными
+// тегами, что и `[files:]`, — иначе пришлось бы заводить второй синтаксис плана:
+//   [deps: T001 T002]      — задачи, без которых эта не имеет смысла;
+//   [risk: high|normal]    — архитектурно рискованная задача (по умолчанию normal);
+//   [platform: win|linux]  — задача привязана к ОС (по умолчанию any).
+// Умолчания выбраны так, чтобы НИ ОДИН существующий план не поменял поведения: план без
+// тегов даёт deps=[], risk=normal, platform=any и планируется ровно как раньше.
+function tagValues(text, tag) {
+  const out = [];
+  for (const m of String(text || '').matchAll(new RegExp(`\\[${tag}:([^\\]]+)\\]`, 'g'))) {
+    for (const part of m[1].split(/[\s,]+/)) {
+      const v = part.trim();
+      if (v && !out.includes(v)) out.push(v);
+    }
+  }
+  return out;
+}
+function depsOf(text) { return tagValues(text, 'deps'); }
+function riskOf(text) { return (tagValues(text, 'risk')[0] || 'normal').toLowerCase(); }
+function platformOf(text) { return (tagValues(text, 'platform')[0] || 'any').toLowerCase(); }
+
+// Dependency-closed: каждая зависимость задачи батча либо уже закрыта, либо лежит в ЭТОМ ЖЕ
+// батче. Иначе батч судится и чинится как целое, часть которого физически не работает, а
+// красное поколение нельзя приписать ни одной из задач.
+function dependencyGap(items, isDone) {
+  const inBatch = new Set(items.map((i) => i.id));
+  for (const it of items) {
+    for (const dep of depsOf(it.text)) {
+      if (inBatch.has(dep)) continue;
+      if (isDone(dep)) continue;
+      return { task: it.id, dep };
+    }
+  }
+  return null;
+}
+// Рискованная задача едет ОДНА: смысл батча — платить за гейт один раз на дешёвых задачах, а
+// не склеивать архитектурный слайс с соседями, которых потом нечем отделить от его вердикта.
+function riskIncompatible(items) {
+  const high = items.filter((i) => riskOf(i.text) === 'high').map((i) => i.id);
+  return high.length && items.length > 1 ? high : null;
+}
+// Платформенные зоны: `any` совместим с чем угодно, две РАЗНЫЕ конкретные платформы — нет.
+// Батч исполняется одним прогоном на одной машине; «win + linux» в нём означает, что половина
+// задачи заведомо не проверена, а вердикт всё равно один.
+function platformIncompatible(items) {
+  const named = [...new Set(items.map((i) => platformOf(i.text)).filter((p) => p !== 'any'))];
+  return named.length > 1 ? named : null;
+}
+
 function zoneCollision(items) {
   const seen = new Map();
   for (const it of items) {
@@ -68,7 +120,7 @@ function zoneCollision(items) {
  *
  * items: [{ id, text, specPath, done }] в порядке ФАЙЛА плана (порядок — часть идентичности).
  */
-function planBatch({ items, baseHead, max = DEFAULT_BATCH, hardMax = MAX_BATCH, repair = false }) {
+function planBatch({ items, baseHead, max = DEFAULT_BATCH, hardMax = MAX_BATCH, repair = false, isDone = null }) {
   if (!Array.isArray(items) || !items.length) return fail('empty', 'батч без задач');
   if (items.length > hardMax) return fail('too-many', `${items.length} задач при потолке ${hardMax}`);
   if (items.length > max && !repair) return fail('too-many', `${items.length} задач при батче ${max} (потолок ${hardMax} — только с явным --batch)`);
@@ -90,6 +142,17 @@ function planBatch({ items, baseHead, max = DEFAULT_BATCH, hardMax = MAX_BATCH, 
   const collision = zoneCollision(items);
   if (collision) return fail('zone-collision', `${collision.glob} заявлен и в ${collision.a}, и в ${collision.b}`);
 
+  // `isDone` приходит от вызывающего (он один знает план целиком). Без него закрытость
+  // зависимости не проверить, и умолчание здесь fail-closed: неизвестная зависимость = открытая.
+  const gap = dependencyGap(items, isDone || (() => false));
+  if (gap) return fail('dependency-open', `${gap.task} зависит от ${gap.dep}, а тот не закрыт и не в батче`);
+
+  const risky = riskIncompatible(items);
+  if (risky) return fail('risk-incompatible', `${risky.join(',')} помечены [risk: high] — такая задача едет одна`);
+
+  const platforms = platformIncompatible(items);
+  if (platforms) return fail('platform-incompatible', `в батче разные платформы: ${platforms.join(', ')}`);
+
   return {
     ok: true,
     specPath: specs[0],
@@ -97,7 +160,15 @@ function planBatch({ items, baseHead, max = DEFAULT_BATCH, hardMax = MAX_BATCH, 
     taskIds: ids,
     batchId: batchIdOf({ specPath: specs[0], taskIds: ids, baseHead }),
     zones: items.flatMap((i) => zonesOf(i.text)),
+    // Зоны едут в план целиком — по ним же потом видно, ПОЧЕМУ батч был признан совместимым.
+    risk: items.map((i) => riskOf(i.text)),
+    platforms: [...new Set(items.map((i) => platformOf(i.text)))],
+    deps: items.flatMap((i) => depsOf(i.text)),
   };
 }
 
-module.exports = { planBatch, batchIdOf, zoneCollision, zonesOf, DEFAULT_BATCH, MAX_BATCH };
+module.exports = {
+  planBatch, batchIdOf, zoneCollision, zonesOf,
+  depsOf, riskOf, platformOf, dependencyGap, riskIncompatible, platformIncompatible,
+  DEFAULT_BATCH, MAX_BATCH,
+};
