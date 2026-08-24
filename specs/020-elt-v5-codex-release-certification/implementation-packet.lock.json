@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "algorithm": "SHA-256",
+  "algorithm": "SHA-256-canonical-text-v1",
   "files": [
     { "path": "CLAUDE-CODE-1H-LAUNCH.md", "sha256": "EEFF6536E22F328B91ADEAD99CFF33F722D753AED6D92193C5F1CB5010EE32EC" },
     { "path": "upstreams.lock.json", "sha256": "D08661CEFAFC1484F04721955FECACDC99E248E882E99570B7AC99AFA06A0907" },
-    { "path": "verify-packet.js", "sha256": "AD05102B109BDB74FB8D52F2F8790358375592CF9B65E23DFDCC9F3AECFA6CCA" },
+    { "path": "verify-packet.js", "sha256": "23405DF74FEDFBD61F2E0617B3B3224094F2D34F1DA88084BC58CF217D9C85CD" },
     { "path": "diagrams/elt-v5-batch-certification.excalidraw", "sha256": "4C2091E999D2894CCD2A18249C1A778263F3140F0431406A25F0C41566C9B5C6" },
     { "path": "diagrams/elt-v5-batch-certification.mmd", "sha256": "11AE0510D3BF1464EFA14DD15479F0BA0A44017654997EC1055EEB65681F6494" },
     { "path": "diagrams/elt-v5-batch-certification.png", "sha256": "22EB6383525CB9CB40C89DDD3E69CC1D98330D7C3853025431C91D495B92BEB9" },
