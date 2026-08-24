@@ -1,16 +1,16 @@
 # Checkpoint (auto) — 2026-08-24
 
-Автозаписан `checkpoint-writer.js` на пороге ~278k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~310k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/elt-v5-one-hour`
-- dirty files: 2
+- dirty files: 0
 
 ## Last Run
-- commit: `02dbe91`
+- commit: `cc1b4fd`
 - verdict: (none)
-- oracle exit: 0
-- msg: feat: T016 батч как единица посадки и repair-поколения
+- oracle exit: ?
+- msg: 
 
 ## Next Slice
 - plan file: `specs\020-elt-v5-codex-release-certification\tasks.md`
