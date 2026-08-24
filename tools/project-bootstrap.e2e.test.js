@@ -82,12 +82,18 @@ test('project-bootstrap live-fire: apply x2, red->green oracle, stub judge proof
   const second = applyPlan(root, { home });
   assert.deepEqual(second.changes, []);
 
-  // Land the bootstrap scaffolding before the gate is even enabled.
+  // Land the bootstrap scaffolding. 020 T009: `apply` теперь САМ включает `core.hooksPath`
+  // (до этого включение было строчкой в комментарии шаблона, и гейт молча не работал), поэтому
+  // этот подготовительный коммит идёт мимо хука явно — он ставит саму дверь, а не проходит её.
   git(root, home, ['add', '-A']);
-  git(root, home, ['commit', '-qm', 'chore: project-bootstrap apply']);
+  git(root, home, ['commit', '-q', '--no-verify', '-m', 'chore: project-bootstrap apply']);
 
-  // Enable the managed gate exactly as documented ("once per clone").
-  git(root, home, ['config', 'core.hooksPath', '.githooks']);
+  // Гейт уже включён самим apply — проверяем это, а не включаем повторно.
+  assert.equal(
+    execFileSync('git', ['config', '--get', 'core.hooksPath'], { cwd: root, encoding: 'utf8' }).trim(),
+    '.githooks',
+    'apply обязан включить managed gate, а не только записать файл хука',
+  );
 
   // Red oracle: implementation fixture not written yet.
   const redOracle = runElt(root, home, ['oracle']);

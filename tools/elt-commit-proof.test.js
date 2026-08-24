@@ -79,6 +79,34 @@ test('commit proof: valid pass creates exactly one commit and rejects free verdi
   assertRejected(fresh, ['--verdict', 'pass']);
 });
 
+// 020 T009: провал push обязан возвращать НЕНУЛЕВОЙ код. До этой задачи он печатался в
+// stderr, а команда выходила с 0: драйвер считал слайс доехавшим, коммита на remote не было,
+// и для релизной цепочки (push/tag receipts) это прямой источник false-green.
+test('T009: push провалился — exit non-zero, коммит при этом остаётся локально', () => {
+  const root = fixture();
+  writeProof(root);
+  // origin указывает в никуда: push обязан упасть по-настоящему, без сети и без заглушек.
+  git(root, ['remote', 'add', 'origin', path.join(root, 'no-such-remote.git')]);
+  const before = commitCount(root);
+  const r = run(root, ['commit', '--task', 'T001', '--skip-oracle', '--push', '-m', 'feat: T001']);
+  assert.notEqual(r.status, 0, 'молчаливый 0 здесь и есть дефект');
+  assert.match(r.stderr, /push FAILED/);
+  assert.equal(commitCount(root), before + 1, 'локальный коммит не откатывается — он состоялся');
+  assert.match(r.stdout, /push не прошёл/, 'человеку сказано, что на remote коммита нет');
+});
+
+test('T009: успешный push оставляет exit 0 — отказ не должен стать безусловным', () => {
+  const root = fixture();
+  writeProof(root);
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-remote-'));
+  roots.push(bare);
+  execFileSync('git', ['init', '-q', '--bare', bare], { encoding: 'utf8' });
+  git(root, ['remote', 'add', 'origin', bare]);
+  const r = run(root, ['commit', '--task', 'T001', '--skip-oracle', '--push', '-m', 'feat: T001']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /pushed/);
+});
+
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });

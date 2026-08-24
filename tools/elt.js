@@ -48,9 +48,25 @@ function sh(cmd, shell) {
   process.stderr.write(out);
   return { code: r.status === null ? 1 : r.status, out };
 }
+// 020 T009: дефолтный `maxBuffer` spawnSync — 1 МиБ, и при переполнении процесс УБИВАЕТСЯ:
+// `status` приходит null, а stdout — ОБРЕЗАННЫМ. Для `git diff HEAD` это не теоретический
+// край: слайс на пару тысяч строк уже подходит к порогу, а слайс с новым словарём/фикстурой
+// переваливает. Обрезанный дифф в `treeHash` означает, что ДВА РАЗНЫХ дерева дают один хеш —
+// то есть оракул-пруф перестаёт быть привязанным к дереву, ради чего он и существует.
+// Число то же, что в фоне (elt-verify-bg.js:BG_MAX_BUFFER) — одна полоса, один лимит.
+const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 function git(args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
-  return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
+  // `status === null` — процесс не завершился сам (убит сигналом или ENOBUFS). Это НЕ «код 0»
+  // и не «код 1»: возвращаем 1, но отдельно отдаём `killed`, чтобы вызывающий, которому важна
+  // полнота вывода (treeHash), мог отличить «git сказал нет» от «git не договорил».
+  const killed = r.status === null;
+  return {
+    code: killed ? 1 : r.status,
+    out: (r.stdout || '').trim(),
+    err: (r.stderr || '').trim() || (r.error ? String(r.error.code || r.error.message) : ''),
+    killed,
+  };
 }
 
 // ── tasks.md (spec-kit): newest plan is the active plan ───────────────────────
@@ -259,10 +275,27 @@ function treeHash() {
     return normalized.startsWith('.harness/loop-logs/') || normalized.startsWith('.harness/fleet/logs/')
       || normalized.startsWith('.harness/fleet/prompts/');
   };
-  const status = git(['status', '--porcelain', '-uall']).out.split('\n')
+  // 020 T009: оба вызова обязаны ОТРАБОТАТЬ ПОЛНОСТЬЮ. Молчаливый провал здесь — худший из
+  // возможных: хеш посчитается от пустого/обрезанного вывода, два разных дерева совпадут, и
+  // `--skip-oracle` проведёт коммит по пруфу от ЧУЖОГО дерева. Отказ громкий, без фолбека.
+  const statusRun = git(['status', '--porcelain', '-uall']);
+  if (statusRun.code !== 0) {
+    die(`treeHash: git status не отработал (${statusRun.killed ? 'вывод обрезан/процесс убит' : `exit ${statusRun.code}`})`
+      + `${statusRun.err ? `: ${statusRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
+  }
+  // Репо без единого коммита — законный случай (`elt init` до первого слайса): там `HEAD` не
+  // резолвится, и это не отказ git, а отсутствие базы. Всё содержимое такого дерева и так
+  // попадает в хеш через `??`-строки status.
+  const hasHead = git(['rev-parse', '--verify', 'HEAD']).code === 0;
+  const diffRun = hasHead ? git(['diff', 'HEAD']) : { code: 0, out: '', killed: false, err: '' };
+  if (diffRun.code !== 0) {
+    die(`treeHash: git diff не отработал (${diffRun.killed ? 'вывод обрезан/процесс убит' : `exit ${diffRun.code}`})`
+      + `${diffRun.err ? `: ${diffRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
+  }
+  const status = statusRun.out.split('\n')
     .filter((line) => !runtimeLog(line.slice(3).trim())).join('\n');
   const h = crypto.createHash('sha256');
-  h.update(status + '\n' + git(['diff', 'HEAD']).out);
+  h.update(status + '\n' + diffRun.out);
   const untracked = status.split('\n')
     .filter((l) => l.startsWith('?? '))
     .map((l) => l.slice(3).trim())
@@ -1308,6 +1341,32 @@ if (cmd === 'gate') {
   const blocked = files.filter((file) => !isCheckpointFile(file));
   if (!blocked.length) { console.log('elt gate: только .planning/** и specs/** — judge не нужен'); process.exit(0); }
 
+  // 020 T009: при `verify:"background"` судейского пруфа на момент коммита НЕТ по построению —
+  // тяжёлые слои идут после (014 T005). Пока хук требовал его безусловно, включить
+  // `core.hooksPath` в таком проекте было физически невозможно: гейт блокировал КАЖДЫЙ
+  // легальный слайс. Поэтому в фоновом режиме дверь стережёт оракул-пруф: `elt commit`
+  // передаёт хеш тех самых байтов пруфа, которые он уже проверил ДО markDone.
+  {
+    const cfgRaw = readHarnessConfig(cwd);
+    const bgMode = cfgRaw.ok && cfgRaw.config.verify === 'background';
+    if (bgMode) {
+      let oracleRaw = null;
+      try { oracleRaw = fs.readFileSync(oracleProofPath(), 'utf8'); } catch { /* нет пруфа — ниже отказ */ }
+      if (!oracleRaw) die('elt gate: нет оракул-пруфа (verify:"background") — коммить через elt commit', 4);
+      if (process.env.ELT_GATE_TRUST_ORACLE && process.env.ELT_GATE_TRUST_ORACLE === sha256(oracleRaw)) {
+        console.log('elt gate: trusted elt commit (оракул-пруф проверен до markDone)');
+        process.exit(0);
+      }
+      let parsed = null;
+      try { parsed = JSON.parse(oracleRaw); } catch { /* битый — отказ ниже */ }
+      if (!parsed || parsed.exit !== 0 || parsed.hash !== treeHash()) {
+        die('elt gate: оракул-пруф отсутствует, красный или не про это дерево — коммить через elt commit', 4);
+      }
+      console.log('elt gate: оракул-пруф зелёный и привязан к этому дереву');
+      process.exit(0);
+    }
+  }
+
   const loaded = readJudgeProof();
   if (loaded.error) die(`elt gate: judge proof ${loaded.error} — коммить через elt commit`, 4);
 
@@ -1486,7 +1545,13 @@ if (cmd === 'commit') {
     + (inconclusive ? ' [inconclusive]' : '')
     + (repair ? ` [repair gen ${generation}]` : '');
   if (git(['add', '-A']).code !== 0) die('git add failed');
-  const commitEnv = bgVerify ? process.env : { ...process.env, ELT_GATE_TRUST: gateTrust };
+  // 020 T009: в фоновом режиме хук стережёт ОРАКУЛ-пруф, и `elt commit` передаёт хеш тех
+  // самых байтов, которые он уже проверил выше (до markDone — та правка двигает treeHash).
+  let oracleTrust = null;
+  if (bgVerify) { try { oracleTrust = sha256(fs.readFileSync(oracleProofPath(), 'utf8')); } catch { oracleTrust = null; } }
+  const commitEnv = bgVerify
+    ? { ...process.env, ...(oracleTrust ? { ELT_GATE_TRUST_ORACLE: oracleTrust } : {}) }
+    : { ...process.env, ELT_GATE_TRUST: gateTrust };
   const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8', env: commitEnv });
   if (c.status !== 0) die('git commit failed: ' + (c.stderr || c.stdout));
   const sha = git(['rev-parse', '--short', 'HEAD']).out;
@@ -1565,13 +1630,23 @@ if (cmd === 'commit') {
   }
 
   // 4. push strictly by flag (config or CLI)
+  // 020 T009: провал push — НЕНУЛЕВОЙ выход. Раньше он печатался в stderr и терялся: команда
+  // возвращала 0, драйвер считал слайс доехавшим, а коммита на remote не было. Для релизной
+  // цепочки (tag/push receipts в T006) это прямой источник false-green. Коммит уже создан и
+  // остаётся — «локально есть, на remote нет» и есть тот факт, который обязан быть виден.
+  let pushFailed = null;
   if (cfg.push || flag('--push')) {
     const p = git(['push', '-u', 'origin', branch]);
-    console.error(p.code === 0 ? 'elt commit: pushed' : 'elt commit: push FAILED — ' + p.err);
+    if (p.code === 0) console.error('elt commit: pushed');
+    else {
+      pushFailed = p.err || `exit ${p.code}`;
+      console.error('elt commit: push FAILED — ' + pushFailed);
+    }
   }
   clearGateMarker(); // цепочка гейта закончилась — авто-чекпоинту снова можно писать
-  console.log(`elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`);
-  process.exit(0);
+  console.log(`elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`
+    + (pushFailed ? ' — НО push не прошёл, на remote коммита нет' : ''));
+  process.exit(pushFailed ? 5 : 0);
 }
 // 019 T008: команды `elt harness sync-all` и `elt harness propose` сняты вместе со своими
 // модулями. sync-all раскатывал схему v4 по реестру чужих проектов — сценарий записан
