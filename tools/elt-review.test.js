@@ -63,13 +63,74 @@ test('review close: закрытая запись не возвращается,
   assert.ok(all.find((x) => x.task === 'T001').closedAt, 'у закрытой проставлена метка времени');
 });
 
-test('review close: идемпотентно — повторный вызов закрывает 0 и не падает', () => {
+// 020 T008 НАМЕРЕННО перевернул этот контракт. Живьём: `elt review close --task T018` из
+// worktree вернул exit 0, закрыв НОЛЬ строк (очередь физически лежала в другом чекауте), и
+// промолчал — человек считал находку разобранной, а она осталась открытой. Ноль закрытых —
+// отказ; идемпотентность остаётся, но объявленной (`--allow-empty`), а не подразумеваемой.
+test('review close: ноль закрытых — громкий отказ, а не тихий exit 0', () => {
   const root = fixture([row('T001', 'а')]);
   assert.equal(run(root, ['review', 'close', '--task', 'T001']).status, 0);
   const second = run(root, ['review', 'close', '--task', 'T001']);
-  assert.equal(second.status, 0, 'повтор — не ошибка');
-  assert.match(second.stdout, /закрыто 0/);
+  assert.equal(second.status, 5, 'повтор без явного разрешения — отказ');
+  assert.match(second.stderr, /закрыто 0 строк/);
+  assert.match(second.stderr, /review-queue\.jsonl/, 'в отказе имя файла очереди: половина дефекта была в том, ЧТО очередь не та');
+  const third = run(root, ['review', 'close', '--task', 'T001', '--allow-empty']);
+  assert.equal(third.status, 0, '--allow-empty возвращает идемпотентность тем, кто её просит явно');
   assert.deepEqual(openRows(root), []);
+});
+
+test('review close: отсутствующая задача — отказ (fail-open стоил закрытия T016/T018)', () => {
+  const root = fixture([row('T001', 'а')]);
+  const r = run(root, ['review', 'close', '--task', 'T999']);
+  assert.equal(r.status, 5);
+  assert.deepEqual(openRows(root).map((x) => x.task), ['T001'], 'ничего не тронуто');
+});
+
+// --- 020 T008: identity строки очереди = (specPath, task) --------------------------------
+
+const SPEC_A = 'specs/019-two-a';
+const SPEC_B = 'specs/020-two-b';
+const specRow = (task, specPath, reason) => ({ ...row(task, reason), specPath: specPath ? `${specPath}/tasks.md` : null });
+function withSpecs(root) {
+  for (const [dir, body] of [[SPEC_A, '- [ ] **T020** A\n'], [SPEC_B, '- [ ] **T020** B\n- [ ] **T031** B\n']]) {
+    fs.mkdirSync(path.join(root, ...dir.split('/')), { recursive: true });
+    fs.writeFileSync(path.join(root, ...dir.split('/'), 'tasks.md'), body);
+  }
+  return root;
+}
+
+test('review close --spec: закрывается ровно названная спека, одноимённая чужая цела', () => {
+  const root = fixture([specRow('T020', SPEC_A, 'находка A'), specRow('T020', SPEC_B, 'находка B')]);
+  const c = run(root, ['review', 'close', '--task', 'T020', '--spec', SPEC_A]);
+  assert.equal(c.status, 0, c.stderr);
+  assert.match(c.stdout, /закрыто 1/);
+  const open = openRows(root);
+  assert.deepEqual(open.map((x) => x.specPath), [`${SPEC_B}/tasks.md`], 'находка другой спеки не закрывается заодно');
+});
+
+test('review close без --spec: одинаковый id в двух спеках — отказ, а не «закроем всё похожее»', () => {
+  const root = fixture([specRow('T020', SPEC_A, 'A'), specRow('T020', SPEC_B, 'B')]);
+  const r = run(root, ['review', 'close', '--task', 'T020']);
+  assert.equal(r.status, 5);
+  assert.match(r.stderr, /--spec/);
+  assert.equal(openRows(root).length, 2, 'обе строки на месте');
+});
+
+test('review: legacy-строка без спеки резолвится только однозначно; иначе нужен --adopt-legacy', () => {
+  const root = withSpecs(fixture([row('T020', 'legacy находка'), row('T031', 'legacy уникальная')]));
+  const shown = openRows(root);
+  assert.equal(shown.find((x) => x.task === 'T031').specPath, `${SPEC_B}/tasks.md`, 'уникальный id мигрируется');
+  assert.equal(shown.find((x) => x.task === 'T020').legacy, true, 'неоднозначный — честно legacy, без догадки');
+
+  // Неоднозначная legacy-строка не прилипает к спеке молча…
+  assert.equal(run(root, ['review', 'close', '--task', 'T020', '--spec', SPEC_A]).status, 5);
+  // …но человек может назначить её явно, и тогда identity записывается в файл.
+  const adopt = run(root, ['review', 'close', '--task', 'T020', '--spec', SPEC_A, '--adopt-legacy']);
+  assert.equal(adopt.status, 0, adopt.stderr);
+  const all = fs.readFileSync(path.join(root, '.harness', 'review-queue.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const closed = all.find((x) => x.task === 'T020');
+  assert.equal(closed.specPath, `${SPEC_A}/tasks.md`, 'решение человека фиксируется, а не остаётся в голове');
+  assert.ok(closed.closedAt);
 });
 
 test('review close: батч-запись закрывается по любой из своих задач', () => {

@@ -31,7 +31,7 @@
   командами, SHA-256 і exact counts.
   [files: .planning/ELT-V5-GLOBAL-HOOKS-AUDIT-2026-08-24.md]
 
-- [ ] **T008** Spec-bound runtime identity: parked/review rows несуть `specPath`; background rows
+- [X] **T008** Spec-bound runtime identity: parked/review rows несуть `specPath`; background rows
   додатково мають `commit` і `layer`. `slice next --spec specs/019-...` бачить 019/T020 попри
   legacy parked T020, а `review close` закриває рівно названу identity. Legacy rows мігруються
   fail-closed; регреси мають дві spec з однаковими T005/T020.

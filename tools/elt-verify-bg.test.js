@@ -581,6 +581,24 @@ test('T007: конфиг берётся из снапшота КОММИТА, а
   assert.equal(r.configSource, 'commit:' + hash);
 });
 
+// 020 T008: фоновая строка очереди обязана нести ПОЛНУЮ identity — спеку, коммит и слой.
+// Без спеки `elt review close --task T018` не отличает находку 019/T018 от 020/T018 и
+// закрывает чужую (или, что и случилось живьём, не закрывает ни одной и молчит).
+test('T008: строка фона несёт specPath, commit и layer', async () => {
+  const { root, hash } = gitRepo({ background: { layers: ['suite'] } });
+  const r = await runBackgroundVerify({
+    cwd: root, commitHash: hash, taskId: 'T018',
+    specFile: 'specs/020-elt-v5-codex-release-certification/tasks.md',
+    oracleCmd: 'node -e "process.exit(1)"',
+  });
+  assert.equal(r.status, 'background-verify-red');
+  const rows = fs.readFileSync(path.join(root, REVIEW_QUEUE), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].specPath, 'specs/020-elt-v5-codex-release-certification/tasks.md');
+  assert.equal(rows[0].commit, hash, 'коммит — единственный вход в дифф находки');
+  assert.equal(rows[0].layer, 'suite');
+});
+
 test('T007: classifyJudge — закрытый список, всё остальное неконклюзивно', () => {
   for (const v of ['pass', 'block', 'inconclusive']) assert.equal(classifyJudge(v).conclusive, true, v);
   for (const v of ['dead', 'timeout', 'unknown', '', null, undefined, 'PASS']) {
