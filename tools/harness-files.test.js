@@ -27,6 +27,39 @@ test('владения харнеса: то, что пишет сам харне
   }
 });
 
+// Два владения, найденные живьём после батча A: оба пишет сам харнес, оба судья ловил как
+// scope creep. Чекпоинт с именем по стампу — поэтому список владений умеет и регулярки.
+test('владения без фиксированного имени: авточекпоинт и ретро-разметка bench', () => {
+  for (const rel of [
+    '.planning/CHECKPOINT-2026-08-24-1200-auto.md',
+    './.planning/CHECKPOINT-abc-auto.md',
+    '.planning\\CHECKPOINT-2026-08-24-auto.md',
+    'tools/judge-bench/cases-ingested.json',
+    'tools\\judge-bench\\cases-ingested.json',
+  ]) {
+    assert.equal(isHarnessOwned(rel), true, `${rel} пишет харнес`);
+    assert.equal(isIgnoredForReview(rel), true, `${rel} не судится`);
+  }
+
+  // Границу не размывать: чекпоинт, написанный человеком, и код bench судятся как обычно.
+  for (const rel of [
+    '.planning/CHECKPOINT-2026-08-24.md',
+    '.planning/STATE.md',
+    'tools/judge-bench.js',
+    'tools/judge-bench/cases.json',
+    'docs/CHECKPOINT-auto.md',
+  ]) assert.equal(isHarnessOwned(rel), false, `${rel} пишет человек`);
+});
+
+test('D22-сосед: авточекпоинт в диффе не даёт out-of-scope', () => {
+  const diff = ['tools/widget.js', '.planning/CHECKPOINT-2026-08-24-1200-auto.md',
+    'tools/judge-bench/cases-ingested.json']
+    .map((f) => `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -1,1 +1,1 @@\n+x`).join('\n');
+  const triggers = l0.evaluate({ diff, config: {}, taskText: 'T021 правка [files: tools/widget.js]' })
+    .triggers.map((t) => t.name);
+  assert.deepEqual(triggers, [], `владения харнеса не нарушение зоны: ${triggers.join(', ')}`);
+});
+
 test('сгенерированное: пишет инструмент, ревьюировать нечего', () => {
   for (const rel of ['package-lock.json', 'app/package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
     'node_modules/x/index.js', '.codegraph/graph.db']) {
