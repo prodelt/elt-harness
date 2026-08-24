@@ -1,0 +1,18 @@
+graph TD
+  Start["Approved spec"] --> Plan["Собрать batch<br/>default 3 max 4"]
+  Plan --> Next["Следующая T"]
+  Next --> Work["Реализация"]
+  Work --> Fast{"L0 и focused test"}
+  Fast -->|red| Work
+  Fast -->|green| Checkpoint["Task checkpoint"]
+  Checkpoint --> More{"Есть ещё T?"}
+  More -->|да| Next
+  More -->|нет| Landing["Один provisional commit"]
+  Landing --> Oracle["Один impact oracle"]
+  Landing --> Lenses["Один review subgraph"]
+  Lenses --> Scorer["Один confidence scorer"]
+  Oracle --> Cert{"Certificate terminal"}
+  Scorer --> Cert
+  Cert -->|pass| Publish["Разрешить push"]
+  Cert -->|red| Work
+  Cert -->|error или unknown| Block["Quarantine и retry"]

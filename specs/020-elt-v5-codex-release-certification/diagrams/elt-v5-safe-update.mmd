@@ -1,0 +1,20 @@
+graph TD
+  Discover["Найти candidate"] --> Stage["Stage exact commit"]
+  Stage --> Verify["Hash license path safety"]
+  Verify --> Diff["Capability diff"]
+  Diff --> Scan["SkillSpector scan"]
+  Scan --> Smoke["Windows Linux smoke"]
+  Smoke --> Canary["Contract canary"]
+  Canary --> Approval{"Authority или side-effect diff?"}
+  Approval -->|нет| Promote["Atomic pointer switch"]
+  Approval -->|да| Human["Human approval"]
+  Human -->|approve| Promote
+  Human -->|reject| Quarantine["Quarantine candidate"]
+  Verify -->|red| Quarantine
+  Scan -->|red или incomplete| Quarantine
+  Smoke -->|red| Quarantine
+  Canary -->|red| Quarantine
+  Promote --> Lock["Write components lock"]
+  Lock --> Receipt["Journal update receipt"]
+  Promote -->|runtime regression| Rollback["Atomic rollback"]
+  Rollback --> Receipt

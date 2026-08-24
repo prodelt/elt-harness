@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-24",
+  "policy": "exact-commit-staging-only",
+  "components": [
+    { "repo": "rtk-ai/rtk", "commit": "29f9bb7161775cd807565fd3041eb2b7d1be071c", "role": "optional-output-reducer" },
+    { "repo": "NVIDIA/SkillSpector", "commit": "698e2bf29c7d32aa8211ada677382460c01900d7", "role": "pre-activation-scanner" },
+    { "repo": "NVIDIA/OpenShell", "commit": "7fc61389810b4772b40f58fb78ba907346ab5ce7", "role": "optional-strong-isolation" },
+    { "repo": "affaan-m/ECC", "commit": "d8409a4b0813771235555e32e3d8046a73988bfa", "role": "patterns-only" },
+    { "repo": "deepseek-ai/deepseek-harness", "commit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e", "role": "lifecycle-patterns" },
+    { "repo": "github/spec-kit", "commit": "27f50f7e6b618ea14d74dd4037f9e7c60218b16c", "role": "spec-import-adapter" },
+    {
+      "repo": "mattpocock/skills",
+      "commit": "5b15a47f2d7150f545fbcacbfe381787fc0230dc",
+      "role": "grail-pack-25-promoted",
+      "manifestSha256": "6B5C85512785D36D6DA4561BB309AC11E8BD6C0C028D5777740DC01147A6A025"
+    }
+  ],
+  "benchmarks": [
+    { "repo": "SWE-bench/SWE-bench", "commit": "7a21e05772954cc81471ae19d56f436cecf43c54", "role": "primary-evaluator" },
+    { "repo": "Aider-AI/aider", "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f", "path": "benchmark", "role": "polyglot-pilot" },
+    { "repo": "SWE-rebench/SWE-rebench-V2", "commit": "c71902a8cf8d2b725f63d51f199f4d3e56f68d2d", "role": "optional-decontaminated-follow-up" }
+  ]
+}
