@@ -1,5 +1,12 @@
 #!/bin/sh
 # elt gate — managed pre-commit hook (UX layer; `elt gate --ci` in CI is the real backstop).
 # Enable once per clone:  git config core.hooksPath .githooks
+# 020 T009: ELT_CLI переопределяется снаружи — без этого хук невозможно проверить отказной
+# commit-пробой в изолированном репозитории, и «хук установлен» означало бы только «файл лежит».
 root="$(git rev-parse --show-toplevel)" || exit 1
-exec node "$root/tools/elt.js" gate
+ELT_CLI="${ELT_CLI:-$root/tools/elt.js}"
+if [ ! -f "$ELT_CLI" ]; then
+  echo "elt gate: CLI не найден по $ELT_CLI — задай ELT_CLI или переустанови плагин (claude plugin install elt@elt)" >&2
+  exit 1
+fi
+exec node "$ELT_CLI" gate

@@ -37,7 +37,7 @@
   fail-closed; регреси мають дві spec з однаковими T005/T020.
   [files: tools/elt.js tools/elt-review.test.js tools/elt-verify-bg.js tools/elt-verify-bg.test.js tools/elt-park.test.js]
 
-- [ ] **T009** Реальний fail-closed git/release gate: bootstrap активує виконуваний pre-commit
+- [X] **T009** Реальний fail-closed git/release gate: bootstrap активує виконуваний pre-commit
   через repo-local `core.hooksPath` (або еквівалент із тим самим доказом), verify перевіряє
   фактичний hook відмовним commit-probe. `treeHash` відхиляє git/ENOBUFS і тримає >1 MiB diff;
   push failure повертає non-zero. Залишити runnable regressions на кожен шлях.

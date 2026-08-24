@@ -8,6 +8,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
+  HOOKS_PATH,
+  probeGitGate,
+  checkGateContract,
   applyPlan,
   applySafeActions,
   checkOracleVerifierContract,
@@ -654,8 +657,11 @@ function testVerifyCleanTreeSignalReportsDirtyWithoutGatingOverallResult() {
   assert.equal(spawnSync('git', ['init'], { cwd: root, encoding: 'utf8' }).status, 0);
   spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+  // 020 T009: git появился ПОСЛЕ apply, поэтому включить хук было некому — делаем это здесь,
+  // иначе тест про сигнал грязного дерева падал бы на контракте гейта, к которому он не относится.
+  spawnSync('git', ['config', 'core.hooksPath', HOOKS_PATH], { cwd: root });
   spawnSync('git', ['add', '-A'], { cwd: root });
-  spawnSync('git', ['commit', '-m', 'init'], { cwd: root });
+  spawnSync('git', ['commit', '--no-verify', '-m', 'init'], { cwd: root });
   fs.writeFileSync(path.join(root, 'src', 'index.js'), 'export const x = 2;\n', 'utf8');
 
   const report = verifyProject(root, { supplyChain: false, home });
@@ -757,6 +763,75 @@ function testMigrationPlanCliDryRunTouchesNothing() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ── 020 T009: гейт обязан БЫТЬ ВКЛЮЧЁН и ДОКАЗАН, а не просто записан файлом ─────────────
+// Живой факт разведки: `apply` писал `.githooks/pre-commit`, а `git config core.hooksPath`
+// оставался пустым — в самом репо-разработчике тоже. «Managed gate установлен» означало
+// «файл существует»: ни один прямой `git commit` этим хуком не проверялся.
+function gitProject() {
+  const root = tempProject();
+  for (const args of [['init', '-q'], ['config', 'user.email', 't@t'], ['config', 'user.name', 't']]) {
+    spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  }
+  return root;
+}
+function hooksPathIn(root) {
+  const r = spawnSync('git', ['config', '--get', 'core.hooksPath'], { cwd: root, encoding: 'utf8' });
+  return r.status === 0 ? (r.stdout || '').trim() : null;
+}
+
+function testGitGateIsEnabledNotJustWritten() {
+  const root = gitProject();
+  assert.equal(hooksPathIn(root), null, 'исходно хук не включён — иначе тест ничего не доказывает');
+  applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.equal(fs.existsSync(path.join(root, '.githooks', 'pre-commit')), true, 'файл хука на месте');
+  assert.equal(hooksPathIn(root), HOOKS_PATH, 'apply обязан ВКЛЮЧИТЬ хук, а не только записать его');
+
+  // Идемпотентность: повторный apply не ломает уже включённый гейт.
+  applyPlan(root, { home: fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-')) });
+  assert.equal(hooksPathIn(root), HOOKS_PATH);
+}
+
+function testGitGateProbeIsTwoSided() {
+  const root = gitProject();
+  fs.mkdirSync(path.join(root, HOOKS_PATH), { recursive: true });
+  const hook = path.join(root, HOOKS_PATH, 'pre-commit');
+
+  // Настоящий хук репозитория: отказывает коду без пруфа, пропускает документный коммит.
+  fs.copyFileSync(path.join(__dirname, '..', '.githooks', 'pre-commit'), hook);
+  const real = probeGitGate(root);
+  assert.equal(real.ok, true, `настоящий хук обязан проходить пробу: ${real.reason} ${real.detail || ''}`);
+
+  // Хук, который отказывает ВСЕГДА, проходил бы одностороннюю пробу — и был бы принят за гейт.
+  fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const always = probeGitGate(root);
+  assert.equal(always.ok, false, 'односторонняя проба принимает `exit 1` за рабочий гейт');
+  assert.equal(always.reason, 'hook-blocks-everything');
+
+  // Хук, который не блокирует ничего, — тоже не гейт.
+  fs.writeFileSync(hook, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const never = probeGitGate(root);
+  assert.equal(never.ok, false);
+  assert.equal(never.reason, 'hook-not-blocking');
+
+  // Сломанный CLI не должен зачитываться как «гейт сработал»: отказ по другой причине.
+  fs.copyFileSync(path.join(__dirname, '..', '.githooks', 'pre-commit'), hook);
+  const broken = probeGitGate(root, { eltCli: path.join(root, 'no-such-elt.js') });
+  assert.equal(broken.ok, false);
+  assert.equal(broken.reason, 'hook-broken', 'падение хука — не то же самое, что отказ гейта');
+}
+
+function testGateContractRejectsInstalledButDisabledHook() {
+  const root = gitProject();
+  fs.mkdirSync(path.join(root, HOOKS_PATH), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', '.githooks', 'pre-commit'), path.join(root, HOOKS_PATH, 'pre-commit'));
+  const inspected = inspectProject(root);
+  assert.equal(inspected.gitGate.managedHookInstalled, true);
+  assert.equal(inspected.gitGate.hooksPathManaged, false, 'файл есть, включения нет');
+  const gate = checkGateContract(inspected);
+  assert.equal(gate.ok, false, 'лежащий, но невключённый хук — это отсутствующий хук');
+  assert.match(gate.reason, /core\.hooksPath/);
+}
+
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
   testApplyCreatesOnlySafeInfrastructure();
@@ -801,6 +876,9 @@ function main() {
   testVerifyCliJsonAndTextExitCodesMatch();
   testMigrationPlanIsReadOnlyReconcilesAndSurvivesMissingPaths();
   testMigrationPlanCliDryRunTouchesNothing();
+  testGitGateIsEnabledNotJustWritten();
+  testGitGateProbeIsTwoSided();
+  testGateContractRejectsInstalledButDisabledHook();
   process.stdout.write('project-bootstrap tests: PASS\n');
 }
 

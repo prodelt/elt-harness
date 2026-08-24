@@ -68,7 +68,11 @@ function inspectProject(root, options = {}) {
     docs: { ok: docs.ok, coreIdentical: Boolean(docs.coreIdentical), missing: docs.missing || [], unknownSections: docs.unknownSections || [] },
     harness: { exists: fs.existsSync(path.join(resolved, '.harness', 'harness.json')), ok: harness.ok, errors: harness.errors || [], config: harness.config || null },
     codegraph: { indexed: exists(resolved, path.join('.codegraph', 'codegraph.db')) },
-    gitGate: { managedHookInstalled: exists(resolved, path.join('.githooks', 'pre-commit')) },
+    gitGate: {
+      managedHookInstalled: exists(resolved, path.join('.githooks', 'pre-commit')),
+      hooksPath: hooksPathOf(resolved),
+      hooksPathManaged: hooksPathOf(resolved) === HOOKS_PATH,
+    },
   };
 }
 
@@ -134,6 +138,67 @@ function gitGateTemplate(eltCli = ELT_CLI_PATH) {
   ].join('\n');
 }
 
+// ── 020 T009: гейт обязан БЫТЬ ВКЛЮЧЁН, а не просто лежать файлом ──────────────────────
+// Разведка живьём: `project-bootstrap apply` писал `.githooks/pre-commit` и на этом
+// останавливался, а `git config core.hooksPath .githooks` только УПОМИНАЛСЯ комментарием
+// внутри шаблона. В самом репо-разработчике `git config core.hooksPath` не возвращал ничего:
+// «managed gate установлен» означало «файл существует», и ни один прямой `git commit` этим
+// хуком не проверялся. Это ровно тот fail-open, который снимает T009.
+const HOOKS_PATH = '.githooks';
+function gitIn(root, args) {
+  const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+  return { code: r.status === null ? 1 : r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
+}
+function hooksPathOf(root) {
+  const r = gitIn(root, ['config', '--get', 'core.hooksPath']);
+  return r.code === 0 && r.out ? r.out.split(path.sep).join('/') : null;
+}
+function enableHooksPath(root) {
+  return gitIn(root, ['config', 'core.hooksPath', HOOKS_PATH]).code === 0;
+}
+// Отказной commit-пробой. Проверяется не наличие файла, а ПОВЕДЕНИЕ: в одноразовом
+// репозитории тот же самый хук обязан (1) отказать коммиту с кодом без пруфа и (2) пропустить
+// документный коммит. Односторонняя проба ничего не доказывает: хук `exit 1` прошёл бы её.
+function probeGitGate(root, { eltCli = path.join(__dirname, 'elt.js') } = {}) {
+  const hookSrc = path.join(root, HOOKS_PATH, 'pre-commit');
+  if (!fs.existsSync(hookSrc)) return { ok: false, reason: 'hook-missing', detail: hookSrc };
+  const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'elt-gate-probe-'));
+  try {
+    for (const args of [['init', '-q'], ['config', 'user.email', 'probe@elt'], ['config', 'user.name', 'probe'],
+      ['config', 'core.hooksPath', HOOKS_PATH]]) gitIn(tmp, args);
+    fs.mkdirSync(path.join(tmp, HOOKS_PATH), { recursive: true });
+    // CRLF в shell-скрипте ломает shebang: `sh` ищет интерпретатор «/bin/sh\r».
+    const hookBody = fs.readFileSync(hookSrc, 'utf8').split('\r\n').join('\n');
+    fs.writeFileSync(path.join(tmp, HOOKS_PATH, 'pre-commit'), hookBody, { mode: 0o755 });
+    fs.writeFileSync(path.join(tmp, 'seed.txt'), 'seed\n');
+    gitIn(tmp, ['add', '-A']);
+    gitIn(tmp, ['commit', '-q', '--no-verify', '-m', 'seed']); // база фикстуры — мимо хука намеренно
+    const env = { ...process.env, ELT_CLI: String(eltCli).split(path.sep).join('/') };
+    const commit = (msg) => {
+      const r = spawnSync('git', ['commit', '-q', '-m', msg], { cwd: tmp, encoding: 'utf8', env, windowsHide: true });
+      return { code: r.status === null ? 1 : r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+    };
+    // (1) код без пруфа — обязан быть отвергнут САМИМ гейтом, а не поломкой хука.
+    fs.writeFileSync(path.join(tmp, 'probe.js'), 'module.exports = 1;\n');
+    gitIn(tmp, ['add', '-A']);
+    const refused = commit('probe: код без пруфа');
+    if (refused.code === 0) return { ok: false, reason: 'hook-not-blocking', detail: 'коммит с кодом без пруфа прошёл' };
+    if (/CLI не найден/.test(refused.out)) return { ok: false, reason: 'hook-broken', detail: refused.out.trim().slice(0, 300) };
+    // (2) документный коммит — обязан пройти, иначе «хук» это просто exit 1.
+    gitIn(tmp, ['reset', '-q', '--hard', 'HEAD']);
+    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.planning', 'probe.md'), 'notes\n');
+    gitIn(tmp, ['add', '-A']);
+    const passed = commit('docs: только .planning');
+    if (passed.code !== 0) return { ok: false, reason: 'hook-blocks-everything', detail: passed.out.trim().slice(0, 300) };
+    return { ok: true, reason: 'hook отказал коду без пруфа и пропустил документный коммит' };
+  } catch (e) {
+    return { ok: false, reason: 'probe-failed', detail: e.message };
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* windows lock */ }
+  }
+}
+
 function applyPlan(root, options = {}) {
   const plan = planTargetState(root, options);
   const resolved = plan.root;
@@ -156,6 +221,17 @@ function applyPlan(root, options = {}) {
     fs.mkdirSync(path.dirname(hookPath), { recursive: true });
     fs.writeFileSync(hookPath, gitGateTemplate(), { mode: 0o755 });
     changes.push({ id: 'git-gate', created: true });
+  }
+  // 020 T009: включаем хук ВСЕГДА, когда файл уже есть, — даже если сам файл ставил не мы.
+  // Установленный, но невключённый хук — это отсутствующий хук, который выглядит как рабочий.
+  // Вне git-репозитория включать нечего — это не отказ, а неприменимость (bootstrap умеет
+  // работать и по каталогу без git). Запись в changes только когда состояние РЕАЛЬНО изменилось,
+  // иначе повторный apply перестал бы быть идемпотентным.
+  const isGitRepo = gitIn(resolved, ['rev-parse', '--is-inside-work-tree']).code === 0;
+  if (plan.classification.kind === 'code' && isGitRepo && fs.existsSync(hookPath) && hooksPathOf(resolved) !== HOOKS_PATH) {
+    const enabled = enableHooksPath(resolved);
+    if (enabled) changes.push({ id: 'git-gate-hooks-path', enabled, value: HOOKS_PATH });
+    else changes.push({ id: 'git-gate-hooks-path', enabled: false, error: 'git config core.hooksPath не отработал' });
   }
 
   // 006 T005: patch missing specApproval/ctx7Gate defaults into an existing
@@ -350,7 +426,20 @@ function checkGateContract(inspected) {
   if (!inspected.gitGate.managedHookInstalled) {
     return { ok: false, reason: '.githooks/pre-commit is missing — run project-bootstrap apply' };
   }
-  return { ok: true, reason: 'managed pre-commit gate is installed' };
+  // Каталог без git — включать и пробовать нечего: `core.hooksPath` и commit-проба неприменимы.
+  // Сам файл хука при этом всё равно обязан лежать (проверено выше) — контракт не ослабляется.
+  if (gitIn(inspected.root, ['rev-parse', '--is-inside-work-tree']).code !== 0) {
+    return { ok: true, skipped: true, reason: 'хук на месте; не git-репозиторий — включение и проба неприменимы' };
+  }
+  // 020 T009: наличие файла больше не считается гейтом. Нужны включённый core.hooksPath и
+  // доказанное ПОВЕДЕНИЕ хука — иначе verify зелёный на репозитории, где ни один прямой
+  // `git commit` не проверяется.
+  if (!inspected.gitGate.hooksPathManaged) {
+    return { ok: false, reason: `core.hooksPath = ${inspected.gitGate.hooksPath || '(не задан)'} — хук лежит, но не включён: git config core.hooksPath ${HOOKS_PATH}` };
+  }
+  const probe = probeGitGate(inspected.root);
+  if (!probe.ok) return { ok: false, reason: `commit-probe: ${probe.reason} (${probe.detail || ''})` };
+  return { ok: true, reason: `managed pre-commit gate включён и проверен пробой: ${probe.reason}` };
 }
 
 function findSpecTasks(root) {
@@ -685,7 +774,11 @@ if (require.main === module) main();
 
 module.exports = {
   applyPlan,
+  probeGitGate,
+  hooksPathOf,
+  HOOKS_PATH,
   applySafeActions,
+  checkGateContract,
   checkJudgeBridgeContract,
   checkOracleVerifierContract,
   classifyKind,
