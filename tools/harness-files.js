@@ -46,6 +46,18 @@ const HARNESS_OWNED = [
   'review-queue.jsonl',
   'learnings.jsonl',
   'run-log.jsonl',
+  // Ретро-разметка bench: дописывается прогоном `judge-bench`, а не слайсом.
+  'tools/judge-bench/cases-ingested.json',
+];
+
+// Владения, у которых имя не фиксированное. Держим отдельным списком регулярок, а не
+// самодельным глоб-матчером: список короткий и обязан читаться глазами.
+// `.planning/CHECKPOINT-<стамп>-auto.md` пишет `checkpoint-writer.js` по токен-порогу, в любой
+// момент сессии. Слайс его не выбирал — см. комментарий в `checkpoint-writer.js` (gateActive):
+// во время цепочки гейта запись глушится маркером, но чекпоинт, написанный ДО старта цепочки,
+// всё равно попадает в дифф слайса, и судья ловил его как scope creep.
+const HARNESS_OWNED_PATTERNS = [
+  /(^|\/)\.planning\/CHECKPOINT-[^/]*-auto\.md$/,
 ];
 
 // Пишет инструмент, а не человек. Ревьюировать содержание бессмысленно, считать строки — вредно.
@@ -74,7 +86,9 @@ function isHarnessConfig(rel) {
 
 function isHarnessOwned(rel) {
   if (isHarnessConfig(rel)) return false;
-  return matches(rel, HARNESS_OWNED);
+  if (matches(rel, HARNESS_OWNED)) return true;
+  const p = norm(rel);
+  return HARNESS_OWNED_PATTERNS.some((re) => re.test(p));
 }
 
 function isGenerated(rel) {
@@ -97,5 +111,5 @@ function isIgnoredForReview(rel) {
 
 module.exports = {
   isHarnessOwned, isGenerated, isIgnoredForReview, isHarnessConfig, isHarnessManaged,
-  HARNESS_OWNED, GENERATED, HARNESS_CONFIG,
+  HARNESS_OWNED, GENERATED, HARNESS_CONFIG, HARNESS_OWNED_PATTERNS,
 };

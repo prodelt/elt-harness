@@ -135,7 +135,11 @@ function shouldTrigger(tok, prof, st) {
 // 011 T012: пока идёт цепочка гейта (оракул → судья → commit), писать в `.planning/` нельзя.
 // Любой новый файл в дереве двигает treeHash — оракул-пруф становится stale и `--skip-oracle`
 // отказывает; а сам `CHECKPOINT-*-auto.md` попадает в дифф слайса, где судья законно ловит его
-// как scope creep. Оба случая — живые, из прогонов 2026-07. Маркер пишет `elt` (см. elt.js,
+// как scope creep. Оба случая — живые, из прогонов 2026-07. Вторая половина (scope creep) с
+// 019/T021 закрыта иначе: `.planning/CHECKPOINT-*-auto.md` внесён во владения харнеса
+// (`harness-files.js`, HARNESS_OWNED_PATTERNS) — чекпоинт, написанный ДО старта цепочки, судьёй
+// уже не судится. Маркер остаётся ради первой половины: stale-oracle от сдвига treeHash.
+// Маркер пишет `elt` (см. elt.js,
 // markGateActive): файл в git-dir, с TTL — оборванная цепочка не глушит чекпоинты навсегда.
 function gateActive(projectDir) {
   try {
