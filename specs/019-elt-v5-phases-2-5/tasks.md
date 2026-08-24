@@ -146,7 +146,7 @@
   авточекпоінт у диффі не тригерить `out-of-scope`.
   [files: tools/harness-files.js tools/harness-files.test.js tools/checkpoint-writer.js]
 
-- [ ] **T022** D23 — пʼять лінз ревʼю (T003) не вантажаться з CRLF: `parseFrontmatter` матчить
+- [X] **T022** D23 — пʼять лінз ревʼю (T003) не вантажаться з CRLF: `parseFrontmatter` матчить
   фронтматтер регуляркою `/^---\n([\s\S]*?)\n---/`, яка на `---\r\n` не спрацьовує зовсім, і
   `loadLenses` кидає «missing name or description» на ПЕРШІЙ же лінзі. У робочому дереві файли
   лежать із LF, тому локально все зелене; будь-який свіжий `git checkout` під Windows

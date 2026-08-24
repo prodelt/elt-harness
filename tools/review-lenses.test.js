@@ -222,3 +222,31 @@ test('parseFrontmatter: returns null for missing frontmatter', () => {
   const fm = parseFrontmatter(content);
   assert.equal(fm, null);
 });
+
+// D23 — регресс на CRLF. Дефект нашла ФОНОВАЯ верификация на detached-worktree, а не эти
+// тесты: в рабочем дереве линзы лежат с LF, поэтому всё было зелёным, а свежий `git checkout`
+// под Windows (`core.autocrlf`) отдаёт `\r\n`, и загрузка линз падала на первой же. Тест
+// строит линзу с CRLF на диске — именно так её увидит новый пользователь.
+test('D23: фронтматтер с CRLF разбирается так же, как с LF', () => {
+  const lf = '---\nname: review-x\ndescription: Bar\nmodel: sonnet\ntools: Read, Bash\n---\n\nтело\n';
+  const crlf = lf.replace(/\n/g, '\r\n');
+
+  const a = parseFrontmatter(lf);
+  const b = parseFrontmatter(crlf);
+  assert.deepEqual(b, a, 'CRLF обязан давать тот же результат, что LF');
+  assert.equal(b.name, 'review-x');
+  assert.deepEqual(b.tools, ['Read', 'Bash'], 'список инструментов не должен унести \r в хвост');
+});
+
+test('D23: loadLenses читает линзы, записанные на диск с CRLF', () => {
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'lenses-crlf-'));
+  const body = ['---', 'name: review-bugs', 'description: Shallow scan', 'model: sonnet',
+    'tools: Read, Bash', '---', '', 'Шкала уверенности 0-100.', 'Типичные ложные срабатывания: форматирование.', ''].join('\r\n');
+  fs.writeFileSync(path.join(dir, 'review-bugs.md'), body, 'utf8');
+
+  const lenses = loadLenses(dir);
+  assert.equal(lenses.length, 1, 'линза с CRLF обязана загрузиться, а не бросить исключение');
+  assert.equal(lenses[0].name, 'review-bugs');
+  assert.equal(lenses[0].model, 'sonnet');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
