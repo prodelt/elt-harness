@@ -72,11 +72,10 @@ function findTranscript(sessionId) {
 // elt.js is the single source of truth for git/plan/run-log (T001) — shell
 // out to `elt status` instead of re-parsing tasks.md/run-log.jsonl here.
 function findEltJs() {
-  const candidates = [
-    path.join(__dirname, 'elt.js'),
-    path.join(os.homedir(), '.claude', 'bin', 'elt.js'),
-  ];
-  return candidates.find((p) => fs.existsSync(p)) || null;
+  // 019 T015: deploy-копия `~/.claude/bin/elt.js` снята; сосед по каталогу плагина —
+  // единственный кандидат, и его отсутствие означает битую установку, а не «поищем ещё».
+  const candidate = path.join(__dirname, 'elt.js');
+  return fs.existsSync(candidate) ? candidate : null;
 }
 
 function eltStatus(projectDir) {

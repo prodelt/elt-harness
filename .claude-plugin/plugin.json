@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "elt",
+  "version": "5.0.0",
+  "description": "ELT — spec-driven harness for Claude Code: mechanical oracle, L0 gate, five review lenses with a confidence scorer, and a defect ledger that files its own issues.",
+  "author": {
+    "name": "elt"
+  },
+  "keywords": ["harness", "spec-driven", "review", "oracle", "gate"],
+  "license": "MIT"
+}

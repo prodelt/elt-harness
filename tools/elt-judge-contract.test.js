@@ -178,23 +178,21 @@ test('круг выключен явно (redProof:"off") → старое по�
   assert.equal(c.status, 0, c.stderr.toString());
 });
 
-// T003 010: резолв судьи-моста — явный --invoke > локальный (tools/judge-invoke.js) >
-// глобальный (~/.claude/bin/judge/judge-invoke.js, T002) > exit 4 с инструкцией sync-bin.js.
+// T003 010 + 019 T015: резолв судьи-моста — явный --invoke > локальный (tools/judge-invoke.js)
+// проверяемого проекта > мост, приехавший с плагином. Третья ступень раньше была deploy-копией
+// в `~/.claude/bin/judge/`, и её МОГЛО не быть — отсюда четвёртый исход (exit 4 с инструкцией
+// синхронизации). У плагина мост едет вместе с кодом, поэтому «моста нет вовсе» осталось ровно
+// одним случаем: пользователь указал --invoke на несуществующий файл.
 
-function fakeHome(withGlobalBridge) {
+function fakeHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-judge-contract-home-'));
   roots.push(home);
-  if (withGlobalBridge) {
-    const dir = path.join(home, '.claude', 'bin', 'judge');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'judge-invoke.js'), stubBridgeSrc('global'));
-  }
   return home;
 }
 
 test('резолв: явный --invoke сильнее локального и глобального (различимый маркер доказывает выбор)', () => {
   const root = fixture({ localBridge: true }); // local-мост тоже присутствует и отвечал бы pass
-  const home = fakeHome(true); // global-мост тоже присутствует и отвечал бы pass
+  const home = fakeHome();
   const explicitRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-judge-contract-explicit-'));
   roots.push(explicitRoot);
   const explicitInvoke = path.join(explicitRoot, 'bridge.js');
@@ -206,26 +204,31 @@ test('резолв: явный --invoke сильнее локального и �
 
 test('резолв: локальный tools/judge-invoke.js используется без --invoke (различимый маркер доказывает выбор)', () => {
   const root = fixture({ localBridge: true });
-  const home = fakeHome(true); // global тоже присутствует — different-marker доказывает, что взят именно local
+  const home = fakeHome();
   const r = run(root, ['judge', 'run', '--task', 'T001'], { USERPROFILE: home, HOME: home });
   assert.equal(r.status, 0, r.stderr.toString());
   assert.deepEqual(result(r).reasons, ['stub:local'], 'резолв реально взял local-мост, не global');
 });
 
-test('резолв: без локального падает на глобальный ~/.claude/bin/judge/', () => {
+// 019 T015: без локального моста берётся тот, что приехал с плагином — РЕАЛЬНЫЙ
+// `tools/judge-invoke.js`, а не стаб. Доказательство выбора здесь не «маркер стаба», а факт,
+// что резолв не исчерпался: раньше в этой точке был exit 4 с требованием синхронизации.
+test('резолв: без локального берётся мост, приехавший с плагином', () => {
   const root = fixture({ localBridge: false });
-  const home = fakeHome(true);
+  const home = fakeHome();
   const r = run(root, ['judge', 'run', '--task', 'T001'], { USERPROFILE: home, HOME: home });
-  assert.equal(r.status, 0, r.stderr.toString());
-  assert.deepEqual(result(r).reasons, ['stub:global']);
+  const err = r.stderr.toString();
+  assert.doesNotMatch(err, /судья-мост не найден/, 'резолв не исчерпан — мост плагина на месте');
+  assert.notEqual(r.status, 4, err);
 });
 
-test('резолв: ни локального, ни глобального → exit 4 с инструкцией sync-bin.js', () => {
-  const root = fixture({ localBridge: false });
-  const home = fakeHome(false);
-  const r = run(root, ['judge', 'run', '--task', 'T001'], { USERPROFILE: home, HOME: home });
+test('резолв: явный --invoke на несуществующий файл → exit 4 и путь назван', () => {
+  const root = fixture({ localBridge: true });
+  const home = fakeHome();
+  const missing = path.join(root, 'нет-такого-моста.js');
+  const r = run(root, ['judge', 'run', '--task', 'T001', '--invoke', missing], { USERPROFILE: home, HOME: home });
   assert.equal(r.status, 4);
-  assert.match(r.stderr.toString(), /sync-bin\.js/);
+  assert.match(r.stderr.toString(), /не существует по указанному --invoke/);
 });
 
 // --- T014 (011): живой дефект, найден при приёмке в чужом проекте. agy (T028) пишет промпт в

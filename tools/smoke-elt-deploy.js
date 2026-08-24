@@ -1,34 +1,49 @@
 #!/usr/bin/env node
 'use strict';
-// 011 T021 — L2 smoke для ЭТОГО репо (dogfood §3.1). Единственный слой v3, который харнесс
-// сам не ел: Ametrin Web (T018) уже прогоняет L2 живьём, здесь его не было вовсе.
+// smoke-elt-deploy — L2 smoke этого репозитория (dogfood §3.1).
 //
-// Smoke = то, чем реально пользуется человек — deploy-копия `~/.claude/bin/elt.js` в проекте
-// БЕЗ repo-checkout. Это ровно класс отказа T017: `MODULE_NOT_FOUND` во ВСЕХ проектах
-// (замыкание разошлось с репо), пойманный случайно, а не механикой. Прогон СНАРУЖИ репо
-// (пустая temp-директория, никакого tools/ рядом) — relative require() внутри elt.js ловит
-// именно это расхождение, юнит-тест на исходники этого репо его в принципе не видит.
+// Слой проверяет ровно то, чем пользуется человек. До 019 T015 этим была deploy-копия
+// `~/.claude/bin/elt.js`: единственный отказ, который юнит-тесты на исходники не видят в
+// принципе, — `MODULE_NOT_FOUND` во ВСЕХ проектах, когда замыкание копии разошлось с репо
+// (T017, D16, D18).
+//
+// Копии больше нет: харнес ставится плагином, и установленный каталог — это и есть
+// репозиторий. Но КЛАСС отказа никуда не делся, он только сменил форму: плагин может
+// приехать с оборванным замыканием (`require` соседа, которого нет), и снаружи это опять
+// выглядит как «команда просто не работает». Поэтому smoke остался тем же по смыслу —
+// запуск ИЗ ЧУЖОГО каталога, где рядом нет ни `tools/`, ни `.harness/`, — и сменил только
+// цель: вместо копии проверяется сам плагин.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-function smokeEltDeploy({ home = os.homedir() } = {}) {
-  const eltPath = path.join(home, '.claude', 'bin', 'elt.js');
-  if (!fs.existsSync(eltPath)) {
-    return { ok: false, reason: 'missing', detail: `${eltPath} не найден — sync-bin.js не запускался на этой машине` };
+const PLUGIN_ROOT = path.join(__dirname, '..');
+
+function smokeEltDeploy({ pluginRoot = PLUGIN_ROOT } = {}) {
+  const doctor = path.join(pluginRoot, 'bin', 'doctor.js');
+  if (!fs.existsSync(doctor)) {
+    return { ok: false, reason: 'missing', detail: `${doctor} не найден — установка плагина неполна` };
   }
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-deploy-smoke-'));
+  // Пустая temp-директория: никакого `tools/` рядом. Относительные `require()` внутри
+  // замыкания ловят расхождение именно здесь, а прогон в корне репо его не увидит никогда.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-plugin-smoke-'));
   try {
-    // Без аргументов elt.js печатает usage и выходит 0 — единственный путь, не требующий
-    // git-репо/harness.json в cwd, и при этом безусловно проходящий через ВСЕ top-level
-    // require() замыкания до первой развилки по команде.
-    const r = spawnSync(process.execPath, [eltPath], { cwd: tmp, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [doctor, '--json'], { cwd: tmp, encoding: 'utf8' });
     const out = (r.stdout || '') + (r.stderr || '');
     if (r.status !== 0 || /MODULE_NOT_FOUND/.test(out)) {
       return { ok: false, reason: 'broken', detail: out.slice(-2000), exit: r.status };
     }
-    return { ok: true, reason: 'ok' };
+    let report = null;
+    try { report = JSON.parse(r.stdout); } catch { /* не json — ниже это и станет отказом */ }
+    if (!report || !report.summary) {
+      return { ok: false, reason: 'broken', detail: `доктор не вернул разбираемый отчёт: ${out.slice(-500)}`, exit: r.status };
+    }
+    if (report.summary.fail) {
+      const failed = report.checks.filter((c) => c.status === 'FAIL').map((c) => c.name).join(', ');
+      return { ok: false, reason: 'broken', detail: `FAIL: ${failed}`, exit: r.status };
+    }
+    return { ok: true, reason: 'ok', detail: `plugin ${report.version}, PASS=${report.summary.pass}` };
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -42,4 +57,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { smokeEltDeploy };
+module.exports = { smokeEltDeploy, PLUGIN_ROOT };

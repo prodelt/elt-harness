@@ -12,7 +12,6 @@ const { checkArtifact: checkHarnessChecklistArtifact } = require('./harness-chec
 const { readHarnessConfig } = require('./elt-config');
 const runLog = require('./run-log');
 const { slicesSinceFull } = require('./elt-oracle-runner');
-const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const { resolveBinary, scannerVersion } = require('./skill-scan');
 const { inspectProject } = require('./project-bootstrap');
@@ -539,6 +538,17 @@ function checkAgentSkillsLock(root, home) {
   return [result('pass', 'agent-skills:lock', 'Critical skill lock OK', `${names.length} critical skill(s) verified across mirrors.`, '')];
 }
 
+// Каталог самого Pipeline Setupper: обёртки supply-chain лежат в нём, а не в проверяемом
+// проекте. 019 T015: функция осталась ради `agent-skills` — это НЕ deploy-копия харнеса, а
+// PATH-обёртка стороннего инструмента, и снимать её вместе с `sync-bin` было бы подменой.
+function pipelineDirFromRegistry(home, fallbackRoot) {
+  const parsed = readJson(path.join(home, '.claude', 'projects-registry.json'));
+  if (parsed.ok && parsed.value && typeof parsed.value.pipelineDir === 'string' && parsed.value.pipelineDir.trim()) {
+    return parsed.value.pipelineDir;
+  }
+  return fallbackRoot;
+}
+
 function checkAgentSkillsWrapper(root, home, commandRunner = run) {
   const pipelineDir = pipelineDirFromRegistry(home, root);
   const scripts = [
@@ -769,70 +779,13 @@ function checkOracleFullStale(root) {
     : result('pass', 'elt:oracle-full-stale', 'Полный оракул', detail, '', { count, file })];
 }
 
-// R1 (спека 010): глобальная копия моста судьи — вторая копия кода, она разъезжается с репо
-// молча, как `tools/elt.js` ≡ `~/.claude/bin/elt.js`. Механический сигнал: при judge.enabled
-// нет копии → WARN (`elt judge run` в чужом проекте упадёт), копия ≠ репо → WARN с именами.
-function checkJudgeBridge(root, home) {
-  const harness = readHarnessConfig(root);
-  if (!harness.ok || !harness.config.judge || !harness.config.judge.enabled) return [];
-  const globalDir = path.join(home, '.claude', 'bin', 'judge');
-  const toolsDir = path.join(root, 'tools');
-  const missing = JUDGE_BRIDGE_CLOSURE.filter((rel) => !fs.existsSync(path.join(globalDir, rel)));
-  if (missing.length) {
-    return [result('warn', 'judge:bridge', 'Global judge bridge missing', `${globalDir}: ${missing.join(', ')}`, 'Run node tools\\sync-bin.js to install the judge bridge in ~/.claude/bin/judge.', { dest: globalDir, missing })];
-  }
-  // Дрейф меряется только там, где есть источник — в репо-разработчике. В чужом проекте
-  // сравнивать не с чем, и присутствие замыкания это всё, что доктор может утверждать.
-  if (!fs.existsSync(path.join(toolsDir, 'judge-invoke.js'))) {
-    return [result('pass', 'judge:bridge', 'Global judge bridge installed', globalDir, '', { dest: globalDir })];
-  }
-  const drift = JUDGE_BRIDGE_CLOSURE.filter((rel) => {
-    const src = sha256File(path.join(toolsDir, rel));
-    const copy = sha256File(path.join(globalDir, rel));
-    return !src.ok || !copy.ok || src.value !== copy.value;
-  });
-  if (drift.length) {
-    return [result('warn', 'judge:bridge', 'Global judge bridge drifted from repo', drift.join(', '), 'Run node tools\\sync-bin.js to refresh the global copy.', { dest: globalDir, drift })];
-  }
-  return [result('pass', 'judge:bridge', 'Global judge bridge in sync', `${JUDGE_BRIDGE_CLOSURE.length} files match ${globalDir}`, '', { dest: globalDir })];
-}
+// 019 T015: проверка `judge:bridge` снята вместе с deploy-копией. Она измеряла дрейф между
+// `tools/` и `~/.claude/bin/judge/` — вопрос, который у плагина не существует: установленный
+// каталог и есть исходник, дрейфовать не с чем.
 
-function pipelineDirFromRegistry(home, fallbackRoot) {
-  const parsed = readJson(path.join(home, '.claude', 'projects-registry.json'));
-  if (parsed.ok && parsed.value && typeof parsed.value.pipelineDir === 'string' && parsed.value.pipelineDir.trim()) {
-    return parsed.value.pipelineDir;
-  }
-  return fallbackRoot;
-}
-
-function checkHarnessGlobal(root, home, commandRunner = run) {
-  const pipelineDir = pipelineDirFromRegistry(home, root);
-  const scripts = [
-    path.join(pipelineDir, 'tools', 'harness-runner.js'),
-    path.join(pipelineDir, 'tools', 'harness-gates.js'),
-  ];
-  const wrappers = [
-    path.join(home, '.claude', 'bin', 'harness-runner.cmd'),
-    path.join(home, '.claude', 'bin', 'harness-runner.ps1'),
-    path.join(home, '.claude', 'bin', 'harness-gates.cmd'),
-    path.join(home, '.claude', 'bin', 'harness-gates.ps1'),
-  ];
-  const missingScripts = scripts.filter((file) => !fs.existsSync(file));
-  const missingWrappers = wrappers.filter((file) => !fs.existsSync(file));
-  if (missingScripts.length || missingWrappers.length) {
-    const detail = [
-      missingScripts.length ? `scripts=${missingScripts.map((file) => path.basename(file)).join(',')}` : '',
-      missingWrappers.length ? `wrappers=${missingWrappers.map((file) => path.basename(file)).join(',')}` : '',
-    ].filter(Boolean).join(' ');
-    return [result('warn', 'harness:global-cli', 'Global harness CLI incomplete', detail, 'Install harness-runner/harness-gates wrappers in ~/.claude/bin.')];
-  }
-  const runner = commandRunner('cmd.exe', ['/c', 'where', 'harness-runner.cmd'], root, 5000);
-  const gates = commandRunner('cmd.exe', ['/c', 'where', 'harness-gates.cmd'], root, 5000);
-  if (runner.status !== 0 || gates.status !== 0) {
-    return [result('warn', 'harness:global-cli', 'Global harness wrappers not on PATH', runner.output || gates.output || runner.error || gates.error || 'where failed', 'Add ~/.claude/bin to PATH or call wrappers by full path.')];
-  }
-  return [result('pass', 'harness:global-cli', 'Global harness CLI available', 'harness-runner.cmd and harness-gates.cmd resolve on PATH.', '')];
-}
+// 019 T015: `harness:global-cli` и `pipelineDirFromRegistry` сняты. Они проверяли обёртки
+// `harness-runner`/`harness-gates` в `~/.claude/bin` — подсистемы, удалённые ещё до этой спеки;
+// проверка не входила в runDoctor и жила только ради собственного теста.
 
 function checkGitWorkflowAudit(root, now = new Date()) {
   const result_ = checkGitArtifact(root, now);
@@ -962,7 +915,6 @@ function runDoctor(options) {
     ...checkReviewQueue(root),
     ...checkExoskeleton(root),
     ...checkOracleFullStale(root),
-    ...checkJudgeBridge(root, home),
     ...checkGitWorkflowAudit(root),
     ...checkGit(root),
     ...checkSelfDriveInvariants(),
@@ -1007,8 +959,6 @@ module.exports = {
   checkReviewQueue,
   checkExoskeleton,
   checkOracleFullStale,
-  checkJudgeBridge,
-  checkHarnessGlobal,
   checkGitWorkflowAudit,
   checkSelfDriveInvariants,
   runDoctor,
