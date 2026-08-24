@@ -944,6 +944,16 @@ if (cmd === 'review') {
     if (!wantSpec && distinct.length > 1) {
       die(`elt review close: ${taskId} есть в разных спеках (${distinct.join(', ')}) — уточните --spec`, 5);
     }
+    // Неоднозначная legacy-строка (её id живёт в ДВУХ и более планах) — отдельный отказ, и
+    // проверка выше его не ловила: одна такая строка даёт distinct = ['legacy'], длина 1.
+    // Найдено судьёй на самой T008: `elt review close --task T020` закрывал её с
+    // `specPath: null`, то есть закрывал НЕИЗВЕСТНО ЧЬЮ находку — ровно тот fail-open,
+    // который задача и снимает. Ноль кандидатов не ambiguity: перепутать не с чем.
+    const ambiguous = candidates.filter((c) => c.legacy && c.candidates.length > 1);
+    if (ambiguous.length && !(wantSpec && flag('--adopt-legacy'))) {
+      die(`elt review close: строка ${taskId} без specPath, а id есть в ${ambiguous[0].candidates.join(', ')}`
+        + ` — назовите спеку явно: --spec <dir> --adopt-legacy`, 5);
+    }
     const hit = candidates.filter((c) => {
       if (!wantSpec) return true;
       if (c.specPath === wantSpec) return true;

@@ -116,6 +116,28 @@ test('review close без --spec: одинаковый id в двух спека
   assert.equal(openRows(root).length, 2, 'обе строки на месте');
 });
 
+// Найдено судьёй на самой T008 (второе поколение батча). ОДНА неоднозначная legacy-строка
+// давала distinct = ['legacy'] длиной 1, проверка «есть в разных спеках» не срабатывала, и
+// `elt review close --task T020` закрывал находку неизвестно чьей спеки с `specPath: null`.
+test('review close: ОДНА неоднозначная legacy-строка без --spec — отказ (дыра T008 gen 1)', () => {
+  const root = withSpecs(fixture([row('T020', 'legacy находка')]));
+  const r = run(root, ['review', 'close', '--task', 'T020']);
+  assert.equal(r.status, 5, 'закрывать находку, чья спека неизвестна, нельзя даже когда она одна');
+  assert.match(r.stderr, /019-two-a/);
+  assert.match(r.stderr, /020-two-b/, 'в отказе перечислены оба кандидата — человеку есть из чего выбрать');
+  assert.deepEqual(openRows(root).map((x) => x.task), ['T020'], 'очередь не тронута');
+  // --spec без --adopt-legacy тоже не проводит: молчаливое присвоение спеки и есть дефект.
+  assert.equal(run(root, ['review', 'close', '--task', 'T020', '--spec', SPEC_A]).status, 5);
+  assert.equal(run(root, ['review', 'close', '--task', 'T020', '--adopt-legacy']).status, 5, '--adopt-legacy без --spec ничего не называет');
+});
+
+test('review close: id, которого нет НИ В ОДНОЙ спеке, закрывается — перепутать не с чем', () => {
+  const root = withSpecs(fixture([row('T777', 'находка вне планов')]));
+  const r = run(root, ['review', 'close', '--task', 'T777']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(openRows(root), [], 'ноль кандидатов — это не неоднозначность, а отсутствие выбора');
+});
+
 test('review: legacy-строка без спеки резолвится только однозначно; иначе нужен --adopt-legacy', () => {
   const root = withSpecs(fixture([row('T020', 'legacy находка'), row('T031', 'legacy уникальная')]));
   const shown = openRows(root);
