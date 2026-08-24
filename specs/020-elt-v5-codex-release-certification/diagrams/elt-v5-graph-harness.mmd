@@ -1,0 +1,35 @@
+graph TD
+  subgraph Earth["ЗЕМЛЯ — контекст и capabilities"]
+    direction LR
+    State["State и defect ledger"]
+    Registry["Component registry и lock"]
+    SpecPack["Spec Kit pack"]
+    Grail["GrailPack<br/>25 promoted skills"]
+    Tools["CLI и safety adapters"]
+  end
+
+  State --> Router
+  Registry --> Router
+  SpecPack --> Router
+  Grail --> Router
+  Tools --> Router
+
+  subgraph Loop["ПЕТЛЯ"]
+    direction LR
+    Router["ELT router<br/>intent recon plan"] --> Batch["Batch planner<br/>2–4 задачи"]
+    Batch --> Worker["Provider или worker"]
+    Worker --> Fast["L0 и focused test"]
+    Fast -->|есть ещё T| Worker
+    Fast -->|batch готов| Barrier["Local landing<br/>batch barrier"]
+  end
+
+  subgraph Mirror["ЗЕРКАЛО — batch SHA"]
+    direction LR
+    Barrier --> Oracle["Impact oracle"]
+    Barrier --> Review["2–5 review lenses"]
+    Oracle --> Certificate["Hash-bound certificate"]
+    Review --> Certificate
+    Certificate -->|green| Publish["Push merge release"]
+    Certificate -->|red| Worker
+    Publish -. "следующая сессия" .-> Evidence["Evidence и lessons"]
+  end
