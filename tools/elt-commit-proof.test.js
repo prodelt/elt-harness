@@ -5,6 +5,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { after, test } = require('node:test');
 
 const ELT = path.join(__dirname, 'elt.js');
@@ -105,6 +106,91 @@ test('T009: успешный push оставляет exit 0 — отказ не 
   const r = run(root, ['commit', '--task', 'T001', '--skip-oracle', '--push', '-m', 'feat: T001']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /pushed/);
+});
+
+// ── 020 T009 (поколение 2): фоновая ветка `elt gate` ─────────────────────────────────────
+// Судья заблокировал первое поколение по существу: ветка `verify:"background"` с обходом
+// `ELT_GATE_TRUST_ORACLE` была нетривиальной, security-relevant и НЕ покрытой ни одним тестом,
+// хотя `.harness/harness.json` самого репозитория стоит на `background` — то есть этот код
+// стережёт коммиты прямо здесь. Ниже покрыт каждый путь ветки, включая отрицательные.
+function bgFixture() {
+  const root = fixture();
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
+    kind: 'code', oracle: 'node -e "process.exit(0)"', shell: SHELL, branchPolicy: 'feature',
+    verify: 'background', judge: { enabled: true, model: 'codex' },
+  }));
+  return root;
+}
+const gateRun = (root, env = {}) => spawnSync(process.execPath, [ELT, 'gate'], {
+  cwd: root, encoding: 'utf8', env: { ...process.env, ...env },
+});
+const oracleProofPath = (root) => path.join(root, '.git', 'elt-oracle-proof.json');
+
+test('T009 gen2: background без оракул-пруфа — гейт отказывает, а не пропускает', () => {
+  const root = bgFixture();
+  try { fs.unlinkSync(oracleProofPath(root)); } catch { /* его и не было */ }
+  const r = gateRun(root);
+  assert.equal(r.status, 4);
+  assert.match(r.stderr, /нет оракул-пруфа/);
+});
+
+test('T009 gen2: зелёный пруф, привязанный к ЭТОМУ дереву, проводит без всякого env', () => {
+  const root = bgFixture();
+  assert.equal(run(root, ['oracle']).status, 0);
+  const r = gateRun(root);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /привязан к этому дереву/);
+});
+
+test('T009 gen2: дерево уехало после оракула — отказ (иначе пруф ни к чему не привязан)', () => {
+  const root = bgFixture();
+  assert.equal(run(root, ['oracle']).status, 0);
+  fs.writeFileSync(path.join(root, 'moved.txt'), 'дерево уехало\n');
+  const r = gateRun(root);
+  assert.equal(r.status, 4);
+  assert.match(r.stderr, /не про это дерево|красный|отсутствует/);
+});
+
+test('T009 gen2: доверие к байтам пруфа НЕ проводит красный оракул', () => {
+  const root = bgFixture();
+  assert.equal(run(root, ['oracle']).status, 0);
+  const raw = fs.readFileSync(oracleProofPath(root), 'utf8');
+  const red = JSON.stringify({ ...JSON.parse(raw), exit: 1 });
+  fs.writeFileSync(oracleProofPath(root), red);
+  const trust = crypto.createHash('sha256').update(red).digest('hex');
+  const r = gateRun(root, { ELT_GATE_TRUST_ORACLE: trust });
+  assert.equal(r.status, 4, 'совпадение хеша байтов не делает красный оракул зелёным');
+});
+
+test('T009 gen2: доверие проводит ровно ТЕ байты, что назвал elt commit', () => {
+  const root = bgFixture();
+  assert.equal(run(root, ['oracle']).status, 0);
+  const raw = fs.readFileSync(oracleProofPath(root), 'utf8');
+  // Дерево двигаем намеренно: доверенный путь существует именно ради этого случая (между
+  // валидацией в `elt commit` и хуком меняется `[X]` в tasks.md).
+  fs.writeFileSync(path.join(root, 'moved.txt'), 'как после markDone\n');
+  const good = gateRun(root, { ELT_GATE_TRUST_ORACLE: crypto.createHash('sha256').update(raw).digest('hex') });
+  assert.equal(good.status, 0, good.stderr);
+  assert.match(good.stdout, /trusted elt commit/);
+
+  const forged = gateRun(root, { ELT_GATE_TRUST_ORACLE: 'f'.repeat(64) });
+  assert.equal(forged.status, 4, 'чужой хеш обязан упасть на независимой проверке дерева');
+});
+
+test('T009 gen2: прямой git commit с кодом в background-проекте отвергается хуком', () => {
+  const root = bgFixture();
+  fs.mkdirSync(path.join(root, '.githooks'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.githooks', 'pre-commit'),
+    fs.readFileSync(path.join(__dirname, '..', '.githooks', 'pre-commit'), 'utf8').split('\r\n').join('\n'), { mode: 0o755 });
+  git(root, ['config', 'core.hooksPath', '.githooks']);
+  try { fs.unlinkSync(oracleProofPath(root)); } catch { /* нет так нет */ }
+  git(root, ['add', '-A']);
+  const before = commitCount(root);
+  const r = spawnSync('git', ['commit', '-q', '-m', 'прямой коммит кода'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, ELT_CLI: ELT.split(path.sep).join('/') },
+  });
+  assert.notEqual(r.status, 0, 'дверь обязана быть закрыта и для прямого git commit');
+  assert.equal(commitCount(root), before);
 });
 
 after(() => {
