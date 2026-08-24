@@ -28,7 +28,10 @@ function installHook(root) {
   fs.chmodSync(target, 0o755);
   const toolsDir = path.join(root, 'tools');
   fs.mkdirSync(toolsDir, { recursive: true });
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js']) {
+  // 020 T016: `batch-planner.js` — часть ЗАМЫКАНИЯ elt.js (планировщик зовётся на каждом
+  // коммите, не лениво). Забыть его здесь = `Cannot find module` в чужом чекауте, а не
+  // «тест не про это»: список ниже и есть проверка того, что модуль доезжает.
+  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js']) {
     fs.copyFileSync(path.join(__dirname, name), path.join(toolsDir, name));
   }
 }

@@ -520,6 +520,92 @@ function runOracle(cfg, { full = false } = {}) {
   return exit;
 }
 
+// ── 020 T016 — батч и repair-поколения ────────────────────────────────────────────────
+// Состояние поколений живёт в `.git/elt/`, а НЕ в рабочем дереве: любой файл в дереве двигает
+// treeHash и мгновенно делает оракул-пруф stale (тот же довод, что у judge-proof выше).
+const { planBatch, DEFAULT_BATCH } = require('./batch-planner');
+function batchStatePath() {
+  const gd = git(['rev-parse', '--git-dir']).out || '.git';
+  return path.join(path.isAbsolute(gd) ? gd : path.join(cwd, gd), 'elt', 'batch-state.json');
+}
+function readBatchState() {
+  try { const s = JSON.parse(fs.readFileSync(batchStatePath(), 'utf8')); return s && typeof s === 'object' ? s : { batches: {} }; }
+  catch { return { batches: {} }; }
+}
+function writeBatchState(state) {
+  const f = batchStatePath();
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(state, null, 2) + '\n');
+}
+// `item.text` — только ПЕРВАЯ строка задачи (parseTasksFile режет по строкам), а `[files: ...]`
+// в этом плане живёт на строке-продолжении. Планировщику нужен весь блок, иначе зоны задач
+// пусты и проверка пересечения молча всегда зелёная.
+function taskBlockText(plan, item) {
+  const out = [plan.lines[item.lineNo]];
+  for (let i = item.lineNo + 1; i < plan.lines.length; i += 1) {
+    const ln = plan.lines[i];
+    if (TASK_LINE_RE.test(ln)) break;
+    if (/^\s*$/.test(ln) && out.length > 1) break;
+    out.push(ln);
+  }
+  return out.join('\n');
+}
+// Состав батча снимается из ПЛАНА, а не из argv: `--task T001,T002` остаётся фасадом.
+function batchItems(taskId) {
+  const ids = parseTaskIds(taskId);
+  if (!ids.length) return { error: 'пустой --task' };
+  const items = [];
+  for (const id of ids) {
+    const found = findTaskItem(id, false);
+    if (!found) return { error: `задача ${id} не найдена ни среди [ ], ни среди [X]` };
+    items.push({
+      id, text: taskBlockText(found.plan, found.item),
+      done: found.plan.done.some((x) => x.id === id),
+      specPath: relPosix(found.plan.file),
+    });
+  }
+  return { items };
+}
+// Карантин ВЫВОДИТСЯ, а не хранится: батч красный ровно тогда, когда на его `batchHead` висит
+// открытая строка очереди от фона. Второго источника правды не заводим — иначе «красный» и
+// «есть находка» могли бы разойтись, и разошлись бы молча.
+// Карантин ставит ТОЛЬКО фон (`bg-*`). Строка `inconclusive` от синхронного судьи в карантин
+// не уводит: решение R4 спеки 011 сделало её неблокирующей намеренно — «судья не может
+// ручаться» это не «Mirror покраснел», и приравнять их значило бы остановить работу на самом
+// мягком из исходов. Пойман живьём: judge-core.test.js после inconclusive-коммита переставал
+// коммитить следующий слайс.
+const BG_KINDS = new Set(['bg-red', 'bg-dead', 'bg-inconclusive']);
+function openQueueFor(commitSha) {
+  return readReviewQueue().filter((r) => !r.closedAt && BG_KINDS.has(r.kind) && r.commit && commitSha
+    && (r.commit === commitSha || commitSha.startsWith(r.commit) || r.commit.startsWith(commitSha)));
+}
+// Идентичность батча в состоянии — (спека, упорядоченные id). Ключ записи (`batchId`) несёт
+// ещё и базу, поэтому по нему repair своё же поколение не нашёл бы.
+function findBatchKey(plan) {
+  const state = readBatchState();
+  const want = plan.taskIds.join(',');
+  for (const [key, b] of Object.entries(state.batches || {})) {
+    if (b.specPath === plan.specPath && (b.taskIds || []).join(',') === want) return key;
+  }
+  return null;
+}
+function quarantinedBatches() {
+  const state = readBatchState();
+  return Object.entries(state.batches || {})
+    .filter(([, b]) => openQueueFor(b.batchHead).length)
+    .map(([batchId, b]) => ({ batchId, ...b }));
+}
+// Repair посаженного батча, у которого записи ещё нет (legacy-v1 epoch: до T016 батчи не
+// регистрировались). Восстанавливаем поколение 1 из САМОЙ находки: в строке очереди есть и
+// коммит, и identity. Нет открытой находки — чинить нечего, и это отказ, а не тихий коммит.
+function reconstructGeneration(plan) {
+  const ids = new Set(plan.taskIds);
+  const row = readReviewQueue().find((r) => !r.closedAt && r.commit
+    && parseTaskIds(r.task).some((id) => ids.has(id))
+    && (!r.specPath || r.specPath === plan.specPath));
+  return row ? { generation: 1, batchHead: row.commit, history: [{ generation: 1, commit: row.commit, ts: row.ts }] } : null;
+}
+
 function judgeProofPath() {
   const gd = git(['rev-parse', '--git-dir']).out || '.git';
   return path.join(path.isAbsolute(gd) ? gd : path.join(cwd, gd), 'elt', 'judge-proof.json');
@@ -532,12 +618,15 @@ function readJudgeProof() {
 // Батч связывается ЦЕЛИКОМ: любой из тасков не открыт → binding нет (proof на
 // полу-закрытый батч был бы враньём). Разные tasks.md в одном батче тоже нет —
 // specPath в proof один, и судья судит по одной рубрике.
-function findTaskBinding(taskId) {
+// 020 T016: `includeDone` — для repair-поколения. Задачи батча уже `[X]`, но чинить его без
+// судьи было бы ровно тем self-attestation, который запрещён: судья обязан уметь высказаться
+// о второй генерации так же, как о первой.
+function findTaskBinding(taskId, { includeDone = false } = {}) {
   const ids = parseTaskIds(taskId);
   if (!ids.length) return null;
   let specPath = null;
   for (const id of ids) {
-    const found = findTaskItem(id, true);
+    const found = findTaskItem(id, !includeDone);
     if (!found) return null;
     const p = path.relative(cwd, found.plan.file).split(path.sep).join('/');
     if (specPath !== null && specPath !== p) return null;
@@ -575,9 +664,9 @@ function attestEnabled() {
   const loaded = readHarnessConfig(cwd);
   return !!(loaded.ok && loaded.config.judge && loaded.config.judge.attest === true);
 }
-function validateJudgeProof({ taskId } = {}) {
+function validateJudgeProof({ taskId, repair = false } = {}) {
   if (!taskId) return invalidJudgeProof('task-required');
-  const binding = findTaskBinding(taskId);
+  const binding = findTaskBinding(taskId, { includeDone: repair });
   if (!binding) return invalidJudgeProof('task-not-found');
   const loaded = readJudgeProof();
   if (loaded.error) return invalidJudgeProof(loaded.error);
@@ -633,7 +722,7 @@ function validateJudgeProof({ taskId } = {}) {
   return { ok: true, proof: p };
 }
 function writeJudgeProof({ taskId, verdict, reasons, model, judges, grounding, redProof }) {
-  const binding = findTaskBinding(taskId);
+  const binding = findTaskBinding(taskId, { includeDone: flag('--repair') });
   if (!binding) die(`judge proof: task ${taskId} not found`);
   if (!PROOF_VERDICTS.includes(verdict) || !Array.isArray(reasons) || !reasons.every((reason) => typeof reason === 'string') || !model) {
     die('judge proof: invalid verdict, reasons, or model');
@@ -806,6 +895,31 @@ if (cmd === 'brief') {
   process.exit(0);
 }
 
+// 020 T016: батч перестал быть строкой в argv — значит у него должно быть видимое состояние.
+// Без этой команды «почему коммит отвергнут» отвечалось бы чтением JSON в .git руками.
+if (cmd === 'batch') {
+  const state = readBatchState();
+  const quarantined = new Set(quarantinedBatches().map((b) => b.batchId));
+  const rows = Object.entries(state.batches || {}).map(([batchId, b]) => ({
+    batchId, specPath: b.specPath, taskIds: b.taskIds, generation: b.generation,
+    batchHead: b.batchHead, quarantined: quarantined.has(batchId),
+  }));
+  if (sub === 'plan') {
+    const built = batchItems(normalizeTaskArg(opt('--task')));
+    if (built.error) die(`elt batch plan: ${built.error}`, 4);
+    const cfgB = fs.existsSync(CONFIG) ? loadConfig() : {};
+    const p = planBatch({ items: built.items, baseHead: headSha(), max: Number(cfgB.batch) || DEFAULT_BATCH, repair: flag('--repair') });
+    console.log(JSON.stringify(p, null, 2));
+    process.exit(p.ok ? 0 : 4);
+  }
+  if (flag('--json')) { console.log(JSON.stringify(rows, null, 2)); process.exit(0); }
+  if (!rows.length) { console.log('elt batch: посаженных батчей нет'); process.exit(0); }
+  for (const r of rows) {
+    console.log(`  ${r.taskIds.join(',')} @ ${r.specPath}  gen ${r.generation}  ${r.batchHead}${r.quarantined ? '  КАРАНТИН' : ''}`);
+  }
+  process.exit(rows.some((r) => r.quarantined) ? 1 : 0);
+}
+
 if (cmd === 'review') {
   const rows = readReviewQueue();
   const queueFile = path.join(cwd, REVIEW_QUEUE);
@@ -962,10 +1076,12 @@ if (cmd === 'oracle') {
 if (cmd === 'judge' && sub === 'run') {
   const taskId = normalizeTaskArg(opt('--task'));
   if (!taskId) die('elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]', 4);
-  const binding = findTaskBinding(taskId);
-  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди открытых [ ]`, 4);
+  // 020 T016: `--repair` — судья второй генерации уже посаженного (и закрытого) батча.
+  const judgeRepair = flag('--repair');
+  const binding = findTaskBinding(taskId, { includeDone: judgeRepair });
+  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди ${judgeRepair ? 'задач плана' : 'открытых [ ]'}`, 4);
   const texts = taskId.split(',').map((id) => {
-    const found = findTaskItem(id, true);
+    const found = findTaskItem(id, !judgeRepair);
     return found ? `${id} ${found.item.text}` : id;
   });
   // T003 010: мост резолвится локально (репо-разработчик) → из каталога плагина → явный
@@ -1258,9 +1374,35 @@ if (cmd === 'commit') {
   // spec while an earlier one still has open boxes could never be gated (or
   // never be committable at all).
   let approvalSkipped = false;
+  // 020 T016: состав батча узаконивается планировщиком ДО любой записи. `--repair` — второе
+  // поколение уже посаженного батча: задачи закрыты, красная находка открыта, и другого
+  // легального способа починить квартинованный батч у харнеса нет.
+  const repair = flag('--repair');
+  const built = batchItems(taskId);
+  if (built.error) die(`elt commit: ${built.error}`, 4);
+  const batchPlan = planBatch({
+    items: built.items, baseHead: headSha(),
+    max: Number(cfg.batch) || DEFAULT_BATCH, repair,
+  });
+  if (!batchPlan.ok) die(`elt commit: батч отвергнут (${batchPlan.reason}) — ${batchPlan.detail}`, 4);
+  // 020 T016: посадка меряется от принятого состава до локального коммита — это и есть
+  // `ready → local commit`, число для p95. Оракул в него не входит: он до `ready`.
+  const readyAt = Date.now();
+  // Red Mirror не открывает второй батч. Проверка намеренно ограничена ЗАРЕГИСТРИРОВАННЫМИ
+  // батчами: до T016 записи не велись (legacy-v1 epoch), и требовать её задним числом значило
+  // бы, что харнес не может посадить сам T016.
+  {
+    const quarantined = quarantinedBatches().filter((b) => b.taskIds.join(',') !== batchPlan.taskIds.join(','));
+    if (quarantined.length) {
+      const q = quarantined[0];
+      die(`elt commit: батч ${q.taskIds.join(',')} (${q.batchHead}) в карантине — сначала почини его:`
+        + ` elt commit --task ${q.taskIds.join(',')} --repair --spec ${q.specPath.replace(/\/tasks\.md$/, '')}`, 4);
+    }
+  }
   // 014 T022: binding снимается ЗДЕСЬ, до markDone() — findTaskBinding ищет только открытые
   // `[ ]`, и после простановки `[X]` вернул бы null. Фоновому судье он нужен ниже.
-  const binding = findTaskBinding(taskId);
+  // При repair задачи уже `[X]`, поэтому identity берётся у планировщика.
+  const binding = repair ? { taskId: batchPlan.taskIds.join(','), specPath: batchPlan.specPath } : findTaskBinding(taskId);
   {
     const specDir = binding ? path.dirname(path.join(cwd, binding.specPath)) : null;
     const gate = specApprovalGateFor(cfg, specDir);
@@ -1277,7 +1419,7 @@ if (cmd === 'commit') {
   // 014 T005 (AC3): в background-режиме тяжёлые слои (полный сьют/мутатор/smoke/судья) не
   // синхронны — судейский пруф здесь не требуется, дифф проверяется фоном ПОСЛЕ коммита
   // (spawnBackgroundVerify ниже). sync-ветка не тронута — судья остаётся обязательным.
-  const judge = bgVerify ? null : validateJudgeProof({ taskId });
+  const judge = bgVerify ? null : validateJudgeProof({ taskId, repair });
   if (!bgVerify && !judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
   // Captured now, BEFORE markDone() edits tasks.md and shifts treeHash — the
   // pre-commit hook (triggered by `git commit` below) re-checks the SAME
@@ -1297,10 +1439,12 @@ if (cmd === 'commit') {
 
   // 3. Fleet validates the same task/proof but leaves [X] to its merge queue.
   const ids = parseTaskIds(taskId);
+  // 020 T016: repair НЕ трогает план — задача уже закрыта, и «переоткрыть, чтобы закрыть
+  // снова» было бы подделкой состояния. Поколение растёт в batch-state, план неизменен.
   const texts = ids.map((id) => {
-    if (flag('--keep-task-open')) {
-      const found = findTaskItem(id, true);
-      if (!found) die(`задача ${id} не найдена среди открытых [ ]`);
+    if (repair || flag('--keep-task-open')) {
+      const found = findTaskItem(id, !repair);
+      if (!found) die(`задача ${id} не найдена среди ${repair ? 'задач плана' : 'открытых [ ]'}`);
       return found.item.text;
     }
     return markDone(id).text;
@@ -1310,8 +1454,21 @@ if (cmd === 'commit') {
   // 011 T004: метка ставится ПОСЛЕ обрезки до 90 — иначе длинный заголовок съедал бы её
   // ровно на тех слайсах, где она и нужна.
   const inconclusive = !bgVerify && judge.proof.verdict === 'inconclusive';
+  // 020 T016: поколение считается ДО коммита — оно едет и в сообщение, и в batch-state, и в
+  // run-log одним числом. Записи нет → legacy-батч, поколение восстанавливается из находки.
+  // Ключ ищется по IDENTITY (спека + упорядоченные id), а не по `batchId`: у repair другой
+  // baseHead, значит и другой batchId — а batch обязан остаться ТЕМ ЖЕ, иначе «второе
+  // поколение» превратилось бы в новый батч под новым именем, то есть в обход карантина.
+  const prevKey = findBatchKey(batchPlan);
+  const batchKey = prevKey || batchPlan.batchId;
+  const prevBatch = (prevKey && readBatchState().batches[prevKey]) || (repair ? reconstructGeneration(batchPlan) : null);
+  if (repair && !prevBatch) {
+    die(`elt commit --repair: у ${batchPlan.taskIds.join(',')} нет ни записи поколения, ни открытой находки — чинить нечего`, 4);
+  }
+  const generation = (prevBatch ? prevBatch.generation : 0) + 1;
   const msg = opt('-m', taskId ? `feat: ${taskId} ${taskText}`.slice(0, 90) : 'chore: elt slice')
-    + (inconclusive ? ' [inconclusive]' : '');
+    + (inconclusive ? ' [inconclusive]' : '')
+    + (repair ? ` [repair gen ${generation}]` : '');
   if (git(['add', '-A']).code !== 0) die('git add failed');
   const commitEnv = bgVerify ? process.env : { ...process.env, ELT_GATE_TRUST: gateTrust };
   const c = spawnSync('git', ['commit', '-m', msg], { cwd, encoding: 'utf8', env: commitEnv });
@@ -1321,6 +1478,21 @@ if (cmd === 'commit') {
   // Задача закрылась — снимаем её с парковки (009 T004), иначе status/slice next
   // продолжали бы считать её припаркованной после успешной перезакрытия.
   unpark(taskId, binding ? binding.specPath : null);
+
+  // 020 T016: батч зарегистрирован под своей identity. Proof предыдущего поколения после
+  // этой записи протухает по построению: он привязан к прежним baseHead/treeHash, а
+  // `batchHead` батча теперь другой — история поколений остаётся в `history`, не стирается.
+  {
+    const state = readBatchState();
+    state.batches = state.batches || {};
+    const history = (prevBatch && prevBatch.history ? prevBatch.history : []).concat([{ generation, commit: sha, ts: new Date().toISOString() }]);
+    state.batches[batchKey] = {
+      specPath: batchPlan.specPath, taskIds: batchPlan.taskIds,
+      taskIdentities: batchPlan.taskIdentities,
+      generation, batchHead: sha, repair, history,
+    };
+    writeBatchState(state);
+  }
 
   // Очередь ревью пишется ПОСЛЕ коммита: в строке обязан быть его sha, иначе разбирать нечего.
   // Неблокирующая по решению 2 спеки (R4): накопление видно в doctor, работу не стопорит.
@@ -1337,6 +1509,11 @@ if (cmd === 'commit') {
 
   appendRunLog({
     task: taskId,
+    batch: {
+      batchId: batchKey, generation, repair,
+      specPath: batchPlan.specPath, taskIdentities: batchPlan.taskIdentities,
+      readyToLocalCommitSec: (Date.now() - readyAt) / 1000,
+    },
     oracle: {
       cmd: cfg.oracle, exit: oracleExit, skipped: flag('--skip-oracle'), skipTrusted, durationSec: lastOracleSec,
       // skipTrusted: оракул в ЭТОМ процессе не бегал — full неизвестен, поле не пишем (T020
@@ -1394,6 +1571,9 @@ console.log(`elt — ядро ELT v3 харнесса
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
+  elt batch [--json] | elt batch plan --task Txxx[,Tyyy] [--repair]
+                                                            состояние посаженных батчей и поколений; plan — проверить состав ДО посадки
+  elt commit --task Txxx[,Tyyy] --repair                    второе поколение уже посаженного батча (задачи остаются [X])
   elt review [--json] | elt review close --task Txxx [--spec specs/NNN-slug] [--adopt-legacy] [--allow-empty]
                                                             очередь вердиктов (неблокирующая); close — снять с разбора РОВНО названную identity (0 закрытых = exit 5)
   elt stats [--since <ISO-дата>] [--json]                   block-rate/coverage/p50-p90 из run-log.jsonl (одна команда вместо ручного разбора)

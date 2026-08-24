@@ -104,7 +104,7 @@
   parity Claude/Codex.
   [files: tools/elt.js tools/elt-run.test.js hooks/hooks.json templates/.elt/state.md skills/elt/SKILL.md commands/elt-doctor.md]
 
-- [ ] **T016** First-class batch landing і repair generations: planner формує ordered
+- [X] **T016** First-class batch landing і repair generations: planner формує ordered
   `taskIdentities[]`, `batchId`, default 3/max 4, одну approved spec, dependency-closed і
   compatible file/risk/platform zones. Focused tests виконуються всередині `build` до події
   `ready`; сам `landing` запускає тільки L0 і створює один local provisional commit без push.
