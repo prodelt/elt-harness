@@ -58,27 +58,27 @@
   `node --test tools/judge-bench.test.js tools/elt-judge-contract.test.js` зелений,
   `node tools/elt.js status` працює.
 
-- [ ] **T007** Зняти PowerShell-драйвери: `elt-loop.ps1` (440), `elt-drive.ps1` (118),
+- [X] **T007** Зняти PowerShell-драйвери: `elt-loop.ps1` (440), `elt-drive.ps1` (118),
   `elt-fleet.ps1` (59), `elt-selfheal.ps1` (75), `elt-selfheal-lib.ps1` (35) і
   `tools/approval-guard.js` разом із тестом — guard жив рівно для двох викликів
   (`fleet/fleet.js`, `elt-loop.ps1`), обидва щойно померли. Перевірка: `ls tools/*.ps1` лишає
   тільки `doctor.ps1` і `skill.ps1`; `grep -rn "approval-guard\|elt-loop" tools/ .harness/`
   порожній; `node tools/doctor.js` exit 0.
 
-- [ ] **T008** Зняти другу синхронізацію і codegraph-інтеграцію: `sync-agent-surface.js` (351)
+- [X] **T008** Зняти другу синхронізацію і codegraph-інтеграцію: `sync-agent-surface.js` (351)
   з тестом (518), `elt-harness-sync-all.js` (129), `elt-harness-propose.js` із judge-bench-гейтом
   (D16 — він і так недосяжний), `codegraph-guard.js` (38) і його виклик у `elt-gate-l0.js`.
   `tools/doctor-core.js` чиститься від fleet- і sync-перевірок. Перевірка: `node tools/doctor.js`
   exit 0 без згадок fleet/sync; `node --test tools/doctor.test.js` зелений.
 
-- [ ] **T009** Фаза 3b — мертві підсистеми за інвентарем: `tools/amos-baseline/`, `rag-ingest.py`,
+- [X] **T009** Фаза 3b — мертві підсистеми за інвентарем: `tools/amos-baseline/`, `rag-ingest.py`,
   `rag_queue*.py`, `research*.js`, `hook-diet*`, `skill-search*`, `agent-library.js`,
   `probe-primitives.js`, `stuck-detector.js`, `harness-watch*` і решта, у кого нема жодного
   виклику з живого шляху. Кожен кандидат перевіряється грепом на посилання ДО видалення, а не
   за назвою. Перевірка: для кожного видаленого — рядок «нуль посилань» у комміт-меседжі;
   `node tools/elt-oracle-runner.js --full` exit 0.
 
-- [ ] **T010** Доказ критерію фази 3: `wc -l` тією ж командою, що дала 31 752, і окремо — обсяг
+- [X] **T010** Доказ критерію фази 3: `wc -l` тією ж командою, що дала 31 752, і окремо — обсяг
   того, що піде в плагін. Перевірка: число «свого коду» з датою в `.planning/STATE.md`; повний
   оракул exit 0; у `PLAYBOOK.md` кожен сценарій, що спирався на видалене, або має заміну штатним
   засобом (субагенти, `--worktree`), або явно записаний як знятий — мовчазних втрат нема.

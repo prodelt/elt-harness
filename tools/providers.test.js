@@ -262,7 +262,7 @@ test('T028: два вызова agy подряд не перетирают фа�
   assert.equal(fs.readFileSync(fb, 'utf8'), 'второй');
 });
 
-// --- T007 (004-elt-selfdrive): session-rotation (elt-drive.ps1) ---
+// --- T007 (004-elt-selfdrive): session-rotation (session-rotation драйвер (снят 019/T007)) ---
 test('T007: sessionId → argv несёт --session-id <id> (claude); без sessionId флага нет', async () => {
   const withId = await spawnArgs('claude', { sessionId: 'abc-123' });
   assert.match(withId.argv.join(' '), /--session-id abc-123\b/);

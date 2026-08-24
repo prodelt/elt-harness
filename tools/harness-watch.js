@@ -51,7 +51,7 @@ function readEntries(root) {
 // одного и того же события (обычно kind + субъект + ts последней улики).
 
 // У одного и того же события ДВА поля в зависимости от того, кто его писал: `elt.js`
-// (appendRunLog) кладёт `status`, драйвер `elt-loop.ps1` — `result`. Детектор, знающий
+// (appendRunLog) кладёт `status`, драйвер `PowerShell-драйвер (снят 019/T007)` — `result`. Детектор, знающий
 // только одно из них, слеп ровно на автономных прогонах, ради которых он и написан.
 function statusOf(e) { return e.status || e.result || null; }
 

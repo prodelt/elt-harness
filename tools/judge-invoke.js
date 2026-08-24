@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// judge-invoke.js — мост elt-loop.ps1 (solo-драйвер) → tools/fleet/gate.runJudge().
+// judge-invoke.js — мост PowerShell-драйвер (снят 019/T007) (solo-драйвер) → tools/fleet/gate.runJudge().
 //
 // Почему существует (T002, spec 004-elt-selfdrive): solo-драйвер раньше инлайнил вызов
 // судьи + парсинг вердикта прямо в PowerShell и НЕ отличал «судья не отработал» (пустой

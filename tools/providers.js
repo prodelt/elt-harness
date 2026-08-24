@@ -215,7 +215,7 @@ function run({ provider, prompt = '', cwd = process.cwd(), model = null, timeout
       // (подтв. `claude --help`, 2.1.207). Только claude: codex/agy своего эквивалента не имеют.
       // Проброс на месте (не в PROVIDERS.claude) — argv-строитель провайдера остаётся про модель/lean.
       ...(effort && provider === 'claude' ? ['--effort', String(effort)] : []),
-      // T007 (004-elt-selfdrive): session-rotation драйвер (elt-drive.ps1). --session-id/-r
+      // T007 (004-elt-selfdrive): session-rotation драйвер (session-rotation драйвер (снят 019/T007)). --session-id/-r
       // confirmed claude-only flags (T014 probe) — resume:false → fresh id (--session-id);
       // resume:true → continue that id (-r/--resume). codex/agy get neither.
       ...(sessionId && provider === 'claude' ? (resume ? ['-r', String(sessionId)] : ['--session-id', String(sessionId)]) : []),

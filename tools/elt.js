@@ -258,7 +258,7 @@ function normalizeTasks(text) {
   return text.replace(/^(\s*[-*]\s*\[)[xX](\])/gm, '$1 $2');
 }
 // 018 T002: подпись спеки живёт в ИСТОРИИ, а не в рабочем дереве. D4 (9 отказов за один
-// полевой прогон 15.08): approval-guard читал файл основного дерева, а срез внутри
+// полевой прогон 15.08): страж подписи спеки (снят 019/T007) читал файл основного дерева, а срез внутри
 // fleet-worktree читал своё — подпись расходилась, и отказ прилетал уже ПОСЛЕ воркера,
 // оракула и судьи, то есть после того, как LLM-бюджет раунда сожжён. `git log` отдаёт одну
 // и ту же историю обоим деревьям, поэтому расхождение исчезает архитектурно, а не смягчается.
@@ -823,7 +823,7 @@ if (cmd === 'slice' && sub === 'next') {
   }
   // --count N: N первых открытых задач ОДНОГО плана — вход для батч-режима драйвера.
   // Форма вывода при --count 1 (дефолт) не изменилась (объект, не массив), иначе
-  // сломались бы существующие парсеры драйверов (elt-loop.ps1 / fleet).
+  // сломались бы существующие парсеры драйверов (PowerShell-драйвер (снят 019/T007) / fleet).
   const count = Math.max(1, parseInt(opt('--count', '1'), 10) || 1);
   // 009 T004: припаркованные задачи пропускаются — иначе петля «продолжает» тем же
   // упавшим слайсом по кругу. Они остаются `[ ]` в плане и видны в `elt status`.
@@ -952,7 +952,7 @@ if (cmd === 'judge-proof') {
       die('judge proof: judge.attest=true — вердикт пишет только `elt judge run --task Txxx`', 4);
     }
     // --extra-file (008 T004): judges[]/grounding/redProof приходят файлом, не argv — JSON
-    // с embedded-кавычками бьётся о PS5.1 native-marshalling баг (см. elt-loop.ps1 comment).
+    // с embedded-кавычками бьётся о PS5.1 native-marshalling баг (см. PowerShell-драйвер (снят 019/T007) comment).
     let extra = {};
     const extraFile = opt('--extra-file');
     if (extraFile) {
@@ -1282,39 +1282,12 @@ if (cmd === 'commit') {
   console.log(`elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`);
   process.exit(0);
 }
-
-// 011 T027 — правило 4 схемы C: правка харнесса (gate.js/промпт/пороги) обязана нести
-// evidence+root-cause+predicted-impact и пройти judge-bench против baseline ДО коммита,
-// иначе эволюция контура — самообман (пороги правились вручную, ни разу не проверены).
-// НАМЕРЕННО последний блок файла: единственная async-ветка в плоском синхронном скрипте —
-// раньше по порядку она проиграла бы гонку с безусловным `process.exit()` в самом низу.
-if (cmd === 'harness' && sub === 'sync-all') {
-  // 016 T008: раскатка схемы v4 по реестру. Дефолт — dry-run; запись только с --apply.
-  const { spawnSync: sp } = require('child_process');
-  const r = sp(process.execPath, [path.join(__dirname, 'elt-harness-sync-all.js'), ...argv.slice(2)], { cwd, stdio: 'inherit' });
-  process.exit(r.status === null ? 1 : r.status);
-} else if (cmd === 'harness' && sub === 'propose') {
-  let harnessPropose;
-  try { harnessPropose = require('./elt-harness-propose'); }
-  catch { die('elt harness propose: доступно только в репо-разработчике (tools/elt-harness-propose.js не найден)', 4); }
-  const evidence = opt('--evidence');
-  const rootCause = opt('--root-cause');
-  const predictedImpact = opt('--predicted-impact');
-  const baselinePath = opt('--baseline');
-  const baseline = baselinePath ? JSON.parse(fs.readFileSync(path.isAbsolute(baselinePath) ? baselinePath : path.join(cwd, baselinePath), 'utf8')) : undefined;
-  const provider = opt('--provider', 'claude');
-  const model = opt('--model', null);
-  const runBench = async () => {
-    const { cases } = require('./judge-bench/cases');
-    const { runAll, score } = require('./judge-bench');
-    const results = await runAll(cases, { cwd, provider, model, concurrency: 2, timeoutMs: 5 * 60 * 1000 });
-    return score(results);
-  };
-  harnessPropose.propose({ root: cwd, evidence, rootCause, predictedImpact, baseline, runBench }).then((r) => {
-    console.log(JSON.stringify(r, null, 2));
-    process.exit(r.ok ? 0 : 4);
-  });
-} else {
+// 019 T008: команды `elt harness sync-all` и `elt harness propose` сняты вместе со своими
+// модулями. sync-all раскатывал схему v4 по реестру чужих проектов — сценарий записан
+// снятым в PLAYBOOK.md, а не потерян молча. propose держал judge-bench-гейт на правку
+// самого судьи, но был НЕДОСТИЖИМ (D16): единственный вход требовал модуль, которого нет в
+// deploy-копии. Дальше эволюцию контура доказывает ledger из T019, а не мёртвая команда.
+// Справка — теперь безусловный хвост: ветки, ради которой стоял else, больше нет.
 console.log(`elt — ядро ELT v3 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt status [--spec specs/NNN-slug]                        git + план + последний прогон
@@ -1323,8 +1296,6 @@ console.log(`elt — ядро ELT v3 харнесса
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
-  elt harness propose --evidence <e> --root-cause <r> --predicted-impact <i> [--baseline <path>] [--provider p] [--model m]
-      правка судьи/гейта против baseline judge-bench (T023): не улучшила — отказ в learnings.jsonl
   elt review [--json] | elt review close --task Txxx        очередь вердиктов inconclusive (неблокирующая); close — снять с разбора
   elt stats [--since <ISO-дата>] [--json]                   block-rate/coverage/p50-p90 из run-log.jsonl (одна команда вместо ручного разбора)
   elt oracle [--full]                                       прогнать оракул, exit-код = истина; --full игнорирует oracleSelect:impact
@@ -1335,4 +1306,3 @@ console.log(`elt — ядро ELT v3 харнесса
       БАТЧ: --task T001,T002,T003 — один оракул + один судья + один коммит на N задач
             (judge-proof write --task тем же списком; все задачи должны быть открыты и в одном tasks.md)`);
 process.exit(cmd ? 1 : 0);
-}

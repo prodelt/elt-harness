@@ -3,7 +3,7 @@
 //   elt oracle → судья (claude -p --model sonnet, REJECT-default) → elt commit.
 // Коммит БЕЗ [X]-марка (no --task): пометку в tasks.md ставит оркестратор на
 // интеграционной ветке ПОСЛЕ merge (T008), иначе tasks.md конфликтует при merge.
-// Судья гоняется через providers.run (claude), парсер вердикта портирован из elt-loop.ps1.
+// Судья гоняется через providers.run (claude), парсер вердикта портирован из PowerShell-драйвер (снят 019/T007).
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -124,7 +124,7 @@ function parseFilesReviewed(text) {
   return null;
 }
 
-// Парсер вердикта, REJECT-default (портирован из tools/elt-loop.ps1):
+// Парсер вердикта, REJECT-default (портирован из PowerShell-драйвер (снят 019/T007)):
 //  (0) структурированный output (--json-schema, надёжный путь — T016);
 //  (1) JSON-ключ "verdict":"pass|block"; (2) проза «verdict/вердикт ... pass|block» (фолбэк,
 //  на случай если структурированный вызов почему-то не сработал).

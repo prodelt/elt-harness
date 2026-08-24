@@ -11,7 +11,7 @@ Node.js 18+, PowerShell 5.1+, Git, Claude Code CLI, Codex CLI, Antigravity (`agy
 ## Structure
 
 - `tools/elt.js` — єдиний CLI та гейти слайса.
-- `tools/elt-loop.ps1` — послідовний автономний драйвер `agy → oracle → поточний суддя → commit`.
+- Драйвер знято (019/T007): слайс веде поточна поверхня, паралельність — субагенти і `--worktree`.
 - `tools/fleet/providers.js` — спільний транспорт до Claude, Codex і `agy`.
 - `.harness/harness.json` — механічний oracle, smoke, impact-вибір і один judge.
 - `specs/*/{spec,tasks}.md` — затверджені плани; без `--spec` береться найновіший план.
@@ -21,18 +21,17 @@ Node.js 18+, PowerShell 5.1+, Git, Claude Code CLI, Codex CLI, Antigravity (`agy
 
 ```powershell
 node tools/doctor.js
-node tools/doctor.js --fleet              # лише коли Fleet явно потрібен
 node tools/sync-bin.js                    # синхронізувати ELT runtime у ~/.claude/bin
 node "$env:USERPROFILE\.claude\bin\elt.js" status
 node tools/elt-oracle-runner.js --full
 
-# agy пише; Claude Code перевіряє та виправляє
-powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider claude -JudgeModel sonnet
+# ланцюжок гейта: між кроками в дерево не писати
+node tools/sync-bin.js
+node tools/elt.js oracle --full
+node tools/elt.js judge run --task T001
+node tools/elt.js commit --task T001 --skip-oracle -m "feat: опис"
 
-# agy пише; Codex перевіряє та виправляє
-powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider codex -JudgeModel gpt-5.6-sol
-
-node tools/sync-agent-surface.js --apply --force --target all --skill elt
+node tools/agent-skill-supply-chain.js install-skills --target all --json
 agent-skills.cmd                         # ширший supply-chain audit
 ```
 
@@ -53,7 +52,7 @@ agent-skills.cmd                         # ширший supply-chain audit
 - `agy` не завантажує skill автоматично: у його prompt треба прямо вимагати прочитати `C:\Users\espad\.gemini\skills\elt\SKILL.md`.
 - `judge.verify` у старих конфігах ігнорується runtime; `project-bootstrap apply` видаляє поле.
 - `harness-runner`, `harness-gates`, `pipeline-state` і `/pipeline` видалені; deprecated shims завершуються з exit 64 та показують маршрут `elt`.
-- Fleet не є дефолтом: запускати лише за явним запитом і перевіряти `doctor --fleet`.
+- Fleet знято (019/T006), PowerShell-драйвери — (019/T007). Прапорця `doctor --fleet` нема.
 - Старий план не підхоплюється автоматично; для нього обов'язковий `--spec specs/NNN-name`.
 - `C:\` не є git worktree; `graphify` і `codegraph` — різні продукти.
 - Для PowerShell 5.1 файли `.ps1` із не-ASCII текстом мають бути UTF-8 з BOM.

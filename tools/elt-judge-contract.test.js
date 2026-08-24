@@ -25,7 +25,7 @@ function result(run_) {
 }
 // ВНЕ репо (os.tmpdir(), не root) — extra-файл внутри рабочего дерева был бы untracked-файлом
 // и сам менял бы treeHash между `oracle` и `judge-proof write`, ломая stale-oracle-proof чек
-// (та же причина, по которой elt-loop.ps1 берёт temp-файл из системного tmpdir, не из проекта).
+// (та же причина, по которой PowerShell-драйвер (снят 019/T007) берёт temp-файл из системного tmpdir, не из проекта).
 function writeExtraFile(extra) {
   const p = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-judge-contract-extra-')) + path.sep + 'extra.json';
   fs.writeFileSync(p, JSON.stringify(extra));

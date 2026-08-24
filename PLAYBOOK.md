@@ -32,19 +32,23 @@ node "$env:USERPROFILE\.claude\bin\elt.js" commit --task T001 --spec specs/NNN-n
 
 ## Автономний прогін
 
-Послідовний драйвер — дефолт. У prompt для `agy` драйвер явно вимагає прочитати `C:\Users\espad\.gemini\skills\elt\SKILL.md`, бо Antigravity не завантажує цей skill сам.
+PowerShell-драйвер знято спекою 019 (T007) разом із усім `tools/*.ps1`, окрім `doctor.ps1`
+і `skill.ps1`. Заміна — штатні засоби Claude Code: субагенти для паралельних слайсів і
+`--worktree` для ізоляції. Транспорт до `agy`/Codex НЕ знято: він живий у
+`tools/providers.js`, і саме поверх нього T012 повертає писателя командою плагіна.
+Контракт промпту писателя v3 виписаний у `specs/019-elt-v5-phases-2-5/writer-prompt-v3.md`,
+щоб при поверненні його не писали заново.
 
-В Antigravity IDE достатньо `/elt <задача>`: глобальний workflow з `~/.gemini/config/global_workflows/elt.md` відкриває цей skill і запускає той самий драйвер. За замовчуванням зовнішній fixer/judge — Codex; `reviewer Claude` у запиті перемикає його на Claude.
+До T012 автономний прогін виглядає так: слайс веде поточна поверхня (Claude Code або Codex),
+паралелізм — субагентами, гейт — тією самою ланцюжком нижче. Stop-файл `.harness/STOP`
+і логи `.harness/loop-logs/` лишаються: їх пише сам `elt`, а не драйвер.
 
 ```powershell
-# робота з Claude Code
-powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider claude -JudgeModel sonnet
-
-# робота з Codex
-powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterProvider agy -JudgeProvider codex -JudgeModel gpt-5.6-sol
+node tools/sync-bin.js
+node tools/elt.js oracle --full
+node tools/elt.js judge run --task T001
+node tools/elt.js commit --task T001 --skip-oracle -m "feat: опис"
 ```
-
-На червоному oracle поточна поверхня робить до двох вузьких виправлень. На `block` слайс паркується; сліпого циклу LLM немає. Stop-файл: `.harness/STOP`; логи: `.harness/loop-logs/`.
 
 ## Proof
 
@@ -62,7 +66,26 @@ powershell -File tools/elt-loop.ps1 -Project . -SpecDir specs/NNN-name -WriterPr
 - Офісний документ, таблиця, презентація або PDF → `elt-work`.
 - Новий еталонний проєкт → `project-bootstrap`.
 - Зовнішня бібліотека → актуальні docs через `ctx7` перед кодом.
-- Fleet → тільки за явним запитом; спочатку `node tools/doctor.js --fleet`.
+- Паралельність → штатні субагенти Claude Code і `--worktree`. Fleet знято (019/T006),
+  прапорця `doctor --fleet` більше нема.
+
+## Знято спекою 019 (фаза 3) — без мовчазних втрат
+
+Кожен сценарій, що спирався на видалене, має або заміну, або явний запис «знято»:
+
+| Було | Стало |
+| --- | --- |
+| `elt-loop.ps1` — петля agy→oracle→суддя→commit | ланцюжок вручну (вище) + субагенти; писатель повертається в T012 |
+| `elt-drive.ps1` — session-rotation на N раундів | `--worktree` і окремі сесії; ротація сесій більше не наша справа |
+| `elt-selfheal*.ps1` — watchdog і авто-merge | ЗНЯТО без заміни: авто-merge чужої роботи небезпечніший за червоний рядок у черзі `elt review` |
+| `elt-fleet.ps1` + `tools/fleet/**` | штатні субагенти (знято ще в T006) |
+| `approval-guard.js` | підпис спеки живе трейлерами коміта (спека 018), сторож більше не потрібен |
+| `elt harness sync-all` — розкатка схеми v4 по реєстру чужих проєктів | ЗНЯТО: розкатку робить установка плагіна (T015), до неї — вручну |
+| `elt harness propose` — judge-bench-гейт на правку судді | ЗНЯТО (D16: був недосяжний); еволюцію контуру доводить ledger із T019 |
+| `sync-agent-surface.js` — дзеркало скілів у три CLI | ЗНЯТО: скіли ставить `agent-skill-supply-chain.js install-skills` |
+| `codegraph-guard.js` + `codegraphGuard` у конфізі | ЗНЯТО: єдиний виклик жив у драйвері; codegraph лишається довідкою, не воротами |
+| `doctor --fleet`, `surface:sync` у докторі | ЗНЯТО разом із підсистемами, які вони перевіряли |
+| `research*.js`, `hook-diet`, `agent-library`, `stuck-detector`, `probe-primitives`, `amos-baseline/`, `rag*.py` | ЗНЯТО: нуль викликів із живого шляху (перевірено грепом поіменно) |
 
 ## Видалені маршрути
 
