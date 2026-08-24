@@ -13,18 +13,18 @@
   reconcile `5a9bf7a`/`8af6c73` доказом у звіті, не тихим видаленням.
   [files: tools/elt-verify-bg.js tools/elt-verify-bg.test.js tools/harness-watch.js tools/harness-watch.test.js .planning/ELT-V5-BACKGROUND-RECONCILIATION-2026-08-24.md]
 
-- [ ] **T002** Закрити background finding T018: language-aware import scan не гасить JS
+- [X] **T002** Закрити background finding T018: language-aware import scan не гасить JS
   private field `#client = require('pkg')` і `${require('pkg')}`, але ігнорує текст у
   звичайній quoted/template string та справжні коментарі. Після green proof закрити
   `elt review close --task T018`.
   [files: tools/elt-gate-l0.js tools/elt-gate-l0.test.js .elt/ledger.jsonl]
 
-- [ ] **T003** Замкнути README на versioned KPI snapshot: усі поточні відсотки мають
+- [X] **T003** Замкнути README на versioned KPI snapshot: усі поточні відсотки мають
   фіксований `--as-of`, окремі LOC/defect counts або власну команду, або прибрані; regression
   порівнює README зі snapshot. Після green proof закрити `elt review close --task T016`.
   [files: README.md tools/kpi-commit-share.js tools/kpi-commit-share.test.js tools/kpi-release-snapshot.json]
 
-- [ ] **T004** Аудит глобальних `~/.claude/hooks/`: зіставити активні hooks із settings/config,
+- [X] **T004** Аудит глобальних `~/.claude/hooks/`: зіставити активні hooks із settings/config,
   знайти посилання на видалені `fleet`, `elt-loop`, `sync-bin` і локальні source-копії.
   Окремо зіставити repo `skills/elt` з активними Codex/Claude/Gemini surfaces. Відомий source
   drift синхронізувати; невідомі/сторонні hooks не видаляти. Зберегти відтворюваний звіт із

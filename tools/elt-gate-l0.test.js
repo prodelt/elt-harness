@@ -337,10 +337,16 @@ function testKnownPackagesComeFromBaseNotWorkingTree() {
 function testImportInCommentIsNotAnImport() {
   const head = ['diff --git a/src/a.js b/src/a.js', '--- a/src/a.js', '+++ b/src/a.js'];
 
+  // 020 T002: `#` разбирается по ЯЗЫКУ файла. Строка с решёткой переехала под .py-заголовок —
+  // там она действительно комментарий. В .js та же решётка означает приватное поле класса
+  // (см. testPrivateFieldAndTemplateInterpolationAreCode ниже), и гасить её нельзя.
   const commented = [
     ...head,
     `+// раньше здесь был ${importLine('ghost-lib').slice(1)}`,
     `+ * ${requireLine('ghost-jsdoc').slice(1)}`,
+    'diff --git a/src/a.py b/src/a.py',
+    '--- a/src/a.py',
+    '+++ b/src/a.py',
     `+  # ${importLine('ghost-python').slice(1)}`,
   ].join('\n');
   assert.deepEqual(externalImports(commented), [], 'комментарии не дают импортов');
@@ -363,6 +369,61 @@ function testImportTextInsideStringLiteralIsNotAnImport() {
     requireLine('real-require'),
   ].join('\n');
   assert.deepEqual(externalImports(diff), ['real-import', 'real-require']);
+}
+
+// 020 T002 — находка фона T018. Дискриминирующий регресс: на коде ДО задачи оба живых импорта
+// молчали. Приватное поле гасилось правилом «строка на # — комментарий» (правилом ДРУГОГО
+// языка), а `${require(...)}` считался текстом, потому что лексер видел только открывающий
+// бэктик. Обе дыры давали внешнюю либу без пруфа ctx7 — ровно то, ради чего правило и живёт.
+function testPrivateFieldAndTemplateInterpolationAreCode() {
+  const head = ['diff --git a/src/a.js b/src/a.js', '--- a/src/a.js', '+++ b/src/a.js'];
+
+  assert.deepEqual(
+    externalImports([...head, `+  #client = require('redis');`].join('\n')),
+    ['redis'],
+    'приватное поле класса — живой код, а не комментарий',
+  );
+  assert.deepEqual(
+    externalImports([...head, '+  const c = `${require("axios")}`;'].join('\n')),
+    ['axios'],
+    'интерполяция ${...} внутри шаблонной строки — код',
+  );
+  assert.deepEqual(
+    externalImports([...head, '+  const c = `a${ `b${require("got")}` }c`;'].join('\n')),
+    ['got'],
+    'вложенная интерполяция не путает разбор',
+  );
+
+  // Обратная сторона: то, что импортом НЕ является, им и не становится.
+  assert.deepEqual(
+    externalImports([...head, `+  const s = "from 'vitest'";`].join('\n')),
+    [],
+    'текст внутри обычной строки — не импорт',
+  );
+  assert.deepEqual(
+    externalImports([...head, '+  const s = `from \'vitest\'`;'].join('\n')),
+    [],
+    'текст внутри шаблонной строки БЕЗ интерполяции — не импорт',
+  );
+  assert.deepEqual(
+    externalImports([...head, `+  // require('lodash')`].join('\n')),
+    [],
+    'настоящий строчный комментарий — не импорт',
+  );
+  assert.deepEqual(
+    externalImports([...head, `+  /* require('lodash') */`].join('\n')),
+    [],
+    'блочный комментарий — не импорт',
+  );
+  assert.deepEqual(
+    externalImports([...head, '+#!/usr/bin/env node'].join('\n')),
+    [],
+    'shebang — комментарий в любом языке',
+  );
+
+  // Решётка в hash-языках остаётся комментарием.
+  const sh = ['diff --git a/x.sh b/x.sh', '--- a/x.sh', '+++ b/x.sh', `+  # require('curl-lib')`];
+  assert.deepEqual(externalImports(sh.join('\n')), [], '# в .sh — комментарий');
 }
 
 // Не-git каталог и битый манифест дают пустое множество, а не исключение: гейт не имеет права
@@ -749,6 +810,7 @@ async function main() {
   testKnownPackagesComeFromBaseNotWorkingTree();
   testImportInCommentIsNotAnImport();
   testImportTextInsideStringLiteralIsNotAnImport();
+  testPrivateFieldAndTemplateInterpolationAreCode();
   testKnownPackagesDegradesQuietly();
   testOutOfScopeGlobPrefixMatchesSubpath();
   testHighFaninTriggersOnCentralModule();
