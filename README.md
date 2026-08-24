@@ -1,149 +1,218 @@
-# Pipeline Setupper — token-disciplined Claude Code / Codex CLI setup
+# ELT — харнес для Claude Code
 
-Personal setup for Claude Code (with mirror configs for Codex CLI & Antigravity)
-focused on one metric: **tokens burned per session**. Ships 30 Node.js hooks that
-gate, block, or advise on tool use before costly mistakes hit the transcript.
+Плагин, который делает работу с кодом проверяемой: механический оракул перед судьёй, пять
+линз ревью с отсечкой по уверенности, и журнал, в который харнес записывает собственные
+промахи.
 
-Empirically measured: **196K → ~90K tokens/session** (≈2.2×) when the setup
-is enabled.
+Он построен на себе самом. Все числа ниже сняты с этого репозитория командами, которые тут же
+и указаны — их можно перепроверить, а не поверить.
 
-## What's in the box
+## Установка
 
-```
-~/.claude/
-├── settings.json              Claude Code harness config (hooks, skills, env)
-├── hooks/                     30 Node.js hooks (see table below)
-│   ├── lib/{config,logger,metrics,pathnorm}.js   Shared utilities
-│   ├── config.json            Hook thresholds (edit here, not in hook code)
-│   ├── hook-stats.js          CLI: node hook-stats.js [--errors|--reset]
-│   ├── test-all-hooks.js      Sanity: exit 0 + valid JSON shape (29/29)
-│   └── test-hooks-behavior.js BLOCK/ALLOW behavior suite (29/29)
-├── skills/                    User-invocable /slash commands
-├── rules/rules.md             Global rules (pulled into every session)
-├── CLAUDE.md                  User-level instructions
-├── CONFIG_MAP.md              Where each config key lives + why
-└── ISOLATION_POLICY.md        Why shared-hooks across Claude/Codex
-
-~/.codex/hooks.json            Mirror of 28 of the same hooks (Codex CLI)
+```powershell
+claude plugin marketplace add prodelt/elt-harness
+claude plugin install elt@elt
 ```
 
-## The token-burn problem this solves
+Репозиторий приватный: GitHub-доступ к `prodelt/elt-harness` должен быть настроен на машине,
+с которой ставится marketplace. Для разработки локальный путь также поддерживается.
 
-A baseline Claude Code session burns ~196K tokens. Empirical breakdown from a
-real 337-event session:
+Проверка установки — `/elt-doctor`. В чистом проекте он зелёный: отсутствие
+`.harness/harness.json` это `INFO`, а не отказ.
 
-| Leak | Size | Fix |
-|---|---:|---|
-| One failed Edit on settings.json (schema returned as tool_result) | **223K** | `settings-schema-guard.js` — pre-validates edit, blocks `_`-prefix keys |
-| Edit tool `originalFile` duplication (B03, upstream runtime bug) | ~10K per Edit | `edit-enforcer.js` — file-size warn @500 LOC, block @1200 LOC |
-| Write for partial edits to existing large files | ~4K per Write | `write-over-edit-guard.js` — forces Edit for ≥150-LOC files with ≥80% overlap |
-| Bash with unbounded stdout (cat/find/npm ls) | 10-50K | `bash-output-advisor.js` — PostToolUse, suggests `head`/`tail` |
-| SessionStart hints for unused tooling | 113 tokens × every session | `graphify-session-init.js` — silent when graph not present |
-| Skill listing at startup (30+ skills with long descriptions) | ~25K | `settings.json`: `skillListingMaxDescChars: 512`, `skillOverrides: user-invocable-only` for rarely-used skills |
-| Free-form tool result in context budget | 130K default | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=88`, `context-budget-gate.js` |
-
-## Hook catalog (30 hooks)
-
-### SessionStart (5)
-- `project-docs-gate` — blocks work in a project without CLAUDE.md/AGENTS.md/.gemini/GEMINI.md
-- `session-focus-gate` — forces one-goal-per-session, cleans old tool-results, aggregates focus history to `~/.claude/focus-log.jsonl`
-- `autoskills-check` — detects tech stack from package.json, suggests Context7
-- `graphify-session-init` — silent unless graph exists (zero-cost when unused)
-- `memory-discipline` — blocks if MEMORY.md >100 lines
-
-### UserPromptSubmit (1)
-- `context-budget-gate` — warns at 130K context, suggests /checkpoint
-
-### PreToolUse (9)
-- `graphify-read-gate` [Read] — redirects large-file reads to `graphify query`
-- `graphify-preuse` [Glob|Grep] — same, for structural queries
-- `settings-schema-guard` [Edit|Write] — pre-validates settings.json edits
-- `write-over-edit-guard` [Write] — forces Edit for existing large files
-- `config-protection` [Edit|Write] — locks hooks config files unless explicitly opted-in
-- `domain-agent-gate` [Edit|Write] — auto-routes to architect/security-reviewer/code-reviewer
-- `edit-enforcer` [Edit|Write] — inline-review + Context7 + file-size + loop guard
-- `secret-scanner` [Bash] — blocks commands containing API keys
-- `quality-gate-runner` [Bash] — blocks test-skipping patterns
-
-### PostToolUse (11)
-- `post-edit-combined`, `context7-reminder`, `inline-review-gate` [Edit|Write]
-- `verification-tracker`, `loop-guardian` [Edit|Write|Bash]
-- `secret-output-scanner`, `bash-output-advisor` [Bash]
-- `inline-review-tracker` [Agent]
-- `scope-guard` [TaskCreate]
-- `context7-tracker` [MCP context7]
-- `pipeline-tracker` [Skill]
-
-### Stop (2)
-- `stop-verification` — warns if code changed but no tests ran this session
-- `ship-gate` — blocks exit with uncommitted code files (bypassable)
-
-### Notification (1) / FileChanged (1)
-- `task-completed-gate`, `env-change-watcher`
-
-## Installation
-
-Prereqs: Node.js 18+, Windows or macOS (paths in hooks are Windows-shaped; audit
-before use on macOS).
-
-```bash
-# 1. Clone into home directory
-git clone https://github.com/YOUR-FORK/pipeline-setupper ~/.claude
-
-# 2. (Windows) Junction shared memory to Codex
-cmd /c mklink /J "%USERPROFILE%\.codex\memories" "%USERPROFILE%\.claude\projects\C--\memory"
-
-# 3. Verify
-node ~/.claude/hooks/test-all-hooks.js          # expect 29/29 PASS
-node ~/.claude/hooks/test-hooks-behavior.js     # expect 29/29 PASS
-node ~/.codex/test-codex-hooks.js               # expect 28/28 PASS
+```
+elt-doctor — плагин elt 5.0.0
+  [PASS] node >= 18 — node 24.14.0
+  [PASS] git на PATH — git version 2.51.0.windows.2
+  [PASS] plugin.json — elt 5.0.0
+  [PASS] marketplace.json согласован с plugin.json — marketplace elt 5.0.0
+  [PASS] точки входа bin/ — 4 шт.
+  [PASS] замыкание bin/ резолвится — 4 модулей загружены
+  [PASS] поверхность плагина на месте — 10 файлов
+  [INFO] проект: .harness/harness.json — конфига нет — чистый проект; создаётся командой /elt
+  PASS=7 WARN=0 INFO=1 FAIL=0
 ```
 
-All hooks **fail-safe**: any unhandled error → `exit(0)` (never blocks work).
+## Четыре входа
 
-## Observability
+| команда | что делает |
+| --- | --- |
+| `/elt` | слайс под гейтом: план по необходимости, оракул, один судья, коммит |
+| `/elt-verify` | ревью изменений пятью линзами параллельно, отсечка по уверенности 80 |
+| `/elt-defects` | журнал расхождений вердикта с реальностью; пять записей одного правила поднимают его на разбор |
+| `/elt-doctor` | цело ли замыкание плагина и настроен ли харнес проекта |
 
-```bash
-node ~/.claude/hooks/hook-stats.js              # fire/warn/block counts per hook
-node ~/.claude/hooks/hook-stats.js --errors     # error log tail
-node ~/.claude/hooks/hook-stats.js --reset      # zero counters
+## Что здесь измеряется и чем
 
-node ~/.claude/hooks/analyze-session.js <path.jsonl>   # post-hoc session breakdown
+### Доля коммитов, прошедших через харнес
+
+Единственное число, которым харнес отчитывается о себе. Всё остальное — покрытие, число
+правил, время гейта — измеряет механизм, который может стоять выключенным.
+
+Запрошенная в спеке стрелка `18,6% → 62,0%` **не является одной выборкой**: 18,6% — старый
+концептуальный снимок нескольких проектов (41/220), а 62,0% — снимок только этого репозитория
+(49/79). Склеить их означало бы показать искусственный рост. Сопоставимые ряды такие:
+
+| выборка | на 2026-08-21 | сегодня |
+| --- | --- | --- |
+| те же три проекта | 48,2% (106/220) | **52,1% (113/217)** |
+| только этот репозиторий | 58,7% (37/63) | **73,3% (44/60)** |
+
+Историческая точка фазы 1 `59,5% → 62,0%` остаётся в подписанном снимке спеки 018; проверить
+сам снимок можно командой `git show a2cdabe:.planning/STATE.md | Select-String '59,5|62,0'`.
+Исходные 18,6% (41/220) — командой
+`git show 3376247:.planning/ELT-V5-CONCEPT-2026-08-22.html | Select-String '41 КОММИТ'`.
+
+Метод: сверка `.git/elt/run-log.jsonl` с `git log` **по хешу**, а не по времени. Сверка по
+времени завышала долю — коммит, сделанный руками через минуту после прогона харнеса, попадал
+в окно.
+
+Скрипт печатает и то, что прошло мимо, поимённо. Сегодня это почти целиком авточекпоинты и
+документные коммиты — то есть класс, для которого двери в харнесе пока нет.
+
+**Сводную выборку по нескольким репозиториям и однорепную смешивать нельзя:** знаменатель
+разный, и «доля упала» будет значить лишь, что в выборку добавился чужой проект.
+
+```powershell
+node tools/kpi-commit-share.js --days 14 `
+  --cwd "C:\Claude playground\Pipiline setupper" `
+  --cwd "C:\Ametrin projects\Izi_translate" `
+  --cwd "C:\Ametrin projects\Izi tracker\izi-tracker"
 ```
 
-`analyze-session.js` produces the exact cost breakdown that motivated this
-project — top-10 biggest events, tool-result bytes per tool, Read destinations.
-Run it on any `~/.claude/projects/*/session.jsonl` to see where your tokens went.
+Добавление `--as-of 2026-08-21` к той же команде воспроизводит левую колонку, а не
+пересчитывает исторический срез сегодняшней датой.
 
-## Design principles
+### Сигнал/шум блокирующих вердиктов
 
-1. **Fail-safe over fail-closed.** Every hook wraps its body in try/catch and
-   exits 0 on error. A broken hook never stops work — it just stops helping.
-2. **Silent on the happy path.** Hooks emit output only when they have a
-   specific warning/block. No "ran successfully" noise.
-3. **Thresholds in one file.** Every tunable lives in `hooks/config.json`; hook
-   code reads defaults but never hard-codes business thresholds.
-4. **Shared across tools.** Claude Code, Codex CLI, and Antigravity all run
-   the same `.js` files. One fix, three tools. See `ISOLATION_POLICY.md` for why.
-5. **Measure, don't guess.** Every optimization in this repo comes from running
-   `analyze-session.js` on a real transcript and finding the actual top offenders.
+```powershell
+node tools/measure-noise.js
+```
 
-## Gotchas for contributors
+| когда | отношение |
+| --- | --- |
+| до фазы 2 | **1:7** — семь блокировок из восьми ложные |
+| после фазы 2 | **8:1** — 8 истинных, 1 ложное на 20 взятых вердиктов |
 
-- **Windows `git root = C:\`** — the whole filesystem is one repo. Hooks must
-  scope `git status -- .` to CWD.
-- **Never run `graphify claude install` on Windows** — generates broken
-  PowerShell hooks. Use `graphify-preuse.js` (already installed).
-- **`cwd` comes from hook input**, not `process.cwd()` (which is always
-  `~/.claude/hooks/`).
-- **Claude Code settings.json schema is strict** — `additionalProperties: false`
-  at the top level. `_`-prefixed keys are rejected. Use `CONFIG_MAP.md`
-  for documentation, not inline comments.
-- **Stop-hook output format is different**: `{ decision, reason }` not
-  `hookSpecificOutput`.
+Оговорка, без которой число врёт: **невыясненных 55%**. Одиннадцать вердиктов из двадцати
+механика разметить не смогла, и они не посчитаны ни в одну сторону.
 
-## Credits
+Причина прежнего шума была одна на три дефекта (D9, D15, D19): не существовало единого списка
+«это принадлежит харнесу», каждая проверка держала свой, и они разошлись. Теперь список один —
+`tools/harness-files.js`.
 
-Built through 8 audit sprints. Token-burn data collected from 72 real sessions
-(14.1M tokens) across `~/.claude/projects/`. Every threshold and pattern was
-validated empirically, not copied from a blog post.
+Четвёртый источник (D10) закрыт отдельно: «новый внешний импорт» теперь сверяется с манифестом
+**на базе слайса**, а не считается по первому упоминанию пакета в диффе. До этого любой слайс с
+новым тест-файлом автоматически получал `block` за `import { test } from 'vitest'` — при том что
+vitest стоял в `package.json` с первого коммита.
+
+### Свой код
+
+```powershell
+find tools bin \( -name "*.js" -o -name "*.ps1" \) | grep -v node_modules | xargs wc -l | tail -1
+```
+
+| когда | строк |
+| --- | --- |
+| до фазы 3 | 31 752 |
+| после фазы 3 (снят fleet, драйверы, мёртвые подсистемы) | 26 407 |
+| сегодня (`tools/` + `bin/` плагина) | **27 756** |
+
+**Цель фазы 3 — ≤ 5 000 строк — не взята, и это не оговорка задним числом.** Остаток не
+мёртвый: крупнейшие куски несущие (`elt.js` 1 308, `doctor-core.js` 1 016, `judge-core.js` 783),
+и срезать их нельзя — можно только переписать. Плагин дал дистрибуцию, но не переписывание ядра.
+
+### Механический оракул
+
+```powershell
+node tools/elt-oracle-runner.js --full
+```
+
+**77 файлов из 77.** Сканируются два корня — `tools/` и `bin/`: тесты самого плагина
+обязаны быть частью того же гейта, которым харнес меряет всех остальных.
+
+## Как устроен гейт
+
+```
+L0 (механика, без LLM)  →  оракул  →  один судья  →  commit + run-log
+```
+
+- **L0** — единственная синхронная часть. Не стоит ни одного вызова модели: смотрит дифф и
+  решает, будить ли судью вообще. Чистый низкорисковый дифф закрывается без судьи.
+- **Оракул** — названная в `.harness/harness.json` команда проекта. Плагин её не выдумывает:
+  нет конфига — честный откат на `node --test` с объявлением вслух.
+- **Судья** — ровно один. Второго раунда нет. `block` — не коммитить; `inconclusive` — коммит
+  с записью в очередь разбора, без повторного круга.
+
+`Done` означает четыре вещи одновременно: зелёный оракул, зелёный smoke (если настроен), ровно
+один судья `pass`/`inconclusive`, и коммит, сделанный самим `elt` — то есть попавший в run-log.
+
+## Ревью: пять линз, потом отсечка
+
+Линзы запускаются **параллельно** и не знают оценок друг друга: оценщик, увиденный заранее,
+схлопывает пять независимых взглядов в один.
+
+| линза | что ищет |
+| --- | --- |
+| `review-bugs` | явные баги в самих изменённых строках |
+| `review-claude-md` | нарушения правил проекта |
+| `review-code-comments` | комментарии, разошедшиеся с кодом |
+| `review-history` | правка отменяет осознанное прошлое решение |
+| `review-prior-comments` | повтор того, на что уже указывали |
+
+Оценщик (`claude-haiku-4-5-20251001`) ставит 0–100, отсечка **80**. Он знает типичные ложные
+срабатывания поимённо: сгенерированные файлы, владения харнеса, чистое форматирование,
+«добавьте тест» без названной непокрытой связи, стиль без правила в инструкции проекта,
+переименование без изменения поведения.
+
+## Журнал самофиксации
+
+Харнес чинит себя по данным, а не по впечатлению. `.elt/ledger.jsonl` копит четыре класса
+расхождений: `weak-signal`, `miss`, `false-positive`, `harness-defect`. Пять записей одного
+правила поднимают его на разбор — **ровно один раз**: шестая запись второго issue не даёт,
+иначе очередь разбора превращается в тот же шум, ради которого журнал и заведён.
+
+```powershell
+node bin/ledger.js record --kind false-positive --rule diff-size --note "порог не учёл сгенерированный lock"
+node bin/ledger.js summary
+```
+
+## Реестр дефектов
+
+Система заявляет о своих проблемах сама. Из 24 номеров, заведённых полевыми отчётами и
+последующими прогонами, закрыты 22: часть исправлена с регрессом, часть исчезла вместе с
+удалённой подсистемой. **Блокирующих открытых — ноль.**
+
+| № | что | статус |
+| --- | --- | --- |
+| D12 | `agent-browser eval --stdin` молча возвращает `null` | **открыт, не наш**: [issue #1](https://github.com/prodelt/elt-harness/issues/1); обход — inline-скрипт |
+| D24 | `tools/elt-checkpoint.test.js` зависает под `node --test` на Linux | **открыт, не блокирующий**: [issue #2](https://github.com/prodelt/elt-harness/issues/2); под `node <file>` — как его гонит оракул и CI — проходит |
+
+Полный реестр с корневыми причинами, измеренными эффектами и доказательством закрытия по
+каждому номеру — `.planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md`.
+
+Одна архитектурная проблема закрытой **не** объявлена: судья сверяет дифф со спекой, а не с
+внешней реальностью (схемой БД, семантикой чужого API). Задание, содержащее ошибку, проходит
+гейт. Частичное смягчение — пять линз ревью, которые читают код, а не задание.
+
+Новые расхождения между вердиктом и реальностью копятся в `.elt/ledger.jsonl` через
+`/elt-defects`. Подтверждённые остатки ведутся в
+[GitHub Issues](https://github.com/prodelt/elt-harness/issues) с меткой `harness-defect`.
+
+## Разработка
+
+```powershell
+node bin/doctor.js                    # диагностика плагина
+node tools/doctor.js                  # диагностика проекта
+node tools/gen-agents-md.js --check   # дрейф инструкций
+node tools/elt-oracle-runner.js --full
+```
+
+Инструкции живут в одном файле — `CLAUDE.md`. `AGENTS.md` и `.gemini/GEMINI.md` генерируются
+из него; правка копии руками краснит тест на дрейф.
+
+CI гоняет оракул на `windows-latest` и `ubuntu-latest`.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).
