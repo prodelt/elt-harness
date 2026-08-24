@@ -51,6 +51,22 @@ test('владения без фиксированного имени: авто�
   ]) assert.equal(isHarnessOwned(rel), false, `${rel} пишет человек`);
 });
 
+// 019 T019: журнал самофиксации пишется в момент, когда кто-то заметил расхождение вердикта с
+// реальностью, — то есть посреди ЛЮБОГО слайса, включая чужой. Без владения первая же запись
+// приезжала бы в дифф следующего слайса как scope creep: харнес штрафовал бы за файл, который
+// сам и пишет, — ровно тот механизм, из-за которого родились D9, D15 и D19.
+test('владение: журнал .elt/ledger.jsonl', () => {
+  for (const rel of ['.elt/ledger.jsonl', './.elt/ledger.jsonl', '.elt\\ledger.jsonl']) {
+    assert.equal(isHarnessOwned(rel), true, `${rel} пишет харнес`);
+    assert.equal(isIgnoredForReview(rel), true, `${rel} не судится`);
+  }
+
+  // Граница: код журнала и всё прочее в `.elt/` человеческого происхождения судятся как код.
+  for (const rel of ['bin/ledger.js', 'bin/ledger.test.js', '.elt/config.json']) {
+    assert.equal(isHarnessOwned(rel), false, `${rel} пишет человек`);
+  }
+});
+
 test('D22-сосед: авточекпоинт в диффе не даёт out-of-scope', () => {
   const diff = ['tools/widget.js', '.planning/CHECKPOINT-2026-08-24-1200-auto.md',
     'tools/judge-bench/cases-ingested.json']

@@ -33,6 +33,7 @@ node bin/doctor.js                        # діагностика плагін�
 node tools/doctor.js                      # діагностика проєкту
 node tools/elt-oracle-runner.js --full
 node tools/gen-agents-md.js --check       # дрейф інструкцій
+node bin/ledger.js summary                # журнал розходжень вердикту з реальністю
 
 # ланцюжок гейта: між кроками в дерево не писати
 node tools/elt.js oracle --full

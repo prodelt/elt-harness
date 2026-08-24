@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const ledger = require('./ledger');
 
@@ -74,6 +75,62 @@ test('порог считается по паре правило+класс, а 
   assert.equal(s.total, 6);
   assert.equal(s.rules.length, 2, 'два класса — две строки сводки');
   assert.ok(s.rules.every((r) => r.escalate === false), 'шесть записей вперемешку порога не берут');
+});
+
+test('имя правила с прежним разделителем не ломает пару rule+kind', () => {
+  const cwd = tmp();
+  ledger.record(cwd, { kind: 'miss', rule: 'foo::bar' });
+  ledger.record(cwd, { kind: 'weak-signal', rule: 'foo' });
+  const rows = ledger.summary(cwd).rules;
+  assert.ok(rows.some((r) => r.rule === 'foo::bar' && r.kind === 'miss' && r.count === 1));
+  assert.ok(rows.some((r) => r.rule === 'foo' && r.kind === 'weak-signal' && r.count === 1));
+});
+
+// 019 T019 — сведение в issue собирается механикой из САМИХ записей. Пересказ здесь был бы
+// потерей: тот, кто будет чинить правило, должен увидеть, что именно писали пять раз.
+test('issue собирается из записей, а не из их пересказа', () => {
+  const cwd = tmp();
+  for (let i = 1; i <= 5; i += 1) {
+    ledger.record(cwd, { kind: 'false-positive', rule: 'diff-size', note: `случай номер ${i}`, task: `T00${i}` });
+  }
+  const text = ledger.renderIssue(cwd, 'diff-size', 'false-positive');
+
+  assert.match(text, /diff-size/);
+  assert.match(text, /5 записей/);
+  for (let i = 1; i <= 5; i += 1) assert.ok(text.includes(`случай номер ${i}`), `запись ${i} попала в issue целиком`);
+  assert.match(text, /T001, T002, T003, T004, T005/, 'задачи перечислены');
+  assert.match(text, /ослабление правила это последний вариант/);
+});
+
+test('issue предупреждает, когда записи заведены без пояснения', () => {
+  const cwd = tmp();
+  for (let i = 0; i < 5; i += 1) ledger.record(cwd, { kind: 'miss', rule: 'hot-path' });
+  const text = ledger.renderIssue(cwd, 'hot-path', 'miss');
+  assert.match(text, /Ни у одной записи нет пояснения/, 'пять пустых записей разобрать нельзя, и это сказано');
+});
+
+test('issue по правилу без записей — null, а не пустая простыня', () => {
+  const cwd = tmp();
+  ledger.record(cwd, { kind: 'miss', rule: 'hot-path' });
+  assert.equal(ledger.renderIssue(cwd, 'diff-size', 'miss'), null);
+  assert.equal(ledger.renderIssue(cwd, 'hot-path', 'false-positive'), null, 'класс тоже должен совпасть');
+});
+
+test('CLI ledger issue маршрутизирует аргументы, stdout и exit code', () => {
+  const cwd = tmp();
+  for (let i = 1; i <= 5; i += 1) {
+    ledger.record(cwd, { kind: 'false-positive', rule: 'cli-rule', note: `cli case ${i}` });
+  }
+  const ok = spawnSync(process.execPath, [path.join(__dirname, 'ledger.js'), 'issue', '--cwd', cwd,
+    '--rule', 'cli-rule', '--kind', 'false-positive'], { encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /cli-rule: 5 записей/);
+  assert.match(ok.stdout, /cli case 5/);
+
+  const missing = spawnSync(process.execPath, [path.join(__dirname, 'ledger.js'), 'issue', '--cwd', cwd,
+    '--rule', 'missing', '--kind', 'false-positive'], { encoding: 'utf8' });
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /сводить нечего/);
 });
 
 test('битая строка в журнале не роняет сводку', () => {
