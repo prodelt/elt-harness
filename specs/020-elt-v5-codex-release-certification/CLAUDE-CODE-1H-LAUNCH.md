@@ -56,7 +56,7 @@ if (git status --porcelain) { throw 'Dedicated ELT v5 worktree is not clean' }
 node specs/020-elt-v5-codex-release-certification/verify-packet.js
 node tools/elt.js spec status --spec specs/020-elt-v5-codex-release-certification
 node tools/elt.js status --spec specs/020-elt-v5-codex-release-certification
-node tools/elt.js slice next --json --count 3 --spec specs/020-elt-v5-codex-release-certification
+node tools/elt.js slice next --json --count 2 --spec specs/020-elt-v5-codex-release-certification
 ```
 
 Очікування: approval `approved`, next `T001`. Якщо ні — не обходити gate, а встановити
