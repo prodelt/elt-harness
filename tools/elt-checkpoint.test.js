@@ -77,7 +77,7 @@ test('checkpoint rejects code, harness config, and mixed changes before staging'
 // отказывает; (б) появляется в диффе слайса, где судья законно ловит его как scope creep.
 // Оба случая живые (прогоны июля 2026), и стоили они по 10–20 минут гейта каждый.
 
-const { runCheckpointWriter, gateActive } = require('./checkpoint-writer');
+const { runCheckpointWriter, gateActive, profileFor, findEltJs } = require('./checkpoint-writer');
 
 const SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
 const elt = (root, args) => spawnSync(process.execPath, [ELT, ...args], { cwd: root, encoding: 'utf8' });
@@ -181,6 +181,76 @@ test('011 T012 живьём: block судьи снимает маркер — п
   assert.equal(gateActive(root), true);
   assert.equal(elt(root, ['judge', 'run', '--task', 'T001', '--invoke', stubBridge(judgeOut('block'))]).status, 4);
   assert.equal(gateActive(root), false, 'блок = конец попытки, чекпоинт не должен ждать полчаса');
+});
+
+// ---------------------------------------------------------------------------
+// 020 T001 / D25 — три регресса. Четвёртый (gateActive глушит запись во время
+// oracle→judge→commit) уже живёт выше: «011 T012 живьём». Дублировать не за чем.
+// ---------------------------------------------------------------------------
+
+test('D25: opus-5 получает окно 1M, small-модели — 200k', () => {
+  // Дефект: в BIG_MODEL стояли sonnet-5 и fable-5, но НЕ opus-5. Рабочая модель
+  // попадала в small-профиль, и ротация срабатывала вчетверо раньше нужного.
+  for (const id of ['claude-opus-5', 'opus-5', 'claude-sonnet-5', 'claude-fable-5', 'opus', 'sonnet']) {
+    assert.equal(profileFor(id).window, 1000000, `${id} обязан быть big-профилем`);
+    assert.equal(profileFor(id).stage2, 200000, `${id}: порог ротации big`);
+  }
+  for (const id of ['claude-haiku-4-5-20251001', 'haiku', '', undefined]) {
+    assert.equal(profileFor(id).window, 200000, `${id}: small-профиль 200k`);
+    assert.equal(profileFor(id).stage2, 120000, `${id}: порог ротации small`);
+  }
+});
+
+test('D25: ручной хвост чекпоинта переживает ПОВТОРНУЮ ротацию', () => {
+  // Дефект: файл перезаписывался целиком, и дописанные руками resume-инструкции
+  // стирались на второй ротации того же дня — ровно то, ради чего его читают.
+  const root = gateRepo();
+  const args = writerArgs(root);
+
+  assert.equal(runCheckpointWriter(args).wrote, true);
+  const file = path.join(root, '.planning', autoCheckpoints(root)[0]);
+
+  const manual = 'НЕ ТЕРЯТЬ: сначала добить T007, ключ лежит в elt-verify-bg.js';
+  fs.appendFileSync(file, `\n${manual}\n`, 'utf8');
+
+  // вторая ротация той же сессии: токены выросли выше repeat-порога
+  const bump = (tok) => fs.writeFileSync(args.transcriptPath, JSON.stringify({
+    message: { model: 'claude-sonnet-4', usage: { input_tokens: tok } },
+  }) + '\n');
+
+  bump(400000);
+  assert.equal(runCheckpointWriter(args).wrote, true, 'вторая ротация состоялась');
+  let text = fs.readFileSync(file, 'utf8');
+  assert.ok(text.includes(manual), 'ручной хвост пережил первую перезапись');
+  assert.ok(text.includes('## Resume Prompt'), 'машинная часть на месте и обновлена');
+
+  bump(800000);
+  assert.equal(runCheckpointWriter(args).wrote, true, 'третья ротация состоялась');
+  text = fs.readFileSync(file, 'utf8');
+  assert.equal(text.split(manual).length - 1, 1, 'хвост сохранён РОВНО один раз, без размножения');
+  assert.equal(autoCheckpoints(root).length, 1, 'ротация не плодит файлы за один день');
+});
+
+test('D25: развёрнутый хук находит CLI проверяемого проекта, а не только соседа', () => {
+  // Дефект: findEltJs() смотрел лишь на path.join(__dirname, 'elt.js'). В
+  // ~/.claude/hooks/ соседа нет — `elt status` возвращал null, и чекпоинт писался
+  // БЕЗ следующего слайса. Тест поднимает копию хука в каталоге без соседа.
+  const root = gateRepo();
+  const deployDir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-hook-deploy-'));
+  roots.push(deployDir);
+  const deployed = path.join(deployDir, 'checkpoint-writer.js');
+  fs.copyFileSync(path.join(__dirname, 'checkpoint-writer.js'), deployed);
+  assert.equal(fs.existsSync(path.join(deployDir, 'elt.js')), false, 'у копии нет соседа — как в hooks/');
+
+  const hook = require(deployed);
+  const projectCli = path.join(root, 'tools', 'elt.js');
+  fs.mkdirSync(path.dirname(projectCli), { recursive: true });
+  fs.copyFileSync(ELT, projectCli);
+
+  assert.equal(hook.findEltJs(root), projectCli, 'CLI проекта найден из каталога без соседа');
+  assert.equal(hook.findEltJs(null), null, 'без проекта и без соседа — честный null, не чужой путь');
+  // сосед по каталогу остаётся кандидатом для модуля плагина
+  assert.equal(findEltJs(null), ELT, 'в tools/ приоритет соседа сохранён');
 });
 
 after(() => {

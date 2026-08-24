@@ -27,7 +27,14 @@ const PROFILES = {
   big: { window: 1000000, stage2: 200000, repeat: 30000 },
   small: { window: 200000, stage2: 120000, repeat: 15000 },
 };
-const BIG_MODEL = /opus-4-8|sonnet-4-6|sonnet-5|fable-5|^(?:opus|sonnet)$/i;
+// Список моделей с большим окном. Дефект найден живьём 2026-08-24: `opus-5` тут ОТСУТСТВОВАЛ,
+// хотя `sonnet-5` и `fable-5` стояли, — то есть текущая рабочая модель получала профиль 200k.
+// Симптом виден прямо в тексте чекпоинта: «~409k/200k токенов» при сессии, дошедшей до 448k.
+// Следствие не косметическое: ротация срабатывает вчетверо раньше нужного и повторяется каждые
+// `repeat`, засоряя `.planning/` и обрывая работу на середине.
+// Матч ПОДСТРОКОЙ, потому что в транскрипте id полный (`claude-opus-5`, с датой у haiku).
+// Голые `opus`/`sonnet` оставлены якорями: их присылает CLI, когда модель задана алиасом.
+const BIG_MODEL = /opus-5|sonnet-5|fable-5|opus-4-8|sonnet-4-6|^(?:opus|sonnet)$/i;
 
 function profileFor(model) {
   return BIG_MODEL.test(model || '') ? PROFILES.big : PROFILES.small;
@@ -71,15 +78,23 @@ function findTranscript(sessionId) {
 
 // elt.js is the single source of truth for git/plan/run-log (T001) — shell
 // out to `elt status` instead of re-parsing tasks.md/run-log.jsonl here.
-function findEltJs() {
-  // 019 T015: deploy-копия `~/.claude/bin/elt.js` снята; сосед по каталогу плагина —
-  // единственный кандидат, и его отсутствие означает битую установку, а не «поищем ещё».
-  const candidate = path.join(__dirname, 'elt.js');
-  return fs.existsSync(candidate) ? candidate : null;
+function findEltJs(projectDir) {
+  // 019 T015 + D25: deploy-копия `~/.claude/bin/elt.js` снята, но этот файл живёт ДВУМЯ
+  // жизнями — как модуль плагина (`tools/`, сосед `elt.js` рядом) и как хук Claude Code
+  // (`~/.claude/hooks/`, где соседа нет). Оставив только соседа, T015 молча лишил хук CLI:
+  // `elt status` возвращал null, и чекпоинт писался БЕЗ следующего слайса — то есть без
+  // единственного, ради чего его читают. Поймано самотестом развёрнутой копии, не юнитом.
+  // Порядок: проверяемый проект → явное перекрытие → сосед по каталогу.
+  const candidates = [
+    projectDir ? path.join(projectDir, 'tools', 'elt.js') : null,
+    process.env.ELT_CLI || null,
+    path.join(__dirname, 'elt.js'),
+  ].filter(Boolean);
+  return candidates.find((p) => fs.existsSync(p)) || null;
 }
 
 function eltStatus(projectDir) {
-  const eltPath = findEltJs();
+  const eltPath = findEltJs(projectDir);
   if (!eltPath) return null;
   const r = spawnSync(process.execPath, [eltPath, 'status'], { cwd: projectDir, encoding: 'utf8' });
   if (r.status !== 0 || !r.stdout) return null;
@@ -170,7 +185,31 @@ function runCheckpointWriter({ sessionId, transcriptPath, projectDir, stateFile 
   const outDir = path.join(projectDir, '.planning');
   fs.mkdirSync(outDir, { recursive: true });
   const filePath = path.join(outDir, `CHECKPOINT-${date}-auto.md`);
-  fs.writeFileSync(filePath, content, 'utf8');
+  // 019 D25 (вторая половина): файл ПЕРЕЗАПИСЫВАЛСЯ целиком. За одну сессию 2026-08-24 это
+  // дважды стёрло дописанные вручную resume-инструкции — то есть ровно то, ради чего чекпоинт
+  // и существует. Автогенератор знает только `elt status`; всё, что человек или модель дописали
+  // ниже, для него невидимо, и «обновить» здесь означает «потерять».
+  // Дописанное сохраняется дословно под своим заголовком. Признак дописанного — любой текст
+  // после последней машинной секции: генератор всегда заканчивает `## Resume Prompt`.
+  const KEEP = '## Дописано вручную (сохранено при ротации)';
+  let carried = '';
+  try {
+    const prev = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
+    const keptIdx = prev.indexOf(KEEP);
+    if (keptIdx !== -1) {
+      carried = prev.slice(keptIdx + KEEP.length).trim();
+    } else {
+      const marker = '## Resume Prompt';
+      const at = prev.lastIndexOf(marker);
+      if (at !== -1) {
+        // Хвост машинной секции — одна строка промпта. Всё, что за ней, писал человек.
+        const tail = prev.slice(at + marker.length).split('\n').slice(2).join('\n').trim();
+        if (tail) carried = tail;
+      }
+    }
+  } catch { /* файла нет — сохранять нечего */ }
+
+  fs.writeFileSync(filePath, carried ? `${content}\n${KEEP}\n\n${carried}\n` : content, 'utf8');
 
   fs.writeFileSync(stateFile, JSON.stringify({ sid: sessionId, wrote: true, lastTok: tok }));
 
@@ -212,6 +251,18 @@ if (require.main === module && process.argv[2] === '--selftest') {
   }) + '\n');
   fs.mkdirSync(path.join(dir, 'specs', '001-test'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'specs', '001-test', 'tasks.md'), '- [ ] **T002** do the thing\n');
+
+  // D25: самотест обязан работать и из ~/.claude/hooks/, где соседа `elt.js` нет.
+  // CLI не копируется в фикстуру — он тянет соседние модули; вместо этого включается
+  // явное перекрытие ELT_CLI, тот же кандидат, которым развёрнутый хук находит CLI.
+  // Без CLI самотест не «почти проходит» молча, а называет причину и требует ELT_CLI.
+  const cliSource = [process.env.ELT_CLI, path.join(__dirname, 'elt.js')]
+    .filter(Boolean).find((c) => fs.existsSync(c));
+  if (!cliSource) {
+    console.error('selftest: не найден elt.js CLI. Запусти с ELT_CLI=<repo>/tools/elt.js');
+    process.exit(2);
+  }
+  process.env.ELT_CLI = cliSource;
 
   const transcript = path.join(dir, 'transcript.jsonl');
   const stateFile = path.join(dir, 'state.json');

@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, test } = require('node:test');
 
-const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath, enabledLayers, LAYERS } = require('./elt-verify-bg');
+const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath, enabledLayers, LAYERS, classifyJudge, harnessConfigAt, REVIEW_QUEUE } = require('./elt-verify-bg');
 const { validateHarnessConfig, verifyMode, VERIFY_MODES } = require('./elt-config');
 
 const ELT = path.join(__dirname, 'elt.js');
@@ -465,6 +465,127 @@ test('T005: команда с кавычками исполняется шелл
   // Не `equal(…, 3)`: PowerShell 5.1 с `-Command` не проксирует точный код нативной команды
   // (даёт 1), bash даёт 3. Дискриминатор всё равно точный — наивный split вернул бы РОВНО 0.
   assert.notEqual(sectionsOf(r).suite.exit, 0, 'до фикса кавычки уезжали в argv, node вычислял строковый литерал и выходил с 0');
+});
+
+// ---------------------------------------------------------------------------
+// 020 T007 — фон fail-closed. Каждый тест дискриминирующий: на коде ДО этой
+// задачи все исходы ниже давали `background-verify-pass`, то есть зелёное без
+// единой проверки диффа.
+// ---------------------------------------------------------------------------
+
+function judgeRepo() {
+  const { root } = gitRepo({ background: { layers: ['judge'] } });
+  // Второй коммит обязателен: судейский слой делает `reset --soft HEAD~1`.
+  fs.writeFileSync(path.join(root, 'slice.txt'), 'change\n');
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'slice'], { cwd: root });
+  const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  return { root, hash };
+}
+function queueRows(root) {
+  const f = path.join(root, REVIEW_QUEUE);
+  if (!fs.existsSync(f)) return [];
+  return fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+}
+
+const NON_CONCLUSIVE = [
+  ['dead — судья не отработал', async () => ({ ok: false, reasons: ['CLI не найден'] })],
+  ['malformed — вместо вердикта мусор', async () => ({ ok: true, verdict: { weird: true } })],
+  ['unknown — вердикт не из закрытого списка', async () => ({ ok: true, verdict: 'probably-fine' })],
+  ['exception — судья упал внутри', async () => { throw new Error('boom'); }],
+];
+
+for (const [name, judgeImpl] of NON_CONCLUSIVE) {
+  test('T007: ' + name + ' → НЕ pass, свой terminal-state и bg-dead в очереди', async () => {
+    const { root, hash } = judgeRepo();
+    const r = await runBackgroundVerify({ cwd: root, commitHash: hash, taskId: 'T007', judgeImpl });
+
+    assert.notEqual(r.status, 'background-verify-pass', 'неконклюзивный судья не может быть зелёным');
+    assert.equal(r.status, 'background-verify-dead');
+    assert.equal(r.exit, 1, 'exit ненулевой — родитель обязан узнать');
+
+    const last = runLogEntries(root).pop();
+    assert.equal(last.status, 'background-verify-dead', 'терминальная запись в run-log — та же');
+
+    const rows = queueRows(root);
+    assert.equal(rows.length, 1, 'ровно одна строка разбора');
+    assert.equal(rows[0].kind, 'bg-dead', 'не bg-red: «не смогли проверить» ≠ «проверили и красное»');
+    assert.match(rows[0].reason, /судья/);
+  });
+}
+
+test('T007: таймаут судьи → background-verify-dead, а не бесконечное ожидание', async () => {
+  const { root } = judgeRepo();
+  const cfgPath = path.join(root, '.harness', 'harness.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.background = { layers: ['judge'], judgeTimeoutMs: 300 };
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'timeout cfg'], { cwd: root });
+  const h2 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  const r = await runBackgroundVerify({
+    cwd: root, commitHash: h2, taskId: 'T007',
+    judgeImpl: () => new Promise(() => {}),
+  });
+  assert.equal(r.status, 'background-verify-dead');
+  assert.match(queueRows(root).pop().reason, /timeout/);
+});
+
+test('T007: inconclusive — СВОЁ терминальное состояние и своя строка очереди', async () => {
+  const { root, hash } = judgeRepo();
+  const r = await runBackgroundVerify({
+    cwd: root, commitHash: hash, taskId: 'T007',
+    judgeImpl: async () => ({ ok: true, verdict: 'inconclusive', reasons: ['владения'] }),
+  });
+  assert.equal(r.status, 'background-verify-inconclusive', 'не pass и не red — третий исход');
+  assert.equal(r.exit, 1);
+  assert.equal(queueRows(root)[0].kind, 'bg-inconclusive');
+  assert.equal(runLogEntries(root).pop().background.outcome, 'inconclusive');
+});
+
+test('T007: pass судьи по-прежнему зелёный — иначе тесты выше доказывали бы пустоту', async () => {
+  const { root, hash } = judgeRepo();
+  const r = await runBackgroundVerify({
+    cwd: root, commitHash: hash, taskId: 'T007',
+    judgeImpl: async () => ({ ok: true, verdict: 'pass', reasons: [] }),
+  });
+  assert.equal(r.status, 'background-verify-pass');
+  assert.equal(r.exit, 0);
+  assert.deepEqual(queueRows(root), [], 'зелёное не плодит строк разбора');
+});
+
+test('T007: после неконклюзивного прогона worktree убран и след в run-log есть', async () => {
+  const { root, hash } = judgeRepo();
+  await runBackgroundVerify({
+    cwd: root, commitHash: hash, taskId: 'T007',
+    judgeImpl: async () => { throw new Error('layer exploded'); },
+  });
+  assert.equal(fs.existsSync(worktreePath(root, hash)), false, 'осиротевший worktree не остался');
+  assert.ok(runLogEntries(root).pop().status.startsWith('background-verify-'), 'след есть всегда');
+});
+
+test('T007: конфиг берётся из снапшота КОММИТА, а не из живого дерева', async () => {
+  const { root, hash } = judgeRepo();
+  fs.writeFileSync(path.join(root, '.harness', 'harness.json'),
+    JSON.stringify({ shell: SHELL, background: { layers: [] } }));
+  const snap = harnessConfigAt(root, hash);
+  assert.equal(snap.source, 'commit:' + hash);
+  assert.deepEqual(snap.cfg.background.layers, ['judge'], 'снапшот отдаёт слои коммита');
+
+  const r = await runBackgroundVerify({
+    cwd: root, commitHash: hash, taskId: 'T007',
+    judgeImpl: async () => ({ ok: true, verdict: 'block', reasons: ['реальный блок'] }),
+  });
+  assert.equal(r.status, 'background-verify-red', 'слой judge отработал по конфигу коммита');
+  assert.equal(r.configSource, 'commit:' + hash);
+});
+
+test('T007: classifyJudge — закрытый список, всё остальное неконклюзивно', () => {
+  for (const v of ['pass', 'block', 'inconclusive']) assert.equal(classifyJudge(v).conclusive, true, v);
+  for (const v of ['dead', 'timeout', 'unknown', '', null, undefined, 'PASS']) {
+    assert.equal(classifyJudge(v).conclusive, false, v + ' не вердикт');
+  }
 });
 
 after(() => {

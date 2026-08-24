@@ -131,16 +131,33 @@ test('bg-red: закрытая запись не возвращается (то�
 });
 
 test('bg-red: красный фоновый прогон сам ставит запись; зелёный не ставит ничего', async () => {
+  // 020 T007 изменил контракт НАМЕРЕННО. Фикстура не задаёт `background.layers`, значит
+  // включены все четыре слоя, и слой судьи на корневом коммите не может отработать
+  // (`reset --soft HEAD~1` не резолвится) — раньше это была ТИШИНА и прогон считался
+  // зелёным, теперь у неконклюзивного судьи своя строка `bg-dead`. Поэтому красный прогон
+  // даёт две строки: реальное красное сьюта и «не смогли проверить» судьи.
   const red = bgRepo();
   await runBackgroundVerify({ cwd: red.root, commitHash: red.hash, taskId: 'T007', oracleCmd: 'node -e "process.exit(1)"' });
   const open = openRows(red.root);
-  assert.equal(open.length, 1);
-  assert.equal(open[0].kind, 'bg-red');
-  assert.equal(open[0].commit, red.hash, 'в строке настоящий хеш — по нему и смотрят дифф');
-  assert.equal(open[0].layer, 'suite');
+  const suite = open.filter((r) => r.layer === 'suite');
+  assert.equal(suite.length, 1, 'красный сьют — ровно одна строка');
+  assert.equal(suite[0].kind, 'bg-red');
+  assert.equal(suite[0].commit, red.hash, 'в строке настоящий хеш — по нему и смотрят дифф');
+  assert.deepEqual(open.filter((r) => r.layer === 'judge').map((r) => r.kind), ['bg-dead'],
+    'судья, который не смог заключить, больше не молчит');
 
+  // Зелёный проверяется на конфиге БЕЗ судьи: иначе «зелёный» означал бы «судья промолчал»,
+  // то есть ровно тот fail-open, который T007 и закрывает.
   const green = bgRepo();
-  await runBackgroundVerify({ cwd: green.root, commitHash: green.hash, taskId: 'T007', oracleCmd: 'node -e "process.exit(0)"' });
+  const cfg = path.join(green.root, '.harness', 'harness.json');
+  fs.writeFileSync(cfg, JSON.stringify({
+    ...JSON.parse(fs.readFileSync(cfg, 'utf8')), background: { layers: ['suite'] },
+  }));
+  spawnSync('git', ['add', '-A'], { cwd: green.root });
+  spawnSync('git', ['commit', '-qm', 'suite-only'], { cwd: green.root });
+  const gh = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: green.root, encoding: 'utf8' }).stdout.trim();
+  const r = await runBackgroundVerify({ cwd: green.root, commitHash: gh, taskId: 'T007', oracleCmd: 'node -e "process.exit(0)"' });
+  assert.equal(r.status, 'background-verify-pass');
   assert.deepEqual(openRows(green.root), [], 'зелёный фон очередь не засоряет');
 });
 
