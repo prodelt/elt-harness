@@ -151,3 +151,58 @@ test('--as-of делает историческое число воспроиз�
   assert.equal(future.total, 0, 'скользящее окно не расширяется до всей истории');
   assert.equal(future.period.until, '2099-01-01');
 });
+
+
+// ---------------------------------------------------------------------------
+// 020 T003 — README замкнут на versioned снимок. До этой задачи проценты в README
+// жили сами по себе: колонка называлась «сегодня», а число было снято другой
+// выборкой и другой датой, и разойтись они могли молча — ни одна проверка не
+// смотрела на README вообще.
+// ---------------------------------------------------------------------------
+
+const fsNode = require('node:fs');
+const pathNode = require('node:path');
+
+const SNAPSHOT = pathNode.join(__dirname, 'kpi-release-snapshot.json');
+const README = pathNode.join(__dirname, '..', 'README.md');
+const snapshot = () => JSON.parse(fsNode.readFileSync(SNAPSHOT, 'utf8'));
+const readme = () => fsNode.readFileSync(README, 'utf8');
+
+test('T003: каждое число снимка присутствует в README дословно', () => {
+  const snap = snapshot();
+  const text = readme();
+  const cs = snap.commitShare;
+
+  const expected = [
+    `${cs.combined.share} (${cs.combined.hit}/${cs.combined.total})`,
+    `${cs.thisRepo.share} (${cs.thisRepo.hit}/${cs.thisRepo.total})`,
+    // LOC печатается с неразрывной группировкой тысяч — как в таблице README
+    String(snap.loc.total).replace(/\B(?=(\d{3})+(?!\d))/g, ' '),
+  ];
+  for (const value of expected) {
+    assert.ok(text.includes(value), `README разошёлся со снимком: нет «${value}»`);
+  }
+});
+
+test('T003: у каждой колонки процентов есть фиксированный as-of, слова «сегодня» в них нет', () => {
+  const snap = snapshot();
+  const text = readme();
+
+  assert.ok(text.includes(`--as-of ${snap.asOf}`), 'команда воспроизведения без --as-of невоспроизводима');
+  assert.ok(text.includes(`на ${snap.asOf}`), 'колонка обязана называть дату снимка');
+  assert.ok(text.includes('tools/kpi-release-snapshot.json'), 'README обязан ссылаться на снимок');
+
+  // Заголовок колонки «сегодня» — ровно тот способ соврать, который эта задача закрывает.
+  const headers = text.split('\n').filter((l) => l.trim().startsWith('|') && l.includes('сегодня'));
+  assert.deepEqual(headers, [], `в таблицах остался заголовок «сегодня»: ${headers.join(' / ')}`);
+});
+
+test('T003: снимок самодостаточен — у каждого числа есть команда', () => {
+  const snap = snapshot();
+  assert.match(snap.asOf, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(snap.commitShare.command, /--as-of/, 'команда доли коммитов обязана нести --as-of');
+  assert.ok(snap.loc.command.includes('wc -l'), 'у LOC своя команда, а не «посчитано где-то»');
+  assert.ok(snap.defects.command.includes('HARNESS-DEFECTS-REGISTRY'), 'у дефектов своя команда');
+  assert.equal(typeof snap.defects.open, 'number');
+  assert.equal(snap.defects.blockingOpen, 0, 'блокирующих открытых дефектов быть не должно');
+});

@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "020 T003. Versioned снимок KPI, на который ссылается README. Каждое число здесь имеет",
+    "фиксированный asOf и команду воспроизведения: без этого проценты в README устаревали",
+    "молча — читатель видел «сегодня», а число было снято неделями раньше и другой выборкой.",
+    "Регресс tools/kpi-commit-share.test.js сверяет README с этим файлом. Обновлять снимок",
+    "означает: перемерить командой ниже, вписать новые числа СЮДА и в README одним слайсом."
+  ],
+  "asOf": "2026-08-24",
+  "commitShare": {
+    "days": 14,
+    "window": "2026-08-10..2026-08-24",
+    "command": "node tools/kpi-commit-share.js --days 14 --as-of 2026-08-24 --cwd \"C:\\Claude playground\\Pipiline setupper\" --cwd \"C:\\Ametrin projects\\Izi_translate\" --cwd \"C:\\Ametrin projects\\Izi tracker\\izi-tracker\"",
+    "combined": { "share": "53,8%", "hit": 121, "total": 225 },
+    "thisRepo": { "share": "76,5%", "hit": 52, "total": 68 }
+  },
+  "loc": {
+    "command": "find tools bin \\( -name \"*.js\" -o -name \"*.ps1\" \\) | grep -v node_modules | xargs wc -l | tail -1",
+    "total": 28272,
+    "scope": "tools/ + bin/ плагина, без node_modules"
+  },
+  "defects": {
+    "command": "grep -cE \"^\\| \\*\\*D[0-9]+\\*\\* \\| ⚠️\" .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md",
+    "open": 2,
+    "blockingOpen": 0,
+    "note": "D12 — чужой инструмент, D24 — расхождение двух способов запуска теста"
+  }
+}

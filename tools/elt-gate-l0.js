@@ -69,6 +69,18 @@ const IMPORT_RE = /(?:require\s*\(\s*|from\s+|import\s+)['"]([^'"]+)['"]/g;
 // блочного), `/*`. Намеренно только НАЧАЛО строки: хвостовой комментарий после живого кода
 // (`const x = require('y'); // почему`) обязан остаться видимым.
 const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|#)/;
+// 020 T002 (находка фона T018). `#` — комментарий НЕ везде. В JS/TS это ещё и приватное поле
+// класса, и строка `#client = require('redis');` — живой внешний импорт, который старое
+// правило гасило как комментарий. Языки с решёточным комментарием перечислены явно; для
+// остальных `#` в начале строки считается кодом, кроме shebang.
+const HASH_COMMENT_PATH = /\.(py|rb|sh|ps1)$/i;
+const C_COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*)/;
+
+function isCommentLine(line, file) {
+  if (/^\s*#!/.test(line)) return true; // shebang — комментарий в любом языке
+  if (HASH_COMMENT_PATH.test(file || '')) return COMMENT_LINE.test(line);
+  return C_COMMENT_LINE.test(line);
+}
 const CTX7_FRESH_DAYS = 30;
 
 // `IMPORT_RE` ищет ключевое слово, но не знает, находится ли оно в исполняемом коде или
@@ -76,28 +88,49 @@ const CTX7_FRESH_DAYS = 30;
 // зависимостью ради одного вопроса, поэтому достаточно узкого лексера до позиции match:
 // кавычки, escape и оба вида JS-комментариев. Аргумент самого import/require намеренно не
 // сканируется — match начинается на ключевом слове, которое обязано быть в code position.
+// 020 T002: добавлена шаблонная интерполяция. `${...}` внутри бэктик-строки — это КОД, а не
+// текст: `const c = `${require('axios')}`;` — настоящий внешний импорт, который старый лексер
+// пропускал, потому что видел только открывающий бэктик. Состояние держится стеком, поэтому
+// вложенность (`${ `${...}` }`) не путает разбор, а обычная строка по-прежнему остаётся текстом.
 function isCodePosition(source, index) {
-  let quote = null;
+  const stack = []; // элементы: { quote } для строки, { interp: true } для ${...}
   let escaped = false;
   let blockComment = false;
+  let depth = 0; // глубина фигурных скобок внутри текущей интерполяции
   for (let i = 0; i < index; i += 1) {
     const ch = source[i];
     const next = source[i + 1];
+    const top = stack[stack.length - 1];
     if (blockComment) {
       if (ch === '*' && next === '/') { blockComment = false; i += 1; }
       continue;
     }
-    if (quote) {
-      if (escaped) escaped = false;
-      else if (ch === '\\') escaped = true;
-      else if (ch === quote) quote = null;
+    if (top && top.quote) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (top.quote === '`' && ch === '$' && next === '{') {
+        stack.push({ interp: true, savedDepth: depth });
+        depth = 0;
+        i += 1;
+        continue;
+      }
+      if (ch === top.quote) stack.pop();
       continue;
     }
+    // здесь мы либо в коде верхнего уровня, либо внутри ${...} — правила одинаковые
     if (ch === '/' && next === '/') return false;
     if (ch === '/' && next === '*') { blockComment = true; i += 1; continue; }
-    if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    if (ch === "'" || ch === '"' || ch === '`') { stack.push({ quote: ch }); continue; }
+    if (top && top.interp) {
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        if (depth === 0) { depth = top.savedDepth; stack.pop(); }
+        else depth -= 1;
+      }
+    }
   }
-  return quote === null && !blockComment;
+  const top = stack[stack.length - 1];
+  return !blockComment && (!top || top.interp === true);
 }
 
 function externalImports(diff) {
@@ -110,9 +143,12 @@ function externalImports(diff) {
   // стоит ПЕРЕД ней, а external-import-no-ctx7 — единственный триггер, который сам выносит
   // `block`, а не будит судью: одна строка в отчёте закрывала дверь целиком.
   let inCode = true;
+  // 020 T002: имя файла нужно и ПОСЛЕ заголовка ханка — от него зависит, комментарий ли `#`.
+  let curFile = '';
   for (const line of String(diff || '').split(/\r?\n/)) {
     if (line.startsWith('+++')) {
       const file = line.replace(/^\+\+\+\s*/, '').trim().replace(/^b\//, '');
+      curFile = file;
       inCode = file !== '/dev/null' && CODE_PATH.test(file);
       continue;
     }
@@ -123,7 +159,7 @@ function externalImports(diff) {
     // оба содержали `from 'vitest'` текстом, и гейт блокировал правку собственного правила.
     // Живой импорт в комментарии не живёт никогда, поэтому потери сигнала здесь нет, а
     // закомментированный импорт и не должен требовать пруфа — он не исполняется.
-    if (COMMENT_LINE.test(line.slice(1))) continue;
+    if (isCommentLine(line.slice(1), curFile)) continue;
     const source = line.slice(1);
     for (const m of source.matchAll(IMPORT_RE)) {
       if (!isCodePosition(source, m.index)) continue;
@@ -470,7 +506,7 @@ function knownPackagesAtBase(cwd) {
 }
 
 module.exports = {
-  evaluate, loadConfig, externalImports, ctx7Covered, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
+  evaluate, loadConfig, externalImports, ctx7Covered, isCodePosition, isCommentLine, DEFAULT_HOT_PATHS, DEFAULT_DIFF_SIZE, CTX7_FRESH_DAYS,
   taskScopeFiles, inTaskScope, isHarnessOwned, isIgnoredForReview, taskCountOf,
   computeFanIn, DEFAULT_FANIN_THRESHOLD, knownPackagesAtBase,
   weakenedTestFiles, originalLineCounter, ASSERT_REMOVE_RE, TEST_BLOCK_RE, REWRITE_RATIO, isCodePosition,
