@@ -17,7 +17,6 @@
   "testCmd": "node",
   "redProofTimeoutMs": 120000,
   "batch": 3,
-  "codegraphGuard": true,
   "specApproval": true,
   "background": {
     "layers": [

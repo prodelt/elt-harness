@@ -16,7 +16,6 @@ const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 const { CORE_SECTIONS } = require('./project-docs-core');
 const { resolveBinary, scannerVersion } = require('./skill-scan');
 const { inspectProject } = require('./project-bootstrap');
-const fleetRouter = require('./judge-router');
 // ponytail: normalizePath/projectKey were the only live imports from the retired
 // pipeline-state module (spec 005 T019) — inlined; the module is deleted.
 function normalizePath(value) {
@@ -421,42 +420,6 @@ function checkCodeGraphAdoption(root, home, options = {}) {
   return [result(status, 'codegraph:adoption', `CodeGraph adoption: ${codegraphTotal} call(s) in sample`, detail, status === 'warn' ? 'Mandate "codegraph первым" (CLAUDE.md) is being ignored in recent sessions.' : '')];
 }
 
-function checkSurfaceSync(root) {
-  const script = path.join(root, 'tools', 'sync-agent-surface.js');
-  if (!fs.existsSync(script)) {
-    return [result('warn', 'surface:sync', 'Surface sync tool missing', script, 'Run node tools/sync-agent-surface.js --dry-run --json to audit skill parity.')];
-  }
-  const proc = spawnSync(process.execPath, [script, '--dry-run', '--json', '--target', 'all'], {
-    encoding: 'utf8', timeout: 30000, cwd: root,
-  });
-  if (proc.status !== 0 || !proc.stdout) {
-    return [result('warn', 'surface:sync', 'Surface sync check failed', proc.stderr || 'no output', 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
-  }
-  let data;
-  try { data = JSON.parse(proc.stdout); } catch (e) {
-    return [result('warn', 'surface:sync', 'Surface sync output invalid JSON', e.message, 'Run node tools/sync-agent-surface.js --dry-run --json manually.')];
-  }
-  const targets = Object.entries(data.results || {});
-  const missingTotal = targets.reduce((sum, [, r]) => sum + (r.missing ? r.missing.length : 0), 0);
-  const conflictTotal = targets.reduce((sum, [, r]) => sum + (r.conflicts ? r.conflicts.length : 0), 0);
-  if (missingTotal > 0) {
-    const details = targets.map(([t, r]) => r.missing.length ? `${t}:${r.missing.length}` : null).filter(Boolean).join(', ');
-    return [result('warn', 'surface:sync', `Skill sync gap — ${missingTotal} missing`, details, 'Run node tools/sync-agent-surface.js --apply --target all')];
-  }
-  // Step F (elt-system upgrade 2026-07-02): a conflict means the skill's
-  // content (incl. `version:` frontmatter) diverged from source across
-  // claude/codex/gemini — surface it, don't bury it as a "pass" detail.
-  if (conflictTotal > 0) {
-    const details = targets.map(([t, r]) => r.conflicts && r.conflicts.length ? `${t}:${r.conflicts.map((c) => c.skill).join(',')}` : null).filter(Boolean).join(' | ');
-    return [result('warn', 'surface:sync', `Skill versions diverge across claude/codex/gemini — ${conflictTotal} conflict(s)`, details, 'Compare version: frontmatter, then node tools/sync-agent-surface.js --apply --target all --force to re-sync intentionally.')];
-  }
-  const workflow = data.antigravityWorkflow;
-  if (workflow && workflow.status !== 'up-to-date') {
-    return [result('warn', 'surface:sync', `Antigravity IDE /elt workflow: ${workflow.status}`, workflow.target || '', 'Run node tools/sync-agent-surface.js --apply --force --target gemini --skill elt')];
-  }
-  return [result('pass', 'surface:sync', 'Skill surface sync OK', 'all targets and Antigravity /elt workflow in sync')];
-}
-
 function supplyChainTargets(manifest, audit) {
   const configured = manifest.policy && Array.isArray(manifest.policy.targetClients) ? manifest.policy.targetClients : [];
   const detected = Object.keys(audit.clients || {});
@@ -571,7 +534,7 @@ function checkAgentSkillsLock(root, home) {
   }
 
   if (problems.length > 0) {
-    return [result('fail', 'agent-skills:lock', 'Critical skill lock has drift/missing/invalid entries', problems.slice(0, 10).join('; '), 'Fix the source and re-run node tools/sync-agent-surface.js --apply --target all.')];
+    return [result('fail', 'agent-skills:lock', 'Critical skill lock has drift/missing/invalid entries', problems.slice(0, 10).join('; '), 'Fix the source and re-run node tools/agent-skill-supply-chain.js install-skills --target all --json.')];
   }
   return [result('pass', 'agent-skills:lock', 'Critical skill lock OK', `${names.length} critical skill(s) verified across mirrors.`, '')];
 }
@@ -659,14 +622,14 @@ function checkGitHubCli(root, runner = run) {
   if (auth.status !== 0) {
     return [
       result('pass', 'github:cli', 'GitHub CLI available', versionLine, ''),
-      result('warn', 'github:auth', 'GitHub auth invalid or missing', auth.output || auth.error, 'Run gh auth login before research-router uses authenticated code search.'),
+      result('warn', 'github:auth', 'GitHub auth invalid or missing', auth.output || auth.error, 'Run gh auth login before code-search checks.'),
       result('warn', 'github:code-search', 'GitHub code search skipped', 'Auth is invalid or missing.', 'Re-authenticate gh, then rerun doctor.'),
     ];
   }
   const codeSearch = runner('gh', ['search', 'code', 'package.json', '--limit', '1'], root, 8000);
   const codeCheck = codeSearch.status === 0
     ? result('pass', 'github:code-search', 'GitHub code search available', 'gh search code completed.', '')
-    : result('warn', 'github:code-search', 'GitHub code search unavailable', codeSearch.output || codeSearch.error, 'Re-authenticate gh before research-router uses code search.');
+    : result('warn', 'github:code-search', 'GitHub code search unavailable', codeSearch.output || codeSearch.error, 'Re-authenticate gh before code-search checks.');
   return [
     result('pass', 'github:cli', 'GitHub CLI available', versionLine, ''),
     result('pass', 'github:auth', 'GitHub auth available', 'gh auth status completed.', ''),
@@ -938,7 +901,8 @@ function checkRedTeam(root, home) {
 }
 
 // Step F (elt-system upgrade 2026-07-02): mini "Loop Ready" score — 10 yes/no
-// checks against elt-loop's own SKILL.md text, grounded in the dimensions the
+// checks against the elt-loop SKILL.md text (скил-алиас, живой; PowerShell-драйвер того же
+// имени снят в 019/T007), grounded in the dimensions the
 // 2026-07-02 audit used to grade this system L2 (state, kill-switch, hard-cap,
 // self-heal cap, mechanical oracle, run-log, prune, fresh-context, isolated
 // judge, judge-not-a-slice-gate). Informational scorecard, not a gate.
@@ -955,84 +919,6 @@ const LOOP_READY_ITEMS = [
   ['Судья не гейт слайса (не может простить красный оракул)', /не гейт|не закрывает/],
 ];
 
-// Fleet mode: iterate ~/.claude/projects-registry.json (written by `doctor --register`)
-// and report per-project DOMAIN-AWARE readiness (spec 005 AC11). Effective kind = the
-// explicitly declared harness kind when the config is valid, else the classifyKind
-// heuristic. PASS only when the FULL contract for that kind is met — a harness.json that
-// merely EXISTS is not enough: T001 validity already requires a non-empty oracle/verifier,
-// so an invalid/placeholder harness keeps the project not-ready (no false green by file).
-// Distinguishes: missing, non-git, code, docs/office, unknown, invalid-harness, ready.
-function checkFleetProject(entry) {
-  const root = entry.path;
-  if (!fs.existsSync(root)) {
-    return result('warn', `fleet:${entry.key}`, `${entry.name} [missing]`, root,
-      'Project moved or deleted — update or drop the registry entry.', { path: root, klass: 'missing' });
-  }
-  const inspected = inspectProject(root);
-  const isRepo = fs.existsSync(path.join(root, '.git'));
-  const declaredKind = inspected.harness.ok && inspected.harness.config ? inspected.harness.config.kind : null;
-  const kind = declaredKind || inspected.classification.kind;
-
-  // Unknown = no managed contract to check. Explicit, not a false PASS and not a hard fail.
-  if (kind === 'unknown') {
-    return result('warn', `fleet:${entry.key}`, `${entry.name} [unknown]`,
-      `kind=unknown (${inspected.classification.confidence}) — classify explicitly (code/docs/office); no oracle invented`,
-      'Add a code manifest or docs and declare .harness/harness.json kind, then re-run doctor --register.',
-      { path: root, klass: 'unknown' });
-  }
-
-  const reasons = [];
-  if (!isRepo) reasons.push('not a git repo');
-  // AI docs contract — code AND docs/office both carry managed AGENTS/CLAUDE/GEMINI docs.
-  if (!(inspected.docs.ok && inspected.docs.coreIdentical)) {
-    reasons.push(`docs missing/drifted (${(inspected.docs.missing || []).slice(0, 3).join(', ') || 'core not identical'})`);
-  }
-  // Harness config schema + real oracle/verifier (harness.ok ⇒ non-empty command per T001).
-  let invalidHarness = false;
-  if (!inspected.harness.exists) {
-    reasons.push(`no harness (.harness/harness.json missing — kind=${kind} needs a mechanical ${kind === 'code' ? 'oracle' : 'artifactVerifier'})`);
-  } else if (!inspected.harness.ok) {
-    reasons.push(`invalid harness (${(inspected.harness.errors || []).join('; ')})`);
-    invalidHarness = true;
-  }
-  // Git gate — code only; docs/office are NOT forced to carry a code gate (guard AC11).
-  if (kind === 'code' && !inspected.gitGate.managedHookInstalled) {
-    reasons.push('no managed gate (.githooks/pre-commit missing)');
-  }
-
-  const ready = reasons.length === 0;
-  const klass = invalidHarness ? 'invalid-harness' : !isRepo ? 'non-git' : ready ? 'ready' : kind;
-  // Signals — informational; never block readiness (idle specs / no index are legitimate).
-  const hasSpecs = fs.existsSync(path.join(root, 'specs'));
-  const notes = [
-    `kind=${kind} (${declaredKind ? 'declared' : 'heuristic'})`,
-    `codegraph=${inspected.codegraph.indexed ? 'indexed' : 'none'}`,
-    `specs=${hasSpecs ? 'present' : 'none'}`,
-    `state=${fs.existsSync(path.join(root, '.planning', 'STATE.md')) ? 'present' : 'none'}`,
-  ];
-  if (kind === 'code' && inspected.harness.exists && !hasSpecs) notes.push('front-half unused (no specs/ — run /elt план-шаг)');
-  const settingsText = readText(path.join(root, '.claude', 'settings.json'));
-  if (settingsText.ok && /judge-closeout-gate/.test(settingsText.value)) notes.push('stale judge-closeout-gate wiring');
-
-  return result(ready ? 'pass' : 'warn', `fleet:${entry.key}`, `${entry.name} [${klass}]`,
-    [...notes, ...reasons].join(' | '),
-    ready ? '' : 'Run project-bootstrap verify / apply to close the missing contract.',
-    { path: root, klass, kind });
-}
-
-function checkFleet(home, options = {}) {
-  const registry = readJson(registryPath(home));
-  if (!registry.ok) {
-    return [result('warn', 'fleet:registry', 'Project registry missing', registry.error, 'Run doctor --register in each project first.')];
-  }
-  const projects = registry.value.projects || {};
-  const entries = Object.values(projects);
-  if (entries.length === 0) {
-    return [result('warn', 'fleet:registry', 'Project registry empty', registryPath(home), 'Run doctor --register in each project first.')];
-  }
-  return entries.map((entry) => checkFleetProject(entry));
-}
-
 function checkLoopReady(home) {
   const skillFile = path.join(home, '.claude', 'skills', 'elt-loop', 'SKILL.md');
   let text;
@@ -1046,31 +932,11 @@ function checkLoopReady(home) {
   return [result(status, 'loop:ready', `Loop Ready score: ${score}/${LOOP_READY_ITEMS.length}`, detail, score < LOOP_READY_ITEMS.length ? 'Missing items are informational — see elt-loop SKILL.md.' : '')];
 }
 
-// Доступность CLI провайдера судьи. Раньше функция звалась checkFleetWorkers и проверяла
-// ещё две вещи — залежавшиеся claims воркеров и брошенные worktrees. Обе умерли вместе с
-// оркестратором (019 T006): параллельность делают штатные субагенты Claude Code. Проверка
-// транспорта пережила его, потому что тем же транспортом ходит судья.
-function checkJudgeProviders(root, runner = run) {
-  const fleetDir = path.join(root, '.harness', 'fleet');
-  const hasPolicy = fs.existsSync(path.join(fleetDir, 'fleet.json'));
-  if (!hasPolicy) return [];
-  const checks = [];
-  // 3. CLI pre-flight — только при явной политике (fleet.json), чтобы не шуметь зря
-  if (hasPolicy) {
-    let policy;
-    try { policy = fleetRouter.loadPolicy(root); } catch { policy = fleetRouter.DEFAULT_POLICY; }
-    const provs = [...new Set([...(policy.default || []), ...Object.values(policy.policy || {}).flat()])];
-    for (const p of provs) {
-      const r = runner(p, ['--version'], root, 4000);
-      checks.push(r && r.status === 0 && !r.error
-        ? result('pass', `fleet:cli:${p}`, `CLI судьи ${p} доступен`, (r.output || '').split('\n')[0] || '')
-        : result('warn', `fleet:cli:${p}`, `CLI судьи ${p} недоступен`,
-          `провайдер в политике, но '${p} --version' не отвечает`,
-          `установить/залогинить ${p} или убрать из .harness/fleet/fleet.json`));
-    }
-  }
-  return checks;
-}
+// 019 T008: из доктора сняты проверки второй синхронизации (surface:sync звал
+// sync-agent-surface.js) и весь fleet-блок (checkFleet/checkFleetProject/checkJudgeProviders/
+// runFleet вместе с флагом --fleet). Их предмет — подсистемы, удалённые в T006 и T008:
+// проверка того, чего нет, даёт только warn-шум. Здоровье судьи меряется его собственным
+// мостом (judge:bridge, остался) и run-log-ом, а не наличием fleet.json.
 
 function runDoctor(options) {
   const home = os.homedir();
@@ -1087,7 +953,6 @@ function runDoctor(options) {
     checkCodeGraphMcp(home),
     checkSkillScanner(),
     ...checkCodeGraphAdoption(root, home),
-    ...checkSurfaceSync(root),
     ...checkAgentSkillSupplyChain(root, home),
     ...checkAgentSkillsLock(root, home),
     ...checkAgentSkillsWrapper(root, home),
@@ -1106,13 +971,6 @@ function runDoctor(options) {
   ];
   const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
   return { root: normalizePath(root), projectKey: projectKey(root), summary, checks };
-}
-
-function runFleet(options = {}) {
-  const home = options.home || os.homedir();
-  const checks = checkFleet(home, options);
-  const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {});
-  return { root: 'fleet', projectKey: 'all', summary, checks };
 }
 
 function formatText(report) {
@@ -1136,7 +994,6 @@ module.exports = {
   checkSettingsSecrets,
   checkCodexDefaults,
   checkGitHubCli,
-  checkSurfaceSync,
   checkCodeGraph,
   checkCodeGraphMcp,
   checkCodeGraphAdoption,
@@ -1153,10 +1010,7 @@ module.exports = {
   checkJudgeBridge,
   checkHarnessGlobal,
   checkGitWorkflowAudit,
-  checkFleet,
-  checkJudgeProviders,
   checkSelfDriveInvariants,
-  runFleet,
   runDoctor,
   formatText,
 };

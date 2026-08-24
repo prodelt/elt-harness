@@ -156,60 +156,6 @@ function testCodeGraphAdoptionCheck() {
   assert.match(adopted[0].detail, /1 codegraph_\* calls \/ 3 tool calls/);
 }
 
-// T009 (004-elt-selfdrive): opt-in pre-slice codegraph guard. Reuses
-// checkCodeGraph (T008) — no config / codegraphGuard:false = no-op even with
-// a missing db (most projects don't opt in); codegraphGuard:true must fail
-// loud on a dead/stale index instead of letting the driver silently degrade
-// to Read.
-function testCodegraphGuard() {
-  const { guard } = require('./codegraph-guard');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-cg-guard-'));
-
-  const noConfig = guard(root);
-  assert.equal(noConfig.ok, true, 'нет harness.json — гард молчит');
-
-  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({ codegraphGuard: false }));
-  const disabled = guard(root);
-  assert.equal(disabled.ok, true, 'codegraphGuard:false — no-op даже без db');
-
-  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({ codegraphGuard: true }));
-  const missingDb = guard(root);
-  assert.equal(missingDb.ok, false, 'codegraphGuard:true + нет db — громкий fail');
-
-  fs.mkdirSync(path.join(root, '.codegraph'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.codegraph', 'codegraph.db'), '');
-
-  const stale = 'Files: 10\nNodes: 100\nBackend: node:sqlite\nPending Changes:\n  Modified: 2 files\n';
-  const staleResult = guard(root, () => ({ status: 0, output: stale, error: '' }));
-  assert.equal(staleResult.ok, false, 'codegraphGuard:true + stale — громкий fail');
-
-  const green = 'Files: 10\nNodes: 100\nBackend: node:sqlite\n[OK] Index is up to date\n';
-  const healthy = guard(root, () => ({ status: 0, output: green, error: '' }));
-  assert.equal(healthy.ok, true, 'codegraphGuard:true + свежий индекс — no-op');
-
-  fs.rmSync(root, { recursive: true, force: true });
-}
-
-function testFleetExperimentalLabelHonest() {
-  // T012: specs/003-elt-fleet-hardening ЗАКРЫТА (verdict 2.66x/3.31x) — CLAUDE.md
-  // не должен молча утверждать обратное. Если experimental-метка ещё стоит
-  // (реальный live-fire не завершён), рядом обязано быть явное «003 закрыта, но...»,
-  // не голое устаревшее «пока 003 не закрыт».
-  const claudeMd = fs.readFileSync(path.join(__dirname, '..', 'CLAUDE.md'), 'utf8');
-  assert.doesNotMatch(
-    claudeMd,
-    /пока `specs\/003-elt-fleet-hardening` не закрыт/,
-    'устаревшее «003 не закрыта» — 003 закрыта (verdict 2.66x/3.31x), текст врёт'
-  );
-  if (/fleet/i.test(claudeMd) && /experimental/i.test(claudeMd)) {
-    assert.match(
-      claudeMd,
-      /003-elt-fleet-hardening`? закрыт/i,
-      'experimental-метка стоит без явного обоснования «003 закрыта, но...»'
-    );
-  }
-}
-
 function testHarnessSelfcheck() {
   const { selfcheck } = require('./harness-selfcheck');
   const { execFileSync } = require('node:child_process');
@@ -311,35 +257,6 @@ function testCodexSandboxProfileSignal() {
   assert.equal(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8'), contentBefore);
 
   fs.rmSync(dir, { recursive: true, force: true });
-}
-
-function testAgentSurfaceAuditCheck() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-agent-surface-'));
-  const missing = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
-  assert.equal(missing[0].status, 'warn');
-
-  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-27T11:00:00Z',
-    summary: { status: 'pass', unexplainedGaps: [] },
-  }));
-  const passed = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
-  assert.equal(passed[0].status, 'pass');
-
-  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-27T11:00:00Z',
-    summary: { status: 'warn', unexplainedGaps: ['codex:Notification'] },
-  }));
-  const warned = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
-  assert.equal(warned[0].status, 'warn');
-  assert.match(warned[0].detail, /codex:Notification/);
-
-  // старый-но-валидный pass → pass по содержанию, не warn-по-возрасту (P2-1)
-  write(path.join(root, '.planning', 'agent-surface-audit-latest.json'), JSON.stringify({
-    generatedAt: '2026-05-01T11:00:00Z',
-    summary: { status: 'pass', unexplainedGaps: [] },
-  }));
-  const old = checkAgentSurfaceAudit(root, new Date('2026-05-27T12:00:00Z'));
-  assert.equal(old[0].status, 'pass');
 }
 
 function writeSupplyChainFixture(root) {
@@ -634,128 +551,6 @@ function writeManagedDocs(root) {
     .forEach((relative) => write(path.join(root, relative), nineSectionDoc()));
 }
 
-// AC11: doctor --fleet — table-driven readiness. Каждый класс = отдельная fixture.
-// PASS только при полном контракте типа проекта; файл сам по себе PASS не даёт.
-function testFleetCheck() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-fleet-'));
-  const home = path.join(dir, 'home');
-
-  const make = (name, build) => {
-    const root = path.join(dir, name);
-    fs.mkdirSync(root, { recursive: true });
-    build(root);
-    return root;
-  };
-  const gitDir = (root) => fs.mkdirSync(path.join(root, '.git'), { recursive: true });
-  const harness = (root, cfg) => write(path.join(root, '.harness', 'harness.json'), JSON.stringify(cfg));
-  const gate = (root) => write(path.join(root, '.githooks', 'pre-commit'), '#!/bin/sh\n');
-
-  // code-ready: git + package.json (code) + managed docs + valid oracle + gate → PASS.
-  const codeReady = make('code-ready', (root) => {
-    gitDir(root); write(path.join(root, 'package.json'), '{"name":"x"}');
-    writeManagedDocs(root);
-    harness(root, { kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } });
-    gate(root);
-  });
-  // code-no-gate: valid oracle FILE exists but no managed gate → NOT ready (false-green guard).
-  const codeNoGate = make('code-no-gate', (root) => {
-    gitDir(root); write(path.join(root, 'package.json'), '{"name":"x"}');
-    writeManagedDocs(root);
-    harness(root, { kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } });
-  });
-  // invalid-harness: harness.json EXISTS but oracle empty → invalid → NOT ready (false-green guard).
-  const invalidHarness = make('invalid-harness', (root) => {
-    gitDir(root); write(path.join(root, 'package.json'), '{"name":"x"}');
-    writeManagedDocs(root); gate(root);
-    harness(root, { kind: 'code', oracle: '' });
-  });
-  // docs-ready: git + managed docs + declared kind=docs + artifactVerifier; NO code gate needed → PASS.
-  const docsReady = make('docs-ready', (root) => {
-    gitDir(root); writeManagedDocs(root);
-    harness(root, { kind: 'docs', artifactVerifier: 'node tools/verify-artifacts.js', judge: { enabled: true, model: 'sonnet' } });
-  });
-  // non-git: fully-contracted code project but no .git → distinct non-git class, NOT ready.
-  const nonGit = make('non-git', (root) => {
-    write(path.join(root, 'package.json'), '{"name":"x"}');
-    writeManagedDocs(root);
-    harness(root, { kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet' } });
-    gate(root);
-  });
-  // unknown: empty dir, no manifest/docs/harness → explicit unknown, NOT a false PASS.
-  const unknown = make('unknown', () => {});
-
-  write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({
-    version: 1,
-    projects: {
-      cr: { key: 'cr', name: 'code-ready', path: codeReady },
-      cng: { key: 'cng', name: 'code-no-gate', path: codeNoGate },
-      ih: { key: 'ih', name: 'invalid-harness', path: invalidHarness },
-      dr: { key: 'dr', name: 'docs-ready', path: docsReady },
-      ng: { key: 'ng', name: 'non-git', path: nonGit },
-      uk: { key: 'uk', name: 'unknown', path: unknown },
-      gone: { key: 'gone', name: 'gone', path: path.join(dir, 'does-not-exist') },
-    },
-  }));
-
-  const checks = checkFleet(home);
-  const byKey = Object.fromEntries(checks.map((c) => [c.id, c]));
-
-  assert.equal(byKey['fleet:cr'].status, 'pass', 'code-ready → pass');
-  assert.match(byKey['fleet:cr'].title, /\[ready\]/);
-
-  assert.equal(byKey['fleet:cng'].status, 'warn', 'code missing gate → not ready');
-  assert.match(byKey['fleet:cng'].detail, /managed gate/);
-  assert.match(byKey['fleet:cng'].title, /\[code\]/);
-
-  assert.equal(byKey['fleet:ih'].status, 'warn', 'invalid harness → not ready even though file exists');
-  assert.match(byKey['fleet:ih'].title, /\[invalid-harness\]/);
-
-  assert.equal(byKey['fleet:dr'].status, 'pass', 'docs project ready without a code gate');
-  assert.match(byKey['fleet:dr'].title, /\[ready\]/);
-  assert.match(byKey['fleet:dr'].detail, /kind=docs/);
-
-  assert.equal(byKey['fleet:ng'].status, 'warn', 'non-git distinguished');
-  assert.match(byKey['fleet:ng'].title, /\[non-git\]/);
-
-  assert.equal(byKey['fleet:uk'].status, 'warn', 'unknown is explicit, not false PASS');
-  assert.match(byKey['fleet:uk'].title, /\[unknown\]/);
-
-  assert.equal(byKey['fleet:gone'].status, 'warn', 'missing path');
-  assert.match(byKey['fleet:gone'].title, /\[missing\]/);
-
-  // text/JSON counts consistent: runFleet summary is derived from the same checks array.
-  const report = runFleet({ home });
-  const tally = report.checks.reduce((acc, c) => ({ ...acc, [c.status]: (acc[c.status] || 0) + 1 }), {});
-  assert.deepEqual(report.summary, tally);
-  assert.equal((report.summary.pass || 0) + (report.summary.warn || 0) + (report.summary.fail || 0), report.checks.length);
-  assert.equal(report.summary.pass, 2, 'exactly code-ready + docs-ready are PASS');
-
-  fs.rmSync(dir, { recursive: true, force: true });
-}
-
-// 019 T006: было testFleetWorkersCheck и проверяло ТРИ вещи — подметание залежавшихся
-// claims воркеров, брошенные worktrees и доступность CLI. Первые две умерли вместе с
-// оркестратором: параллельность делают штатные субагенты Claude Code. Третья пережила его,
-// потому что тем же транспортом ходит судья, — тест сужен ровно до неё.
-function testJudgeProvidersCheck() {
-  // проект без политики провайдеров → тихо (пустой массив)
-  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-judge-bare-'));
-  assert.deepEqual(checkJudgeProviders(bare), [], 'нет политики → нет чеков');
-  fs.rmSync(bare, { recursive: true, force: true });
-
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-judge-'));
-  write(path.join(root, '.harness', 'fleet', 'fleet.json'), JSON.stringify({ default: ['claude'], policy: { S: ['codex'] } }));
-  const fakeRunner = (cmd) => (cmd === 'claude' ? { status: 0, output: 'claude 2.1.0' } : { status: 1, error: 'not found' });
-
-  const checks = checkJudgeProviders(root, fakeRunner);
-  const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
-  assert.equal(byId['fleet:cli:claude'].status, 'pass', 'claude --version ок → pass');
-  assert.equal(byId['fleet:cli:codex'].status, 'warn', 'codex недоступен → warn');
-  // проверок ровно столько, сколько провайдеров в политике: claims и worktrees больше нет
-  assert.equal(checks.length, 2, 'лишних чеков не осталось');
-  fs.rmSync(root, { recursive: true, force: true });
-}
-
 function testSelfDriveInvariantsCheck() {
   const checks = checkSelfDriveInvariants();
   const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
@@ -789,7 +584,7 @@ function withHome(home, fn) {
   }
 }
 
-// T001 (004-elt-selfdrive): single-source elt.js. Каждый реальный вызыватель (elt-loop.ps1,
+// T001 (004-elt-selfdrive): single-source elt.js. Каждый реальный вызыватель (PowerShell-драйвер (снят 019/T007),
 // tools/fleet/*.js) зовёт ~/.claude/bin/elt.js — глобальный деплой; tools/elt.js — версионируемая
 // копия в репо. Они ДОЛЖНЫ быть идентичны по контенту, иначе дрейф (bin имел fallback в findTasks,
 // tools — нет → на нескольких spec-папках вернул бы не тот план). Сравнение нормализует CRLF
@@ -813,31 +608,6 @@ function testEltSingleSource() {
     norm(binElt),
     'DRIFT: tools/elt.js != ~/.claude/bin/elt.js — синхронизируй (bin = деплой, tools = репо-копия), иначе драйвер/fleet и тесты расходятся',
   );
-}
-
-// T005 (004-elt-selfdrive): stuck-detector. Unit-level streak/threshold logic
-// PLUS a live spawn of `elt.js commit` against a deliberately failing oracle —
-// proves the red-stop entry the hook reads is real, not just a synthetic
-// fixture (same dead-signal class T002 fixed for the judge).
-function testStuckDetectorUnit() {
-  const { runLogStreak, buildNudge, THRESHOLD } = require('./stuck-detector');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stuck-detector-'));
-  const rl = path.join(dir, 'run-log.jsonl');
-  assert.equal(runLogStreak(rl), 0, 'нет файла → 0');
-
-  const lines = [];
-  for (let i = 0; i < THRESHOLD - 1; i++) lines.push(JSON.stringify({ status: 'red-stop' }));
-  write(rl, lines.join('\n') + '\n');
-  assert.equal(runLogStreak(rl), THRESHOLD - 1);
-  assert.equal(buildNudge(runLogStreak(rl)), null, 'ниже порога — тишина');
-
-  fs.appendFileSync(rl, JSON.stringify({ status: 'red-stop' }) + '\n');
-  assert.equal(runLogStreak(rl), THRESHOLD);
-  assert.match(buildNudge(runLogStreak(rl)), /Застрял/, 'на пороге — nudge');
-
-  fs.appendFileSync(rl, JSON.stringify({ commit: 'deadbee' }) + '\n');
-  assert.equal(runLogStreak(rl), 0, 'зелёный commit сбрасывает счётчик');
-  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 // Both `elt commit` (red oracle blocks the commit) AND standalone `elt oracle`
@@ -915,51 +685,6 @@ function testRunLogMigrationLeavesTwoCommitsClean() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-function testEltLoopMigratesLegacyRunLogBeforeDryRun() {
-  const { execFileSync } = require('node:child_process');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-loop-run-log-'));
-  execFileSync('git', ['init', '-q'], { cwd: root });
-  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code', oracle: 'exit 0', shell: 'powershell', branchPolicy: 'feature', push: false,
-    judge: { enabled: true, model: 'test' },
-  }));
-  write(path.join(root, 'specs', '001-test', 'tasks.md'), '- [ ] **T001** dry run\n');
-  write(path.join(root, '.harness', 'run-log.jsonl'), JSON.stringify({ task: 'legacy' }) + '\n');
-  execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'elt-loop.ps1'),
-    '-Project', root, '-Slices', '1', '-DryRun',
-  ], { encoding: 'utf8' });
-  assert.equal(fs.existsSync(path.join(root, '.harness', 'run-log.jsonl')), false, 'elt-loop migrates legacy log before any driver path');
-  assert.match(fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8'), /"task":"legacy"/);
-  fs.rmSync(root, { recursive: true, force: true });
-}
-
-// T014 (004-elt-selfdrive): probe-primitives parsing logic, tested against synthetic
-// fixtures — NOT a live claude spawn (install path/version varies per machine, so this
-// stays portable; the real live probe is `node tools/probe-primitives.js`, run manually
-// and committed as specs/004-elt-selfdrive/primitives.md).
-function testProbePrimitivesParsing() {
-  const {
-    parseHelpFlags, scanTokens, renderPrimitivesMd, probe, FLAG_CHECKS,
-  } = require('./probe-primitives');
-
-  const fakeHelp = '  --session-id <uuid>   Use a specific session ID\n  --effort <level>      Effort level\n';
-  const flags = parseHelpFlags(fakeHelp, FLAG_CHECKS);
-  assert.equal(flags['--session-id'], true, 'присутствующий флаг найден');
-  assert.equal(flags['--effort'], true);
-  assert.equal(flags['-r/--resume'], false, 'отсутствующий флаг — false, не throw');
-
-  const tokens = scanTokens(['SessionEnd', 'Stop', 'agent_completed'], ['SessionEnd', 'Notification']);
-  assert.equal(tokens.SessionEnd, true);
-  assert.equal(tokens.Notification, false, 'отсутствующий токен — false');
-
-  const results = probe({ helpText: fakeHelp, agentsHelpText: '', exeStrings: null, version: 'test-1.0' });
-  const md = renderPrimitivesMd(results);
-  assert.match(md, /--session-id \| confirmed/, 'найденный флаг попал в таблицу как confirmed');
-  assert.match(md, /-r\/--resume \| absent/, 'отсутствующий флаг — absent, не молчание');
-  assert.match(md, /hook: SessionEnd \| unknown/, 'без exeStrings хук-события честно unknown, не false-confirmed');
-}
-
 // T006 (004-elt-selfdrive): checkpoint-writer. Below stage2 → silent, no
 // .planning/ side-effect; above stage2 → writes a checkpoint file sourced
 // from a REAL `elt status` spawn (T001 single-source), not a hand-built
@@ -968,207 +693,6 @@ function testProbePrimitivesParsing() {
 function testCheckpointWriter() {
   const { execFileSync } = require('node:child_process');
   execFileSync(process.execPath, [path.join(__dirname, 'checkpoint-writer.js'), '--selftest'], { encoding: 'utf8' });
-}
-
-// T007 (004-elt-selfdrive): elt-drive.ps1 session-rotation драйвер. -DryRun не спавнит
-// живой claude — только он и портативно тестируем через оракул. Проверяем: N раундов
-// показаны с session-id, чекпоинт-между упомянут, STOP-файл (до старта) обрывает ВСЕ раунды —
-// тот же STOP-до-старта паттерн, что и fleet.test.js.
-function testEltDriveDryRun() {
-  const { execFileSync } = require('node:child_process');
-  const script = path.join(__dirname, 'elt-drive.ps1');
-
-  const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-drive-'));
-  const out1 = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Project', dir1, '-Goal', 'test goal', '-Rounds', '3', '-DryRun',
-  ], { encoding: 'utf8' });
-  const rounds = out1.match(/раунд \d+\/3/g) || [];
-  assert.equal(rounds.length, 3, 'DryRun показывает все 3 раунда');
-  assert.match(out1, /session-id=/, 'session-id проброшен в вывод раунда');
-  assert.match(out1, /чекпоинт/i, 'чекпоинт между раундами упомянут');
-  fs.rmSync(dir1, { recursive: true, force: true });
-
-  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-drive-stop-'));
-  fs.mkdirSync(path.join(dir2, '.harness'), { recursive: true });
-  fs.writeFileSync(path.join(dir2, '.harness', 'STOP'), '');
-  const out2 = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Project', dir2, '-Goal', 'test goal', '-Rounds', '3', '-DryRun',
-  ], { encoding: 'utf8' });
-  const rounds2 = out2.match(/раунд \d+\/3/g) || [];
-  assert.equal(rounds2.length, 0, 'STOP-файл до старта — ни одного раунда');
-  assert.match(out2, /STOP/i, 'STOP явно упомянут в выводе');
-  fs.rmSync(dir2, { recursive: true, force: true });
-}
-
-// T011 OPTIONAL (004-elt-selfdrive): elt-selfheal.ps1 — watchdog (T010) → driver
-// (elt-loop.ps1) gated self-repair. -DryRun не спавнит живой claude, но реально зовёт
-// оба скрипта (не просто печатает намерение) — доказывает провод watchdog→driver.
-// Merge в main — дефолт человеком: без --AutoMerge гейт молчит; под -DryRun merge
-// пропущен ВСЕГДА, даже если --AutoMerge передан (dry-run не трогает репо).
-function testEltSelfhealDryRun() {
-  const { execFileSync } = require('node:child_process');
-  const script = path.join(__dirname, 'elt-selfheal.ps1');
-
-  // красный оракул — watchdog заводит self-heal слайс, driver вызывается
-  const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-red-'));
-  write(path.join(dir1, '.harness', 'harness.json'), JSON.stringify({ oracle: 'exit 1', shell: 'powershell' }));
-  const out1 = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Project', dir1, '-Slices', '1', '-DryRun',
-  ], { encoding: 'utf8' });
-  assert.match(out1, /оракул харнесса красный/, 'watchdog замечает красный оракул');
-  assert.match(out1, /\[DryRun\] impl-промпт/, 'elt-loop.ps1 реально вызван (не просто упомянут)');
-  assert.match(out1, /merge в main пропущен.*DryRun/i, 'DryRun блокирует merge даже без явного флага');
-  assert.ok(fs.existsSync(path.join(dir1, 'specs', '001-selfheal', 'tasks.md')), 'self-heal слайс заведён на диске');
-  assert.doesNotMatch(out1, /смержена в main/, 'реального merge не произошло');
-  fs.rmSync(dir1, { recursive: true, force: true });
-
-  // -AutoMerge + -DryRun вместе — dry-run всё равно выигрывает, merge не идёт
-  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-automerge-dryrun-'));
-  write(path.join(dir2, '.harness', 'harness.json'), JSON.stringify({ oracle: 'exit 1', shell: 'powershell' }));
-  const out2 = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Project', dir2, '-Slices', '1', '-DryRun', '-AutoMerge',
-  ], { encoding: 'utf8' });
-  assert.match(out2, /merge в main пропущен.*DryRun/i, '--AutoMerge не обходит DryRun');
-  assert.doesNotMatch(out2, /смержена в main/, 'реального merge не произошло даже с --AutoMerge');
-  fs.rmSync(dir2, { recursive: true, force: true });
-
-  // зелёный оракул — driver вообще не зовётся (нечего чинить)
-  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-green-'));
-  write(path.join(dir3, '.harness', 'harness.json'), JSON.stringify({ oracle: 'exit 0', shell: 'powershell' }));
-  const out3 = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Project', dir3, '-Slices', '1', '-DryRun',
-  ], { encoding: 'utf8' });
-  assert.match(out3, /оракул харнесса зелёный/, 'watchdog подтверждает зелёный оракул');
-  assert.doesNotMatch(out3, /\[DryRun\] impl-промпт/, 'driver не вызывается, когда чинить нечего');
-  fs.rmSync(dir3, { recursive: true, force: true });
-}
-
-// T011 OPTIONAL (004-elt-selfdrive): merge-механика elt-selfheal-lib.ps1 — РЕАЛЬНЫЙ git
-// (init+branch+merge), изолированно от watchdog/driver (те живого claude просят вне
-// DryRun). Судья T011 указал: DryRun-тесты выше доказывают только "гейт по умолчанию
-// молчит", но не "merge реально проходит под явным флагом" — эта функция закрывает дыру.
-function testEltSelfhealMergeLib() {
-  const { execFileSync } = require('node:child_process');
-  const lib = path.join(__dirname, 'elt-selfheal-lib.ps1');
-
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-merge-'));
-  const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
-  g(['init', '-q', '-b', 'main']);
-  g(['config', 'user.email', 'test@test.local']);
-  g(['config', 'user.name', 'test']);
-  write(path.join(dir, 'a.txt'), 'main\n');
-  g(['add', '-A']);
-  g(['commit', '-q', '-m', 'init']);
-  g(['checkout', '-q', '-b', 'fix/selfheal']);
-  write(path.join(dir, 'b.txt'), 'heal\n');
-  g(['add', '-A']);
-  g(['commit', '-q', '-m', 'self-heal fix']);
-
-  // Get-AutoMergeConfig: дефолт (нет harness.json) = false, явный selfHeal.autoMerge:true = true
-  const psNoConfig = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-    `. '${lib}'; (Get-AutoMergeConfig -Project '${dir}') | ConvertTo-Json`,
-  ], { encoding: 'utf8' }).trim();
-  assert.equal(psNoConfig, 'false', 'без harness.json — гейт выключен по умолчанию');
-
-  write(path.join(dir, '.harness', 'harness.json'), JSON.stringify({ selfHeal: { autoMerge: true } }));
-  const psConfig = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-    `. '${lib}'; (Get-AutoMergeConfig -Project '${dir}') | ConvertTo-Json`,
-  ], { encoding: 'utf8' }).trim();
-  assert.equal(psConfig, 'true', 'явный selfHeal.autoMerge:true в конфиге читается');
-
-  // Invoke-SelfHealMerge: реальный merge fix/selfheal → main
-  const mergeOut = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-    `. '${lib}'; (Invoke-SelfHealMerge -Project '${dir}' -HealBranch 'fix/selfheal') | ConvertTo-Json -Compress`,
-  ], { encoding: 'utf8' }).trim();
-  const mergeResult = JSON.parse(mergeOut);
-  assert.equal(mergeResult.merged, true, 'merge под явным флагом реально проходит');
-  assert.equal(g(['branch', '--show-current']).trim(), 'main', 'после merge мы на main');
-  assert.ok(fs.existsSync(path.join(dir, 'b.txt')), 'файл из self-heal ветки реально попал в main');
-  const log = g(['log', '--oneline', '-1']);
-  assert.match(log, /self-heal: merge fix\/selfheal/, 'merge-коммит с ожидаемым сообщением');
-
-  // Invoke-SelfHealMerge: пустая/main ветка — no-op, не падает
-  const noBranchOut = execFileSync('powershell', [
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-    `. '${lib}'; (Invoke-SelfHealMerge -Project '${dir}' -HealBranch 'main') | ConvertTo-Json -Compress`,
-  ], { encoding: 'utf8' }).trim();
-  assert.equal(JSON.parse(noBranchOut).reason, 'no-branch', 'merge в саму main распознаётся как no-op, не мержится сам в себя');
-
-  fs.rmSync(dir, { recursive: true, force: true });
-}
-
-// T011 OPTIONAL (004-elt-selfdrive): полный ПОЗИТИВНЫЙ путь через реальный CLI
-// elt-selfheal.ps1 -AutoMerge (БЕЗ -DryRun) — watchdog → elt-loop.ps1 (impl → оракул →
-// судья → elt commit, авто-ветка) → merge в main. Живого claude не спавним: FLEET_BIN_CLAUDE
-// (существующий стаб-механизм tools/providers.js, уже используемый в gate.test.js/
-// fleet.test.js) подменяет бинарник на node-стаб. Судья T011 (2-й проход) указал: тест на
-// саму функцию Invoke-SelfHealMerge доказывает механику, но НЕ доказывает, что гейт
-// elt-selfheal.ps1 реально дошёл до merge через полный CLI-путь под явным флагом — это
-// закрывает именно ту дыру (позитивный случай к негативным в testEltSelfhealDryRun).
-function testEltSelfhealAutoMergeGate() {
-  const { execFileSync } = require('node:child_process');
-  const script = path.join(__dirname, 'elt-selfheal.ps1');
-
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-selfheal-automerge-'));
-  const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
-  g(['init', '-q', '-b', 'main']);
-  g(['config', 'user.email', 'test@test.local']);
-  g(['config', 'user.name', 'test']);
-  write(path.join(dir, 'README.md'), 'seed\n');
-  write(path.join(dir, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code',
-    oracle: 'if (Test-Path .selfheal-fixed) { exit 0 } else { exit 1 }',
-    shell: 'powershell', branchPolicy: 'feature', push: false,
-    judge: { enabled: true, model: 'sonnet' },
-  }));
-  g(['add', '-A']);
-  g(['commit', '-q', '-m', 'init']);
-
-  // Стаб: без --json-schema — это impl-вызов, реально "чинит" оракул (пишет маркер-файл
-  // в cwd, который providers.run() спавнит РОВНО в $Project); с --json-schema — судья, pass.
-  const stub = path.join(dir, 'claude-stub.js');
-  write(stub, [
-    "const fs = require('fs');",
-    'process.stdin.resume();',
-    "if (process.argv.includes('--json-schema')) {",
-    "  process.stdout.write(JSON.stringify({ verdict: 'pass', reasons: ['stub: в границах задачи'] }));",
-    '} else {',
-    "  fs.writeFileSync('.selfheal-fixed', 'fixed\\n');",
-    "  process.stdout.write('self-heal stub: fixed\\n');",
-    '}',
-  ].join('\n'));
-
-  const prevBin = process.env.FLEET_BIN_CLAUDE;
-  const prevAgyBin = process.env.FLEET_BIN_AGY;
-  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', stub]);
-  process.env.FLEET_BIN_AGY = JSON.stringify(['node', stub]);
-  let out;
-  try {
-    out = execFileSync('powershell', [
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-      '-Project', dir, '-Slices', '1', '-AutoMerge',
-    ], { encoding: 'utf8', timeout: 120000 });
-  } finally {
-    if (prevBin === undefined) delete process.env.FLEET_BIN_CLAUDE; else process.env.FLEET_BIN_CLAUDE = prevBin;
-    if (prevAgyBin === undefined) delete process.env.FLEET_BIN_AGY; else process.env.FLEET_BIN_AGY = prevAgyBin;
-  }
-
-  assert.match(out, /оракул харнесса красный/, 'watchdog стартует с красного оракула');
-  assert.match(out, /--AutoMerge — мержу/, 'гейт реально дошёл до merge-шага (не пропустил)');
-  assert.match(out, /смержена в main/, 'merge реально произошёл под явным флагом, без DryRun');
-  assert.equal(g(['branch', '--show-current']).trim(), 'main', 'после прогона мы на main');
-  assert.ok(fs.existsSync(path.join(dir, '.selfheal-fixed')), 'фикс из self-heal ветки физически в main');
-  const log = g(['log', '--oneline', '-1']);
-  assert.match(log, /self-heal: merge feature\//, 'merge-коммит смержил именно auto-branch от elt commit (branchPolicy:feature)');
-  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 
@@ -1221,16 +745,9 @@ function testExoskeletonCheck() {
 
 function main() {
   testEltSingleSource();
-  testStuckDetectorUnit();
   testEltCommitLogsRedStopOnOracleFail();
   testRunLogMigrationLeavesTwoCommitsClean();
-  testEltLoopMigratesLegacyRunLogBeforeDryRun();
   testCheckpointWriter();
-  testEltDriveDryRun();
-  testEltSelfhealDryRun();
-  testEltSelfhealMergeLib();
-  testEltSelfhealAutoMergeGate();
-  testProbePrimitivesParsing();
   testParseArgs();
   testProjectKeyStable();
   testSkillFrontmatter();
@@ -1238,22 +755,17 @@ function main() {
   testCodeGraphStatusMockedGreenAndStale();
   testCodeGraphMcpCheck();
   testCodeGraphAdoptionCheck();
-  testCodegraphGuard();
-  testFleetExperimentalLabelHonest();
   testHarnessSelfcheck();
   testSettingsSecretsScanner();
   testGitHubCliAuthWarningSkipsCodeSearch();
   testCodexDefaultsWarnOnExpensiveRoute();
   testCodexSandboxProfileSignal();
-  testAgentSurfaceAuditCheck();
   testAgentSkillSupplyChainCheck();
   testAgentSkillsLockCheck();
   testAgentSkillsWrapperCheck();
   testHarnessChecklistCheck();
   testHarnessGlobalCheck();
   testJudgeBridgeCheck();
-  testFleetCheck();
-  testJudgeProvidersCheck();
   testSelfDriveInvariantsCheck();
   testExoskeletonCheck();
   process.stdout.write('doctor tests: PASS\n');

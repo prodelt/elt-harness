@@ -97,7 +97,7 @@ test('slice next пропускает припаркованное, status ег�
 });
 
 test('откат+парковка: stash не уносит parked.json, петля идёт дальше', () => {
-  // Воспроизводим связку Park-Slice из elt-loop.ps1 (шаги те же, без PS): откат stash -u,
+  // Воспроизводим связку Park-Slice из PowerShell-драйвер (снят 019/T007) (шаги те же, без PS): откат stash -u,
   // затем запись парковки. Сними игнор parked.json — и на втором павшем слайсе прогона
   // stash -u утащит парковку первого, петля возьмёт тот же павший слайс по кругу.
   const root = fixture();
@@ -137,88 +137,11 @@ test('парковка снимается: --clear и успешный commit (�
   assert.equal(parked(root).length, 0, 'закрытая задача не может оставаться припаркованной');
 });
 
-test('Park-Slice из драйвера исполняется живьём (PS): откат + парковка + $true', { skip: process.platform !== 'win32' ? 'PowerShell 5.1 только на Windows' : false }, () => {
-  // Не текст, а исполнение: вытаскиваем функцию Park-Slice из ps1 как есть и гоняем её
-  // настоящим PowerShell против временного репо. Ловит то, что структурная проверка не
-  // видит: порядок stash→park, живучесть parked.json после отката, возврат $true.
-  const root = fixture();
-  const ps1 = fs.readFileSync(path.join(__dirname, 'elt-loop.ps1'), 'utf8');
-  const at = ps1.indexOf('function Park-Slice');
-  const fn = ps1.slice(at, ps1.indexOf('Push-Location $Project', at));
-  assert.ok(fn.includes('git stash push'), 'Park-Slice не найдена в драйвере');
-  fs.writeFileSync(path.join(root, 'seed.txt'), 'работа павшего слайса\n');
-  // Скрипт-зонд — ВНЕ репо: `stash -u` внутри Park-Slice унёс бы исполняемый файл.
-  const script = path.join(os.tmpdir(), `park-slice.probe.${process.pid}.ps1`);
-  // BOM обязателен и здесь: PS 5.1 без него читает кириллицу зонда как ANSI и не парсит.
-  // Путь к CLI — в ОДИНАРНЫХ кавычках PS (в двойных `\` пришлось бы экранировать).
-  fs.writeFileSync(script, `﻿$eltCli = '${ELT.replace(/'/g, "''")}'\n${fn}\nif (Park-Slice -Ids 'T001' -Reason 'judge-block' -LogPath 'x.log') { exit 0 } else { exit 9 }\n`, 'utf8');
-  const r = spawnSync('powershell', ['-NoProfile', '-File', script], { cwd: root, encoding: 'utf8' });
-  fs.rmSync(script);
-  assert.equal(r.status, 0, `Park-Slice вернула не $true: ${r.stdout}${r.stderr}`);
-  assert.equal(fs.readFileSync(path.join(root, 'seed.txt'), 'utf8').trim(), 'seed', 'дерево обязано откатиться');
-  assert.equal(parked(root).length, 1, 'парковка обязана пережить откат');
-  assert.equal(JSON.parse(run(root, ['slice', 'next', '--json']).stdout).id, 'T002', 'петля берёт следующий слайс');
-});
-
-test('полный прогон драйвера: красный оракул паркует и ИДЁТ ДАЛЬШЕ, итог exit 1', { skip: process.platform !== 'win32' ? 'PowerShell 5.1 только на Windows' : false }, () => {
-  // Исполняемое доказательство самого слайса: гоняем elt-loop.ps1 целиком против репо с
-  // заведомо красным оракулом. Раньше первый же красный убивал прогон (`break`) — теперь
-  // петля обязана припарковать T001, взять T002, припарковать и его, и вернуть exit 1.
-  // claude подменён стабом: имплементатор ничего не делает, оракул остаётся красным.
-  const root = fixture();
-  // Красный оракул — КОММИТОМ, а не правкой в дереве: парковка первого слайса делает
-  // `git stash -u`, и незакоммиченная правка harness.json уехала бы вместе с ним.
-  fs.writeFileSync(path.join(root, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code', oracle: 'node -e "process.exit(1)"', shell: SHELL, branchPolicy: 'feature', judge: { enabled: true, model: 'sonnet' },
-  }));
-  git(root, ['commit', '-qam', 'красный оракул']);
-  // Стаб — через штатный люк FLEET_BIN_CLAUDE (node-стаб), а НЕ через claude.cmd в PATH:
-  // providers.js намеренно резолвит шим в реальный claude.exe (баг #10), так что PATH-подмена
-  // молча запустила бы настоящий CLI и повисла на его таймауте.
-  const stub = path.join(os.tmpdir(), `elt-claude-stub.${process.pid}.js`);
-  fs.writeFileSync(stub, 'process.stdin.resume().on("end", () => { console.log("stub"); process.exit(0); });\n');
-  const r = spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, 'elt-loop.ps1'),
-    '-Project', root, '-Slices', '2', '-Batch', '1'],
-  { cwd: root, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
-  fs.rmSync(stub, { force: true });
-  // Ассерты по состоянию и ASCII: stdout PowerShell приходит в OEM-кодировке, кириллица
-  // в нём нечитаема — проверять сообщения драйвера построчно бессмысленно.
-  const out = r.stdout + r.stderr;
-  assert.deepEqual(parked(root).map((e) => `${e.tid}:${e.reason}`), ['T001:red-stop', 'T002:red-stop'],
-    `петля обязана припарковать первый слайс и ВЗЯТЬ следующий, а не умереть на первом:\n${out}`);
-  assert.equal(r.status, 1, `непустая парковка обязана давать ненулевой exit:\n${out}`);
-  const st = JSON.parse(run(root, ['status']).stdout);
-  assert.equal(st.plan.open, 3, 'парковка не закрывает задачи — план остаётся открытым');
-  assert.equal(git(root, ['status', '--porcelain', 'seed.txt']), '',
-    'дерево павшего слайса обязано откатываться (правки не текут в следующий слайс)');
-});
-
-test('драйвер: провал гейта = park + continue, а не break', () => {
-  // Структурная проверка вместо запуска PowerShell (тесты обязаны идти и не на Windows,
-  // а -DryRun обрывается до гейта). Ловит ровно ту регрессию, ради которой слайс: возврат
-  // `break` в любую из четырёх веток провала снова убьёт весь прогон одной задачей.
-  const ps = fs.readFileSync(path.join(__dirname, 'elt-loop.ps1'), 'utf8');
-  for (const reason of ['red-stop', 'empty-diff']) {
-    const at = ps.indexOf(`-Reason "${reason}"`);
-    assert.ok(at > 0, `нет ветки парковки для ${reason}`);
-    const tail = ps.slice(at, at + 240);
-    assert.match(tail, /continue/, `${reason}: петля обязана продолжать (continue), а не break`);
-  }
-  assert.match(ps, /\$reason = if \([^\n]+\) \{ "judge-dead" \} else \{ "judge-block" \}/,
-    'провал одного judge различает недоступный CLI и содержательный block');
-  const judgePark = ps.indexOf('Park-Slice -Ids $id -Reason $reason');
-  assert.ok(judgePark > 0, 'общая ветка judge-dead/judge-block паркует слайс');
-  assert.match(ps.slice(judgePark, judgePark + 240), /continue/, 'провал judge паркуется и продолжает план');
-  assert.match(ps, /if \(\$parkedAll\.Count -gt 0\) \{ exit 1 \}/, 'непустая парковка обязана давать ненулевой exit');
-});
-
-test('драйвер остаётся читаемым для PS 5.1 (BOM)', () => {
-  // Пойман живьём в этом же слайсе: правка elt-loop.ps1 без BOM → PS 5.1 читает файл как
-  // ANSI, кириллица в промптах ломает парсер, драйвер падает ДО первого слайса. Оракул
-  // ps1 не гоняет, так что это единственное место, где такая регрессия видна.
-  const head = fs.readFileSync(path.join(__dirname, 'elt-loop.ps1')).subarray(0, 3);
-  assert.deepEqual([...head], [0xef, 0xbb, 0xbf], 'tools/elt-loop.ps1 обязан быть UTF-8 с BOM');
-});
+// 019 T007: четыре теста, гонявшие сам PowerShell-драйвер (живой Park-Slice, полный прогон
+// с красным оракулом, «провал гейта = park + continue», BOM-инвариант), сняты вместе с ним.
+// Осталось ровно то, ради чего они и писались, — КОНТРАКТ парковки: формат parked.json, рост
+// attempts, пропуск припаркованного в `slice next`, снятие парковки коммитом. Контракт не
+// зависит от того, кто крутит петлю, и переживает переезд писателя в T012.
 
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });

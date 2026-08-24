@@ -179,7 +179,7 @@ test('commit: gate follows the TASK\'s own spec dir, not an unrelated first-open
 
 // 006 T019 regression: an EARLIER (alphabetically) spec that's gated AND still
 // unapproved must not be able to block an explicitly targeted, approved spec.
-// Before the fix, `slice next` (and elt-loop.ps1) had no way to say which
+// Before the fix, `slice next` (and PowerShell-драйвер (снят 019/T007)) had no way to say which
 // specs/*/tasks.md to use — the alphabetically-first one with open boxes
 // always won, so a stalled older spec could permanently block an active one.
 test('slice next --spec: targets one spec directly, unaffected by an earlier unapproved+gated spec', () => {

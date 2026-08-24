@@ -69,59 +69,9 @@ test('T006: effortFor(impl, size) — [L]→max, [S]/[M]/без тега→high'
   assert.equal(effortFor('heal', 'S'), 'max', 'heal остаётся max независимо от размера');
 });
 
-test('T006 e2e: agy-writer получает промпт v3 (разведка → решение → запреты)',
-  { skip: process.platform !== 'win32' ? 'PowerShell 5.1 только на Windows' : false }, () => {
-  // Исполняемое доказательство: гоняем настоящий elt-loop.ps1 против temp-репо, стаб claude
-  // сохраняет полученный промпт и argv. Ассертим латиницу/структуру, не русский текст —
-  // stdout PowerShell приходит в OEM-кодировке, а промпт долетает сюда файлом (utf8).
-    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-t006-'));
-    const g = (a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
-    g(['init', '-q']); g(['config', 'user.email', 't@e.com']); g(['config', 'user.name', 'T']);
-    fs.mkdirSync(path.join(repo, '.harness'));
-    fs.writeFileSync(path.join(repo, '.harness', 'harness.json'), JSON.stringify({
-      kind: 'code', shell: 'powershell', branchPolicy: 'feature',
-      oracle: 'node -e "process.exit(1)"', judge: { enabled: true, model: 'sonnet' },
-    }));
-    fs.mkdirSync(path.join(repo, 'specs', '001-fx'), { recursive: true });
-    fs.writeFileSync(path.join(repo, 'specs', '001-fx', 'tasks.md'), '- [ ] **T001** большой слайс [L] [files:seed.txt]\n');
-    fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
-    g(['add', '-A']); g(['commit', '-qm', 'seed']); g(['checkout', '-qb', 'work']);
 
-    // Зонд пишем ВНЕ репо: парковка слайса откатывает дерево `git stash -u` и унесла бы файл.
-    const capture = path.join(TMP, 'capture-t006.json');
-    fs.rmSync(capture, { force: true });
-    const stub = path.join(TMP, 'capture-stub.js');
-    fs.writeFileSync(stub, `const fs=require("fs"),path=require("path");let s="";
-process.stdin.on("data",(c)=>{s+=c}).on("end",()=>{
-  const d=path.join(process.cwd(),'.harness','fleet','prompts');
-  if(!s && fs.existsSync(d)){const files=fs.readdirSync(d).sort();if(files.length)s=fs.readFileSync(path.join(d,files[files.length-1]),'utf8');}
-  if(!fs.existsSync(${JSON.stringify(capture)})) fs.writeFileSync(${JSON.stringify(capture)},JSON.stringify({argv:process.argv.slice(2),prompt:s}));
-  fs.appendFileSync(${JSON.stringify(path.join(repo, 'seed.txt'))},"impl\\n");console.log("stub");process.exit(0);});`);
-
-    spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, 'elt-loop.ps1'),
-      '-Project', repo, '-Slices', '1', '-Batch', '1'],
-    { cwd: repo, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
-
-    assert.ok(fs.existsSync(capture), 'драйвер обязан дойти до вызова имплементатора');
-    const { argv, prompt } = JSON.parse(fs.readFileSync(capture, 'utf8'));
-    assert.match(argv.join(' '), /--model gemini-3.7-flash-high\b/, 'writer обязан идти через Antigravity с явной моделью');
-    assert.match(prompt, /\.gemini\\skills\\elt\\SKILL\.md/, 'agy должен явно прочитать ELT skill: сам он его не загружает');
-    // Разведка названа полностью: зона через codegraph, рубрика (spec+constitution), тесты зоны.
-    assert.match(prompt, /codegraph_context/, 'секция разведки обязана называть codegraph');
-    assert.match(prompt, /spec\.md/, 'разведка обязана посылать в спеку — по ней судит судья');
-    assert.match(prompt, /constitution\.md/);
-    assert.match(prompt, /существующие тесты|тесты в зоне/, 'разведка обязана посылать в существующие тесты');
-    assert.match(prompt, /"filesChanged"/, 'слайс обязан требовать JSON-заявку (почва T009)');
-    assert.match(prompt, /"testsAdded"/);
-    // Порядок секций и ЕСТЬ механизм слайса: перестановка запретов вперёд обязана валить тест.
-    const at = (re) => { const m = prompt.match(re); assert.ok(m, `нет секции ${re}`); return m.index; };
-    const recon = at(/СНАЧАЛА РАЗБЕРИСЬ/), decide = at(/ПОТОМ РЕШИ/), ban = at(/ЗАПРЕТЫ:/), claim = at(/"filesChanged"/);
-    assert.ok(recon < decide && decide < ban && ban < claim,
-      `порядок обязан быть разведка(${recon}) → решение(${decide}) → запреты(${ban}) → заявка(${claim})`);
-    fs.rmSync(repo, { recursive: true, force: true });
-  });
-
-test('T006: elt-loop.ps1 остаётся UTF-8 с BOM (PS 5.1 иначе читает кириллицу как mojibake)', () => {
-  const head = fs.readFileSync(path.join(__dirname, 'elt-loop.ps1')).subarray(0, 3);
-  assert.deepEqual([...head], [0xef, 0xbb, 0xbf]);
-});
+// 019 T007: e2e-проверка промпта писателя v3 и BOM-инвариант `PowerShell-драйвер (снят 019/T007)` сняты вместе с
+// самим драйвером. Контракт промпта НЕ потерян — он выписан в
+// `specs/019-elt-v5-phases-2-5/writer-prompt-v3.md` как вход для T012, где писатель
+// возвращается командой плагина поверх `providers.js`. Сам `effortFor` остаётся живым и
+// проверяется тестами выше: он нужен любому writer'у, а не только PowerShell-петле.

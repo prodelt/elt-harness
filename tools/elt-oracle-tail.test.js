@@ -78,30 +78,10 @@ test('болтливый оракул не убивается буфером: ex
   assert.match(tail(root), /ФИНАЛЬНАЯ ОШИБКА/, 'конец вывода обязан долетать до heal при любом объёме');
 });
 
-test('драйвер: две попытки self-heal, вторая на эффорте max (счётчик в run-log)', { skip: process.platform !== 'win32' ? 'PowerShell 5.1 только на Windows' : false }, () => {
-  // Полный прогон драйвера против неисправимо красного оракула: heal обязан отработать
-  // ДВАЖДЫ (раньше была одна попытка) и только потом припарковать слайс.
-  const root = fixture('node -e "console.error(\'AssertionError: 1 !== 2\'); process.exit(1)"');
-  const stub = path.join(os.tmpdir(), `elt-claude-stub.${process.pid}.js`);
-  // Стаб правит файл — как настоящий имплементатор: иначе непонятно, дошёл ли прогон до
-  // heal или отвалился раньше на ветке «impl ничего не изменил».
-  fs.writeFileSync(stub, `const fs = require("fs");
-process.stdin.resume().on("end", () => {
-  fs.appendFileSync(${JSON.stringify(path.join(root, 'seed.txt'))}, "правка имплементатора\\n");
-  console.log("stub"); process.exit(0);
-});
-`);
-  const r = spawnSync('powershell', ['-NoProfile', '-File', path.join(__dirname, 'elt-loop.ps1'),
-    '-Project', root, '-Slices', '1', '-Batch', '1'],
-  { cwd: root, encoding: 'utf8', env: { ...process.env, FLEET_BIN_AGY: JSON.stringify([process.execPath, stub]), FLEET_BIN_CLAUDE: JSON.stringify([process.execPath, stub]) } });
-  fs.rmSync(stub, { force: true });
-
-  const log = fs.readFileSync(path.join(root, '.git', 'elt', 'run-log.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-  const heals = log.filter((e) => e.result === 'heal');
-  assert.deepEqual(heals.map((e) => `${e.healAttempt}:${e.effort}`), ['1:high', '2:max'],
-    `обе попытки обязаны быть в run-log, вторая на max:\n${r.stdout}${r.stderr}`);
-  assert.ok(log.some((e) => e.status === 'parked'), 'после двух неудачных попыток слайс паркуется');
-});
+// 019 T007: сквозная проверка «две попытки self-heal, вторая на max» сняты вместе с
+// `PowerShell-драйвер (снят 019/T007)` — счётчик попыток жил в самом драйвере. Механика heal переезжает в T012
+// (`specs/019-elt-v5-phases-2-5/writer-prompt-v3.md`, раздел «Эффорт и self-heal»), где и
+// получит новый исполняемый тест. Проверки самого хвоста оракула выше — не тронуты.
 
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
