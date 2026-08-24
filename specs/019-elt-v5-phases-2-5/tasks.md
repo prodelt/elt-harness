@@ -145,3 +145,13 @@
   `.planning/STATE.md` і `tools/judge-bench/cases.json` — НЕ дають; регрес на `l0.evaluate`:
   авточекпоінт у диффі не тригерить `out-of-scope`.
   [files: tools/harness-files.js tools/harness-files.test.js tools/checkpoint-writer.js]
+
+- [ ] **T022** D23 — пʼять лінз ревʼю (T003) не вантажаться з CRLF: `parseFrontmatter` матчить
+  фронтматтер регуляркою `/^---\n([\s\S]*?)\n---/`, яка на `---\r\n` не спрацьовує зовсім, і
+  `loadLenses` кидає «missing name or description» на ПЕРШІЙ же лінзі. У робочому дереві файли
+  лежать із LF, тому локально все зелене; будь-який свіжий `git checkout` під Windows
+  (`core.autocrlf`) дає CRLF — тобто в нового користувача ревʼю не стартує взагалі. Знайдено не
+  тестом, а фоновою верифікацією на detached-worktree `bg-a189fa2` (оракул 71/72), і це рівно
+  той клас, заради якого фон і заведено. Перевірка: `tools/review-lenses.test.js` — фікстура з
+  CRLF дає той самий результат, що з LF; регрес падає на нефіксованому `parseFrontmatter`.
+  [files: tools/review-lenses.js tools/review-lenses.test.js]
