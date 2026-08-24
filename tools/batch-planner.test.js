@@ -63,6 +63,53 @@ test('идентичность батча держится за спеку, по
   assert.notEqual(id1, batchIdOf({ specPath: 'specs/019-y/tasks.md', taskIds: ['T1', 'T2'], baseHead: 'base1' }));
 });
 
+// ── Поколение 2 (repair T016) ────────────────────────────────────────────────────────────
+// Первое поколение закрывало только файловые зоны, и судья заблокировал батч: контракт задачи
+// требует «dependency-closed И compatible file/risk/platform zones». Ниже — ровно эти три.
+
+test('dependency-closed: открытая зависимость вне батча отвергает батч', () => {
+  const dep = { ...item('T2'), text: '**T2** вторая [files: tools/T2.js] [deps: T1]' };
+  // T1 не в батче и не закрыт → батч судился бы как целое, часть которого не работает.
+  const r = plan([dep], { isDone: () => false });
+  assert.equal(r.reason, 'dependency-open');
+  assert.match(r.detail, /T2.*T1/);
+  // Та же зависимость ВНУТРИ батча — законно.
+  assert.equal(plan([item('T1'), dep], { isDone: () => false }).ok, true);
+  // ...и закрытая зависимость тоже.
+  assert.equal(plan([dep], { isDone: (id) => id === 'T1' }).ok, true);
+});
+
+test('dependency-closed по умолчанию fail-closed: без isDone зависимость считается открытой', () => {
+  const dep = { ...item('T2'), text: '**T2** вторая [deps: T1]' };
+  assert.equal(plan([dep]).reason, 'dependency-open', 'незнание не должно читаться как «закрыта»');
+});
+
+test('risk-зона: [risk: high] едет ОДНА, батчиться с соседями не может', () => {
+  const risky = { ...item('T1'), text: '**T1** архитектурная [files: tools/T1.js] [risk: high]' };
+  assert.equal(plan([risky], { isDone: () => true }).ok, true, 'одна рискованная задача — законный батч');
+  const r = plan([risky, item('T2')], { isDone: () => true });
+  assert.equal(r.reason, 'risk-incompatible');
+  assert.match(r.detail, /T1/);
+});
+
+test('platform-зона: any совместим со всеми, две разные платформы — нет', () => {
+  const win = { ...item('T1'), text: '**T1** win [files: tools/T1.js] [platform: win]' };
+  const linux = { ...item('T2'), text: '**T2** linux [files: tools/T2.js] [platform: linux]' };
+  assert.equal(plan([win, item('T3')], { isDone: () => true }).ok, true, 'any не конфликтует ни с чем');
+  const r = plan([win, linux], { isDone: () => true });
+  assert.equal(r.reason, 'platform-incompatible');
+  assert.match(r.detail, /win/);
+  assert.match(r.detail, /linux/);
+});
+
+test('планы БЕЗ новых тегов не меняют поведения: умолчания deps=[]/normal/any', () => {
+  const r = plan([item('T1'), item('T2')]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.deps, []);
+  assert.deepEqual(r.risk, ['normal', 'normal']);
+  assert.deepEqual(r.platforms, ['any']);
+});
+
 test('план несёт упорядоченные taskIdentities, а не голые id', () => {
   const r = plan([item('T1'), item('T2')]);
   assert.deepEqual(r.taskIdentities, [{ specPath: SPEC, id: 'T1' }, { specPath: SPEC, id: 'T2' }]);
