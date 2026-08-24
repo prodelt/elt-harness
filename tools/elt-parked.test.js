@@ -50,7 +50,9 @@ test('park: формат записи и рост attempts при повторн
   assert.equal(p.status, 0, p.stderr);
   let list = parked(root);
   assert.equal(list.length, 1);
-  assert.deepEqual(Object.keys(list[0]).sort(), ['attempts', 'logPath', 'reason', 'tid', 'ts']);
+  // 020 T008 расширил схему записи на `specPath` (identity парковки = спека + id); остальное
+  // поле в поле — контракт 009 T004. Spec-bound регрессы живут в elt-park.test.js.
+  assert.deepEqual(Object.keys(list[0]).sort(), ['attempts', 'logPath', 'reason', 'specPath', 'tid', 'ts']);
   assert.equal(list[0].tid, 'T001');
   assert.equal(list[0].reason, 'judge-block');
   assert.equal(list[0].attempts, 1);

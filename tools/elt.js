@@ -126,17 +126,80 @@ function writeParked(list) {
   fs.writeFileSync(PARKED, JSON.stringify(list, null, 2) + '\n');
   gitExclude('.harness/parked.json');
 }
+// ── 020 T008 — spec-bound runtime identity ────────────────────────────────────────────
+// `T020` — не идентификатор. Id уникален ТОЛЬКО внутри одного плана, а рантайм-состояние
+// (парковка, очередь ревью) хранило голый id и молча склеивало задачи разных спек: открытый
+// 019/T020 не выдавался петлёй, потому что «T020» когда-то припарковала другая спека, а
+// `review close --task T018` закрывал первую попавшуюся строку — или НИ ОДНОЙ, отвечая при
+// этом exit 0. Идентичность = (specPath, taskId), где specPath — repo-relative POSIX путь до
+// tasks.md, ровно как в judge-proof (`findTaskBinding`), чтобы двух схем не было.
+function relPosix(abs) { return path.relative(cwd, abs).split(path.sep).join('/'); }
+function allPlanFiles() {
+  const out = [];
+  const rootTasks = path.join(cwd, 'tasks.md');
+  if (fs.existsSync(rootTasks)) out.push(rootTasks);
+  const specsDir = path.join(cwd, 'specs');
+  if (fs.existsSync(specsDir)) {
+    const specRootTasks = path.join(specsDir, 'tasks.md');
+    if (fs.existsSync(specRootTasks)) out.push(specRootTasks);
+    for (const d of fs.readdirSync(specsDir).sort()) {
+      const f = path.join(specsDir, d, 'tasks.md');
+      if (fs.existsSync(f)) out.push(f);
+    }
+  }
+  return out;
+}
+// Миграция legacy-строки (без specPath) — fail-closed: спека выводится, только если id есть
+// РОВНО в одном плане. Ноль кандидатов или два — строка остаётся `legacy` и не выдаёт себя
+// ни за одну спеку; выбор в такой ситуации делает человек (`--spec` + `--adopt-legacy`), а не
+// порядок сканирования каталога. Молчаливая догадка здесь стоила бы `[X]` в чужом плане.
+function resolveLegacySpec(taskField) {
+  const ids = parseTaskIds(taskField);
+  if (!ids.length) return { specPath: null, candidates: [] };
+  const candidates = [];
+  for (const f of allPlanFiles()) {
+    const plan = parseTasksFile(f);
+    if (ids.some((id) => plan.open.concat(plan.done).some((x) => x.id === id))) candidates.push(relPosix(f));
+  }
+  return { specPath: candidates.length === 1 ? candidates[0] : null, candidates };
+}
+// Строка рантайма, приведённая к идентичности: {row, specPath, legacy, candidates}.
+function resolveIdentity(taskField, storedSpecPath) {
+  if (typeof storedSpecPath === 'string' && storedSpecPath) {
+    return { specPath: storedSpecPath, legacy: false, candidates: [storedSpecPath] };
+  }
+  const r = resolveLegacySpec(taskField);
+  return { specPath: r.specPath, legacy: !r.specPath, candidates: r.candidates };
+}
+function readParkedResolved() {
+  return readParked().map((entry) => ({ entry, ...resolveIdentity(entry.tid, entry.specPath) }));
+}
 // Сверка по ОТДЕЛЬНЫМ id, а не по строке батча: припаркованный батч "T001,T002" обязан
 // сниматься и когда позже коммитится один T001 — иначе status врёт про живую задачу.
-function parkedIds() {
+// `specPath` задан → берутся ТОЛЬКО записи этой спеки: неразрешимая legacy-строка не смеет
+// глушить чужой открытый слайс (AC T008). Без него — весь список, как в `elt status`.
+function parkedIds(specPath = null) {
   const ids = new Set();
-  for (const e of readParked()) for (const id of parseTaskIds(e.tid)) ids.add(id);
+  for (const r of readParkedResolved()) {
+    if (specPath && r.specPath !== specPath) continue;
+    for (const id of parseTaskIds(r.entry.tid)) ids.add(id);
+  }
   return ids;
 }
-function unpark(taskId) {
+// Записи, которые пропущены из-за неразрешимой идентичности: их обязано быть ВИДНО, иначе
+// fail-closed превращается в тихое игнорирование парковки.
+function parkedLegacyIgnored(specPath) {
+  return specPath ? readParkedResolved().filter((r) => r.legacy).map((r) => r.entry.tid) : [];
+}
+function unpark(taskId, specPath = null) {
   const ids = new Set(parseTaskIds(taskId));
   const list = readParked();
-  const rest = list.filter((e) => !parseTaskIds(e.tid).some((id) => ids.has(id)));
+  const rest = list.filter((e) => {
+    if (!parseTaskIds(e.tid).some((id) => ids.has(id))) return true;
+    if (!specPath) return false; // без спеки — прежнее поведение: снимаем по id
+    const r = resolveIdentity(e.tid, e.specPath);
+    return !(r.specPath === specPath || r.legacy); // legacy-строку снимает закрытие любой спеки
+  });
   if (rest.length !== list.length) writeParked(rest);
   return list.length - rest.length;
 }
@@ -699,7 +762,9 @@ if (cmd === 'status') {
     git: branch.code === 0 ? { branch: branch.out || '(detached)', dirty: dirtyN } : 'NOT A REPO',
     harness: cfgExists ? loadConfig() : 'NO harness.json — elt init',
     plan: t ? { file: path.relative(cwd, t.file), open: t.open.length, done: t.done.length, next: t.open[0] ? `${t.open[0].id} ${t.open[0].text}` : null } : 'no specs/*/tasks.md',
-    parked: readParked(),
+    // 020 T008: у каждой записи видна её identity; `legacy:true` — строка, чью спеку резолв
+    // отказался угадывать, и именно она не участвует в фильтрации spec-bound планов.
+    parked: readParkedResolved().map((r) => ({ ...r.entry, specPath: r.specPath, ...(r.legacy ? { legacy: true, candidates: r.candidates } : {}) })),
     lastRun,
   };
   console.log(JSON.stringify(out, null, 2));
@@ -743,32 +808,54 @@ if (cmd === 'brief') {
 
 if (cmd === 'review') {
   const rows = readReviewQueue();
+  const queueFile = path.join(cwd, REVIEW_QUEUE);
   if (sub === 'close') {
     const taskId = normalizeTaskArg(opt('--task'));
-    if (!taskId) die('elt review close --task Txxx[,Tyyy]', 4);
+    if (!taskId) die('elt review close --task Txxx[,Tyyy] [--spec specs/NNN-slug] [--adopt-legacy] [--allow-empty]', 4);
     const ids = new Set(parseTaskIds(taskId));
+    const wantSpec = opt('--spec') ? relPosix(path.join(resolveSpecDir(), 'tasks.md')) : null;
     const now = new Date().toISOString();
-    let closed = 0;
-    const next = rows.map((row) => {
-      // Батч-запись несёт "T001,T002" — закрываем её, если названа ЛЮБАЯ из её задач.
-      const hit = !row.closedAt && parseTaskIds(row.task).some((id) => ids.has(id));
-      if (!hit) return row;
-      closed += 1;
-      return { ...row, closedAt: now };
+    // Батч-запись несёт "T001,T002" — она кандидат, если названа ЛЮБАЯ из её задач.
+    const candidates = rows.map((row, i) => ({ row, i, ...resolveIdentity(row.task, row.specPath) }))
+      .filter((c) => !c.row.closedAt && parseTaskIds(c.row.task).some((id) => ids.has(id)));
+    // 020 T008: закрывается РОВНО названная identity. Без `--spec` неоднозначность (строки
+    // разных спек под одним id) — отказ, а не «закроем всё, что похоже».
+    const distinct = [...new Set(candidates.map((c) => (c.legacy ? 'legacy' : c.specPath)))];
+    if (!wantSpec && distinct.length > 1) {
+      die(`elt review close: ${taskId} есть в разных спеках (${distinct.join(', ')}) — уточните --spec`, 5);
+    }
+    const hit = candidates.filter((c) => {
+      if (!wantSpec) return true;
+      if (c.specPath === wantSpec) return true;
+      // Legacy-строка без спеки прилипает к названной только по ЯВНОМУ решению человека.
+      return c.legacy && flag('--adopt-legacy');
     });
+    const next = rows.slice();
+    for (const c of hit) next[c.i] = { ...c.row, specPath: wantSpec || c.specPath || null, closedAt: now };
     // Закрытая запись остаётся в файле с меткой, а не удаляется: история разбора — тоже пруф.
-    if (closed) fs.writeFileSync(path.join(cwd, REVIEW_QUEUE), next.map((r) => JSON.stringify(r)).join('\n') + '\n');
-    console.log(`elt review close: закрыто ${closed} (${taskId})`);
-    process.exit(0); // идемпотентно: повторный вызов закрывает 0 и это не ошибка
+    if (hit.length) fs.writeFileSync(queueFile, next.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    // 020 T008 — блокер 1 живьём: `elt review close --task T018` из worktree возвращал exit 0,
+    // закрыв НОЛЬ строк (очередь лежала в другом чекауте), и молчал об этом. Ноль закрытых —
+    // отказ с именем файла очереди; идемпотентный повтор объявляется явно (`--allow-empty`).
+    if (!hit.length && !flag('--allow-empty')) {
+      const legacyHint = candidates.length ? ' (кандидаты есть, но их identity не совпала — см. --adopt-legacy)' : '';
+      die(`elt review close: ${taskId}${wantSpec ? ` @ ${wantSpec}` : ''} — закрыто 0 строк в ${relPosix(queueFile)}`
+        + `${legacyHint}; открытых записей: ${rows.filter((r) => !r.closedAt).length}`, 5);
+    }
+    console.log(`elt review close: закрыто ${hit.length} (${taskId}${wantSpec ? ` @ ${wantSpec}` : ''})`);
+    process.exit(0);
   }
-  const open = rows.filter((row) => !row.closedAt);
+  const open = rows.filter((row) => !row.closedAt)
+    .map((row) => { const r = resolveIdentity(row.task, row.specPath); return { ...row, specPath: r.specPath, ...(r.legacy ? { legacy: true } : {}) }; });
   if (flag('--json')) { console.log(JSON.stringify(open)); process.exit(0); }
   if (!open.length) { console.log('elt review: очередь пуста'); process.exit(0); }
   console.log(`elt review: ${open.length} на разборе`);
   // 014 T007: у записей `bg-red` есть слой и лог — без них строка «фон покраснел» неразбираема.
   for (const row of open) {
     const kind = row.kind ? `[${row.kind}${row.layer ? `/${row.layer}` : ''}] ` : '';
-    console.log(`  ${kind}${row.task}  ${row.commit}  ${row.ts}\n    ${row.reason}`
+    // 020 T008: identity строки печатается рядом с id — без неё «T018» неразбираемо.
+    const who = row.legacy ? 'legacy (спека не резолвится)' : (row.specPath || 'legacy');
+    console.log(`  ${kind}${row.task} @ ${who}  ${row.commit}  ${row.ts}\n    ${row.reason}`
       + (row.logPath ? `\n    лог: ${row.logPath}` : ''));
   }
   process.exit(0);
@@ -780,16 +867,23 @@ if (cmd === 'park') {
   const taskId = normalizeTaskArg(opt('--task'));
   if (!taskId) die('elt park --task Txxx[,Tyyy] --reason <reason> [--log <path>] | elt park --clear --task Txxx', 4);
   if (flag('--clear')) {
-    const removed = unpark(taskId);
+    const clearBinding = findTaskBinding(taskId);
+    const removed = unpark(taskId, opt('--spec') ? (clearBinding ? clearBinding.specPath : resolveLegacySpec(taskId).specPath) : null);
     console.log(JSON.stringify({ cleared: removed, parked: readParked() }, null, 2));
     process.exit(0);
   }
   const reason = opt('--reason');
   if (!reason) die('elt park: --reason обязателен (red-stop|judge-block|judge-dead|empty-diff)', 4);
   const list = readParked();
-  const prev = list.find((e) => e.tid === taskId);
-  const entry = { tid: taskId, reason, ts: new Date().toISOString(), logPath: opt('--log', null), attempts: (prev ? prev.attempts : 0) + 1 };
-  writeParked(list.filter((e) => e.tid !== taskId).concat([entry]));
+  // 020 T008: в записи едет спека задачи. Открытая задача даёт её через binding (он уважает
+  // `--spec`); закрытая/чужая — через fail-closed резолв, и если он не смог, поле остаётся
+  // null: соврать про спеку хуже, чем признать legacy-строку.
+  const parkBinding = findTaskBinding(taskId);
+  const parkSpec = parkBinding ? parkBinding.specPath : resolveLegacySpec(taskId).specPath;
+  const sameParked = (e) => e.tid === taskId && (e.specPath || null) === parkSpec;
+  const prev = list.find(sameParked);
+  const entry = { tid: taskId, specPath: parkSpec, reason, ts: new Date().toISOString(), logPath: opt('--log', null), attempts: (prev ? prev.attempts : 0) + 1 };
+  writeParked(list.filter((e) => !sameParked(e)).concat([entry]));
   appendRunLog({ task: taskId, status: 'parked', reason, attempts: entry.attempts });
   console.log(JSON.stringify(entry, null, 2));
   process.exit(0);
@@ -822,7 +916,14 @@ if (cmd === 'slice' && sub === 'next') {
   const count = Math.max(1, parseInt(opt('--count', '1'), 10) || 1);
   // 009 T004: припаркованные задачи пропускаются — иначе петля «продолжает» тем же
   // упавшим слайсом по кругу. Они остаются `[ ]` в плане и видны в `elt status`.
-  const parkedSkip = parkedIds();
+  // 020 T008: парковка сверяется в границах ТОГО ЖЕ плана, который выдаёт задачи. Иначе
+  // «T020», припаркованный когда-то другой спекой, навсегда прятал открытый 019/T020, и
+  // петля молча считала план закрытым.
+  const activeSpecPath = t ? relPosix(t.file) : null;
+  const parkedSkip = parkedIds(activeSpecPath);
+  for (const tid of parkedLegacyIgnored(activeSpecPath)) {
+    console.error(`elt slice next: припаркованная запись ${tid} без спеки пропущена (identity не резолвится) — снять: elt park --clear --task ${tid}`);
+  }
   const open = t ? t.open.filter((x) => !parkedSkip.has(x.id)) : [];
   const picks = open.slice(0, count);
   const next = picks[0];
@@ -1219,7 +1320,7 @@ if (cmd === 'commit') {
 
   // Задача закрылась — снимаем её с парковки (009 T004), иначе status/slice next
   // продолжали бы считать её припаркованной после успешной перезакрытия.
-  unpark(taskId);
+  unpark(taskId, binding ? binding.specPath : null);
 
   // Очередь ревью пишется ПОСЛЕ коммита: в строке обязан быть его sha, иначе разбирать нечего.
   // Неблокирующая по решению 2 спеки (R4): накопление видно в doctor, работу не стопорит.
@@ -1227,7 +1328,9 @@ if (cmd === 'commit') {
     const queue = path.join(cwd, REVIEW_QUEUE);
     fs.mkdirSync(path.dirname(queue), { recursive: true });
     fs.appendFileSync(queue, JSON.stringify({
-      task: taskId, commit: sha, reason: (judge.proof.reasons || []).join('; '), ts: new Date().toISOString(),
+      // 020 T008: identity строки — (specPath, task), а не голый id.
+      task: taskId, specPath: binding ? binding.specPath : null,
+      commit: sha, reason: (judge.proof.reasons || []).join('; '), ts: new Date().toISOString(),
     }) + '\n');
     console.error(`elt commit: вердикт inconclusive — строка в ${REVIEW_QUEUE} (разбор: elt review)`);
   }
@@ -1291,7 +1394,8 @@ console.log(`elt — ядро ELT v3 харнесса
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
   elt spec lint [--spec specs/NNN-slug]                     проверка обязательных секций spec.md (approve гоняет его сам)
   elt park --task Txxx --reason <r> [--log <path>]          припарковать слайс (петля берёт следующий); --clear снимает
-  elt review [--json] | elt review close --task Txxx        очередь вердиктов inconclusive (неблокирующая); close — снять с разбора
+  elt review [--json] | elt review close --task Txxx [--spec specs/NNN-slug] [--adopt-legacy] [--allow-empty]
+                                                            очередь вердиктов (неблокирующая); close — снять с разбора РОВНО названную identity (0 закрытых = exit 5)
   elt stats [--since <ISO-дата>] [--json]                   block-rate/coverage/p50-p90 из run-log.jsonl (одна команда вместо ручного разбора)
   elt oracle [--full]                                       прогнать оракул, exit-код = истина; --full игнорирует oracleSelect:impact
   elt judge run --task Txxx[,Tyyy] [--provider p] [--model m]  запустить судью КОДОМ и записать proof (exit 0 = pass)

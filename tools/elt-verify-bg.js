@@ -37,12 +37,15 @@ const REVIEW_QUEUE = path.join('.harness', 'review-queue.jsonl');
 // заводить — иначе разбор красного зависел бы от того, какой слой его нашёл. `kind:"bg-red"`
 // отличает запись от inconclusive-строк (у тех поля kind нет — старые не размечаем).
 // `elt review close --task` работает без правок: строка несёт `task`.
-function enqueueBgRed(cwd, { task, commit, layer, reason, logPath, kind = 'bg-red' }) {
+function enqueueBgRed(cwd, { task, specPath = null, commit, layer, reason, logPath, kind = 'bg-red' }) {
   const queue = path.join(cwd, REVIEW_QUEUE);
   fs.mkdirSync(path.dirname(queue), { recursive: true });
   const row = {
     // 020 T007: `bg-dead`/`bg-inconclusive` — отдельные kind, см. finish().
-    kind, task: task || null, commit, layer, reason,
+    // 020 T008: identity фоновой строки — (specPath, task) плюс `commit` и `layer`: без спеки
+    // `review close` не отличит T018 из 019 от T018 из 020, а без коммита и слоя строку
+    // физически нечем разбирать.
+    kind, task: task || null, specPath: specPath || null, commit, layer, reason,
     logPath, ts: new Date().toISOString(),
   };
   fs.appendFileSync(queue, JSON.stringify(row) + '\n');
@@ -364,12 +367,12 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
       sections.push({ layer: 'judge', skipped: true, reason: 'выключен в background.layers', durationSec: 0 });
     }
 
-    return finish({ sections, started, cwd, commitHash, taskId, logPath, wt, configSource });
+    return finish({ sections, started, cwd, commitHash, taskId, specFile, logPath, wt, configSource });
   } catch (e) {
     const durationSec = (Date.now() - started) / 1000;
     sections.push({ layer: 'runner', nonConclusive: true, red: false, reason: `фон упал: ${e.message}`, durationSec });
     enqueueBgRed(cwd, {
-      task: taskId || null, commit: commitHash, layer: 'runner',
+      task: taskId || null, specPath: specFile, commit: commitHash, layer: 'runner',
       reason: `фон упал: ${e.message}`, logPath, kind: 'bg-dead',
     });
     const cleanup = cleanupWorktree(cwd, commitHash);
@@ -408,7 +411,7 @@ function classifyRun(sections) {
   return 'pass';
 }
 
-function finish({ sections, started, cwd, commitHash, taskId, logPath, wt, configSource }) {
+function finish({ sections, started, cwd, commitHash, taskId, specFile = null, logPath, wt, configSource }) {
   const outcome = classifyRun(sections);
   const durationSec = (Date.now() - started) / 1000;
   // Убирается независимо от вердикта — «остаётся» относится к отказу самого remove, не к
@@ -422,7 +425,7 @@ function finish({ sections, started, cwd, commitHash, taskId, logPath, wt, confi
   for (const s of sections) {
     const kind = s.red ? KIND.red : s.nonConclusive ? KIND.dead : s.inconclusive ? KIND.inconclusive : null;
     if (!kind) continue;
-    enqueueBgRed(cwd, { task: taskId || null, commit: commitHash, layer: s.layer, reason: s.reason, logPath, kind });
+    enqueueBgRed(cwd, { task: taskId || null, specPath: specFile, commit: commitHash, layer: s.layer, reason: s.reason, logPath, kind });
   }
   const exit = outcome === 'pass' ? 0 : 1;
   runLog.appendRunLog(cwd, {
