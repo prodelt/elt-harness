@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "elt",
+  "owner": {
+    "name": "elt"
+  },
+  "metadata": {
+    "description": "Own marketplace of the ELT harness. One plugin, installed from this repository.",
+    "version": "5.0.0"
+  },
+  "plugins": [
+    {
+      "name": "elt",
+      "description": "ELT — spec-driven harness for Claude Code: mechanical oracle, L0 gate, five review lenses with a confidence scorer, and a defect ledger that files its own issues.",
+      "version": "5.0.0",
+      "category": "workflow",
+      "author": {
+        "name": "elt"
+      },
+      "source": "./"
+    }
+  ]
+}

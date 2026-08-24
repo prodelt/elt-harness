@@ -91,55 +91,46 @@ test('конфиг: кривой тип smoke падает явно, а не в�
 });
 
 // ──────────────────────────────────────────────────────────────── 011 T021 ───
-// L2 smoke в ЭТОМ репо (dogfood §3.1): слой был включён у Ametrin Web (T018), но собственный
-// harness.json поля smoke не имел — единственный слой v3, который харнесс не ел сам. Smoke =
-// то, чем реально пользуется человек: deploy-копия `~/.claude/bin/elt.js` в проекте БЕЗ
-// repo-checkout. Класс отказа — T017 (`MODULE_NOT_FOUND` во ВСЕХ проектах, замыкание разошлось
-// с репо), пойманный тогда случайно. Фиктивный HOME, не реальный `~/.claude/bin` этой машины —
-// иначе прогон был бы недетерминирован относительно чужой синхронизации.
+// L2 smoke в ЭТОМ репо (dogfood §3.1). 019 T015: цель сменилась с deploy-копии
+// `~/.claude/bin/elt.js` на сам плагин — копии больше нет, но класс отказа тот же: замыкание
+// оборвано, и снаружи это выглядит как «команда не работает». Прогон идёт ИЗ ЧУЖОГО каталога,
+// иначе относительные require() резолвятся случайно и smoke ничего не доказывает.
 const { smokeEltDeploy } = require('./smoke-elt-deploy');
-const homes = [];
-function makeSmokeHome() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-deploy-home-'));
-  homes.push(home);
-  return home;
-}
-function withBin(home) {
-  const bin = path.join(home, '.claude', 'bin');
-  fs.mkdirSync(bin, { recursive: true });
-  return bin;
-}
-after(() => { for (const h of homes) try { fs.rmSync(h, { recursive: true, force: true }); } catch { /* windows lock */ } });
+const smokeRoots = [];
+after(() => { for (const d of smokeRoots) try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* windows lock */ } });
 
-test('smokeEltDeploy: elt.js отсутствует — reason=missing, не крашится', () => {
-  const home = makeSmokeHome(); // .claude/bin даже не создан
-  const r = smokeEltDeploy({ home });
+function brokenPlugin(omit = []) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-plugin-'));
+  smokeRoots.push(root);
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
+  for (const name of ['doctor.js', 'oracle.js', 'l0.js', 'ledger.js']) {
+    if (omit.includes(name)) continue;
+    fs.copyFileSync(path.join(__dirname, '..', 'bin', name), path.join(root, 'bin', name));
+  }
+  return root;
+}
+
+test('smokeEltDeploy: плагина нет — reason=missing, не крашится', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-noplugin-'));
+  smokeRoots.push(root);
+  const r = smokeEltDeploy({ pluginRoot: root });
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'missing');
 });
 
-test('smokeEltDeploy: целая копия замыкания — резолвится, exit 0', () => {
-  const home = makeSmokeHome();
-  const bin = withBin(home);
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js']) {
-    fs.copyFileSync(path.join(__dirname, name), path.join(bin, name));
-  }
-  const r = smokeEltDeploy({ home });
+test('smokeEltDeploy: целая установка — доктор зелёный из чужого каталога', () => {
+  const r = smokeEltDeploy();
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.reason, 'ok');
 });
 
-// T017 живьём: замыкание расходится с репо (недостающий сосед) → require() внутри elt.js
-// кидает MODULE_NOT_FOUND ДО того, как процесс успевает дойти до usage/exit-развилки.
-test('smokeEltDeploy: неполное замыкание (нет elt-stats.js) — reason=broken, exit≠0, видно MODULE_NOT_FOUND', () => {
-  const home = makeSmokeHome();
-  const bin = withBin(home);
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js']) { // elt-stats.js НЕ копируем
-    fs.copyFileSync(path.join(__dirname, name), path.join(bin, name));
-  }
-  const r = smokeEltDeploy({ home });
-  assert.equal(r.ok, false);
+// T017 живьём: замыкание расходится (недостающий сосед) → smoke обязан покраснеть. Без этого
+// случая «ok» ничего не значил бы — он был бы «ok» и на битой установке.
+test('smokeEltDeploy: оборванное замыкание (нет ledger.js) — reason=broken, exit≠0', () => {
+  const root = brokenPlugin(['ledger.js']);
+  const r = smokeEltDeploy({ pluginRoot: root });
+  assert.equal(r.ok, false, JSON.stringify(r));
   assert.equal(r.reason, 'broken');
   assert.notEqual(r.exit, 0);
-  assert.match(r.detail, /MODULE_NOT_FOUND/);
 });

@@ -16,7 +16,9 @@ const { redProof, applyRedProof } = require('./red-proof');
 const { evaluate: evaluateL0, loadConfig: loadL0Config } = require('./elt-gate-l0');
 const { isHarnessOwned, isIgnoredForReview, isHarnessManaged } = require('./harness-files');
 
-const ELT_CLI = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
+// 019 T015: CLI берётся из каталога плагина, а не из deploy-копии `~/.claude/bin`.
+// Копия отставала от исходника молча (D16, D18); каталог плагина отстать не может.
+const ELT_CLI = path.join(__dirname, 'elt.js');
 // 009 T010 (четыре замера на живом слайсе, причины у CLI РАЗНЫЕ — одной формулой не лечатся):
 // codex/gpt-5.6 на крупном промпте (~60K дифф) висит — 301/301/540/300с, временем не лечится
 // (для него ответ — перевыдача ниже, а не лимит). claude/sonnet на том же диффе отвечает за

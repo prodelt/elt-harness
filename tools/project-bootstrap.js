@@ -111,13 +111,28 @@ function planTargetState(root, options = {}) {
 
 const STATE_STUB = '# STATE\n\n> Живий хребет проєкту (`.planning/STATE.md`), створено `project-bootstrap apply`.\n> Заповнити після першого спек-слайсу.\n';
 
-const GIT_GATE_TEMPLATE = [
-  '#!/bin/sh',
-  '# elt gate — managed pre-commit hook (installed by project-bootstrap apply).',
-  '# Enable once per clone:  git config core.hooksPath .githooks',
-  'node "$HOME/.claude/bin/elt.js" gate',
-  '',
-].join('\n');
+// 019 T015: хук больше не зовёт deploy-копию `$HOME/.claude/bin/elt.js` — её нет. Путь к CLI
+// плагина ЗАПЕКАЕТСЯ в момент bootstrap: git-хук исполняется вне Claude Code, поэтому
+// `${CLAUDE_PLUGIN_ROOT}` в нём не подставится, а искать установку плагина шеллом по
+// `~/.claude/plugins/**` было бы вторым резолвером, который разойдётся с первым. Переменная
+// `ELT_CLI` оставлена перекрытием: переехала установка — не переписывать хук, а объявить её.
+const ELT_CLI_PATH = path.join(__dirname, 'elt.js');
+
+function gitGateTemplate(eltCli = ELT_CLI_PATH) {
+  const posix = String(eltCli).split(path.sep).join('/');
+  return [
+    '#!/bin/sh',
+    '# elt gate — managed pre-commit hook (installed by project-bootstrap apply).',
+    '# Enable once per clone:  git config core.hooksPath .githooks',
+    'ELT_CLI="${ELT_CLI:-' + posix + '}"',
+    'if [ ! -f "$ELT_CLI" ]; then',
+    '  echo "elt gate: CLI не найден по $ELT_CLI — переустанови плагин (claude plugin install elt@elt) или задай ELT_CLI" >&2',
+    '  exit 1',
+    'fi',
+    'node "$ELT_CLI" gate',
+    '',
+  ].join('\n');
+}
 
 function applyPlan(root, options = {}) {
   const plan = planTargetState(root, options);
@@ -139,7 +154,7 @@ function applyPlan(root, options = {}) {
   const hookPath = path.join(resolved, '.githooks', 'pre-commit');
   if (plan.classification.kind === 'code' && !plan.decisions.gitGate.managed) {
     fs.mkdirSync(path.dirname(hookPath), { recursive: true });
-    fs.writeFileSync(hookPath, GIT_GATE_TEMPLATE, { mode: 0o755 });
+    fs.writeFileSync(hookPath, gitGateTemplate(), { mode: 0o755 });
     changes.push({ id: 'git-gate', created: true });
   }
 
@@ -313,14 +328,17 @@ function checkJudgeBridgeContract(inspected, options = {}) {
   if (!cfg || !cfg.judge || cfg.judge.enabled !== true) {
     return { ok: true, skipped: true, reason: 'judge is not enabled — bridge not required' };
   }
-  const home = path.resolve(options.home || require('node:os').homedir());
+  // 019 T015: вторая ступень — каталог плагина, а не deploy-копия `~/.claude/bin/judge/`.
+  // `pluginTools` перекрывается ради теста: в самом репо мост есть ВСЕГДА, и без перекрытия
+  // ветка «моста нет» стала бы недостижимой — то есть зелёный перестал бы что-либо значить.
+  const pluginTools = options.pluginTools || __dirname;
   const candidates = [
     path.join(inspected.root, 'tools', 'judge-invoke.js'),
-    path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js'),
+    path.join(pluginTools, 'judge-invoke.js'),
   ];
   const resolved = candidates.find((file) => fs.existsSync(file));
   if (!resolved) {
-    return { ok: false, reason: 'judge bridge is not resolvable', looked: candidates.map(normalizePath), repair: 'node tools/sync-bin.js' };
+    return { ok: false, reason: 'judge bridge is not resolvable', looked: candidates.map(normalizePath), repair: 'claude plugin install elt@elt' };
   }
   return { ok: true, reason: 'judge bridge is resolvable', bridge: normalizePath(resolved) };
 }

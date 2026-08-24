@@ -20,8 +20,6 @@ const {
   checkAgentSkillsLock,
   checkAgentSkillsWrapper,
   checkHarnessChecklist,
-  checkHarnessGlobal,
-  checkJudgeBridge,
   checkFleet,
   checkJudgeProviders,
   checkSelfDriveInvariants,
@@ -30,7 +28,6 @@ const {
   runFleet,
 } = require('./doctor-core');
 const { CORE_SECTIONS } = require('./project-docs-core');
-const { CLOSURE: JUDGE_BRIDGE_CLOSURE } = require('./sync-bin');
 
 function write(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -482,65 +479,8 @@ function testHarnessChecklistCheck() {
   assert.match(stale[0].detail, /25 pass/);
 }
 
-function testHarnessGlobalCheck() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-harness-global-'));
-  const home = path.join(dir, 'home');
-  const root = path.join(dir, 'project');
-  fs.mkdirSync(root, { recursive: true });
-  write(path.join(home, '.claude', 'projects-registry.json'), JSON.stringify({ pipelineDir: root }));
-
-  const missing = checkHarnessGlobal(root, home, () => ({ status: 0, output: '' }));
-  assert.equal(missing[0].status, 'warn');
-  assert.equal(missing[0].id, 'harness:global-cli');
-
-  write(path.join(root, 'tools', 'harness-runner.js'), '#!/usr/bin/env node\n');
-  write(path.join(root, 'tools', 'harness-gates.js'), '#!/usr/bin/env node\n');
-  for (const name of ['harness-runner.cmd', 'harness-runner.ps1', 'harness-gates.cmd', 'harness-gates.ps1']) {
-    write(path.join(home, '.claude', 'bin', name), 'echo ok\n');
-  }
-  const passed = checkHarnessGlobal(root, home, () => ({ status: 0, output: 'ok' }));
-  assert.equal(passed[0].status, 'pass');
-
-  const pathWarn = checkHarnessGlobal(root, home, () => ({ status: 1, output: 'not found' }));
-  assert.equal(pathWarn[0].status, 'warn');
-  assert.match(pathWarn[0].title, /PATH/);
-}
-
-// T004 (спека 010): дрейф/отсутствие глобальной копии моста судьи — R1, ловится механически.
-function testJudgeBridgeCheck() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-judge-bridge-'));
-  const home = path.join(dir, 'home');
-  const root = path.join(dir, 'project');
-  const globalDir = path.join(home, '.claude', 'bin', 'judge');
-  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code', oracle: 'node -e ""', judge: { enabled: true, model: 'sonnet' },
-  }));
-
-  const missing = checkJudgeBridge(root, home);
-  assert.equal(missing[0].status, 'warn', 'моста нет — WARN');
-  assert.equal(missing[0].id, 'judge:bridge');
-  assert.match(missing[0].repair, /sync-bin\.js/);
-
-  for (const rel of JUDGE_BRIDGE_CLOSURE) write(path.join(globalDir, rel), `// ${rel}\n`);
-  const noLocalSource = checkJudgeBridge(root, home);
-  assert.equal(noLocalSource[0].status, 'pass', 'чужой проект: сравнивать не с чем, замыкание на месте');
-
-  // репо-разработчик: локальный источник есть → дрейф меряется
-  for (const rel of JUDGE_BRIDGE_CLOSURE) write(path.join(root, 'tools', rel), `// ${rel}\n`);
-  assert.equal(checkJudgeBridge(root, home)[0].status, 'pass', 'копия идентична репо');
-
-  write(path.join(root, 'tools', 'judge-core.js'), '// judge-core.js изменился в репо\n');
-  const drifted = checkJudgeBridge(root, home);
-  assert.equal(drifted[0].status, 'warn', 'копия отстала от репо — WARN');
-  assert.match(drifted[0].detail, /judge-core\.js/, 'в детали видно, какой файл разъехался');
-
-  // judge выключен — доктор не шумит про мост вовсе
-  write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code', oracle: 'node -e ""', judge: { enabled: false },
-  }));
-  assert.deepEqual(checkJudgeBridge(root, home), [], 'judge.enabled=false — проверки нет');
-  fs.rmSync(dir, { recursive: true, force: true });
-}
+// 019 T015: тесты `harness:global-cli` и `judge:bridge` сняты вместе с проверками, которые
+// они держали. Обе меряли состояние deploy-копии в `~/.claude/bin`; у плагина этой копии нет.
 
 function nineSectionDoc() {
   return '# Managed\n\n' + CORE_SECTIONS.map((section) => `## ${section}\ncontent\n`).join('\n');
@@ -584,31 +524,10 @@ function withHome(home, fn) {
   }
 }
 
-// T001 (004-elt-selfdrive): single-source elt.js. Каждый реальный вызыватель (PowerShell-драйвер (снят 019/T007),
-// tools/fleet/*.js) зовёт ~/.claude/bin/elt.js — глобальный деплой; tools/elt.js — версионируемая
-// копия в репо. Они ДОЛЖНЫ быть идентичны по контенту, иначе дрейф (bin имел fallback в findTasks,
-// tools — нет → на нескольких spec-папках вернул бы не тот план). Сравнение нормализует CRLF
-// (autocrlf в этом репо). bin отсутствует (свежий клон/CI без глобального деплоя) → скип, не false-fail.
-function testEltSingleSource() {
-  const binElt = path.join(os.homedir(), '.claude', 'bin', 'elt.js');
-  const repoElt = path.join(__dirname, 'elt.js');
-  if (!fs.existsSync(binElt)) return; // нет глобального деплоя — нечего сверять
-  // 014 T023: в СВЯЗАННОМ worktree сверять нечего и незачем. Фоновая проверка (T006) гоняет
-  // сьют в `.fleet-wt/bg-<hash>` — detached checkout на ПРОШЛОМ коммите, тогда как
-  // ~/.claude/bin отражает то, что синхронизировали последним. Их расхождение — норма, а не
-  // дрейф, но тест объявлял его красным: живьём это дало ложный `bg-red/suite` на T016 и T018.
-  // Признак связанного worktree: `.git` там ФАЙЛ-указатель на gitdir, а в основном дереве —
-  // каталог. Инвариант «bin == tools» продолжает проверяться в основном дереве, где им и
-  // управляют (`node tools/sync-bin.js`).
-  const dotGit = path.join(__dirname, '..', '.git');
-  if (fs.existsSync(dotGit) && fs.statSync(dotGit).isFile()) return;
-  const norm = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n').replace(/﻿/g, '');
-  assert.equal(
-    norm(repoElt),
-    norm(binElt),
-    'DRIFT: tools/elt.js != ~/.claude/bin/elt.js — синхронизируй (bin = деплой, tools = репо-копия), иначе драйвер/fleet и тесты расходятся',
-  );
-}
+// 019 T015: побайтная сверка `tools/elt.js` с `~/.claude/bin/elt.js` снята. Она держала
+// инвариант «две копии одного файла не разошлись» — инвариант, который у плагина выполняется
+// по построению: копии больше нет, установленный каталог и есть репозиторий. Замену того же
+// класса (замыкание цело, манифесты не разошлись) держит `bin/doctor.test.js`.
 
 // Both `elt commit` (red oracle blocks the commit) AND standalone `elt oracle`
 // must log red-stop. Found live: the transcript-fallback this test's OWN
@@ -744,7 +663,6 @@ function testExoskeletonCheck() {
 }
 
 function main() {
-  testEltSingleSource();
   testEltCommitLogsRedStopOnOracleFail();
   testRunLogMigrationLeavesTwoCommitsClean();
   testCheckpointWriter();
@@ -764,8 +682,6 @@ function main() {
   testAgentSkillsLockCheck();
   testAgentSkillsWrapperCheck();
   testHarnessChecklistCheck();
-  testHarnessGlobalCheck();
-  testJudgeBridgeCheck();
   testSelfDriveInvariantsCheck();
   testExoskeletonCheck();
   process.stdout.write('doctor tests: PASS\n');

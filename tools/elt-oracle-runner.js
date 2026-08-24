@@ -152,8 +152,17 @@ function partitionByCache(run, root = ROOT, forceFull = false) {
   return { toRun, hits, entries, cache };
 }
 
+// 019 T011: корней сканирования два. `bin/` — точки входа плагина, и их тесты обязаны быть
+// частью того же механического оракула: иначе новый код харнеса живёт вне гейта, которым сам
+// же харнес всех и меряет. Список корней явный, а не «всё дерево»: `specs/`, `demo/` и
+// `vendor/` содержат чужие `*.test.js`, которые к нашему оракулу отношения не имеют.
+const TEST_ROOTS = ['tools', 'bin'];
+
 async function main() {
-  const files = discover(path.join(ROOT, 'tools'))
+  const files = TEST_ROOTS
+    .map((dir) => path.join(ROOT, dir))
+    .filter((dir) => fs.existsSync(dir))
+    .flatMap((dir) => discover(dir))
     .map((f) => path.relative(ROOT, f).split(path.sep).join('/'))
     .sort();
   const all = files.filter((f) => !SKIP.has(f));
@@ -204,6 +213,6 @@ async function main() {
 if (require.main === module) main();
 
 module.exports = {
-  discover, SKIP, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode, slicesSinceFull,
+  discover, SKIP, TEST_ROOTS, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode, slicesSinceFull,
   partitionByCache, harnessOracleCmd,
 };

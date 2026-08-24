@@ -49,14 +49,18 @@ function hashTree(root) {
   return hash.digest('hex');
 }
 
-// 010 T006: verify теперь требует резолвимый мост судьи при judge.enabled — фикстуры,
-// которые ждут зелёный verify, кладут мост в свой временный HOME, а не полагаются на машину.
+// 010 T006: verify требует резолвимый мост судьи при judge.enabled. 019 T015: мост едет
+// вместе с плагином, поэтому фикстуре, которая ждёт ЗЕЛЁНЫЙ verify, класть его больше некуда
+// и незачем — он есть по построению. Пустой HOME остался: его читают другие контракты.
 function homeWithBridge() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
-  const bridge = path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js');
-  fs.mkdirSync(path.dirname(bridge), { recursive: true });
-  fs.writeFileSync(bridge, '// stub bridge\n', 'utf8');
-  return home;
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
+}
+
+// Каталог БЕЗ моста — единственный способ достать красную ветку контракта: в самом репо
+// `tools/judge-invoke.js` существует всегда, и без перекрытия «моста нет» стало бы
+// недостижимым состоянием, а зелёный — бессодержательным.
+function toolsWithoutBridge() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-nobridge-'));
 }
 
 function tempProject() {
@@ -492,15 +496,13 @@ function testVerifyJudgeBridgeContractBothOutcomes() {
   applyPlan(root, { home });
   validHarness(root);
 
-  const missing = verifyProject(root, { supplyChain: false, home });
+  const missing = verifyProject(root, { supplyChain: false, home, pluginTools: toolsWithoutBridge() });
   assert.equal(missing.contracts.judgeBridge.ok, false);
   assert.equal(missing.contracts.judgeBridge.reason, 'judge bridge is not resolvable');
   assert.equal(missing.contracts.judgeBridge.looked.length, 2, 'в отчёте видно, где искали');
   assert.equal(missing.ok, false, 'недоступный мост рубит verify целиком');
 
-  const bridge = path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js');
-  fs.mkdirSync(path.dirname(bridge), { recursive: true });
-  fs.writeFileSync(bridge, '// stub bridge\n', 'utf8');
+  // 019 T015: мост берётся из каталога плагина — ставить его руками больше не нужно.
   const resolved = verifyProject(root, { supplyChain: false, home });
   assert.equal(resolved.contracts.judgeBridge.ok, true);
   assert.equal(resolved.ok, true);
@@ -584,9 +586,6 @@ function testVerifyDowngradesUnknownSectionsAndIgnoresDeprecatedSkill() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
   applyPlan(root, { home });
   validHarness(root);
-  const bridge = path.join(home, '.claude', 'bin', 'judge', 'judge-invoke.js');
-  fs.mkdirSync(path.dirname(bridge), { recursive: true });
-  fs.writeFileSync(bridge, '// stub bridge\n', 'utf8');
   for (const rel of ['AGENTS.md', 'CLAUDE.md', path.join('.gemini', 'GEMINI.md')]) {
     fs.appendFileSync(path.join(root, rel), '\n## Свої нотатки проєкту\nживий текст\n', 'utf8');
   }

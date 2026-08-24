@@ -23,12 +23,15 @@ Auto-revert зі схеми B так і не взято: черга й зада�
 4. Продовження — `elt status`; без `--spec` він бере найновіший план. Старий план завжди вказувати явно.
 
 ```powershell
-node "$env:USERPROFILE\.claude\bin\elt.js" status
-node "$env:USERPROFILE\.claude\bin\elt.js" brief tools/elt.js   # ПЕРЕД слайсом, не після
-node "$env:USERPROFILE\.claude\bin\elt.js" slice next --json --count 3 --spec specs/NNN-name
-node "$env:USERPROFILE\.claude\bin\elt.js" judge run --task T001 --spec specs/NNN-name
-node "$env:USERPROFILE\.claude\bin\elt.js" commit --task T001 --spec specs/NNN-name --skip-oracle
+node tools/elt.js status
+node tools/elt.js brief tools/elt.js   # ПЕРЕД слайсом, не після
+node tools/elt.js slice next --json --count 3 --spec specs/NNN-name
+node tools/elt.js judge run --task T001 --spec specs/NNN-name
+node tools/elt.js commit --task T001 --spec specs/NNN-name --skip-oracle
 ```
+
+Поза цим репо той самий CLI живе в каталозі плагіна: `${CLAUDE_PLUGIN_ROOT}/tools/elt.js`.
+Deploy-копії `~/.claude/bin` більше немає (019/T015).
 
 ## Автономний прогін
 
@@ -44,7 +47,6 @@ PowerShell-драйвер знято спекою 019 (T007) разом із у�
 і логи `.harness/loop-logs/` лишаються: їх пише сам `elt`, а не драйвер.
 
 ```powershell
-node tools/sync-bin.js
 node tools/elt.js oracle --full
 node tools/elt.js judge run --task T001
 node tools/elt.js commit --task T001 --skip-oracle -m "feat: опис"
@@ -80,11 +82,13 @@ node tools/elt.js commit --task T001 --skip-oracle -m "feat: опис"
 | `elt-selfheal*.ps1` — watchdog і авто-merge | ЗНЯТО без заміни: авто-merge чужої роботи небезпечніший за червоний рядок у черзі `elt review` |
 | `elt-fleet.ps1` + `tools/fleet/**` | штатні субагенти (знято ще в T006) |
 | `approval-guard.js` | підпис спеки живе трейлерами коміта (спека 018), сторож більше не потрібен |
-| `elt harness sync-all` — розкатка схеми v4 по реєстру чужих проєктів | ЗНЯТО: розкатку робить установка плагіна (T015), до неї — вручну |
+| `elt harness sync-all` — розкатка схеми v4 по реєстру чужих проєктів | ЗНЯТО: розкатку робить установка плагіна (T015) |
 | `elt harness propose` — judge-bench-гейт на правку судді | ЗНЯТО (D16: був недосяжний); еволюцію контуру доводить ledger із T019 |
 | `sync-agent-surface.js` — дзеркало скілів у три CLI | ЗНЯТО: скіли ставить `agent-skill-supply-chain.js install-skills` |
 | `codegraph-guard.js` + `codegraphGuard` у конфізі | ЗНЯТО: єдиний виклик жив у драйвері; codegraph лишається довідкою, не воротами |
 | `doctor --fleet`, `surface:sync` у докторі | ЗНЯТО разом із підсистемами, які вони перевіряли |
+| `sync-bin.js` + deploy-копія `~/.claude/bin` | установка плагіна: встановлений каталог І Є джерелом (T015). Копія, що лежить там сьогодні, лишається робочою, але більше не оновлюється |
+| `judge:bridge`, `harness:global-cli` у докторі; побайтна сверка `tools/elt.js` ≡ `~/.claude/bin/elt.js` | `node bin/doctor.js`: замикання резолвиться, версії двох маніфестів збігаються |
 | `research*.js`, `hook-diet`, `agent-library`, `stuck-detector`, `probe-primitives`, `amos-baseline/`, `rag*.py` | ЗНЯТО: нуль викликів із живого шляху (перевірено грепом поіменно) |
 
 ## Видалені маршрути

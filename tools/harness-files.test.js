@@ -109,9 +109,7 @@ test('копий списка не осталось: оба потребител
 test('модуль остаётся листом замыкания судьи', () => {
   const src = fs.readFileSync(path.join(__dirname, 'harness-files.js'), 'utf8');
   const requires = src.match(/require\([^)]*\)/g) || [];
-  assert.deepEqual(requires, [], 'harness-files.js едет в deploy-копию каждого проекта — импортов быть не должно');
-  const { CLOSURE } = require('./sync-bin');
-  assert.ok(CLOSURE.includes('harness-files.js'), 'файл обязан входить в замыкание sync-bin');
+  assert.deepEqual(requires, [], 'harness-files.js — лист замыкания судьи: импортов быть не должно');
 });
 
 // D19, живая проводка: до этой правки знание о владении жило в гейте и не доезжало до судьи —

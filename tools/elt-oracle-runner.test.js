@@ -66,3 +66,24 @@ test('discover: находит только *.test.js и игнорит node_mod
   assert.ok(!found.includes('evil.test.js'), 'node_modules должен быть пропущен');
   assert.ok(!found.includes('notatest.js'));
 });
+
+// 019 T011 — оракул обязан видеть тесты точек входа плагина. Без этого корня новый код
+// харнеса живёт вне гейта, которым сам же харнес всех и меряет: `node --test bin/` был бы
+// зелёным, а полный оракул его просто не гонял бы.
+test('TEST_ROOTS: bin/ входит в оракул наравне с tools/', () => {
+  const { TEST_ROOTS } = require('./elt-oracle-runner');
+  assert.ok(TEST_ROOTS.includes('tools'), 'tools/ остаётся корнем');
+  assert.ok(TEST_ROOTS.includes('bin'), 'bin/ добавлен корнем');
+
+  const root = path.join(__dirname, '..');
+  const found = TEST_ROOTS
+    .map((d) => path.join(root, d))
+    .filter((d) => fs.existsSync(d))
+    .flatMap((d) => discover(d))
+    .map((f) => path.relative(root, f).split(path.sep).join('/'));
+
+  for (const rel of ['bin/doctor.test.js', 'bin/l0.test.js', 'bin/ledger.test.js', 'bin/oracle.test.js']) {
+    assert.ok(found.includes(rel), `${rel} попадает в выборку оракула`);
+  }
+  assert.ok(found.some((f) => f.startsWith('tools/')), 'tools/ не потерялся');
+});

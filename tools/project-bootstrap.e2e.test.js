@@ -27,24 +27,19 @@ function gitTry(root, home, args) {
 }
 function commitCount(root, home) { return Number(git(root, home, ['rev-list', '--count', 'HEAD'])); }
 
-// A real bootstrapped project's hook resolves `$HOME/.claude/bin/elt.js` — the
-// globally installed CLI, not a repo-local copy. Point HOME at a disposable
-// fixture carrying a guaranteed-fresh copy of THIS repo's elt.js instead of
-// trusting whatever happens to be installed on the dev machine right now.
+// 019 T015: раньше хук бутстрапнутого проекта звал `$HOME/.claude/bin/elt.js`, и фикстура
+// клала туда срез из четырёх файлов. Срез и был источником целого класса дефектов (D16, D18):
+// он отставал от репо молча и разваливался на пятом соседе. Теперь хук зовёт CLI плагина по
+// запечённому пути, а HOME остаётся одноразовым только ради git-конфига фикстуры.
 function makeHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bootstrap-e2e-home-'));
   homes.push(home);
-  const bin = path.join(home, '.claude', 'bin');
-  fs.mkdirSync(bin, { recursive: true });
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js']) {
-    fs.copyFileSync(path.join(__dirname, name), path.join(bin, name));
-  }
   return home;
 }
 
-function eltHome(home) { return path.join(home, '.claude', 'bin', 'elt.js'); }
+const ELT_CLI = path.join(__dirname, 'elt.js');
 function runElt(root, home, args) {
-  return spawnSync(process.execPath, [eltHome(home), ...args], { cwd: root, encoding: 'utf8' });
+  return spawnSync(process.execPath, [ELT_CLI, ...args], { cwd: root, encoding: 'utf8' });
 }
 
 function fixture(home) {
