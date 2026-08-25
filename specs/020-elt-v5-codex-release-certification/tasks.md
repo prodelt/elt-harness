@@ -187,7 +187,7 @@
   склеивает чужие зоны; `taskCountOf` считает столько же задач, сколько до правки.
   [files: tools/elt.js tools/elt-tasks.test.js tools/elt-gate-l0.js tools/elt-gate-l0.test.js]
 
-- [ ] **T005** Preregistered authoritative benchmark + Codex live certification: зафіксувати
+- [X] **T005** Preregistered authoritative benchmark + Codex live certification: зафіксувати
   dataset revision, evaluator/toolchain image digest і щонайменше три задачі Aider Polyglot до
   запуску; для кожної створити arms `plain Codex`/`Codex + ELT` від одного seed SHA з однаковими
   prompt/model/effort/coding budget, grader hashes і worker/coding timeout. Primary endpoint обох
