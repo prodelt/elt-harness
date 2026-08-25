@@ -176,6 +176,17 @@
   post-release promotion gates; до них README показує `not yet measured`, а не fake pass.
   [files: tools/graph-conformance.test.js tools/graph-kpi.js tools/graph-kpi.test.js bin/doctor.js docs/ARCHITECTURE.md specs/020-elt-v5-codex-release-certification/diagrams/elt-v5-graph-harness.mmd specs/020-elt-v5-codex-release-certification/diagrams/elt-v5-batch-certification.mmd specs/020-elt-v5-codex-release-certification/diagrams/elt-v5-safe-update.mmd]
 
+- [ ] **T023** Полный текст задачи доезжает до гейта: `parseTasksFile` обязан отдавать ВЕСЬ блок
+  задачи, а не только строку с маркером. Сегодня продолжение многострочной задачи вместе с
+  `[files:]` теряется, поэтому scope-триггер L0 `out-of-scope` не срабатывает ни на одной задаче
+  планов 019/020, а судья получает огрызок описания вместо критериев (доказательство —
+  `judge-desc.json` слайса T012 и запись `task-text-truncated-to-first-line` в `.elt/ledger.jsonl`).
+  Разбор `[files:]` обязан принимать разделители, которыми список записан в реальных планах
+  (пробелы и запятые), а не только запятые. Регрессы: многострочная задача отдаёт `[files:]`;
+  scope-триггер загорается на файле вне зоны и молчит на файле внутри; батч из N задач не
+  склеивает чужие зоны; `taskCountOf` считает столько же задач, сколько до правки.
+  [files: tools/elt.js tools/elt-tasks.test.js tools/elt-gate-l0.js tools/elt-gate-l0.test.js]
+
 - [ ] **T005** Preregistered authoritative benchmark + Codex live certification: зафіксувати
   dataset revision, evaluator/toolchain image digest і щонайменше три задачі Aider Polyglot до
   запуску; для кожної створити arms `plain Codex`/`Codex + ELT` від одного seed SHA з однаковими
