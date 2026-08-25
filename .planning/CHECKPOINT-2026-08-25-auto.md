@@ -1,10 +1,10 @@
 # Checkpoint (auto) — 2026-08-25
 
-Автозаписан `checkpoint-writer.js` на пороге ~220k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~266k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/elt-v5-one-hour`
-- dirty files: 2
+- dirty files: 3
 
 ## Last Run
 - commit: `(none)`
@@ -14,8 +14,8 @@
 
 ## Next Slice
 - plan file: `specs\021-gemini-benchmark-release-readiness\tasks.md`
-- open: 5 / done: 2
-- next: T002 Перенести benchmark із session scratchpad у versioned, resume-safe контур:
+- open: 4 / done: 3
+- next: T003 Виконати повний Gemini-only benchmark: paired writer A/B 30+30 на
 
 ## Resume Prompt
-/elt continue — план `specs\021-gemini-benchmark-release-readiness\tasks.md`, следующий слайс: T002 Перенести benchmark із session scratchpad у versioned, resume-safe контур:
+/elt continue — план `specs\021-gemini-benchmark-release-readiness\tasks.md`, следующий слайс: T003 Виконати повний Gemini-only benchmark: paired writer A/B 30+30 на

@@ -166,27 +166,74 @@ function itemFromDatasetRow(row, kind) {
         fs.writeFileSync(path.join(workDir, row.file), row.stub, 'utf8');
         fs.writeFileSync(path.join(workDir, row.testFile), row.test, 'utf8');
       },
-      prompt(hand) {
-        const base = `Реализуй ${row.file} так, чтобы прошли тесты в ${row.testFile}. Не трогай ${row.testFile}. Верни только итоговое содержимое ${row.file}.`;
-        return hand === 'elt' ? `${base}\n\n(рука elt: гейт запускается ПОСЛЕ этого ответа, поверх того же кода — промпт идентичен руке plain)` : base;
+      prompt() {
+        // Identical text in BOTH hands (preregistration.writerExperiment.arms.elt.note):
+        // the elt hand adds a gate AFTER this same answer, never a different prompt —
+        // a per-hand prompt would compare prompts, not the harness.
+        return `Реализуй ${row.file} так, чтобы прошли тесты в ${row.testFile}. Не трогай ${row.testFile}. Верни только итоговое содержимое ${row.file}.`;
       },
     };
   }
   if (kind === 'swebench-gate') {
+    // Gate experiment hands are a judge-dimension x patch-dimension product, spelled out
+    // explicitly rather than inferred, so an unknown hand fails loudly instead of quietly
+    // grading the wrong patch: bare-gold, bare-broken, judgeDiff-gold, judgeDiff-broken.
+    const GATE_HANDS = { 'bare-gold': 'goldPatch', 'bare-broken': 'brokenPatch', 'judgeDiff-gold': 'goldPatch', 'judgeDiff-broken': 'brokenPatch' };
     return {
       id: row.id,
       guardPath: null,
       materialize(workDir, hand) {
+        if (!GATE_HANDS[hand]) throw new Error(`swebench-gate: unknown hand '${hand}', expected one of ${Object.keys(GATE_HANDS).join(', ')}`);
         fs.mkdirSync(workDir, { recursive: true });
-        const patch = hand === 'judgeDiff-bad' || hand === 'bad' ? row.brokenPatch : row.goldPatch;
-        fs.writeFileSync(path.join(workDir, 'candidate.patch'), patch, 'utf8');
+        fs.writeFileSync(path.join(workDir, 'candidate.patch'), row[GATE_HANDS[hand]], 'utf8');
         fs.writeFileSync(path.join(workDir, 'meta.json'), JSON.stringify({ repo: row.repo, baseCommit: row.baseCommit }), 'utf8');
       },
+      // No generation in the gate experiment — the candidate patch is fixed by the
+      // dataset (gold or broken), only judged/graded. execAgent is not called for this
+      // kind (see gradeSweBenchGate / graderFor below), so this prompt is never sent.
       prompt() {
-        return `judge review only — no generation for the gate experiment`;
+        return '(unused: swebench-gate has no generation step)';
       },
     };
   }
+  throw new Error(`unknown dataset kind: ${kind}`);
+}
+
+// no-op execAgent for the gate experiment: the candidate patch is fixed by the dataset,
+// there is nothing for an agent to generate.
+async function noGenerationExecAgent() {
+  return { ok: true, reason: null };
+}
+
+// Writer grader: the grader is NOT part of ELT (preregistration.writerExperiment —
+// same principle as v5.0.0) — plain pytest on the untouched held-out test file.
+function pytestCommand(testFile) {
+  return process.platform === 'win32' ? ['py', ['-3', '-m', 'pytest', testFile, '-q']] : ['python3', ['-m', 'pytest', testFile, '-q']];
+}
+
+async function gradePolyglotWriter({ workDir, item }) {
+  const { spawnSync } = require('child_process');
+  const [cmd, cmdArgs] = pytestCommand(item.guardPath);
+  const res = spawnSync(cmd, cmdArgs, { cwd: workDir, encoding: 'utf8', timeout: 120000 });
+  const output = `${res.stdout || ''}${res.stderr || ''}`;
+  return { pass: res.status === 0, detail: output.trim().slice(-2000) };
+}
+
+// Gate grader: NOT implemented for either dimension yet, on purpose — faking a result
+// would be worse than an honest gap. bare-* needs a real per-instance SWE-bench test
+// environment (docker/venv per repo at base_commit) that does not exist in this repo.
+// judgeDiff-* needs tools/judge-core.js's judgeDiff(), but that function's grounding
+// check (checkGrounding) reads real git status/task context in `cwd` — it is built for
+// ELT's own task diffs, not an arbitrary external SWE-bench patch, and adapting it
+// safely (or building a standalone diff-only judge entrypoint) is its own scoped task,
+// not a same-pass wire-up. See README.md "Известное ограничение".
+async function gradeSweBenchGate({ hand }) {
+  throw new Error(`gradeSweBenchGate: '${hand}' не реализован — требует либо реального SWE-bench test harness (bare-*), либо адаптации tools/judge-core.js под внешний дифф без ELT-контекста (judgeDiff-*). См. README.md.`);
+}
+
+function graderFor(kind) {
+  if (kind === 'polyglot-writer') return gradePolyglotWriter;
+  if (kind === 'swebench-gate') return gradeSweBenchGate;
   throw new Error(`unknown dataset kind: ${kind}`);
 }
 
@@ -201,9 +248,11 @@ async function main(argv) {
   const rows = readResultRows(args.out);
   const items = dataset.items.map((row) => itemFromDatasetRow(row, dataset.kind));
   const pending = pendingItems(items, args.hand, rows);
+  const grade = graderFor(dataset.kind);
+  const execAgent = dataset.kind === 'swebench-gate' ? noGenerationExecAgent : undefined;
   console.log(`elt-bench-runner: ${dataset.kind} hand=${args.hand} — ${pending.length}/${items.length} pending`);
   for (const item of pending) {
-    const result = await runOneTask({ item, hand: args.hand, model: args.model, workRoot: args.workRoot, retryMax: args.retryMax });
+    const result = await runOneTask({ item, hand: args.hand, model: args.model, workRoot: args.workRoot, retryMax: args.retryMax, grade, ...(execAgent ? { execAgent } : {}) });
     appendResultRow(args.out, { ts: new Date().toISOString(), ...result });
     console.log(`  ${item.id}: ${result.outcome}`);
   }
@@ -212,7 +261,8 @@ async function main(argv) {
 module.exports = {
   sha256, seededRandom, seededShuffle, wilsonInterval, classifyFailure,
   appendResultRow, readResultRows, pendingItems, runOneTask, defaultExecAgent,
-  itemFromDatasetRow, parseArgs,
+  itemFromDatasetRow, parseArgs, pytestCommand, gradePolyglotWriter, gradeSweBenchGate,
+  graderFor, noGenerationExecAgent,
 };
 
 if (require.main === module) {

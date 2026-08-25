@@ -12,7 +12,7 @@
 | `runner.js` | исполняет одну (задача, рука) пару, append-only JSONL, resume-safe, retry только на transport-отказ |
 | `build-gate-dataset.js` | детерминированный сборщик датасета: `polyglot-writer` (30 задач) и `swebench-gate` (30 инстансов, gold+broken патч на каждый) |
 | `summarize.js` | machine-generated `summary.json` + markdown таблица, Wilson 95% CI, `claimEligible` только когда ОБЕ руки терминальны на КАЖДОМ элементе |
-| `runner.test.js` | 20 discriminating regressions — детерминизм отбора, anti-tamper guard, transport-vs-content retry, CI-математика; ни один тест не зовёт живого агента |
+| `runner.test.js` | 24 discriminating regressions — детерминизм отбора, anti-tamper guard, transport-vs-content retry, CI-математика, реальный (не мокнутый) pytest-грейдер; живого агента зовёт только сам T003-прогон |
 
 ## Два эксперимента
 
@@ -26,6 +26,24 @@
 `tools/judge-core.js`. Точный протокол ЭТОГО эксперимента не был зафиксирован текстом задачи T002
 дословно — решения записаны в `preregistration.json.designDecisionsNotInTaskText` до первого
 результата, не задним числом.
+
+### Известное ограничение — gate-эксперимент не исполним прямо сейчас
+
+Дата-сет и синтетический broken-патч для `gate-bare-vs-judgeDiff` строятся и тестируются
+(`stripLastHunk`, `selectSweBenchInstances`), но у `runner.js` **нет реального грейдера** для
+этого эксперимента — `graderFor('swebench-gate')` намеренно бросает ошибку вместо того, чтобы
+подделать вердикт (`runner.test.js`: «throws a clear not-implemented error instead of faking a
+verdict»). Причина по рукам:
+
+* `bare-*` — нужен настоящий per-instance SWE-bench test harness (docker/venv на repo при
+  `base_commit`, запуск `FAIL_TO_PASS`/`PASS_TO_FAIL`). Такого харнеса в этом репозитории нет.
+* `judgeDiff-*` — нужен `tools/judge-core.js:judgeDiff()`, но его `checkGrounding` читает
+  реальный git-статус и контекст задачи ELT в `cwd`; он рассчитан на дифф собственной задачи
+  ELT, а не на произвольный внешний SWE-bench патч. Безопасная адаптация (или отдельная
+  standalone diff-only точка входа для судьи) — самостоятельная задача, не однопроходная стыковка.
+
+Инфраструктура датасета готова, чтобы эту работу можно было сделать отдельным слайсом. До тех
+пор T003 реалистично исполняет только `writer-plain-vs-elt`.
 
 ## Воспроизведение (сборка датасета, БЕЗ прогона агента)
 
