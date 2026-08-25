@@ -713,11 +713,23 @@ async function testEmptyDiffStillReachesJudge() {
 // (а) Конфиг репо обязан называть ЖИВОГО судью. `agy` падает spawn ENAMETOOLONG на любом
 // реальном диффе (промпт идёт через argv) — все 11 слайсов 011 прошли ручным `--provider
 // claude`, т.е. дефолтный путь был сломан, а тесты этого не видели.
+//
+// 020 T011 развёл два разных утверждения, которые здесь были склеены:
+//   * «конфиг репо называет судью, которого рантайм умеет позвать» — свойство РЕПОЗИТОРИЯ,
+//     проверяется везде, в том числе на обеих машинах CI;
+//   * «этот CLI установлен на машине» — свойство ХОСТА. Оно требовало установленного судьи от
+//     каждого, кто гонит оракул, то есть делало полный named oracle на GitHub недостижимым по
+//     построению. Хост-часть переехала в `tools/host-surface.js` (`node tools/host-surface.js`)
+//     и в `doctor`; здесь остаётся то, что репозиторий действительно контролирует.
 function testRepoJudgeProviderIsAlive() {
   const { config: cfg } = readHarnessConfig(ROOT);
   assert.notEqual(cfg.judge.provider, 'agy',
     'agy как первичный судья этого репо: spawn ENAMETOOLONG на диффе больше пары килобайт');
-  assert.ok(providers.available(cfg.judge.provider), `судья ${cfg.judge.provider} из harness.json не установлен`);
+  assert.ok(providers.PROVIDERS[cfg.judge.provider],
+    `судья ${cfg.judge.provider} из harness.json — не тот провайдер, которого рантайм умеет спавнить`);
+  // Дискриминирующая половина: опечатка в конфиге обязана быть видна, иначе проверка выше
+  // была бы истинной при любом значении.
+  assert.equal(providers.PROVIDERS.clade, undefined, 'опечатка в имени провайдера не резолвится');
 }
 
 // Стаб с разным поведением по провайдерам: мёртвый первичный, живая замена.

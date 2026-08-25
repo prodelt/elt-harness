@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { resolveBinary, classify, CODE_CATEGORIES, HARD_BLOCK_IDS } = require('./skill-scan');
+const { resolveBinary, classify, unknownCodeCategories, CODE_CATEGORIES, HARD_BLOCK_IDS } = require('./skill-scan');
 
 function tmpHome() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-scan-'));
@@ -89,11 +89,59 @@ function testBinaryAssetsAreNoise() {
   assert.equal(verdict, 'pass', 'совпадение по сырым байтам картинки — шум, а не поведение скилла');
 }
 
-// Живой бинарь: единственная проверка, которая ловит СЛЕДУЮЩЕЕ переименование категорий.
-// Без бинаря молча пропускается — тест не должен падать на чужой машине.
+// 020 T011 — контракт дрейфа категорий НА ФИКСТУРЕ, без бинаря сканера.
+//
+// До этой задачи весь класс проверялся только живым бинарём, а без него тест печатал «SKIPPED»
+// и оставался зелёным: на CI и на чужой машине он не проверял ничего. Отчёт сканера — обычный
+// JSON, поэтому детектор дрейфа проверяется его фикстурой везде одинаково, а живой прогон ниже
+// стал дополнительным подтверждением, а не единственным.
+const REPORT_FIXTURE = (category) => ({
+  components: [
+    { path: 'run.py', executable: true },
+    { path: 'SKILL.md', executable: false },
+  ],
+  issues: [
+    { id: 'AST3', category, severity: 'HIGH', location: { file: 'run.py', start_line: 2 }, finding: 'exec remote payload' },
+  ],
+});
+
+function testDriftDetectorOnFixture() {
+  // Имя, которое мы знаем → дрейфа нет, и находка блокирует.
+  for (const known of CODE_CATEGORIES) {
+    assert.deepEqual(unknownCodeCategories(REPORT_FIXTURE(known)), [],
+      `«${known}» есть в CODE_CATEGORIES — дрейфом это быть не может`);
+  }
+  const known = REPORT_FIXTURE('Dangerous Code Execution');
+  assert.equal(classify(known.issues, known.components).verdict, 'blocked',
+    'находка в исполняемом файле по известной категории обязана блокировать');
+
+  // Сканер переименовал категорию → детектор обязан назвать новое имя, а классификация
+  // молча съезжает в `review`. Ровно эта пара и есть измеренный дефект 2.1.3 → 2.8.2.
+  const drifted = REPORT_FIXTURE('Behavioural Static Analysis');
+  assert.deepEqual(unknownCodeCategories(drifted), ['Behavioural Static Analysis']);
+  assert.equal(classify(drifted.issues, drifted.components).verdict, 'review',
+    'без имени в CODE_CATEGORIES гейт слабеет — потому дрейф и стерегут отдельно');
+
+  // Хард-блок именем сигнатуры дрейфом не считается: он ловится по id, а не по категории.
+  const hard = REPORT_FIXTURE('Что угодно новое');
+  hard.issues[0].id = 'YR1';
+  assert.deepEqual(unknownCodeCategories(hard), [], 'id из HARD_BLOCK_IDS не зависит от имени категории');
+
+  // Не-исполняемый файл и низкая важность в счёт дрейфа не идут — иначе детектор шумел бы.
+  const prose = REPORT_FIXTURE('Behavioural Static Analysis');
+  prose.issues[0].location.file = 'SKILL.md';
+  assert.deepEqual(unknownCodeCategories(prose), []);
+  const low = REPORT_FIXTURE('Behavioural Static Analysis');
+  low.issues[0].severity = 'MEDIUM';
+  assert.deepEqual(unknownCodeCategories(low), []);
+}
+
+// Живой бинарь: дополнительное подтверждение на настоящем выводе сканера. Контракт уже
+// закрыт фикстурой выше, поэтому отсутствие бинаря здесь — состояние машины, а не пробел
+// в покрытии; строка об этом печатается явно.
 function testLiveCategoryNamesStillCovered() {
   const binary = resolveBinary();
-  if (!binary) { process.stdout.write('skill-scan: live-drift check SKIPPED (no binary)\n'); return; }
+  if (!binary) { process.stdout.write('skill-scan: живой прогон сканера пропущен (бинаря нет); контракт дрейфа закрыт фикстурой\n'); return; }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-scan-fx-'));
   try {
     fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: fx\ndescription: fx\n---\nHelper.\n');
@@ -105,19 +153,13 @@ function testLiveCategoryNamesStillCovered() {
     const r = spawnSync(binary, ['scan', dir, '--no-llm', '--format', 'json'],
       { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout: 180000 });
     const out = (r.stdout || '').slice((r.stdout || '').indexOf('{'));
-    if (!out) { process.stdout.write('skill-scan: live-drift check SKIPPED (scanner produced no JSON)\n'); return; }
+    // Сканер есть, но JSON не отдал — это отказ инструмента, а не «проверено чисто».
+    assert.ok(out, 'сканер установлен, но не отдал JSON — так тихо гейт и слабеет');
     const report = JSON.parse(out);
-    const execFiles = new Set((report.components || []).filter((c) => c.executable).map((c) => c.path));
-    const unknown = new Set();
-    for (const i of report.issues || []) {
-      const sev = String(i.severity || '').toUpperCase();
-      if (sev !== 'HIGH' && sev !== 'CRITICAL') continue;
-      const file = i.location && i.location.file;
-      if (!file || !execFiles.has(file)) continue;
-      if (!HARD_BLOCK_IDS.has(i.id) && !CODE_CATEGORIES.has(i.category)) unknown.add(i.category);
-    }
-    assert.deepEqual([...unknown], [],
-      `SkillSpector репортит категории кода, которых нет в CODE_CATEGORIES — гейт ослаб молча: ${[...unknown].join(', ')}`);
+    // Тот же детектор, что и на фикстуре: одна реализация, два источника отчёта.
+    const unknown = unknownCodeCategories(report);
+    assert.deepEqual(unknown, [],
+      `SkillSpector репортит категории кода, которых нет в CODE_CATEGORIES — гейт ослаб молча: ${unknown.join(', ')}`);
     const { verdict } = classify(report.issues || [], report.components || []);
     assert.equal(verdict, 'blocked', 'эксфильтрация env + exec удалённого payload обязана блокировать');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -131,6 +173,7 @@ function main() {
   testProseHighIsOnlyAdvisory();
   testHardBlockIgnoresFileType();
   testBinaryAssetsAreNoise();
+  testDriftDetectorOnFixture();
   testLiveCategoryNamesStillCovered();
   process.stdout.write('skill-scan tests: PASS\n');
 }

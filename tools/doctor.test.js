@@ -514,13 +514,21 @@ function testSelfDriveInvariantsCheck() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// 020 T011: подменяются ОБЕ переменные. `os.homedir()` читает `USERPROFILE` на Windows и
+// `HOME` на Linux/macOS, поэтому подмена одной изолировала тест только на той машине, где его
+// писали: на второй машине CI он читал бы настоящий домашний каталог раннера — то есть проверял
+// бы чужое состояние вместо фикстуры. Это тот же класс, что и два красных файла фронт-гейта.
 function withHome(home, fn) {
-  const previous = process.env.USERPROFILE;
+  const previous = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
   process.env.USERPROFILE = home;
+  process.env.HOME = home;
   try {
     return fn();
   } finally {
-    process.env.USERPROFILE = previous;
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 

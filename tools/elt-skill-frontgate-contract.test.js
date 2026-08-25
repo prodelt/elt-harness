@@ -1,117 +1,155 @@
 #!/usr/bin/env node
 'use strict';
-// T008 (specs/006-elt-front-gate): контракт-тест наличия/структуры elt SKILL.md Режим 0 v2.
-// Скилл живёт ВНЕ этого репо (~/.claude/skills/elt/SKILL.md — глобальный), тест читает реальный
-// домашний каталог — тот же паттерн, что tools/skills-frontgate-contract.test.js (T007).
+// Контракт `/elt` — единственной инструкции, которую агент читает ПЕРЕД работой.
+//
+// 020 T011 переадресовал файл. До этого он читал `os.homedir()/.claude/skills/elt/SKILL.md` —
+// легаси-развёртку, замороженную на версии 4.0.0. С v5 скил поставляется плагином из
+// `skills/elt/SKILL.md`, и домашняя копия больше не обновляется (`sync-bin.js` снят спекой
+// 019 T015). Проверка была ложно-зелёной дважды: она стерегла файл, который плагин не
+// поставляет, и падала на любой машине без домашнего каталога разработчика — включая обе
+// машины CI. Ниже проверяется РЕПОЗИТОРНАЯ копия, поэтому файл герметичен.
+//
+// Что стерегут утверждения: если из инструкции пропадает маршрут, снаружи его не существует —
+// агент пойдёт мимо гейта, а не «догадается».
+//
+// Граница задачи. Старый контракт требовал ещё двенадцать механизмов (`elt brief`, `elt review`,
+// `l0-clean`, `verify:"background"`, `committed-speculative`, `bg-red`, `bg-silent`,
+// `backgroundTimeoutMin`, `health.jsonl`, `grill-me`, `elt spec lint`, Mermaid-схему). В рантайме
+// они живы — их потерял сам текст v5, и возвращает их T012/T015 (RC от 2026-08-24, пункт 3).
+// Дописывать их сюда авансом нельзя: тест стал бы красным на задаче, которая его не трогает.
+// Здесь закреплено ровно то, что маршрут v5 обещает сегодня.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 
-const SOURCE_PATH = path.join(os.homedir(), '.claude', 'skills', 'elt', 'SKILL.md');
-const MIRRORS = [
-  path.join(os.homedir(), '.codex', 'skills', 'elt', 'SKILL.md'),
-  path.join(os.homedir(), '.gemini', 'skills', 'elt', 'SKILL.md'),
-];
+const ROOT = path.join(__dirname, '..');
+const SOURCE_PATH = path.join(ROOT, 'skills', 'elt', 'SKILL.md');
+const TEXT = fs.readFileSync(SOURCE_PATH, 'utf8');
 
-function read(p) { return fs.readFileSync(p, 'utf8'); }
-
-test('elt SKILL.md существует', () => {
+test('скил поставляется репозиторием, а не домашним каталогом', () => {
   assert.ok(fs.existsSync(SOURCE_PATH), `не найден ${SOURCE_PATH}`);
+  // Домашняя копия упоминается ровно один раз и только как СНЯТАЯ — в таблице замен. Если
+  // она вернётся в маршрут (в цепочку гейта или в режимы), агент снова начнёт править файл,
+  // который плагин не поставляет: ровно так и разошлись три копии инструкций (019 T013).
+  const route = TEXT.split('## Что снято и чем заменено')[0];
+  assert.doesNotMatch(route, /~[/\\]\.claude[/\\]bin/, 'снятая deploy-копия не смеет быть маршрутом');
 });
 
-test('elt SKILL.md: grill-me обязателен в 3 случаях (новый проект / нет решений / UI)', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /grill-me.{0,20}обязателен/s);
-  assert.match(text, /новый\s*проект/);
-  assert.match(text, /нет зафиксированных решений/);
-  assert.match(text, /UI\/дизайн-задача|UI-задач/);
+test('frontmatter: name elt и версия, совпадающая с plugin.json', () => {
+  assert.match(TEXT, /^---[\s\S]*?name:\s*elt\b[\s\S]*?---/m);
+  const version = /^version:\s*(\S+)\s*$/m.exec(TEXT);
+  assert.ok(version, 'версия скила объявлена');
+  const plugin = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
+  assert.equal(version[1], plugin.version, 'версия скила и версия плагина расходиться не могут');
 });
 
-test('elt SKILL.md: шаблон spec.md = секции elt spec lint + Mermaid-схема', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /elt spec lint/);
-  assert.match(text, /Mermaid-схема/);
-});
-
-test('elt SKILL.md: судейская рубрика += «спека утверждена?»', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /[Сс]пека утверждена\?/);
-});
-
-// --- 011 T013: скилл описывает НОВЫЙ гейт, а не прошлый ------------------------------
-// Скилл — единственная инструкция, которую агент читает перед работой. Пока в нём живёт
-// ссылка на удалённый флаг, агент будет его набирать и получать exit 4, а пока в нём нет
-// третьего исхода — будет перезапускать судью по `inconclusive`, которого не должно быть.
-
-test('elt SKILL.md: ссылок на удалённые флаги люка не осталось', () => {
-  const text = read(SOURCE_PATH);
-  assert.doesNotMatch(text, /--skip-attest/, 'флаг удалён из CLI (011 T011) — в инструкции его быть не может');
-  assert.doesNotMatch(text, /--attested-by/, 'то же самое для второго флага люка');
-});
-
-test('elt SKILL.md: описаны ТРИ исхода судьи, включая inconclusive без второго раунда', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /inconclusive/, 'третий исход назван');
-  assert.match(text, /[Вв]торого раунда.{0,20}нет/s, 'сказано, что судью не перезапускают');
-  assert.match(text, /review-queue\.jsonl/, 'названо, куда уходит причина');
-});
-
-test('elt SKILL.md: описаны очередь ревью и её команды', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /elt review\b/);
-  assert.match(text, /elt review close --task/);
-  assert.match(text, /неблокирующ/i, 'очередь не стопорит работу — это часть контракта, не деталь');
-});
-
-test('elt SKILL.md: сказано, что судью могут не позвать вовсе (L0 / l0-clean)', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /l0-clean/);
-  assert.match(text, /триггер/i, 'объяснено, ЧЕМ решается вызов судьи');
-});
-
-// --- 014 T018: скилл описывает СПЕКУЛЯТИВНЫЙ контур v4 ---------------------------------
-// Аудит 29.07: контур судьи жил ТОЛЬКО в репо-разработчике. Пока новый маршрут не назван в
-// единственной инструкции, которую агент читает перед работой, снаружи его не существует:
-// агент будет ждать вердикта от коммита, который его больше не отдаёт, и не пойдёт разбирать
-// очередь. Четыре утверждения ниже — это и есть контракт маршрута, не украшение текста.
-
-test('elt SKILL.md: коммит возвращает управление (verify:"background")', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /verify/, 'поле маршрута названо');
-  assert.match(text, /background/, 'режим назван');
-  assert.match(text, /повертає керування|возвращает управление/, 'сказано, что commit НЕ ждёт тяжёлые слои');
-  assert.match(text, /committed-speculative/, 'назван статус в run-log');
-});
-
-test('elt SKILL.md: красное из фона — задача в очереди, не блок', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /bg-red/, 'вид записи назван');
-  assert.match(text, /review-queue\.jsonl/, 'названо, куда она уходит');
-  // Спека решила это явно: очередь и задача, но НЕ откат — откат чужой работы без спроса
-  // опаснее красной строки в очереди. Инструкция обязана сказать это, а не умолчать.
-  assert.match(text, /авто-реверт[ауи]? немає|автооткат[а]? нет/i, 'сказано, что отката нет');
-});
-
-test('elt SKILL.md: молчание фона — инцидент bg-silent, а не тишина', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /bg-silent/);
-  assert.match(text, /backgroundTimeoutMin/, 'назван порог, после которого молчание становится инцидентом');
-  assert.match(text, /health\.jsonl/, 'названо, куда пишется инцидент');
-});
-
-test('elt SKILL.md: elt brief вызывается ПЕРЕД слайсом', () => {
-  const text = read(SOURCE_PATH);
-  assert.match(text, /elt brief/);
-  assert.match(text, /(ПЕРЕД|ДО) (слайсом|роботи|работы)/i, 'сказано, что это питание до работы, а не проверка после');
-});
-
-test('elt SKILL.md: зеркала codex/gemini побайтово идентичны источнику', () => {
-  const source = read(SOURCE_PATH);
-  for (const mirror of MIRRORS) {
-    assert.ok(fs.existsSync(mirror), `зеркало не найдено: ${mirror}`);
-    assert.equal(read(mirror), source, `зеркало разошлось с источником: ${mirror}`);
+test('названы все четыре входа плагина', () => {
+  for (const entry of ['/elt', '/elt-verify', '/elt-defects', '/elt-doctor']) {
+    assert.ok(TEXT.includes(entry), `вход ${entry} не назван — снаружи его нет`);
   }
+});
+
+// --- цепочка гейта ---------------------------------------------------------------------
+// Три команды одним заходом и `--skip-oracle` в коммите — не стиль, а условие прохождения:
+// любая запись в дерево между шагами даёт `stale-tree`, перегон оракула внутри коммита —
+// `stale-oracle`. Оба класса стоили полных прогонов оракула (см. реестр дефектов).
+
+test('цепочка гейта: три команды, --skip-oracle в коммите, названы оба stale-класса', () => {
+  assert.match(TEXT, /elt\.js" oracle --full/, 'шаг оракула');
+  assert.match(TEXT, /elt\.js" judge run --task/, 'шаг судьи');
+  assert.match(TEXT, /elt\.js" commit --task/, 'шаг коммита');
+  assert.match(TEXT, /--skip-oracle/, 'коммит в цепочке всегда со --skip-oracle');
+  assert.match(TEXT, /stale-tree/);
+  assert.match(TEXT, /stale-oracle/);
+  assert.match(TEXT, /\$\{CLAUDE_PLUGIN_ROOT\}/, 'пути к рантайму — от корня плагина, не абсолютные');
+});
+
+test('батч: один план, и правка вне задач батча выносится отдельным слайсом', () => {
+  assert.match(TEXT, /--task T001,T002,T003|--task\s+T\d+,T\d+/, 'форма батча показана');
+  assert.match(TEXT, /scope creep/i, 'назван механизм, которым судья ловит чужую правку');
+  assert.match(TEXT, /отдельным слайсом/i);
+});
+
+// --- вердикты --------------------------------------------------------------------------
+// Три исхода, не два. Пока третий не назван, агент перезапускает судью по `inconclusive` —
+// ровно это и чинила спека 011 T011.
+
+test('описаны ТРИ исхода судьи, включая inconclusive без второго раунда', () => {
+  for (const verdict of ['pass', 'block', 'inconclusive']) {
+    assert.ok(TEXT.includes(verdict), `исход ${verdict} назван`);
+  }
+  assert.match(TEXT, /review-queue\.jsonl/, 'названо, куда уходит причина inconclusive');
+  assert.match(TEXT, /[Вв]торого раунда судьи нет/, 'сказано, что судью не перезапускают');
+});
+
+test('ровно один судья, и писатель не судит свою работу', () => {
+  assert.match(TEXT, /[Рр]овно один/, 'судья один');
+  assert.match(TEXT, /[Пп]исатель не судит свою работу/);
+});
+
+test('ссылок на снятые флаги люка самозаверения не осталось', () => {
+  assert.doesNotMatch(TEXT, /--skip-attest/, 'флаг удалён из CLI (011 T011)');
+  assert.doesNotMatch(TEXT, /--attested-by/, 'то же для второго флага люка');
+});
+
+test('красный оракул: максимум две попытки, тесты не ослаблять', () => {
+  assert.match(TEXT, /две узкие попытки/);
+  assert.match(TEXT, /[Тт]есты не удалять и не\s+ослаблять/);
+});
+
+// --- ревью пятью линзами ----------------------------------------------------------------
+
+test('ревью: пять линз параллельно, оценщик после них, отсечка 80', () => {
+  assert.match(TEXT, /ПАРАЛЛЕЛЬНО/, 'линзы не последовательные');
+  assert.match(TEXT, /confidence-scorer\.md/);
+  assert.match(TEXT, /отсечка 80/);
+  assert.match(TEXT, /[Пп]орядок обязателен/, 'сказано, ПОЧЕМУ оценщик идёт после, а не до');
+});
+
+// --- владения харнеса --------------------------------------------------------------------
+// Второй список владений — это дефекты D9/D15/D19. Инструкция обязана называть единственный.
+
+test('владения харнеса: один список, названо имя функции', () => {
+  assert.match(TEXT, /tools\/harness-files\.js/);
+  assert.match(TEXT, /isHarnessOwned/);
+  assert.match(TEXT, /[Вв]торого списка заводить нельзя/);
+});
+
+// --- подпись спеки -----------------------------------------------------------------------
+
+test('подпись спеки живёт в трейлерах коммита, а не в файле', () => {
+  assert.match(TEXT, /Spec-Approved:/);
+  assert.match(TEXT, /трейлер/i);
+  assert.match(TEXT, /approval\.json/, 'сказано, что снято именно оно — иначе агент будет его искать');
+  assert.match(TEXT, /elt spec approve/);
+});
+
+// --- снятые пути --------------------------------------------------------------------------
+
+test('снятые пути названы поимённо и сказано, чем заменены', () => {
+  for (const gone of ['tools/fleet/**', 'sync-bin.js', 'sync-agent-surface.js', 'judge.verify', 'harness-runner', '/pipeline']) {
+    assert.ok(TEXT.includes(gone), `снятый путь ${gone} не назван — агент попробует его позвать`);
+  }
+  assert.match(TEXT, /код(ом)? 64/, 'назван код выхода shim-ов');
+});
+
+// --- замыкание -----------------------------------------------------------------------------
+// Инструкция ссылается на файлы. Ссылка на несуществующий файл — это тупик посреди маршрута,
+// и заметить его иначе нечем: markdown никто не компилирует.
+
+test('каждый файл репозитория, названный инструкцией, существует', () => {
+  // Разбор идёт по всему тексту, а не только по backtick-ам: команды цепочки живут в
+  // fenced-блоке, где backtick-ов нет. Глобы (`agents/review-*.md`) и плейсхолдеры
+  // (`specs/NNN-name/spec.md`) отбрасываются — они не путь. `json` в альтернативе стоит перед
+  // `js`, иначе `cases-ingested.json` обрезается до несуществующего `.js`.
+  const referenced = new Set();
+  for (const m of TEXT.matchAll(/(?:tools|bin|agents|commands|skills|specs)\/[A-Za-z0-9._\-/]+\.(?:json|js|md)/g)) {
+    if (m[0].includes('*') || m[0].includes('NNN')) continue;
+    referenced.add(m[0]);
+  }
+  assert.ok(referenced.size >= 5, `в инструкции найдено слишком мало ссылок (${referenced.size}) — разбор сломался`);
+  const missing = [...referenced].filter((rel) => !fs.existsSync(path.join(ROOT, rel)));
+  assert.deepEqual(missing, [], 'инструкция ведёт в несуществующие файлы');
 });

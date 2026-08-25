@@ -87,3 +87,36 @@ test('TEST_ROOTS: bin/ входит в оракул наравне с tools/', (
   }
   assert.ok(found.some((f) => f.startsWith('tools/')), 'tools/ не потерялся');
 });
+
+// 020 T011 — third-party Actions в CI прибиты к неизменяемому SHA.
+//
+// `uses: actions/checkout@v4` — это не версия, а указатель, который владелец репозитория
+// вправе передвинуть на любой коммит. Шаг, который поднимает код перед гейтом, обязан быть
+// воспроизводимым: иначе гейт стережёт нас кодом, который мы не выбирали. Проверка читает
+// сам workflow, потому что заметить сдвиг тега иначе нечем.
+test('CI: каждый third-party Action прибит к 40-символьному SHA с комментарием-версией', () => {
+  const wf = path.join(__dirname, '..', '.github', 'workflows', 'test.yml');
+  const text = fs.readFileSync(wf, 'utf8');
+  const uses = [...text.matchAll(/^\s*-?\s*uses:\s*(\S+)(.*)$/gm)].map((m) => ({ ref: m[1], rest: m[2] }));
+  assert.ok(uses.length >= 2, `в workflow найдено ${uses.length} шагов uses — разбор сломался`);
+  for (const { ref, rest } of uses) {
+    // Локальные (`./…`) и docker-шаги пином не закрываются — их содержимое лежит в репозитории.
+    if (ref.startsWith('./') || ref.startsWith('docker://')) continue;
+    const at = ref.split('@');
+    assert.equal(at.length, 2, `${ref} — нет ссылки после @`);
+    assert.match(at[1], /^[0-9a-f]{40}$/, `${ref} прибит к плавающему тегу, а не к SHA`);
+    assert.match(rest, /#\s*v?\d+\.\d+\.\d+/, `${ref} — рядом с SHA нет комментария с версией, обновлять его вслепую нельзя`);
+  }
+});
+
+// Герметичность: named oracle обязан гонять хост-поверхность на фикстурах, а не читать
+// домашний каталог машины. Файл, который делал это, был ровно один на две машины CI.
+test('CI: шаг герметичности стоит ДО оракула и хост-проверка в оракуле есть', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'test.yml'), 'utf8');
+  const hermetic = text.indexOf('host-surface.js --expect-absent');
+  const oracle = text.indexOf('elt-oracle-runner.js --full');
+  assert.ok(hermetic > 0, 'шаг герметичности в workflow есть');
+  assert.ok(oracle > 0, 'шаг оракула в workflow есть');
+  assert.ok(hermetic < oracle, 'герметичность утверждается ДО оракула, иначе зелёный оракул нечем интерпретировать');
+  assert.ok(fs.existsSync(path.join(__dirname, 'host-surface.test.js')), 'фикстурный контракт хост-поверхности гоняется оракулом');
+});

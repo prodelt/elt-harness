@@ -64,6 +64,7 @@ test('разошедшиеся версии манифестов дают FAIL, 
 
   // runDoctor читает манифесты от PLUGIN_ROOT, поэтому подменяем корень через отдельный
   // процесс: копируем doctor.js в фикстуру и зовём его там.
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
   fs.copyFileSync(path.join(doctor.PLUGIN_ROOT, 'bin', 'doctor.js'), path.join(root, 'bin', 'doctor.js'));
   const drifted = require(path.join(root, 'bin', 'doctor.js'));
   const report = drifted.runDoctor({ root });
@@ -76,4 +77,120 @@ test('formatText печатает итог с числом отказов', () =
   const text = doctor.formatText(doctor.runDoctor());
   assert.match(text, /elt-doctor/);
   assert.match(text, /FAIL=\d+/);
+});
+
+// --- 020 T011: проверки поведения, а не наличия файла -------------------------------------
+//
+// У каждой новой проверки ниже есть пара «сломанная фикстура → FAIL». Без неё PASS ничего не
+// значил бы: он был бы PASS и на проверке, которая ничего не сравнивает. Фикстура — отдельный
+// корень плагина с копией самого `doctor.js`, потому что `runDoctor` читает манифесты от
+// PLUGIN_ROOT (тот же приём, что и в тесте про разошедшиеся версии выше).
+
+let fixtureSeq = 0;
+function makePluginRoot({ version = '5.0.0', skill = null, surfaceExtra = [], hooks = null, bgModule = null } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `elt-doctor-fx-${fixtureSeq++}-`));
+  const put = (rel, body) => {
+    const full = path.join(root, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, body);
+  };
+  put('.claude-plugin/plugin.json', JSON.stringify({ name: 'elt', version }));
+  put('.claude-plugin/marketplace.json', JSON.stringify({ name: 'elt', plugins: [{ name: 'elt', version }] }));
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+  fs.copyFileSync(path.join(doctor.PLUGIN_ROOT, 'bin', 'doctor.js'), path.join(root, 'bin', 'doctor.js'));
+  if (skill !== null) put('skills/elt/SKILL.md', skill);
+  for (const rel of surfaceExtra) put(rel, '# файл поверхности\n');
+  if (hooks !== null) put('hooks/hooks.json', hooks);
+  if (bgModule !== null) put('tools/elt-verify-bg.js', bgModule);
+  return root;
+}
+
+function checkIn(root, name) {
+  const drifted = require(path.join(root, 'bin', 'doctor.js'));
+  const report = drifted.runDoctor({ root, cwd: root });
+  const c = report.checks.find((x) => x.name === name);
+  assert.ok(c, `в отчёте есть проверка "${name}"`);
+  return c;
+}
+
+const GOOD_SKILL = `---
+name: elt
+version: 5.0.0
+---
+Пути: \`tools/a.js\` \`tools/b.js\` \`bin/c.js\` \`agents/d.md\` \`commands/e.md\`
+`;
+
+test('поверхность: необъявленный файл в agents/ — FAIL, а не тихий PASS', () => {
+  const root = makePluginRoot({ surfaceExtra: ['agents/самозванец.md'] });
+  const c = checkIn(root, 'поверхность объявлена целиком (обе стороны)');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /самозванец\.md/);
+});
+
+test('/elt: оборванная ссылка инструкции — FAIL с именем файла', () => {
+  const root = makePluginRoot({ skill: GOOD_SKILL });
+  const c = checkIn(root, '/elt: замыкание инструкции');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /несуществующие файлы/);
+  assert.match(c.detail, /tools\/a\.js/);
+});
+
+test('/elt: версия скила разошлась с plugin.json — FAIL', () => {
+  const files = ['tools/a.js', 'tools/b.js', 'bin/c.js', 'agents/d.md', 'commands/e.md'];
+  const root = makePluginRoot({ version: '5.1.0', skill: GOOD_SKILL, surfaceExtra: files });
+  const c = checkIn(root, '/elt: замыкание инструкции');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /версии разошлись/);
+});
+
+test('/elt: отсутствие скила — FAIL, входа не существует', () => {
+  const c = checkIn(makePluginRoot(), '/elt: замыкание инструкции');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /skills\/elt\/SKILL\.md/);
+});
+
+test('фон: живой модуль даёт PASS и приоритет red > dead > inconclusive', () => {
+  const c = checkIn(makePluginRoot(), 'фон: схема терминальных состояний');
+  // Фикстура без своего tools/ — модуля нет, значит FAIL; живой корень обязан быть PASS.
+  assert.equal(c.status, 'FAIL', 'без модуля проверка не смеет быть зелёной');
+  const live = doctor.runDoctor().checks.find((x) => x.name === 'фон: схема терминальных состояний');
+  assert.equal(live.status, 'PASS');
+  assert.match(live.detail, /red > dead > inconclusive/);
+});
+
+test('фон: возврат умолчания «всё, что не красное — pass» ловится как FAIL', () => {
+  const broken = `'use strict';
+const BG_TERMINAL = { pass: 'background-verify-pass', red: 'background-verify-red', dead: 'background-verify-dead', inconclusive: 'background-verify-inconclusive', error: 'background-verify-error' };
+// Ровно тот дефект, который чинил 020 T007: одна тернарка, и любой неучтённый исход зелёный.
+function classifyRun(sections) { return sections.some((s) => s.red) ? 'red' : 'pass'; }
+module.exports = { BG_TERMINAL, classifyRun };
+`;
+  const c = checkIn(makePluginRoot({ bgModule: broken }), 'фон: схема терминальных состояний');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /classifyRun/);
+});
+
+test('фон: статус без префикса background-verify- — FAIL (bg-silent его не найдёт)', () => {
+  const broken = `'use strict';
+const BG_TERMINAL = { pass: 'ok', red: 'background-verify-red', dead: 'background-verify-dead', inconclusive: 'background-verify-inconclusive', error: 'background-verify-error' };
+function classifyRun(s) { return s.some((x) => x.red) ? 'red' : s.some((x) => x.nonConclusive) ? 'dead' : s.some((x) => x.inconclusive) ? 'inconclusive' : 'pass'; }
+module.exports = { BG_TERMINAL, classifyRun };
+`;
+  const c = checkIn(makePluginRoot({ bgModule: broken }), 'фон: схема терминальных состояний');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /background-verify-/);
+});
+
+test('hooks: файла нет → INFO (его ставит T012), кривой JSON → FAIL', () => {
+  assert.equal(checkIn(makePluginRoot(), 'plugin hooks').status, 'INFO');
+  const c = checkIn(makePluginRoot({ hooks: '{не json' }), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+});
+
+test('hooks: абсолютный путь внутри — FAIL, на чужой машине он не разрешится', () => {
+  const win = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: 'node C:\\Users\\espad\\hook.js' }] }) }), 'plugin hooks');
+  assert.equal(win.status, 'FAIL');
+  assert.match(win.detail, /абсолютные пути/);
+  const nix = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: '/home/espad/hook.js' }] }) }), 'plugin hooks');
+  assert.equal(nix.status, 'FAIL');
 });

@@ -51,7 +51,7 @@
   Codex-прогоном без self-attestation.
   [files: tools/review-runtime.js tools/review-runtime.test.js tools/review-lenses.js tools/review-confidence.js tools/judge-core.js tools/judge-core.test.js tools/elt-verify-bg.js commands/elt-verify.md bin/ledger.js]
 
-- [ ] **T011** Hermetic two-OS CI і runtime doctor: повний named oracle зелений на GitHub
+- [X] **T011** Hermetic two-OS CI і runtime doctor: повний named oracle зелений на GitHub
   `windows-latest`/`ubuntu-latest` без ambient home skills або встановленого judge; host-only
   інтеграції мають явний fixture/окремий job, не hidden skip. Закріпити third-party Actions
   immutable SHA. `bin/doctor.js` перевіряє реальне `/elt` closure, background terminality schema
