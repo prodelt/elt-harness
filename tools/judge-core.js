@@ -552,7 +552,53 @@ function judgeEntry({ provider, model }, r) {
 // чтения одного конфига разными кусками кода уже однажды разъехались бы.
 const l0Config = loadL0Config;
 
-async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, judgeExclude = [] }) {
+// ── 020 T010: канонический рантайм ревью подключается ЗДЕСЬ ──────────────────────────────
+// `runJudge` — единственная точка, через которую идут ОБА пути: синхронный (`elt judge run` →
+// judge-invoke → сюда) и фоновой (`elt-verify-bg.js:runJudgeLayer` → сюда же). Поэтому «тот же
+// код вызывают sync и background» выполняется структурно, а не обещанием в документе.
+//
+// Транспорт линз — `tools/providers.js`, тот же, которым ходит судья. Оценщик ходит своей
+// моделью (`SCORER_MODEL`): рецепт называет haiku именно потому, что классификация дешевле
+// анализа, и платить за неё как за анализ незачем.
+const REVIEW_LENS_TIMEOUT_MS = 4 * 60 * 1000;
+function reviewTransport({ cwd, provider, timeoutMs = REVIEW_LENS_TIMEOUT_MS }) {
+  // `lastMsg` провайдера — ПОСЛЕДНЯЯ НЕПУСТАЯ СТРОКА вывода (providers.js:270), а не последнее
+  // сообщение модели. Живой прогон 25.08: линза ответила однострочным JSON и разобралась, а
+  // оценщик ответил многострочным массивом — `lastMsg` оказался literal `]`, классификация
+  // стала пустой, и рантайм честно объявил `review-dead`. То есть при этой проводке оценщик
+  // был бы мёртв ВСЕГДА, когда отвечает в несколько строк. Берём однострочный ответ, если он
+  // сам по себе валиден, иначе весь stdout — толерантный разборщик достаёт из него хвостовой
+  // массив (эхо промпта у codex идёт РАНЬШЕ ответа, поэтому последний массив — это ответ).
+  const call = async (prompt, model) => {
+    const r = await providers.run({ provider, prompt, cwd, model, timeoutMs, readOnly: true });
+    if (!r || r.ok === false) return { ok: false, reason: `${provider}: ${(r && r.reason) || 'не ответил'}` };
+    const { parseJsonArray } = require('./review-confidence');
+    const oneLine = r.lastMsg || '';
+    const arr = parseJsonArray(oneLine);
+    return { ok: true, text: Array.isArray(arr) && arr.length ? oneLine : (r.stdout || oneLine) };
+  };
+  // Модель из frontmatter линзы (`model: sonnet`) — имя из семейства Claude, и передавать его
+  // ЧУЖОМУ провайдеру нельзя: живой прогон через `codex` с `--model sonnet` вернул пустой
+  // ответ за 12 c, то есть линза выглядела бы «мёртвой» из-за имени модели, а не из-за
+  // транспорта. Чужому провайдеру модель выбирает его же router (`judge-router`).
+  const claudeFamily = provider === 'claude';
+  return {
+    runLens: ({ lens, prompt }) => call(prompt, claudeFamily ? (lens.model || null) : null),
+    runScorer: ({ prompt }) => call(prompt, claudeFamily ? require('./review-confidence').SCORER_MODEL : null),
+  };
+}
+// Конфиг ревью: `review: { enabled: true, provider: "codex" }` в .harness/harness.json.
+// Выключено по умолчанию НАМЕРЕННО и это записано, а не забыто: включение добавляет к каждому
+// вызову судьи пять модельных вызовов, и решение платить за них — проектное, а не моё.
+function reviewConfigOf(cwd, explicit) {
+  if (explicit) return explicit;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(cwd, '.harness', 'harness.json'), 'utf8'));
+    return cfg && typeof cfg.review === 'object' && cfg.review ? cfg.review : null;
+  } catch { return null; }
+}
+
+async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonnet', timeoutMs = JUDGE_TIMEOUT_MS, prevBlockReason = '', specFile = null, judgeExclude = [], review = null, reviewImpl = null }) {
   const zoneFiles = scopeFilesFromTask(taskText);
   const { diff, status, omitted } = slurpDiff(cwd, undefined, zoneFiles);
   const rubric = loadRubric(cwd, tid, specFile);
@@ -601,6 +647,35 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
     };
   }
   const withL0 = (result) => ({ ...result, l0: { triggers: l0.triggers, judgeNeeded: true } });
+
+  // 020 T010: если ревью включено, финальную классификацию даёт ОНО — пять линз и один
+  // оценщик. Второго вердикта поверх не ставим: 011 T019 закрыл ровно эту болезнь («вето не
+  // перемножаются») — два REJECT-default судьи давали block в 77% и покрытие 29%.
+  const reviewCfg = reviewConfigOf(cwd, review);
+  if (reviewCfg && reviewCfg.enabled) {
+    const started = Date.now();
+    const transport = reviewImpl || reviewTransport({ cwd, provider: reviewCfg.provider || provider });
+    const rr = await require('./review-runtime').runReview({
+      cwd, task: tid, taskText, diff: l0Diff,
+      lensesDir: reviewCfg.lensesDir || path.join(__dirname, '..', 'agents'),
+      runLens: transport.runLens, runScorer: transport.runScorer,
+      ledger: (() => { try { return require('../bin/ledger'); } catch { return null; } })(),
+    });
+    const durationSec = (Date.now() - started) / 1000;
+    // `dead` рантайма — не «почти pass»: он попадает в тот же контракт, что мёртвый судья.
+    const runOk = rr.verdict !== 'dead';
+    return withL0({
+      verdict: runOk ? rr.verdict : 'dead',
+      reasons: rr.reasons && rr.reasons.length ? rr.reasons : [`review: ${rr.status}`],
+      filesReviewed: [...new Set((rr.findings || []).map((f) => f.file))],
+      judgeLog: null, runOk, durationSec,
+      review: { status: rr.status, blocking: (rr.blocking || []).length, weak: (rr.weak || []).length, scorer: rr.scorer },
+      judges: [{
+        provider: reviewCfg.provider || provider, model: 'five-lens+scorer',
+        verdict: runOk ? rr.verdict : 'dead', reasons: rr.reasons || [], durationSec, runOk,
+      }],
+    });
+  }
   const commonArgs = { cwd, tid, taskText, diff, status, timeoutMs, prevBlockReason, rubric, externalDiffs, omitted, l0Triggers: l0.triggers };
 
   // 011 T017 (б): перевыдача МЁРТВОГО судьи следующему живому CLI. После перехода на одного
@@ -782,4 +857,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict, judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly };
+module.exports = { gate, runJudge, reviewTransport, reviewConfigOf, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly };

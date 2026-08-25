@@ -607,3 +607,108 @@ test('019 T006: неотслеживаемый конфиг гейта не сн
     'состояние прогона воркер писать не имел права — сносится');
   fs.rmSync(wt, { recursive: true, force: true });
 });
+
+// ── 020 T010: канонический рантайм ревью вызывается ИЗ runJudge ─────────────────────────
+// Ключ задачи: `runJudge` — единственная точка, через которую идут sync (`elt judge run` →
+// judge-invoke) и фон (`elt-verify-bg.js:runJudgeLayer`). Значит проверка здесь и доказывает
+// «тот же код вызывают оба пути» — без второго теста на каждый путь.
+
+function reviewFixture({ lens, scorer }) {
+  return { runLens: lens, runScorer: scorer };
+}
+const okText = (v) => async () => ({ ok: true, text: JSON.stringify(v) });
+
+test('T010: при review.enabled вердикт даёт рантайм ревью, а не одиночный судья', async () => {
+  fs.writeFileSync(path.join(REPO, 'slice-rev.txt'), 'работа ревью\n');
+  fs.writeFileSync(path.join(REPO, 'specs', 'tasks.md'), '- [ ] **TR1** ревью-слайс\n');
+  // Стаб одиночного судьи ставим на pass: если бы вердикт брался у него, тест был бы зелёным
+  // по неверной причине. Ревью при этом находит блокирующее — расхождение и есть проверка.
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', PASS_STUB]);
+  const r = await gate.runJudge({
+    cwd: REPO, tid: 'TR1', taskText: 'TR1 ревью-слайс',
+    review: { enabled: true },
+    reviewImpl: reviewFixture({
+      lens: okText([{ file: 'slice-rev.txt', line: 1, summary: 'дыра', failure_scenario: 'вход X → падение', confidence: 10 }]),
+      scorer: okText(Array.from({ length: 5 }, (_, i) => ({ index: i, confidence: 95, why: 'реальная' }))),
+    }),
+  });
+  delete process.env.FLEET_BIN_CLAUDE;
+  assert.equal(r.verdict, 'block', 'вердикт обязан прийти от ревью, а не от одиночного судьи (тот отвечал pass)');
+  assert.equal(r.runOk, true);
+  assert.equal(r.review.status, 'review-block');
+  assert.equal(r.review.blocking, 5);
+  assert.equal(r.judges[0].model, 'five-lens+scorer', 'в пруфе честно записано, КТО вынес вердикт');
+});
+
+test('T010: мёртвая линза в фоне и в интерактиве одинаково даёт runOk:false, не pass', async () => {
+  fs.writeFileSync(path.join(REPO, 'slice-rev2.txt'), 'ещё работа\n');
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', PASS_STUB]);
+  const r = await gate.runJudge({
+    cwd: REPO, tid: 'TR1', taskText: 'TR1 ревью-слайс',
+    review: { enabled: true },
+    reviewImpl: reviewFixture({
+      lens: async ({ lens }) => (lens.name.includes('history') ? { ok: false, reason: 'CLI умер' } : { ok: true, text: '[]' }),
+      scorer: okText([]),
+    }),
+  });
+  delete process.env.FLEET_BIN_CLAUDE;
+  assert.equal(r.runOk, false, 'мёртвая линза — не вердикт; фон обязан пометить прогон bg-dead');
+  assert.equal(r.verdict, 'dead');
+  assert.match(r.reasons.join(' '), /CLI умер/);
+});
+
+test('T010: без review.enabled поведение не меняется — одиночный судья как раньше', async () => {
+  fs.writeFileSync(path.join(REPO, 'slice-rev3.txt'), 'без ревью\n');
+  process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', BLOCK_STUB]);
+  const r = await gate.runJudge({ cwd: REPO, tid: 'TR1', taskText: 'TR1 ревью-слайс' });
+  delete process.env.FLEET_BIN_CLAUDE;
+  assert.equal(r.verdict, 'block', 'выключенное ревью не смеет ничего менять в существующем пути');
+  assert.equal(r.review, undefined);
+});
+
+test('T010: reviewConfigOf читает review из harness.json проекта', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-review-cfg-'));
+  fs.mkdirSync(path.join(dir, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.harness', 'harness.json'), JSON.stringify({ review: { enabled: true, provider: 'codex' } }));
+  assert.deepEqual(gate.reviewConfigOf(dir), { enabled: true, provider: 'codex' });
+  assert.equal(gate.reviewConfigOf(fs.mkdtempSync(path.join(os.tmpdir(), 'elt-review-none-'))), null);
+  // Явный аргумент сильнее файла — фон передаёт конфиг из СНАПШОТА коммита (020 T007).
+  assert.deepEqual(gate.reviewConfigOf(dir, { enabled: false }), { enabled: false });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// 020 T010: оба дефекта ниже найдены ЖИВЫМ узким прогоном через настоящий codex, а не разбором
+// кода. Фикстуры их фиксируют, чтобы следующая правка транспорта не вернула молчаливую смерть.
+test('T010: многострочный ответ модели разбирается — lastMsg это ОДНА строка, а не сообщение', async () => {
+  const providers = require('./providers');
+  const realRun = providers.run;
+  const multiline = '[\n  {\n    "index": 0,\n    "confidence": 100,\n    "why": "реальная"\n  }\n]';
+  providers.run = async () => ({
+    exit: 0, ok: true, reason: 'ok', logPath: null,
+    // Ровно то, что вернул живой codex: `lastMsg` — последняя непустая СТРОКА вывода.
+    lastMsg: ']', stdout: multiline,
+  });
+  try {
+    const t = gate.reviewTransport({ cwd: REPO, provider: 'codex' });
+    const r = await t.runScorer({ prompt: 'p' });
+    assert.equal(r.ok, true);
+    const { parseJsonArray } = require('./review-confidence');
+    const parsed = parseJsonArray(r.text);
+    assert.equal(parsed.length, 1, 'при разборе только lastMsg оценщик был бы мёртв ВСЕГДА на многострочном ответе');
+    assert.equal(parsed[0].confidence, 100);
+  } finally { providers.run = realRun; }
+});
+
+test('T010: чужому провайдеру не передаётся модель из frontmatter линзы', async () => {
+  const providers = require('./providers');
+  const realRun = providers.run;
+  const seen = [];
+  providers.run = async (args) => { seen.push(args.model); return { exit: 0, ok: true, reason: 'ok', lastMsg: '[]', stdout: '[]' }; };
+  try {
+    const lens = { name: 'review-bugs', model: 'sonnet' };
+    await gate.reviewTransport({ cwd: REPO, provider: 'codex' }).runLens({ lens, prompt: 'p' });
+    assert.equal(seen[0], null, 'живьём `codex --model sonnet` вернул пустой ответ — линза выглядела мёртвой из-за имени модели');
+    await gate.reviewTransport({ cwd: REPO, provider: 'claude' }).runLens({ lens, prompt: 'p' });
+    assert.equal(seen[1], 'sonnet', 'своему провайдеру модель линзы передаётся как объявлено');
+  } finally { providers.run = realRun; }
+});

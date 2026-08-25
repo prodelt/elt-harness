@@ -43,7 +43,7 @@
   push failure повертає non-zero. Залишити runnable regressions на кожен шлях.
   [files: tools/project-bootstrap.js tools/project-bootstrap.test.js tools/elt.js tools/elt-oracle-proof.test.js tools/elt-commit-proof.test.js .githooks/pre-commit]
 
-- [ ] **T010** Канонічний five-lens review runtime: пʼять `agents/review-*.md` запускаються
+- [X] **T010** Канонічний five-lens review runtime: пʼять `agents/review-*.md` запускаються
   паралельно на одному diff, потім рівно один `confidence-scorer` дає фінальну класифікацію.
   `<80` автоматично пишеться в ledger як `weak-signal`, `>=80` впливає на verdict; той самий
   код викликають sync і background paths. Dead lens/scorer видимий і не зелений; ручний
