@@ -10,7 +10,7 @@
   checks, transport-only retry та machine-generated summary. Зафіксувати preregistration і hash
   runner'а до першого нового result row; старі змішані результати зареєструвати як
   `invalid-for-claim` без включення в headline.
-  [files: benchmarks/gemini-3.7-flash-high/preregistration.json benchmarks/gemini-3.7-flash-high/runner.js benchmarks/gemini-3.7-flash-high/build-gate-dataset.js benchmarks/gemini-3.7-flash-high/summarize.js benchmarks/gemini-3.7-flash-high/README.md benchmarks/README.md]
+  [files: benchmarks/gemini-3.7-flash-high/preregistration.json benchmarks/gemini-3.7-flash-high/runner.js benchmarks/gemini-3.7-flash-high/runner.test.js benchmarks/gemini-3.7-flash-high/build-gate-dataset.js benchmarks/gemini-3.7-flash-high/summarize.js benchmarks/gemini-3.7-flash-high/README.md benchmarks/README.md]
 
 - [ ] **T003** Виконати повний Gemini-only benchmark: paired writer A/B 30+30 на
   `Aider-AI/polyglot-benchmark@7e0611e` і bare-vs-`judgeDiff` gate A/B на preregistered
