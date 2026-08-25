@@ -81,7 +81,7 @@
   до green conformance. Весь новий graph release-core `≤1 500` production LOC.
   [files: graphs/schema.json graphs/elt-v5.json tools/graph-core.js tools/graph-core.test.js tools/graph-compiler.js tools/graph-compiler.test.js]
 
-- [ ] **T014** Authoritative append-only journal, legacy cutover і derived state: versioned event несе `runId`,
+- [X] **T014** Authoritative append-only journal, legacy cutover і derived state: versioned event несе `runId`,
   graph/lock versions, immutable spec/task identity, batch/generation, node, guard evidence,
   commit і monotonic seq; рівно один terminal event на generation. Atomic append + cross-process
   lock, idempotent replay, crash/restart і migration current parked/review rows. До exact T015
