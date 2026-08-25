@@ -5,6 +5,12 @@
   точні попередні CI failures локально або в Linux-контейнері.
   [files: tools/adapters/openshell.js tools/adapters/openshell.test.js tools/agent-surface-audit.js tools/agent-surface-audit.test.js tools/doctor.test.js tools/elt-config.test.js tools/git-workflow-audit.js tools/judge-core.js tools/judge-core.test.js tools/project-bootstrap.js tools/project-bootstrap.test.js .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md]
 
+- [ ] **T007** Закрити два post-commit дефекти, знайдені фоновим суддею T001: зберегти
+  розпізнавання UNC share root незалежно від платформи та fail-closed контракт `fileCount`,
+  якщо корінь або вкладений каталог неможливо прочитати. Додати мінімальні runnable regressions
+  і повторити targeted перевірки на Windows та Linux.
+  [files: tools/git-workflow-audit.js tools/git-workflow-audit.test.js tools/project-bootstrap.js tools/project-bootstrap.test.js]
+
 - [ ] **T002** Перенести benchmark із session scratchpad у versioned, resume-safe контур:
   Gemini-only runner, append-only raw logs, deterministic dataset builder, integrity/anti-leak
   checks, transport-only retry та machine-generated summary. Зафіксувати preregistration і hash
