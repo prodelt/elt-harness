@@ -18,11 +18,18 @@ function tempProject(config) {
   return root;
 }
 
+// Фикстура обязана быть герметичной: и оболочка, и команда оракула — платформенные вещи.
+// Жёсткий `powershell` на Linux не существует, поэтому оракул фикстуры там падал, а вместе
+// с ним и тест — это отказ ГЕРМЕТИЧНОСТИ, а не логики, которую тест проверяет. Зелёный на
+// Windows и красный в CI — худший вид теста: он врёт ровно там, где его читают.
+const FIXTURE_SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
+const FIXTURE_ORACLE = 'node -e "process.exit(0)"';
+
 function validCodeConfig() {
   return {
     kind: 'code',
-    oracle: 'node --test',
-    shell: 'powershell',
+    oracle: FIXTURE_ORACLE,
+    shell: FIXTURE_SHELL,
     judge: { enabled: true, model: 'sonnet' },
   };
 }
@@ -31,12 +38,12 @@ function testValidatorFailsClosed() {
   assert.equal(validateHarnessConfig({}).ok, false, 'missing kind and oracle must fail');
   assert.equal(validateHarnessConfig({ kind: 'code', oracle: '   ', judge: { enabled: true, model: 'sonnet' } }).ok, false, 'empty oracle must fail');
   assert.equal(validateHarnessConfig({ kind: 'docs', artifactVerifier: ' ', judge: { enabled: true, model: 'sonnet' } }).ok, false, 'empty artifact verifier must fail');
-  assert.equal(validateHarnessConfig({ kind: 'code', oracle: 'node --test', judge: { enabled: 'yes', model: 'sonnet' } }).ok, false, 'malformed judge must fail');
+  assert.equal(validateHarnessConfig({ kind: 'code', oracle: FIXTURE_ORACLE, judge: { enabled: 'yes', model: 'sonnet' } }).ok, false, 'malformed judge must fail');
   assert.equal(validateHarnessConfig(validCodeConfig()).ok, true, 'current code config must pass');
 
   // judge.provider: опционален (дефолт claude), но опечатка обязана падать на валидации, а не
   // в рантайме (unknown-provider → судья «мёртв» → слайс паркуется без внятной причины).
-  const withProvider = (p) => ({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: 'sonnet', provider: p } });
+  const withProvider = (p) => ({ kind: 'code', oracle: FIXTURE_ORACLE, judge: { enabled: true, model: 'sonnet', provider: p } });
   assert.equal(validateHarnessConfig(withProvider('agy')).ok, true, 'agy is a valid judge provider');
   assert.equal(validateHarnessConfig(withProvider('codex')).ok, true, 'codex is a valid judge provider');
   assert.equal(validateHarnessConfig(withProvider('gemini')).ok, false, 'unknown judge provider must fail');
@@ -51,7 +58,7 @@ function testBootstrapReportsInvalidHarness() {
 }
 
 function testDoctorFailsInvalidHarness() {
-  const root = tempProject({ kind: 'code', oracle: 'node --test', judge: { enabled: true, model: '' } });
+  const root = tempProject({ kind: 'code', oracle: FIXTURE_ORACLE, judge: { enabled: true, model: '' } });
   const check = checkHarnessConfig(root);
   assert.equal(check.status, 'fail');
   assert.match(check.detail, /judge/);
@@ -61,7 +68,7 @@ function testCliFailsClosed() {
   const cases = [
     ['missing', undefined],
     ['empty oracle', { kind: 'code', oracle: ' ', judge: { enabled: true, model: 'sonnet' } }],
-    ['malformed judge', { kind: 'code', oracle: 'node --test', judge: { enabled: 'yes', model: 'sonnet' } }],
+    ['malformed judge', { kind: 'code', oracle: FIXTURE_ORACLE, judge: { enabled: 'yes', model: 'sonnet' } }],
   ];
 
   for (const [label, config] of cases) {

@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  browserProbe,
   extractHookCommands,
   formatMarkdown,
   parseArgs,
@@ -51,8 +52,14 @@ function createHome() {
   return home;
 }
 
-function runFastAudit(root, home) {
-  return runAudit({ root, home });
+// Проба agent-browser ЗАДАНА фикстурой, а не берётся с машины: иначе тест утверждал бы
+// «браузерная поверхность в порядке» только там, где CLI установлен, и краснел в CI по
+// причине, не имеющей отношения к проверяемому коду.
+const BROWSER_AVAILABLE = () => ({ status: 'available', version: 'agent-browser 0.33.2 (fixture)' });
+const BROWSER_MISSING = () => ({ status: 'missing', error: 'agent-browser not installed (fixture)' });
+
+function runFastAudit(root, home, browserProbe = BROWSER_AVAILABLE) {
+  return runAudit({ root, home, browserProbe });
 }
 
 function testParseArgs() {
@@ -91,6 +98,33 @@ function testAuditReportsClientSurface() {
   assert.equal(report.summary.unexplainedGaps.length, 0);
 }
 
+// Вторая ветка того же контракта: без CLI поверхность обязана быть `warn` и попасть в
+// незакрытые пробелы. Раньше проверялась ровно одна ветка — та, что случайно совпадала со
+// средой разработчика.
+function testAuditReportsWarnWhenBrowserCliMissing() {
+  const root = tempRoot('agent-surface-root');
+  const home = createHome();
+  const report = runFastAudit(root, home, BROWSER_MISSING);
+  assert.equal(report.browser.status, 'warn', 'без CLI браузерная поверхность не может быть pass');
+  assert.equal(report.browser.browserSkillCount, 3, 'скилы на месте — отличается только CLI');
+  assert.ok(report.summary.unexplainedGaps.includes('browser:agent-browser'),
+    'пробел обязан быть назван, а не растворён в общем отчёте');
+}
+
+function testBrowserProbeUsesPlatformNativeInvocation() {
+  const calls = [];
+  const commandStatusFn = (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return { status: 'available' };
+  };
+  browserProbe('C:\\repo', { platform: 'win32', commandStatusFn })(['--version']);
+  browserProbe('/repo', { platform: 'linux', commandStatusFn })(['skills', 'list']);
+  assert.deepEqual(calls, [
+    { command: 'cmd.exe', args: ['/c', 'agent-browser', '--version'], cwd: 'C:\\repo' },
+    { command: 'agent-browser', args: ['skills', 'list'], cwd: '/repo' },
+  ], 'Linux обязан вызывать agent-browser напрямую, Windows — через cmd.exe shim');
+}
+
 function testAuditTreatsDeclaredUnsupportedEventsAsFallbacks() {
   const root = tempRoot('agent-surface-root');
   const home = createHome();
@@ -126,6 +160,8 @@ function main() {
   testParseArgs();
   testExtractHookCommandsHandlesNestedHooks();
   testAuditReportsClientSurface();
+  testAuditReportsWarnWhenBrowserCliMissing();
+  testBrowserProbeUsesPlatformNativeInvocation();
   testAuditTreatsDeclaredUnsupportedEventsAsFallbacks();
   testReportsWriteJsonAndMarkdown();
   testMarkdownListsFallbackContracts();

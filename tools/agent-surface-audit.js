@@ -180,13 +180,24 @@ function auditMemory(home) {
   return candidates.map((file) => ({ file, exists: fs.existsSync(file) }));
 }
 
-function auditBrowser(home, root) {
+// `cmd.exe` существует только на Windows: на Linux этот вызов проваливался ВСЕГДА, и аудит
+// сообщал `warn` даже там, где agent-browser установлен. Оболочка выбирается по платформе, а
+// сама проба инъектируется — иначе тест проверяет не контракт функции, а то, что стоит на
+// машине разработчика, и в CI краснеет без единого дефекта в коде.
+function browserProbe(root, { platform = process.platform, commandStatusFn = commandStatus } = {}) {
+  return platform === 'win32'
+    ? (args) => commandStatusFn('cmd.exe', ['/c', 'agent-browser', ...args], root)
+    : (args) => commandStatusFn('agent-browser', args, root);
+}
+
+function auditBrowser(home, root, { probe = null } = {}) {
   const skillRoots = [path.join(home, '.claude', 'skills'), path.join(home, '.codex', 'skills'), path.join(home, '.gemini', 'skills')];
   const browserSkills = skillRoots.flatMap((skillRoot) => walkSkillFiles(skillRoot))
     .map(parseSkill)
     .filter((skill) => skill.name === 'agent-browser');
-  const agentBrowser = commandStatus('cmd.exe', ['/c', 'agent-browser', '--version'], root);
-  const skillCatalog = commandStatus('cmd.exe', ['/c', 'agent-browser', 'skills', 'list'], root);
+  const run = probe || browserProbe(root);
+  const agentBrowser = run(['--version']);
+  const skillCatalog = run(['skills', 'list']);
   const status = agentBrowser.status === 'available' && browserSkills.length > 0 ? 'pass' : 'warn';
   return {
     agentBrowser,
@@ -252,7 +263,7 @@ function runAudit(options = {}) {
     commandShims: auditCommandShims(home, root),
     context7: auditContext7(root),
     memory: auditMemory(home),
-    browser: auditBrowser(home, root),
+    browser: auditBrowser(home, root, { probe: options.browserProbe || null }),
   };
   return { ...report, summary: summarize(report) };
 }
@@ -332,6 +343,7 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+  browserProbe,
   parseArgs,
   runAudit,
   formatMarkdown,

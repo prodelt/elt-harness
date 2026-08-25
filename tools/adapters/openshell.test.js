@@ -91,13 +91,13 @@ function testPinnedImageCheck() {
   // Якщо образ є -> ready
   assert.ok(['unavailable', 'degraded', 'ready'].includes(result.state));
 
-  // Evidence повинна мати інформацію про образ
-  if (result.evidence) {
-    assert.ok(
-      result.evidence.some((e) => e.includes('nvcr.io')),
-      'Evidence повинна мати інформацію про pinned image'
-    );
-  }
+  // Образ обязан быть назван в ЛЮБОМ состоянии. Прежняя версия проверяла это только когда
+  // проверка успевала дойти до образа, поэтому на машине без Docker (CI Ubuntu) тест падал —
+  // не из-за дефекта, а из-за того, что зависел от окружения.
+  assert.ok(
+    (result.evidence || []).some((e) => e.includes('nvcr.io')),
+    `Evidence обязана называть pinned image в любом состоянии, получено: ${JSON.stringify(result.evidence)}`
+  );
 }
 
 function testLicenseAndProvenance() {
