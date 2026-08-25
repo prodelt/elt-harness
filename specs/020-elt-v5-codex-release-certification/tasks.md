@@ -70,7 +70,7 @@
 > reliability-слайси мають `T007–T012`. Runtime-порядок:
 > bootstrap batch `T001+T007` → `T002–T004 → T008–T012 → T013–T022 → T005 benchmark → T006 release`.
 
-- [ ] **T013** Канонічний graph contract, compiler і pure transition reducer: формалізувати
+- [X] **T013** Канонічний graph contract, compiler і pure transition reducer: формалізувати
   `recon/plan/build/landing/mirror/debrief/certified/publish`, typed edges, guards, schemas,
   side effects, trust/platform/failure policy. `advance(state,event,evidence)` детерміновано
   повертає next state або `illegal-transition`; compiler відхиляє duplicate IDs, schema mismatch,

@@ -1,0 +1,323 @@
+{
+  "graphVersion": "5.0.0",
+  "schemas": [
+    "elt/scope-snapshot",
+    "elt/plan-digest",
+    "elt/task-checkpoint",
+    "elt/batch-identity",
+    "elt/mirror-proof",
+    "elt/finding-set",
+    "elt/batch-certificate",
+    "elt/publish-receipt"
+  ],
+  "entry": "recon",
+  "nodes": [
+    {
+      "id": "recon",
+      "kind": "source",
+      "consumes": [],
+      "produces": [
+        "elt/scope-snapshot"
+      ],
+      "guards": [
+        "familiar-zone",
+        "scope-within-limit"
+      ],
+      "capabilities": [
+        "identity"
+      ],
+      "sideEffects": [
+        "none"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "plan",
+      "kind": "gate",
+      "consumes": [
+        "elt/scope-snapshot"
+      ],
+      "produces": [
+        "elt/plan-digest"
+      ],
+      "guards": [
+        "approval-trailer-present",
+        "approval-fresh"
+      ],
+      "capabilities": [
+        "approve"
+      ],
+      "sideEffects": [
+        "workspace"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "build",
+      "kind": "action",
+      "consumes": [
+        "elt/plan-digest",
+        "elt/scope-snapshot"
+      ],
+      "produces": [
+        "elt/task-checkpoint"
+      ],
+      "guards": [
+        "task-dependencies-closed"
+      ],
+      "sideEffects": [
+        "workspace"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 1800000,
+      "failure": "block"
+    },
+    {
+      "id": "landing",
+      "kind": "gate",
+      "consumes": [
+        "elt/task-checkpoint"
+      ],
+      "produces": [
+        "elt/batch-identity"
+      ],
+      "guards": [
+        "l0-green"
+      ],
+      "capabilities": [
+        "commit",
+        "git"
+      ],
+      "sideEffects": [
+        "workspace",
+        "git"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "mirror",
+      "kind": "barrier",
+      "consumes": [
+        "elt/batch-identity"
+      ],
+      "produces": [
+        "elt/mirror-proof"
+      ],
+      "guards": [
+        "batch-head-immutable"
+      ],
+      "capabilities": [
+        "oracle"
+      ],
+      "sideEffects": [
+        "workspace",
+        "git"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 3600000
+    },
+    {
+      "id": "debrief",
+      "kind": "decision",
+      "consumes": [
+        "elt/mirror-proof"
+      ],
+      "produces": [
+        "elt/finding-set"
+      ],
+      "guards": [
+        "oracle-green",
+        "review-terminal",
+        "hashes-match"
+      ],
+      "sideEffects": [
+        "workspace"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 300000,
+      "failure": "block"
+    },
+    {
+      "id": "certified",
+      "kind": "gate",
+      "consumes": [
+        "elt/finding-set",
+        "elt/mirror-proof"
+      ],
+      "produces": [
+        "elt/batch-certificate"
+      ],
+      "guards": [
+        "certificate-fresh"
+      ],
+      "capabilities": [
+        "certify",
+        "certificate"
+      ],
+      "sideEffects": [
+        "workspace"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "publish",
+      "kind": "sink",
+      "consumes": [
+        "elt/batch-certificate"
+      ],
+      "produces": [
+        "elt/publish-receipt"
+      ],
+      "guards": [],
+      "capabilities": [
+        "push",
+        "tag",
+        "release",
+        "merge"
+      ],
+      "sideEffects": [
+        "git",
+        "network"
+      ],
+      "trust": "core",
+      "platforms": [
+        "win32",
+        "linux",
+        "darwin"
+      ],
+      "timeoutMs": 600000
+    }
+  ],
+  "edges": [
+    {
+      "from": "recon",
+      "to": "build",
+      "event": "known-zone",
+      "guards": [
+        "familiar-zone",
+        "scope-within-limit"
+      ]
+    },
+    {
+      "from": "recon",
+      "to": "plan",
+      "event": "unknown-zone"
+    },
+    {
+      "from": "plan",
+      "to": "build",
+      "event": "approved",
+      "guards": [
+        "approval-trailer-present",
+        "approval-fresh"
+      ]
+    },
+    {
+      "from": "build",
+      "to": "landing",
+      "event": "ready",
+      "guards": [
+        "task-dependencies-closed"
+      ]
+    },
+    {
+      "from": "build",
+      "to": "build",
+      "event": "focused-red",
+      "loop": true
+    },
+    {
+      "from": "landing",
+      "to": "mirror",
+      "event": "landed",
+      "guards": [
+        "l0-green"
+      ]
+    },
+    {
+      "from": "landing",
+      "to": "build",
+      "event": "l0-red",
+      "loop": true
+    },
+    {
+      "from": "mirror",
+      "to": "debrief",
+      "event": "mirror-terminal",
+      "guards": [
+        "batch-head-immutable"
+      ]
+    },
+    {
+      "from": "mirror",
+      "to": "build",
+      "event": "mirror-red",
+      "loop": true,
+      "repair": true
+    },
+    {
+      "from": "debrief",
+      "to": "recon",
+      "event": "finding-confident",
+      "loop": true,
+      "repair": true
+    },
+    {
+      "from": "debrief",
+      "to": "certified",
+      "event": "ledger-only",
+      "guards": [
+        "oracle-green",
+        "review-terminal",
+        "hashes-match"
+      ]
+    },
+    {
+      "from": "certified",
+      "to": "publish",
+      "event": "publish-requested",
+      "guards": [
+        "certificate-fresh"
+      ]
+    }
+  ]
+}
