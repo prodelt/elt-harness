@@ -88,6 +88,13 @@ test('isDiskRoot: D:\\ returns true', () => {
   assert.equal(isDiskRoot('D:/'), true);
 });
 
+test('isDiskRoot: UNC share root stays a root on every platform', () => {
+  assert.equal(isDiskRoot('\\\\server\\share\\'), true);
+  assert.equal(isDiskRoot('//server/share/'), true);
+  assert.equal(isDiskRoot('\\\\server\\share\\project'), false);
+  assert.equal(isDiskRoot('//server/share/project'), false);
+});
+
 // --- findProjectRoot ---
 
 test('findProjectRoot: finds dir with AGENTS.md', () => {

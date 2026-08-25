@@ -27,7 +27,9 @@ function walkFileCount(root, limit = 5000) {
   while (stack.length && count <= limit) {
     const dir = stack.pop();
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (error) {
+      return { count, outputChars, error: error.message };
+    }
     for (const entry of entries) {
       if (entry.isDirectory()) {
         if (!FILE_COUNT_SKIP.has(entry.name)) stack.push(path.join(dir, entry.name));
@@ -39,12 +41,14 @@ function walkFileCount(root, limit = 5000) {
       }
     }
   }
-  return { count, outputChars };
+  return { count, outputChars, error: null };
 }
 
 function fileCount(root) {
   const counted = walkFileCount(root);
-  return { ok: true, ...counted, source: 'fs-walk' };
+  if (counted.error) return { ok: false, count: counted.count, outputChars: counted.outputChars, error: counted.error, source: 'fs-walk' };
+  const { error: _error, ...result } = counted;
+  return { ok: true, ...result, source: 'fs-walk' };
 }
 
 function exists(root, relative) {
