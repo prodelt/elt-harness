@@ -1,0 +1,85 @@
+{
+  "schema": "elt-benchmark-preregistration/v1",
+  "registeredAt": "2026-08-25",
+  "immutableAfterFirstResult": true,
+  "deviationFromSpec": {
+    "field": "codingAgent",
+    "specSaid": "Codex (specs/020-elt-v5-codex-release-certification/tasks.md, T005)",
+    "actual": "Antigravity CLI (agy), model gemini-3.7-flash-high",
+    "decidedBy": "user, 2026-08-25, до первого прогона",
+    "why": "Замена агента — сознательное решение пользователя, принятое ДО получения любого результата. Записано здесь, а не задним числом: подмена агента после первого прогона сделала бы preregistration бессмысленной. Claim о превосходстве Codex этот пилот НЕ доказывает и не может доказывать."
+  },
+  "dataset": {
+    "repo": "Aider-AI/polyglot-benchmark",
+    "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "note": "Тот же commit, что зафиксирован в specs/020-elt-v5-codex-release-certification/upstreams.lock.json как polyglot-pilot. Задачи и тесты НЕ писались нами — это чужой grader, и в этом весь смысл.",
+    "language": "python",
+    "path": "python/exercises/practice"
+  },
+  "grader": {
+    "runner": "py -3 -m pytest <task>_test.py -q",
+    "pythonVersion": "3.11.6",
+    "ownedByElt": false,
+    "note": "Grader не принадлежит ELT и не менялся ни в одной руке. Судья ELT не может быть grader'ом — это прямое требование спеки.",
+    "baselineOnStub": "все тесты красные на исходном скелете, проверено до прогона"
+  },
+  "tasks": [
+    {
+      "id": "bowling",
+      "file": "bowling.py",
+      "testFile": "bowling_test.py",
+      "tests": 31,
+      "testSha256": "2caebee15018a7fb02f248c8fd31898b355188832e64ada825f17693292f9837",
+      "stubSha256": "31b164b11630509c28e931eacf0e3afe0aad74447236c399bf1209513938944d"
+    },
+    {
+      "id": "book-store",
+      "file": "book_store.py",
+      "testFile": "book_store_test.py",
+      "tests": 20,
+      "testSha256": "6bc35e903bdeb9c2321546610991dd4d11bb84df2e793f492cf1eecc897f7b0f",
+      "stubSha256": "d381e349e634954389de8193fae50135e3ec80dbe8682fb52e0237a73c575dcf"
+    },
+    {
+      "id": "dominoes",
+      "file": "dominoes.py",
+      "testFile": "dominoes_test.py",
+      "tests": 13,
+      "testSha256": "0a2b0cc3f2b8214d88eb2befe0ff84a50f927f04c6bb048af87915247cdd3d42",
+      "stubSha256": "33fe8023176608c4a3ae6472bc745737b39d5f1b090dae481e769ad3ff5576ae"
+    }
+  ],
+  "arms": {
+    "plain": {
+      "agent": "agy",
+      "model": "gemini-3.7-flash-high",
+      "harness": "none",
+      "prompt": "canonical, идентичен второй руке"
+    },
+    "elt": {
+      "agent": "agy",
+      "model": "gemini-3.7-flash-high",
+      "harness": "elt v5.0.0",
+      "prompt": "canonical, идентичен первой руке",
+      "note": "Руке ELT добавляется гейт поверх ТОГО ЖЕ кодового результата, а не другой промпт. Иначе сравнивались бы промпты, а не харнес."
+    }
+  },
+  "protocol": {
+    "execution": "parallel",
+    "orderRandomization": "не требуется — руки стартуют одновременно, поэтому эффекта порядка нет по построению",
+    "seed": "исходный скелет задачи (stubSha256) — обе руки стартуют от одних байт",
+    "codingBudgetPerTask": "один прогон агента, без ретраев по содержанию",
+    "workerTimeoutMs": 600000,
+    "retryPolicy": "ретрай допускается ТОЛЬКО при инфраструктурном отказе (агент не стартовал, сеть, таймаут транспорта); ретрай по неудачному коду запрещён и в обеих руках одинаков",
+    "exclusionPolicy": "исключение задачи допускается только при инфраструктурном отказе в ОБЕИХ руках; исключение записывается в результат вместе с причиной, а не удаляется",
+    "primaryEndpoint": "candidate-код, поданный тому же независимому grader'у; pass = 0 упавших тестов",
+    "certificationCeiling": "для руки ELT отдельно фиксируется время от кода до терминального вердикта; оно НЕ входит в coding budget и не меняет primary pass-rate"
+  },
+  "claimLimits": {
+    "1 pair": "доказывает только plumbing — что обе руки вообще работают",
+    "3 pairs": "directional pilot, БЕЗ права заявлять превосходство",
+    ">=30 pairs": "directional claim с доверительным интервалом",
+    ">=100 pairs": "сильный claim",
+    "thisRun": "3 pairs → directional pilot; любое утверждение о превосходстве из этих данных недопустимо"
+  }
+}

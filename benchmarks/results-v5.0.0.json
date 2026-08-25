@@ -1,0 +1,125 @@
+{
+  "schema": "elt-benchmark-results/v1",
+  "preregistration": "benchmarks/preregistration-v5.0.0.json",
+  "ranAt": "2026-08-25",
+  "eltVersion": "5.0.0",
+  "eltCommit": "8583a55e45ace77d5cf03f7843016c2bdb0f6154",
+  "agent": {
+    "cli": "agy",
+    "version": "1.1.19",
+    "model": "gemini-3.7-flash-high"
+  },
+  "execution": "parallel",
+  "pairs": 3,
+  "results": [
+    {
+      "task": "bowling",
+      "arm": "plain",
+      "passed": true,
+      "graderExit": 0,
+      "graderSummary": "31 passed in 0.21s",
+      "codingSec": 96.759,
+      "graderSec": 2.868,
+      "answerSha256": "458d5f7d480b476a2e0fe351e5292aa3f5b1017de7be1374d4dd2466f03dee41",
+      "answerBytes": 2677,
+      "tokens": "missing",
+      "cost": "missing",
+      "ts": "2026-08-25T14:15:37.113Z"
+    },
+    {
+      "task": "bowling",
+      "arm": "elt",
+      "passed": true,
+      "graderExit": 0,
+      "graderSummary": "31 passed in 0.08s",
+      "codingSec": 51.159,
+      "graderSec": 0.996,
+      "answerSha256": "c201928483f9ece268fca31cba37d3298a16829402fe3b32add765d5afc1a21a",
+      "answerBytes": 2540,
+      "tokens": "missing",
+      "cost": "missing",
+      "ts": "2026-08-25T14:17:03.826Z"
+    },
+    {
+      "task": "book-store",
+      "arm": "plain",
+      "passed": true,
+      "graderExit": 0,
+      "graderSummary": "20 passed in 0.08s",
+      "codingSec": 46.304,
+      "graderSec": 1.417,
+      "answerSha256": "6ca9cece228ae7b3ffd3a9398ea72a53b2b4b9d07e551ec8159e7ff2ed42bfe3",
+      "answerBytes": 832,
+      "tokens": "missing",
+      "cost": "missing",
+      "ts": "2026-08-25T14:18:00.430Z"
+    },
+    {
+      "task": "book-store",
+      "arm": "elt",
+      "passed": true,
+      "graderExit": 0,
+      "graderSummary": "20 passed in 0.06s",
+      "codingSec": 61.638,
+      "graderSec": 0.996,
+      "answerSha256": "c6e49db09e92c5c5ffa85b31063eb9a5e832a7ab820e13d5c35cde72792cb26d",
+      "answerBytes": 737,
+      "tokens": "missing",
+      "cost": "missing",
+      "ts": "2026-08-25T14:18:18.089Z"
+    },
+    {
+      "task": "dominoes",
+      "arm": "plain",
+      "passed": true,
+      "graderExit": 0,
+      "graderSummary": "13 passed in 0.05s",
+      "codingSec": 42.4,
+      "graderSec": 1.244,
+      "answerSha256": "9a4b0cce123b82d7387b350fa2d1980c72ad3b73cbc97881c73b336a840843a5",
+      "answerBytes": 981,
+      "tokens": "missing",
+      "cost": "missing",
+      "ts": "2026-08-25T14:18:02.861Z"
+    },
+    {
+      "task": "dominoes",
+      "arm": "elt",
+      "passed": true,
+      "graderExit": 0,
+      "graderSummary": "13 passed in 0.05s",
+      "codingSec": 47.419,
+      "graderSec": 1.225,
+      "answerSha256": "b2544de07286d63d62c8c218f49c22e3d4d4d714281edef7c52b1cf41fb3ddb3",
+      "answerBytes": 1120,
+      "tokens": "missing",
+      "cost": "missing",
+      "ts": "2026-08-25T14:18:14.838Z"
+    }
+  ],
+  "primaryEndpoint": {
+    "plain": {
+      "passed": 3,
+      "of": 3
+    },
+    "elt": {
+      "passed": 3,
+      "of": 3
+    }
+  },
+  "wallClockSec": {
+    "plain": 185.463,
+    "elt": 160.216
+  },
+  "interpretation": {
+    "claim": "plumbing-only",
+    "whatThisShows": "Обе руки на одном агенте и одном промпте доводят три задачи чужого benchmark до зелёного независимого grader. Это доказывает, что измерительный контур работает: задачи реальны, grader чужой, руки стартуют от одних байт.",
+    "whatThisDoesNotShow": [
+      "Превосходство ELT. Pass-rate 3/3 против 3/3 — различия нет и быть не могло: задачи polyglot этого уровня агент решает с первой попытки, поэтому потолок достигнут обеими руками.",
+      "Разницу во времени. 160 с против 185 с — это шум одного прогона на стохастическом агенте, а не измерение. Для утверждения о скорости нужны десятки пар.",
+      "Overhead сертификации. На этих задачах он НЕ измерялся: гейт ELT работает над слайсами репозитория со спекой, оракулом и планом, а изолированная задача polyglot ничего этого не имеет. Приписать сюда цифру overhead значило бы выдумать её."
+    ],
+    "honestLimit": "Три пары дают directional pilot без права на claim превосходства — ровно так записано в преregistration ДО прогона. Чтобы увидеть разницу, нужен класс задач, где агент ошибается: этот benchmark слишком лёгок для выбранной модели.",
+    "nextStep": "Для настоящего сравнения нужны задачи с ненулевой долей отказов (SWE-bench Verified либо polyglot на языках, где модель слабее) и >=30 пар."
+  }
+}
