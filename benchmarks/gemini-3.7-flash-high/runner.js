@@ -237,11 +237,28 @@ function graderFor(kind) {
   throw new Error(`unknown dataset kind: ${kind}`);
 }
 
+// Mechanical hash-lock: preregistration.json.runner.sha256 must match the runner.js
+// actually on disk RIGHT NOW. This is the enforcement half of the T002 requirement
+// ("зафіксувати ... hash runner'а до першого нового result row") — a text promise
+// without this check is not a lock, it is a comment (see preregistration.json
+// runner.correctionLog for the one time that gap was live).
+function verifyRunnerHash(preregPath = path.join(__dirname, 'preregistration.json')) {
+  const prereg = JSON.parse(fs.readFileSync(preregPath, 'utf8'));
+  const actual = sha256(fs.readFileSync(__filename, 'utf8'));
+  return { ok: actual === prereg.runner.sha256, expected: prereg.runner.sha256, actual };
+}
+
 async function main(argv) {
   const args = parseArgs(argv);
   if (args.error) {
     console.error(`elt-bench-runner: ${args.error}`);
     process.exitCode = 2;
+    return;
+  }
+  const hashCheck = verifyRunnerHash();
+  if (!hashCheck.ok) {
+    console.error(`elt-bench-runner: HASH-LOCK MISMATCH — runner.js изменился после preregistration (ожидался ${hashCheck.expected}, реально ${hashCheck.actual}). Обнови preregistration.json.runner.sha256 ДО прогона.`);
+    process.exitCode = 3;
     return;
   }
   const dataset = JSON.parse(fs.readFileSync(args.dataset, 'utf8'));
@@ -262,7 +279,7 @@ module.exports = {
   sha256, seededRandom, seededShuffle, wilsonInterval, classifyFailure,
   appendResultRow, readResultRows, pendingItems, runOneTask, defaultExecAgent,
   itemFromDatasetRow, parseArgs, pytestCommand, gradePolyglotWriter, gradeSweBenchGate,
-  graderFor, noGenerationExecAgent,
+  graderFor, noGenerationExecAgent, verifyRunnerHash,
 };
 
 if (require.main === module) {
