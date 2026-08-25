@@ -34,22 +34,32 @@ function loadCatalog(manifestPath) {
       nodeById: {},
     };
     // Індексувати pack'и та їхні node'и
+    const collisions = [];
     (data.packs || []).forEach((pack) => {
       if (catalog.packs[pack.id]) {
-        catalog.errors = catalog.errors || [];
-        catalog.errors.push({ reason: 'duplicate-pack-id', packId: pack.id });
+        collisions.push({ reason: 'duplicate-pack-id', packId: pack.id });
         return;
       }
       catalog.packs[pack.id] = pack;
       (pack.nodes || []).forEach((node) => {
         if (catalog.nodeById[node.id]) {
-          catalog.errors = catalog.errors || [];
-          catalog.errors.push({ reason: 'duplicate-node-id', nodeId: node.id });
+          collisions.push({ reason: 'duplicate-node-id', nodeId: node.id });
           return;
         }
         catalog.nodeById[node.id] = { ...node, packId: pack.id };
       });
     });
+    // Fail-closed: неоднозначный реестр не «каталог с замечаниями», а отсутствие каталога.
+    // Первый победивший ID молча выигрывал бы у второго, и подмена узла выглядела бы как
+    // штатная загрузка.
+    if (collisions.length) {
+      return {
+        ok: false,
+        reason: collisions[0].reason,
+        detail: collisions.map((c) => c.nodeId || c.packId).join(', '),
+        collisions,
+      };
+    }
     return catalog;
   } catch (e) {
     return { ok: false, reason: 'parse-error', details: e.message };
@@ -85,15 +95,23 @@ function resolveNode(catalog, nodeId) {
 
 // Перевірка на конфлікт імен: дві node'и не можуть мати однаковий ID
 // (це перехоплюється при завантаженні, але тест робить явну перевірку).
-function checkDuplicateNodeIds(catalog) {
-  const seen = {};
+// Считать дубликаты по `catalog.nodeById` было невозможно по построению: это объект, в
+// котором ключ существует один раз, поэтому функция возвращала пустой список ВСЕГДА. Дубликаты
+// живут только в исходном манифесте, его и читаем.
+function checkDuplicateNodeIds(manifestPath) {
+  let data;
+  try { data = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { return []; }
+  const seenPacks = new Set();
+  const seenNodes = new Set();
   const duplicates = [];
-  Object.keys(catalog.nodeById).forEach((nodeId) => {
-    if (seen[nodeId]) {
-      duplicates.push(nodeId);
+  for (const pack of data.packs || []) {
+    if (seenPacks.has(pack.id)) duplicates.push(pack.id);
+    seenPacks.add(pack.id);
+    for (const node of pack.nodes || []) {
+      if (seenNodes.has(node.id)) duplicates.push(node.id);
+      seenNodes.add(node.id);
     }
-    seen[nodeId] = true;
-  });
+  }
   return duplicates;
 }
 

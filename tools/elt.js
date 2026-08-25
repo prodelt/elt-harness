@@ -279,7 +279,17 @@ function gitExclude(rel) {
   fs.writeFileSync(exclude, body + (body && !body.endsWith('\n') ? '\n' : '') + rel + '\n');
 }
 
-function treeHash() {
+// 020 T009 (ремонт): хеш дерева, в котором маркер исполнения задачи приведён к `[ ]`.
+// Нужен ровно одному месту — доверенному пути гейта. Между валидацией пруфа в `elt commit`
+// и запуском pre-commit хука дерево ЗАКОНОМЕРНО меняется на одну вещь: `markDone()` ставит
+// `[X]`. Всё остальное измениться не имеет права. Пока хук просто ПРОПУСКАЛ проверку дерева,
+// доверие снимало её целиком — а значение env считается из публичных байтов пруфа, то есть
+// доступно кому угодно. Нормализация превращает «не проверяем дерево» в «проверяем дерево,
+// прощая ровно одну известную мутацию».
+function treeHashNormalizingTaskMarks() {
+  return treeHash({ normalizeTaskMarks: true });
+}
+function treeHash({ normalizeTaskMarks = false } = {}) {
   // No `git add -N`: intent-to-add MUTATES the index permanently (until reset/commit) —
   // tried that first, it left leftover staged garbage in the integration checkout after
   // merge.js's post-merge oracle run, which then broke the NEXT slice's merge. Read
@@ -311,16 +321,58 @@ function treeHash() {
     die(`treeHash: git diff не отработал (${diffRun.killed ? 'вывод обрезан/процесс убит' : `exit ${diffRun.code}`})`
       + `${diffRun.err ? `: ${diffRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
   }
+  // В нормализованном режиме прощается не только сам маркер, но и ФАКТ правки файла плана:
+  // до markDone он чист, после — модифицирован, и код статуса ('  ' → ' M') сдвигал бы хеш
+  // даже при схлопнутом diff. Путь остаётся в строке дословно, поэтому НОВЫЙ файл плана и
+  // любой посторонний файл по-прежнему видны и хеш меняют.
+  const planPath = (p) => /^specs\/[^/]+\/tasks\.md$/.test(String(p).replace(/\\/g, '/'));
   const status = statusRun.out.split('\n')
-    .filter((line) => !runtimeLog(line.slice(3).trim())).join('\n');
+    .filter((line) => !runtimeLog(line.slice(3).trim()))
+    .filter((line) => !(normalizeTaskMarks && planPath(line.slice(3).trim())))
+    .join('\n');
+  // Строки diff, отличающиеся ТОЛЬКО маркером задачи, схлопываются: `- [X] **T001**` и
+  // `- [ ] **T001**` дают один и тот же вход хеша. Любая другая правка того же файла
+  // (текст задачи, `[files:]`, соседняя строка) остаётся видимой и хеш меняет.
+  const normalizeMarks = (text) => String(text).split('\n')
+    .map((line) => line.replace(/^(\s*[-*]\s*)\[[xX]\]/, '$1[ ]'))
+    .join('\n');
+  // Блоки diff по файлам планов выбрасываются целиком: их содержимое приезжает ниже прямо
+  // с диска, уже нормализованным, и учитывать одно и то же дважды значило бы вернуть ту же
+  // чувствительность к появлению diff-блока.
+  const dropPlanDiffs = (text) => {
+    const out = [];
+    let skipping = false;
+    for (const line of String(text).split('\n')) {
+      const header = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+      if (header) skipping = planPath(header[2]);
+      if (!skipping) out.push(line);
+    }
+    return out.join('\n');
+  };
+  const diffText = normalizeTaskMarks ? dropPlanDiffs(diffRun.out) : diffRun.out;
   const h = crypto.createHash('sha256');
-  h.update(status + '\n' + diffRun.out);
+  h.update(status + '\n' + diffText);
   const untracked = status.split('\n')
     .filter((l) => l.startsWith('?? '))
     .map((l) => l.slice(3).trim())
     .sort();
   for (const f of untracked) {
     try { h.update(fs.readFileSync(path.join(cwd, f))); } catch { /* gone/unreadable — status already captured it */ }
+  }
+  // Планы участвуют в хеше своим содержимым, а не фактом правки: путь + нормализованные
+  // байты. Список берётся с диска целиком, поэтому исчезнувший или новый план видны.
+  if (normalizeTaskMarks) {
+    const specsDir = path.join(cwd, 'specs');
+    let dirs = [];
+    try { dirs = fs.readdirSync(specsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); }
+    catch { dirs = []; }
+    for (const dir of dirs) {
+      const planFile = path.join(specsDir, dir, 'tasks.md');
+      let text = null;
+      try { text = fs.readFileSync(planFile, 'utf8'); } catch { continue; }
+      h.update('specs/' + dir + '/tasks.md\n');
+      h.update(Buffer.from(normalizeMarks(text), 'utf8'));
+    }
   }
   return h.digest('hex');
 }
@@ -476,6 +528,10 @@ function writeOracleProof(exit, cfg) {
     exit,
     hash: currentTree,
     treeHash: currentTree,
+    // Второй хеш — не дубль: по нему доверенный путь гейта СВЕРЯЕТ дерево вместо того, чтобы
+    // пропускать проверку. Без него единственной защитой оставалось значение env, вычислимое
+    // из публичного файла пруфа.
+    hashTaskMarksNormalized: treeHashNormalizingTaskMarks(),
     baseHead: headSha(),
     command: cfg.oracle,
     ts: new Date().toISOString(),
@@ -997,8 +1053,12 @@ function recordFacadeChain(steps, context) {
   const done = [];
   for (const step of steps) {
     const r = recordTransition(step.event, { ...context, guards: step.guards || {} });
-    done.push({ event: step.event, ok: r.ok, reason: r.reason || null, node: r.node || null });
-    if (!r.ok) break;
+    done.push({ event: step.event, ok: r.ok, reason: r.reason || null, node: r.node || null, skipped: r.reason === 'no-edge' });
+    // `no-edge` — не отказ, а «этот шаг здесь неприменим»: разведку мог записать предыдущий
+    // вызов, и обрывать на ней цепочку значило бы терять посадку, которая реально случилась.
+    // Всё остальное (недоказанный guard, отвергнутая запись) обрывает: пропустить такое
+    // означало бы записать переход, доказательств для которого нет.
+    if (!r.ok && r.reason !== 'no-edge') break;
   }
   return done;
 }
@@ -1006,7 +1066,7 @@ function recordFacadeChain(steps, context) {
 // В эпоху журнала отказ записи фатален: авторитет уже там, и «коммит есть, события нет»
 // означало бы потерю истории. До cutover — только предупреждение в stderr.
 function reportFacade(chain) {
-  const failed = chain.find((c) => !c.ok);
+  const failed = chain.find((c) => !c.ok && !c.skipped);
   if (!failed) return;
   const msg = 'elt: событие графа ' + failed.event + ' не записано (' + failed.reason + ')';
   if (currentEpoch(readJournal().events) === JOURNAL_EPOCH) die(msg, 4);
@@ -1808,9 +1868,19 @@ if (cmd === 'gate') {
       // валидацией в `elt commit` и этим хуком успел смениться `[X]` в tasks.md), но НЕ
       // проверку самого вердикта. Красный оракул не проходит ни по какому пути — иначе
       // «доверенный коммит» стал бы дырой шире той, что закрывает T009.
+      // Доверие снимает не проверку дерева, а только ту её часть, которая заведомо не сойдётся:
+      // маркер исполнения задачи. Всё остальное сверяется как обычно, поэтому подстановка env
+      // (значение вычислимо из публичных байтов пруфа) больше не проводит постороннюю правку.
       if (process.env.ELT_GATE_TRUST_ORACLE && parsed && parsed.exit === 0
           && process.env.ELT_GATE_TRUST_ORACLE === sha256(oracleRaw)) {
-        console.log('elt gate: trusted elt commit (оракул-пруф проверен до markDone)');
+        const normalized = parsed.hashTaskMarksNormalized;
+        if (!normalized) {
+          die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4);
+        }
+        if (normalized !== treeHashNormalizingTaskMarks()) {
+          die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4);
+        }
+        console.log('elt gate: trusted elt commit (дерево сверено, прощён только маркер задачи)');
         process.exit(0);
       }
       if (!parsed || parsed.exit !== 0 || parsed.hash !== treeHash()) {
@@ -2116,6 +2186,25 @@ if (cmd === 'commit') {
   // остаётся — «локально есть, на remote нет» и есть тот факт, который обязан быть виден.
   let pushFailed = null;
   if (cfg.push || flag('--push')) {
+    // 020 T017: publish — не «коммит с флагом». Он требует terminal certificate ТОГО ЖЕ
+    // commit/tree, и batch-сертификат сам по себе release authority не даёт. Требование
+    // включается вместе с эпохой журнала (020 T015): до cutover авторитет ещё у legacy-пути,
+    // и внезапный отказ push сломал бы работающий маршрут, ничего не доказав. После cutover
+    // отсутствие сертификата — отказ, а не предупреждение.
+    if (currentEpoch(readJournal().events) === JOURNAL_EPOCH) {
+      const certOk = (() => {
+        try {
+          const certification = require('./certification');
+          const cert = certification.readBatchCertificate(cwd, batchKey, generation);
+          if (!cert || !cert.ok) return { ok: false, reason: 'сертификата батча нет (' + ((cert && cert.reason) || 'no-reason') + ')' };
+          const c = cert.certificate || cert;
+          if (c.v !== certification.BATCH_CERT_SCHEMA) return { ok: false, reason: 'чужая схема сертификата: ' + c.v };
+          if (c.commitHash && c.commitHash !== git(['rev-parse', 'HEAD']).out) return { ok: false, reason: 'сертификат выдан на другой commit' };
+          return { ok: true };
+        } catch (e) { return { ok: false, reason: e.message }; }
+      })();
+      if (!certOk.ok) die('elt commit --push: publish без terminal certificate — ' + certOk.reason, 4);
+    }
     const p = git(['push', '-u', 'origin', branch]);
     if (p.code === 0) console.error('elt commit: pushed');
     else {

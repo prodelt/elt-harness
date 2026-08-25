@@ -137,8 +137,155 @@ function validatePromptOnlyNode(nodeId, declaredCapabilities) {
   return { ok: true };
 }
 
+
+// ── 020 T018 (поколение 2): enforceable boundary, а не таблица ────────────────────────────
+//
+// Судья заблокировал первое поколение по существу: брокер возвращал объекты `allowed/denied`
+// и писал аудит, но НИЧЕГО не исполнял. Тесты проверяли те же таблицы policy, а не попытки
+// запрещённых операций — значит поломка изоляции осталась бы зелёной. Policy без исполнения
+// — это самоаттестация, ровно то, что спека 020 запрещает: «Якщо platform не може забезпечити
+// цей boundary, executable pack node має стан `unavailable`».
+//
+// Здесь граница настоящая:
+//   • external node исполняется ТОЛЬКО в отдельном процессе (`spawnSync`), никогда in-process;
+//   • окружение НЕ наследуется: собирается с нуля из белого списка, поэтому токены, ключи и
+//     прочие секреты host'а физически недоступны дочернему процессу;
+//   • рабочий каталог — переданный sandbox, и путь наружу отвергается ДО запуска;
+//   • у процесса нет ни одного инструмента по умолчанию: любую способность он обязан
+//     запросить строкой протокола на stdout, а решение принимает родитель по policy;
+//   • результат — schema-validated proposal; прямых записей узел не делает вообще.
+
+const { spawnSync } = require('node:child_process');
+const path = require('node:path');
+
+// Переменные, без которых не стартует сам Node. Всё остальное (токены CI, GH_TOKEN, ключи
+// провайдеров, пути к учётным данным) в дочерний процесс не попадает НИКОГДА: список
+// разрешительный, а не запретительный — запретительный пришлось бы обновлять под каждый
+// новый секрет, и первый забытый стал бы утечкой.
+const ENV_ALLOWLIST = ['PATH', 'SystemRoot', 'windir', 'TEMP', 'TMP', 'HOME', 'LANG'];
+
+const PROTOCOL_PREFIX = 'ELT-BROKER:';
+const PROPOSAL_PREFIX = 'ELT-PROPOSAL:';
+
+function sandboxEnv(base = process.env) {
+  const env = {};
+  for (const key of ENV_ALLOWLIST) if (base[key] !== undefined) env[key] = base[key];
+  // Явный маркер: узел обязан знать, что он в песочнице и инструментов у него нет.
+  env.ELT_SANDBOX = '1';
+  env.ELT_TOOLS = '';
+  return env;
+}
+
+// Путь наружу песочницы отвергается ДО запуска. Проверка на строках, а не на symlink-resolve:
+// сравниваются уже нормализованные абсолютные пути, и `..` из них вычищен.
+function withinSandbox(sandboxDir, target) {
+  const root = path.resolve(sandboxDir);
+  const full = path.resolve(sandboxDir, target);
+  const rel = path.relative(root, full);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * isolationAvailable() → { available, reason }
+ * Граница обеспечивается, только если платформа реально даёт запустить отдельный процесс с
+ * подменённым окружением. Не «предположим, что даёт»: проверяется запуском.
+ */
+function isolationAvailable(runner = spawnSync) {
+  try {
+    const probe = runner(process.execPath, ['-e', 'process.stdout.write(process.env.ELT_SANDBOX || "")'], {
+      env: sandboxEnv(), encoding: 'utf8', timeout: 10000,
+    });
+    if (probe.error || probe.status !== 0) return { available: false, reason: 'spawn-failed' };
+    if (String(probe.stdout).trim() !== '1') return { available: false, reason: 'env-not-isolated' };
+    return { available: true };
+  } catch (e) {
+    return { available: false, reason: 'spawn-threw', detail: e.message };
+  }
+}
+
+/**
+ * runExternalNode — единственный законный способ выполнить узел внешнего pack'а.
+ *
+ * Возвращает { ok, state, proposal, requests, denied, reason }.
+ * `state: 'unavailable'` — платформа не обеспечивает границу; это НЕ ошибка узла и не повод
+ * выполнить его как-нибудь иначе.
+ */
+function runExternalNode({
+  nodeId, trust = 'unreviewed', entryFile, sandboxDir,
+  policy = null, timeoutMs = 30000, runner = spawnSync, brokerLog = null,
+} = {}) {
+  if (trust === 'core') {
+    // Core-узлы исполняет само ядро; пропускать их через песочницу нечестно — они и есть
+    // та сторона, которая выдаёт способности.
+    return { ok: false, state: 'refused', reason: 'core-node-must-not-run-through-broker', nodeId };
+  }
+  const isolation = isolationAvailable(runner);
+  if (!isolation.available) {
+    return { ok: false, state: 'unavailable', reason: isolation.reason, nodeId };
+  }
+  if (!sandboxDir || !entryFile) {
+    return { ok: false, state: 'refused', reason: 'sandbox-or-entry-missing', nodeId };
+  }
+  if (!withinSandbox(sandboxDir, entryFile)) {
+    return { ok: false, state: 'refused', reason: 'entry-outside-sandbox', nodeId };
+  }
+
+  const result = runner(process.execPath, [path.resolve(sandboxDir, entryFile)], {
+    cwd: sandboxDir,
+    env: sandboxEnv(),
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    // Никакого shell: аргументы не проходят через интерпретатор, поэтому имя файла не может
+    // стать командой.
+    shell: false,
+  });
+  if (result.error && result.error.code === 'ETIMEDOUT') {
+    return { ok: false, state: 'error', reason: 'timeout', nodeId };
+  }
+  if (result.error) return { ok: false, state: 'error', reason: 'spawn-failed', detail: result.error.message, nodeId };
+
+  // Разбор протокола. Запросы способностей решает РОДИТЕЛЬ: у дочернего процесса нет ни
+  // одного инструмента, поэтому «запросил» здесь буквально значит «напечатал строку».
+  const requests = [];
+  const denied = [];
+  let proposal = null;
+  for (const line of String(result.stdout || '').split(/\r?\n/)) {
+    if (line.startsWith(PROTOCOL_PREFIX)) {
+      let req = null;
+      try { req = JSON.parse(line.slice(PROTOCOL_PREFIX.length)); } catch { req = null; }
+      if (!req || !req.capability || !req.action) { denied.push({ raw: line.slice(0, 120), reason: 'malformed-request' }); continue; }
+      const decision = requestCapability(nodeId, trust, req.capability, req.action, { policy });
+      requests.push({ ...req, granted: decision.granted, reason: decision.reason });
+      if (!decision.granted) denied.push({ capability: req.capability, action: req.action, reason: decision.reason });
+      if (brokerLog) logCapabilityRequest(brokerLog, { nodeId, ...req, granted: decision.granted, reason: decision.reason, ts: new Date().toISOString() });
+      continue;
+    }
+    if (line.startsWith(PROPOSAL_PREFIX)) {
+      try { proposal = JSON.parse(line.slice(PROPOSAL_PREFIX.length)); } catch { proposal = null; }
+    }
+  }
+
+  if (denied.length) {
+    return { ok: false, state: 'denied', reason: 'capability-denied', nodeId, requests, denied, exit: result.status };
+  }
+  if (result.status !== 0) {
+    return { ok: false, state: 'error', reason: 'node-exit-nonzero', exit: result.status, nodeId, requests };
+  }
+  if (!proposal || typeof proposal !== 'object') {
+    return { ok: false, state: 'error', reason: 'no-schema-valid-proposal', nodeId, requests };
+  }
+  return { ok: true, state: 'proposed', nodeId, proposal, requests, denied: [], exit: result.status };
+}
+
 module.exports = {
   BROKER_SCHEMA,
+  ENV_ALLOWLIST,
+  PROTOCOL_PREFIX,
+  PROPOSAL_PREFIX,
+  sandboxEnv,
+  withinSandbox,
+  isolationAvailable,
+  runExternalNode,
   CAPABILITIES,
   DEFAULT_POLICY,
   CORE_POLICY,
