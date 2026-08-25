@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-25T12:00:00Z",
+  "packs": [
+    {
+      "id": "elt/core",
+      "name": "ELT v5 Core",
+      "version": "5.0.0",
+      "source": "https://github.com/ametrin-ai/elt-v5",
+      "commit": "0c649e7",
+      "license": "MIT",
+      "trust": "core",
+      "platforms": ["win32", "linux", "darwin"],
+      "nodes": [
+        {
+          "id": "elt/identity",
+          "kind": "source",
+          "consumes": [],
+          "produces": ["run-identity"],
+          "guards": [],
+          "sideEffects": ["none"],
+          "trust": "core",
+          "timeoutMs": 30000,
+          "failure": "block"
+        },
+        {
+          "id": "elt/oracle",
+          "kind": "gate",
+          "consumes": ["task-scope"],
+          "produces": ["oracle-verdict"],
+          "guards": ["impact-closure"],
+          "sideEffects": ["workspace"],
+          "trust": "core",
+          "timeoutMs": 300000,
+          "failure": "block"
+        },
+        {
+          "id": "elt/judge",
+          "kind": "decision",
+          "consumes": ["code-diff"],
+          "produces": ["review-verdict"],
+          "guards": ["L0-pass"],
+          "sideEffects": ["none"],
+          "trust": "core",
+          "timeoutMs": 120000,
+          "failure": "block"
+        },
+        {
+          "id": "elt/commit",
+          "kind": "sink",
+          "consumes": ["review-verdict"],
+          "produces": ["commit-proof"],
+          "guards": ["terminal-success"],
+          "sideEffects": ["git", "workspace"],
+          "trust": "core",
+          "timeoutMs": 60000,
+          "failure": "block"
+        }
+      ]
+    }
+  ]
+}

@@ -93,7 +93,7 @@
   checkbox→`[ ]`, length-prefixed records і спільний Windows/Linux golden digest fixture.
   [files: tools/graph-state.js tools/graph-state.test.js tools/graph-journal.js tools/graph-journal.test.js tools/task-identity.js tools/task-identity.test.js]
 
-- [ ] **T015** Одна runtime-двері та feedback loop: `elt run|advance|status --json` відновлює
+- [X] **T015** Одна runtime-двері та feedback loop: `elt run|advance|status --json` відновлює
   journal, обчислює наступний legal edge і не вимагає памʼятати `oracle→judge→commit`.
   SessionStart inject-ить generated state + unresolved ledger; high-confidence debrief повертає
   наступну сесію в `recon`. Низькорівневі команди лишаються diagnostic façade і пишуть ті самі
@@ -123,7 +123,7 @@
   certificates мають різні schemas; push/merge/tag/release приймають лише відповідний proof.
   [files: tools/certification.js tools/certification.test.js tools/review-runtime.js tools/elt-verify-bg.js tools/elt.js bin/ledger.js]
 
-- [ ] **T018** Мінімальний component registry + frozen lock: namespaced pack/node IDs,
+- [X] **T018** Мінімальний component registry + frozen lock: namespaced pack/node IDs,
   source/version/commit/license/content hashes, platform/capability/side-effect metadata,
   collision rejection і content-addressed installed generations. Run snapshot-ить lock digest;
   pack не може promote себе або змінити lock усередині run. Старий proof стає stale при зміні
@@ -155,7 +155,7 @@
   не є prerequisite T020.
   [files: tools/component-update.js tools/component-update.test.js tools/component-scan.js tools/component-scan.test.js tools/component-promote.js tools/component-promote.test.js tools/skill-scan.js tools/skill-scan.test.js]
 
-- [ ] **T021** Release adapters для інших upstream: Spec Kit importer з explicit spec dir та
+- [X] **T021** Release adapters для інших upstream: Spec Kit importer з explicit spec dir та
   canonical approval identity; RTK лише presentation поверх збереженого raw stdout/exit;
   SkillSpector як activation gate. OpenShell — optional/unavailable без WSL2/Linux probe,
   pinned image і Landlock `hard_requirement`; ECC — manifest/ownership/dry-run patterns без

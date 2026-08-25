@@ -31,7 +31,11 @@ function installHook(root) {
   // 020 T016: `batch-planner.js` — часть ЗАМЫКАНИЯ elt.js (планировщик зовётся на каждом
   // коммите, не лениво). Забыть его здесь = `Cannot find module` в чужом чекауте, а не
   // «тест не про это»: список ниже и есть проверка того, что модуль доезжает.
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js']) {
+  // 020 T015: `elt run|advance|cutover` втянули в замыкание модули графа — они требуются на
+  // ВЕРХНЕМ уровне elt.js, поэтому их отсутствие в чужом чекауте убивает не команду графа, а
+  // весь CLI ещё до разбора argv. Список ниже и есть та проверка, которая это ловит.
+  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js',
+    'graph-compiler.js', 'graph-core.js', 'graph-journal.js', 'graph-state.js', 'task-identity.js']) {
     fs.copyFileSync(path.join(__dirname, name), path.join(toolsDir, name));
   }
 }

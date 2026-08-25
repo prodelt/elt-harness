@@ -215,7 +215,7 @@ function hooksFixture(body, extra = []) {
 test('hooks: живой репозиторий — оба события и обе цели на месте', () => {
   const live = doctor.runDoctor().checks.find((c) => c.name === 'plugin hooks');
   assert.equal(live.status, 'PASS');
-  assert.match(live.detail, /2 событий, 2 команд/);
+  assert.match(live.detail, /2 событий, 3 команд/);
 });
 
 test('hooks: корректная фикстура даёт PASS, а её цели действительно проверяются', () => {
