@@ -1,0 +1,81 @@
+{
+  "schema": "elt-benchmark-preregistration/v2",
+  "registeredAt": "2026-08-26",
+  "immutableAfterFirstResult": true,
+  "immutabilityNote": "Поля этого файла (кроме простановки runnerSha256Verified при первой сверке) неизменны после того, как в raw-results.jsonl любого из двух экспериментов появится первая строка. Изменение протокола после результата обесценивает preregistration — история этого проекта уже видела v5.0.0 (3 пары) именно потому и не масштабируется без нового цикла: контур сам по себе не даёт права переписать правила задним числом.",
+
+  "runner": {
+    "file": "runner.js",
+    "sha256": "0a5023be895cb37805987abf9cd0ebcaace14464d926f0d425f6430e36edb0c1",
+    "note": "Хеш runner.js на момент регистрации. summarize.js обязан отказать в claim, если хеш файла на диске разойдётся с этим значением на момент первого прогона T003 — это T003, не проверяется здесь механически, но зафиксировано как требование протокола."
+  },
+
+  "designDecisionsNotInTaskText": {
+    "note": "Задача T002 (specs/021-gemini-benchmark-release-readiness/tasks.md) описывает контур в общих чертах (raw logs, deterministic dataset builder, integrity/anti-leak checks, transport-only retry, machine-generated summary), но НЕ фиксирует точный протокол gate A/B эксперимента. Ниже — решения, принятые при реализации T002, записанные здесь ДО первого результата, а не задним числом.",
+    "gateExperimentDefinition": "«bare vs judgeDiff» на SWE-bench инстансах реализован как: каждому инстансу ставится в пару его подлинный gold patch (ожидаемо принят) и один синтетический broken patch (ожидаемо отклонён) — механическая порча: у последнего hunk последней секции файла в unified diff (build-gate-dataset.js:stripLastHunk). Это стоит в роли известного класса «агент остановился на один hunk раньше», а не случайного шума. Рука bare прогоняет grader (SWE-bench тестовый набор) напрямую на обоих патчах без ELT-судьи; рука judgeDiff сначала прогоняет tools/judge-core.js на диффе, и только патч, прошедший судью, идёт grader'у — патч, отклонённый судьёй, засчитывается как gate-reject без обращения к grader'у.",
+    "balanceRule": "«збалансована вибірка» реализована как round-robin по repo (build-gate-dataset.js:selectSweBenchInstances) — ни один repo не может дать вторую задачу выборки, пока каждый другой repo не дал первую (при достаточном количестве репо)."
+  },
+
+  "writerExperiment": {
+    "id": "writer-plain-vs-elt",
+    "dataset": {
+      "kind": "polyglot-writer",
+      "repo": "Aider-AI/polyglot-benchmark",
+      "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+      "note": "Тот же commit, что в v5.0.0 и specs/020 upstreams.lock.json.",
+      "lang": "python",
+      "count": 30,
+      "seed": "elt-021-writer-30-2026-08-26",
+      "seedNote": "seed передаётся в build-gate-dataset.js --seed буквально этой строкой; регенерация с теми же repo/commit/count/seed обязана дать байт-идентичный dataset.json (см. runner.test.js: selectPolyglotTasks determinism)."
+    },
+    "arms": {
+      "plain": { "agent": "agy", "model": "gemini-3.7-flash-high", "harness": "none" },
+      "elt": { "agent": "agy", "model": "gemini-3.7-flash-high", "harness": "elt v5.0.0", "note": "Тот же промпт, что и в plain; гейт добавляется поверх того же кода-кандидата, не меняет промпт." }
+    },
+    "protocol": {
+      "execution": "parallel по парам, без эффекта порядка по построению",
+      "retryPolicy": "только transport-failure (runner.js:classifyFailure), максимум --retry-max попыток, равный бюджет в обеих руках",
+      "guard": "testFile каждой задачи — held-out guard; sha256 до/после вызова агента должен совпасть, иначе outcome=invalid",
+      "primaryEndpoint": "pytest exit code на testFile, grader чужой и не меняется ни в одной руке"
+    }
+  },
+
+  "gateExperiment": {
+    "id": "gate-bare-vs-judgeDiff",
+    "dataset": {
+      "kind": "swebench-gate",
+      "source": "локальный instances.jsonl (SWE-bench Verified/Lite dump), путь фиксируется при запуске build-gate-dataset.js в T003 и записывается в dataset.json",
+      "count": 30,
+      "seed": "elt-021-gate-30-2026-08-26",
+      "seedNote": "то же требование детерминизма, что у writerExperiment.dataset.seed."
+    },
+    "arms": {
+      "bare": { "judge": "none", "note": "gold и broken патчи идут grader'у напрямую" },
+      "judgeDiff": { "judge": "tools/judge-core.js", "note": "патч сперва проходит судью; отклонённый патч не доходит до grader'а и засчитывается как gate-reject" }
+    },
+    "protocol": {
+      "perInstancePairs": "gold (ожидание: принят и проходит) + broken (ожидание: отклонён судьёй ИЛИ не проходит grader)",
+      "primaryEndpoint": "для judgeDiff — согласие вердикта судьи с ожиданием (accept на gold, reject на broken); для bare — исход grader'а напрямую"
+    }
+  },
+
+  "claimLimits": {
+    "1 pair": "только plumbing — обе руки вообще работают",
+    "3 pairs": "directional pilot без права заявлять превосходство (см. v5.0.0)",
+    ">=30 pairs": "directional claim с доверительным интервалом (Wilson 95%, runner.js:wilsonInterval)",
+    ">=100 pairs": "сильный claim",
+    "thisRegistration": "оба эксперимента преregistered на count=30 — на границе directional claim; финальный claimEligible вычисляется summarize.js по факту завершённости обеих рук, не по преregistered count"
+  },
+
+  "priorRuns": {
+    "results-v5.0.0.json": {
+      "status": "invalid-for-claim",
+      "reason": "3 пары, ниже порога directional claim (>=30); прогнан ДО существования этого runner.js и его зафиксированного хеша — нет hash-lock контура, который эта preregistration вводит впервые. Сам файл и его README (../README.md) остаются в репозитории как честно промаркированный directional pilot, а не удаляются — но не входит и не может входить в headline-числа T003/T004.",
+      "supersededBy": "этот файл (writerExperiment)"
+    },
+    "v5.1.0-three-arm-scratch": {
+      "status": "never-executed",
+      "reason": "Черновой three-arm (worker/brain, Rust) дизайн из сессии da52b984 остался в session scratchpad, ни одного результата не произведено (см. тамошний BENCHMARK_SESSION_REPORT.md — заблокирован auth/бюджетом). Не является частью этой preregistration и не входит ни в headline, ни в invalid-for-claim реестр как выполненный прогон — данных нет."
+    }
+  }
+}
