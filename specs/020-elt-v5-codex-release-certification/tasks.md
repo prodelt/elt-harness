@@ -164,7 +164,7 @@
   contract fixture і Windows behaviour.
   [files: tools/adapters/spec-kit.js tools/adapters/spec-kit.test.js tools/adapters/rtk.js tools/adapters/rtk.test.js tools/adapters/skillspector.js tools/adapters/skillspector.test.js tools/adapters/openshell.js tools/adapters/openshell.test.js]
 
-- [ ] **T022** Graph conformance, docs і KPI instrumentation: runnable matrix legal/illegal
+- [X] **T022** Graph conformance, docs і KPI instrumentation: runnable matrix legal/illegal
   edges, plan skip, stale approval, duplicate/replay, crash after landing, resume, terminal
   failures, repair generation, same T ID у різних spec, ledger threshold, schema upgrade,
   component update/rollback і authority bypass. `doctor` показує graph/packs як
