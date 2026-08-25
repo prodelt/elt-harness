@@ -114,7 +114,7 @@
   один active generation і `ready_to_local_commit` p95 `<5 s`.
   [files: tools/batch-planner.js tools/batch-planner.test.js tools/elt.js tools/elt-batch.test.js tools/elt-gate-l0.js]
 
-- [ ] **T017** Hash-bound Mirror, certificate algebra і publish quarantine: на одному
+- [X] **T017** Hash-bound Mirror, certificate algebra і publish quarantine: на одному
   `batchHead/generation` рівно один impact oracle та один review-subgraph. Core-owned таблиця
   детерміновано задає required lenses і входить у evidence; high-risk/release завжди всі пʼять.
   Pass = oracle exit 0 + усі required lenses terminal-success + scorer terminal-success + zero
@@ -134,7 +134,7 @@
   receipt без підключення конкретного великого catalog.
   [files: .elt/components.json .elt/components.lock.json tools/component-store.js tools/component-store.test.js tools/component-catalog.js tools/component-catalog.test.js tools/capability-broker.js tools/capability-broker.test.js]
 
-- [ ] **T019** Повний supported `mattpocock/skills` GrailPack поверх T018: pinned
+- [X] **T019** Повний supported `mattpocock/skills` GrailPack поверх T018: pinned
   `5b15a47f2d7150f545fbcacbfe381787fc0230dc`, manifest SHA-256
   `6B5C85512785D36D6DA4561BB309AC11E8BD6C0C028D5777740DC01147A6A025`, рівно 25 promoted
   entries `grail/*`; 11 non-promoted не імпортуються за upstream governance. Усі 25 catalog
@@ -144,7 +144,7 @@
   copy installer, collisions або mutable `latest`. Windows CRLF smoke блокує shell-backed nodes.
   [files: packs/mattpocock-skills/manifest.json packs/mattpocock-skills/policy.yaml tools/adapters/mattpocock.js tools/adapters/mattpocock.test.js]
 
-- [ ] **T020** Safe component-update graph: discover exact candidate → isolated staging →
+- [X] **T020** Safe component-update graph: discover exact candidate → isolated staging →
   source/hash/license/path/symlink verification → semantic capability diff → SkillSpector
   `--fail-on-incomplete` → Windows/Linux smoke → contract canary → human approval на authority/
   side-effect diff → trusted-core atomic promotion. Candidate ніколи не сканує/підвищує себе;
