@@ -101,6 +101,14 @@ function testFileCountIsIndependentOfRipgrepAndSkipsGeneratedTrees() {
   }
 }
 
+function testFileCountFailsClosedWhenRootCannotBeRead() {
+  const missing = path.join(os.tmpdir(), `project-bootstrap-missing-${process.pid}-${Date.now()}`);
+  const counted = fileCount(missing);
+  assert.equal(counted.ok, false);
+  assert.equal(counted.count, 0);
+  assert.match(counted.error, /ENOENT|no such file/i);
+}
+
 function testApplyCreatesOnlySafeInfrastructure() {
   const root = tempProject();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'project-bootstrap-home-'));
@@ -852,6 +860,7 @@ function testGateContractRejectsInstalledButDisabledHook() {
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
   testFileCountIsIndependentOfRipgrepAndSkipsGeneratedTrees();
+  testFileCountFailsClosedWhenRootCannotBeRead();
   testApplyCreatesOnlySafeInfrastructure();
   testDetectsNextAppRouterAndRecommendsBoundedProbes();
   testScanReportsControlPlaneAndSupplyChainSurface();

@@ -83,6 +83,8 @@ function isDubiousOwnership(stderr) {
 // отчёте может прийти и с другой машины: «репозиторий в корне диска C:» обязан оставаться
 // распознанным где угодно.
 function isDiskRoot(absPath) {
+  const raw = String(absPath || '');
+  if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+[\\/]?$/.test(raw)) return true;
   const normalized = normalizePath(absPath);
   if (normalized === '/') return true;
   return /^[a-zA-Z]:\/?$/.test(normalized);
