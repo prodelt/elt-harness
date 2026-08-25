@@ -20,7 +20,9 @@ const PLUGIN_ROOT = path.join(__dirname, '..');
 
 // Замыкание рантайма плагина: точки входа + модули, которые они требуют. Список ручной и
 // короткий намеренно — он должен читаться глазами, как и список владений харнеса (T021).
-const BIN_ENTRIES = ['oracle.js', 'l0.js', 'ledger.js', 'doctor.js'];
+// 020 T012: точки входа хуков — часть того же замыкания. Хук, который не резолвится, ломает
+// не команду, а КАЖДУЮ сессию, и заметить это без загрузки модуля нечем.
+const BIN_ENTRIES = ['oracle.js', 'l0.js', 'ledger.js', 'doctor.js', 'session-start.js', 'session-stop.js'];
 const SURFACE = [
   'commands/elt-verify.md',
   'commands/elt-defects.md',
@@ -44,6 +46,13 @@ const SURFACE = [
 // зелёной, если бы `/elt` вёл в несуществующий файл, если бы фоновой прогон снова начал
 // считать любой неучтённый исход зелёным (см. 020 T007) или если бы в `agents/` появился
 // файл, о котором манифест не знает. Каждый из трёх классов уже случался.
+
+// События хуков Claude Code. Список закрытый намеренно: опечатка в имени события даёт хук,
+// который просто никогда не вызовется, — самый тихий из возможных отказов.
+const HOOK_EVENTS = new Set([
+  'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Notification',
+  'Stop', 'SubagentStop', 'StopFailure', 'PreCompact', 'SessionStart', 'SessionEnd',
+]);
 
 // Каталоги поверхности и то, что в них считается файлом поверхности. Нужны обе стороны
 // сверки: объявленного нет на диске И на диске есть необъявленное.
@@ -209,17 +218,39 @@ function runDoctor({ root = PLUGIN_ROOT, cwd = process.cwd() } = {}) {
     return `${expected.length} исходов, приоритет red > dead > inconclusive держится`;
   }));
 
-  // Хуки плагина. Их ещё нет (их ставит 020 T012) — это состояние, а не поломка. Но если
-  // файл появился, он обязан быть разбираемым и без абсолютных путей: абсолютный путь в
-  // хуке — это чужая машина, на которой плагин молча не работает.
+  // Хуки плагина. 020 T012 сделал проверку предметной: мало «файл разбирается» — хук обязан
+  // указывать на СУЩЕСТВУЮЩИЙ файл этого же плагина и не нести абсолютных путей. Оба класса
+  // ловились только глазами: markdown и JSON никто не компилирует, а сломанный хук виден лишь
+  // на чужой машине и лишь в момент старта сессии.
   checks.push(check('plugin hooks', () => {
     const file = path.join(root, 'hooks', 'hooks.json');
     if (!fs.existsSync(file)) return { status: 'INFO', detail: 'hooks/hooks.json нет — плагин без хуков' };
     const raw = fs.readFileSync(file, 'utf8');
-    JSON.parse(raw);
     const absolute = raw.match(/[A-Za-z]:\\\\|"\/(?:home|Users)\//g);
     if (absolute) throw new Error(`в хуках абсолютные пути (${absolute.join(', ')}) — на чужой машине они не разрешатся`);
-    return 'hooks.json разбирается, абсолютных путей нет';
+    if (/\.claude[/\\]bin/.test(raw)) throw new Error('хук ссылается на снятую развёртку ~/.claude/bin (019 T015)');
+
+    const parsed = JSON.parse(raw);
+    const events = Object.entries(parsed.hooks || {});
+    if (!events.length) throw new Error('в hooks.json нет ни одного события');
+    const unknown = events.map(([e]) => e).filter((e) => !HOOK_EVENTS.has(e));
+    if (unknown.length) throw new Error(`неизвестные события: ${unknown.join(', ')}`);
+
+    let commands = 0;
+    for (const [event, groups] of events) {
+      for (const group of groups) {
+        for (const hook of group.hooks || []) {
+          commands++;
+          if (hook.type !== 'command') throw new Error(`${event}: тип хука "${hook.type}" не поддерживается`);
+          const target = /\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+)/.exec(hook.command || '');
+          if (!target) throw new Error(`${event}: команда не идёт от \${CLAUDE_PLUGIN_ROOT} — ${hook.command}`);
+          if (!fs.existsSync(path.join(root, target[1]))) {
+            throw new Error(`${event}: хук ведёт в несуществующий файл ${target[1]}`);
+          }
+        }
+      }
+    }
+    return `${events.length} событий, ${commands} команд, все цели на месте`;
   }));
 
   // Проект — не плагин: его отсутствие это состояние, а не поломка.
@@ -260,4 +291,4 @@ function main(argv = process.argv.slice(2), out = process.stdout) {
 
 if (require.main === module) process.exit(main());
 
-module.exports = { runDoctor, formatText, main, BIN_ENTRIES, SURFACE, PLUGIN_ROOT };
+module.exports = { runDoctor, formatText, main, BIN_ENTRIES, SURFACE, HOOK_EVENTS, PLUGIN_ROOT };

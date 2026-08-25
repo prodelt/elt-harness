@@ -14,11 +14,13 @@
 // гоняет её на фикстурах (`host-surface.test.js`), а на живой машине её зовёт CLI ниже.
 //
 //   node tools/host-surface.js [--json] [--expect-absent] [--home DIR] [--root DIR]
+//   node tools/host-surface.js --sync-clients [--dry-run]   # 020 T012: паритет Claude/Codex/Gemini
 //
 // `--expect-absent` — обратное утверждение для CI: прогон обязан быть герметичным, поэтому
 // найденный на раннере глобальный скил или установленный судья это ОТКАЗ, а не удача. Без
 // него «оракул зелёный на CI» невозможно отличить от «на раннере случайно оказался хост».
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -130,11 +132,86 @@ function checkConfiguredJudge({ root = process.cwd(), judges, readFile } = {}) {
   return { status: installed ? 'ok' : 'not-installed', provider };
 }
 
+// 020 T012 — паритет клиентов. Один и тот же `/elt` обязан быть одинаковым у Claude, Codex и
+// Gemini. Замер 2026-08-24: репозиторный `skills/elt/SKILL.md` = 5.0.0, а все три домашние
+// копии = 4.0.0 — то есть два из трёх клиентов месяц читали снятый маршрут (`--skip-attest`,
+// `~/.claude/bin/elt.js`), и заметить это было нечем: сверка шла по наличию файла.
+//
+// Сверяется SHA-256, а не «файл есть»: расхождение в одну строку это уже другой протокол.
+// Claude получает скил установкой плагина, Codex и Gemini — копией из этого репозитория;
+// источник у всех троих один и тот же файл, поэтому и хеш обязан быть один.
+const CLIENT_SKILL = ['skills', 'elt', 'SKILL.md'];
+
+// Снятая развёртка рантайма. Её присутствие само по себе не отказ (чужие файлы не удаляем),
+// но НИ ОДИН маршрут не имеет права на неё ссылаться — спека 019 T015 её сняла.
+const LEGACY_RUNTIME = ['.claude', 'bin', 'elt.js'];
+
+function sha256(text) {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function versionOf(text) {
+  const m = /^version:\s*(\S+)\s*$/m.exec(text || '');
+  return m ? m[1] : null;
+}
+
+function checkClientParity({ home = os.homedir(), repoRoot = path.join(__dirname, '..'), readFile } = {}) {
+  const read = readFile || ((p) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null));
+  const sourcePath = path.join(repoRoot, ...CLIENT_SKILL);
+  const sourceText = read(sourcePath);
+  if (sourceText === null) {
+    return { status: 'no-source', source: { path: sourcePath, sha256: null, version: null }, clients: [], legacyRuntime: null };
+  }
+  const source = { path: sourcePath, sha256: sha256(sourceText), version: versionOf(sourceText) };
+  const clients = SKILL_ROOTS.map((root) => {
+    const file = path.join(home, root.dir, ...CLIENT_SKILL);
+    const text = read(file);
+    if (text === null) return { client: root.client, path: file, status: 'absent', sha256: null, version: null };
+    const hash = sha256(text);
+    return {
+      client: root.client, path: file, sha256: hash, version: versionOf(text),
+      status: hash === source.sha256 ? 'ok' : 'drift',
+    };
+  });
+  const legacyPath = path.join(home, ...LEGACY_RUNTIME);
+  const legacyRuntime = { path: legacyPath, present: read(legacyPath) !== null };
+  const statuses = clients.map((c) => c.status);
+  return {
+    status: statuses.every((s) => s === 'ok') ? 'ok' : statuses.includes('drift') ? 'drift' : 'absent',
+    source, clients, legacyRuntime,
+  };
+}
+
+// Починка паритета: РОВНО один файл на клиента переписывается из репозиторного источника.
+// Ничего не удаляется — ни чужие скилы рядом, ни снятая развёртка `~/.claude/bin/elt.js`
+// (риск спеки: «невідомі hooks не видаляти»), а прежнее содержимое сохраняется рядом как
+// `.bak-<timestamp>`: правка домашнего профиля пользователя обязана быть обратимой.
+function syncClientSurfaces({ home = os.homedir(), repoRoot = path.join(__dirname, '..'), dryRun = false, now = Date.now } = {}) {
+  const parity = checkClientParity({ home, repoRoot });
+  if (parity.status === 'no-source') return { status: 'no-source', changes: [] };
+  const source = fs.readFileSync(parity.source.path, 'utf8');
+  const stamp = new Date(now()).toISOString().replace(/[:.]/g, '-');
+  const changes = [];
+  for (const client of parity.clients) {
+    if (client.status === 'ok') continue;
+    const change = { client: client.client, path: client.path, from: client.version, to: parity.source.version, backup: null };
+    if (client.status === 'drift') change.backup = `${client.path}.bak-${stamp}`;
+    if (!dryRun) {
+      fs.mkdirSync(path.dirname(client.path), { recursive: true });
+      if (change.backup) fs.copyFileSync(client.path, change.backup);
+      fs.writeFileSync(client.path, source);
+    }
+    changes.push(change);
+  }
+  return { status: dryRun ? 'dry-run' : 'applied', changes, source: parity.source };
+}
+
 function checkHostSurface(options = {}) {
   const skills = checkHostSkills(options);
   const judges = checkJudgeBinaries(options);
   const configuredJudge = checkConfiguredJudge({ ...options, judges });
-  return { skills, judges, configuredJudge };
+  const clientParity = checkClientParity(options);
+  return { skills, judges, configuredJudge, clientParity };
 }
 
 // Герметичность прогона: НИ одного глобального скила и НИ одного судьи. Утверждение обратное
@@ -161,6 +238,14 @@ function formatText(report) {
   lines.push(`  [${report.judges.status.padEnd(13)}] судьи — найдены: ${report.judges.found.map((f) => f.name).join(', ') || 'ни одного'}`);
   const cj = report.configuredJudge;
   lines.push(`  [${cj.status.padEnd(13)}] судья из .harness/harness.json — ${cj.provider || 'конфига нет'}`);
+  const cp = report.clientParity;
+  lines.push(`  [${cp.status.padEnd(13)}] паритет клиентов — источник ${cp.source.version || '?'} ${String(cp.source.sha256).slice(0, 12)}`);
+  for (const c of cp.clients) {
+    lines.push(`      ${c.client}: ${c.status}${c.version ? ` (${c.version} ${String(c.sha256).slice(0, 12)})` : ''} — ${c.path}`);
+  }
+  if (cp.legacyRuntime && cp.legacyRuntime.present) {
+    lines.push(`      снятая развёртка на месте (не удаляется, но маршрутом быть не может): ${cp.legacyRuntime.path}`);
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -173,6 +258,22 @@ function main(argv = process.argv.slice(2), out = process.stdout) {
   });
   const expectAbsent = argv.includes('--expect-absent');
   const violations = expectAbsent ? hermeticViolations(report) : [];
+
+  // Починка паритета — отдельная явная команда, а не побочный эффект диагностики: она пишет в
+  // домашний профиль пользователя, и делать это «заодно» с отчётом нельзя.
+  if (argv.includes('--sync-clients')) {
+    const opts = {
+      ...(homeIdx >= 0 ? { home: argv[homeIdx + 1] } : {}),
+      dryRun: argv.includes('--dry-run'),
+    };
+    const res = syncClientSurfaces(opts);
+    if (argv.includes('--json')) { out.write(JSON.stringify(res, null, 2) + '\n'); return 0; }
+    out.write(`host-surface: паритет клиентов — ${res.status}, изменений ${res.changes.length}\n`);
+    for (const c of res.changes) {
+      out.write(`  ${c.client}: ${c.from || 'нет файла'} → ${c.to}${c.backup ? ` (копия: ${path.basename(c.backup)})` : ''}\n`);
+    }
+    return 0;
+  }
 
   if (argv.includes('--json')) {
     out.write(JSON.stringify({ ...report, expectAbsent, violations }, null, 2) + '\n');
@@ -192,5 +293,7 @@ if (require.main === module) process.exit(main());
 
 module.exports = {
   HOST_SKILLS, SKILL_ROOTS, JUDGE_BINARIES,
-  checkHostSkills, checkJudgeBinaries, checkConfiguredJudge, checkHostSurface, hermeticViolations, formatText, main,
+  CLIENT_SKILL, LEGACY_RUNTIME,
+  checkHostSkills, checkJudgeBinaries, checkConfiguredJudge, checkClientParity, syncClientSurfaces,
+  checkHostSurface, hermeticViolations, formatText, main,
 };

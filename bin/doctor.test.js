@@ -194,3 +194,122 @@ test('hooks: абсолютный путь внутри — FAIL, на чужо�
   const nix = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: '/home/espad/hook.js' }] }) }), 'plugin hooks');
   assert.equal(nix.status, 'FAIL');
 });
+
+// --- 020 T012: хуки плагина проверяются предметно ------------------------------------------
+//
+// «JSON разбирается» — не проверка: хук, указывающий в несуществующий файл или в снятую
+// развёртку `~/.claude/bin`, разбирается прекрасно и ломается только на чужой машине и только
+// в момент старта сессии. Каждая фикстура ниже — отдельный способ сломаться молча.
+
+const HOOKS_OK = JSON.stringify({
+  hooks: {
+    SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/bin/session-start.js"' }] }],
+    Stop: [{ hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/bin/session-stop.js"' }] }],
+  },
+});
+
+function hooksFixture(body, extra = []) {
+  return makePluginRoot({ hooks: body, surfaceExtra: extra });
+}
+
+test('hooks: живой репозиторий — оба события и обе цели на месте', () => {
+  const live = doctor.runDoctor().checks.find((c) => c.name === 'plugin hooks');
+  assert.equal(live.status, 'PASS');
+  assert.match(live.detail, /2 событий, 2 команд/);
+});
+
+test('hooks: корректная фикстура даёт PASS, а её цели действительно проверяются', () => {
+  const root = hooksFixture(HOOKS_OK, ['bin/session-start.js', 'bin/session-stop.js']);
+  assert.equal(checkIn(root, 'plugin hooks').status, 'PASS');
+});
+
+test('hooks: цель не существует → FAIL с именем файла, а не тихий PASS', () => {
+  const c = checkIn(hooksFixture(HOOKS_OK), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /несуществующий файл bin\/session-start\.js/);
+});
+
+test('hooks: неизвестное событие → FAIL (опечатка = хук, который никогда не вызовется)', () => {
+  const body = JSON.stringify({ hooks: { SesionStart: [{ hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/bin/x.js"' }] }] } });
+  const c = checkIn(hooksFixture(body, ['bin/x.js']), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /неизвестные события: SesionStart/);
+});
+
+test('hooks: команда мимо ${CLAUDE_PLUGIN_ROOT} → FAIL', () => {
+  const body = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node ./bin/session-stop.js' }] }] } });
+  const c = checkIn(hooksFixture(body, ['bin/session-stop.js']), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /CLAUDE_PLUGIN_ROOT/);
+});
+
+test('hooks: ссылка на снятую развёртку ~/.claude/bin → FAIL', () => {
+  const body = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/.claude/bin/elt.js"' }] }] } });
+  const c = checkIn(hooksFixture(body), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /снятую развёртку/);
+});
+
+test('hooks: пустой объект событий → FAIL, а не «хуков нет»', () => {
+  const c = checkIn(hooksFixture(JSON.stringify({ hooks: {} })), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /нет ни одного события/);
+});
+
+test('hooks: тип, отличный от command → FAIL', () => {
+  const body = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'inline', command: 'node "${CLAUDE_PLUGIN_ROOT}/bin/x.js"' }] }] } });
+  const c = checkIn(hooksFixture(body, ['bin/x.js']), 'plugin hooks');
+  assert.equal(c.status, 'FAIL');
+  assert.match(c.detail, /не поддерживается/);
+});
+
+test('точки входа: хуки входят в замыкание bin/ наравне с командами', () => {
+  assert.ok(doctor.BIN_ENTRIES.includes('session-start.js'));
+  assert.ok(doctor.BIN_ENTRIES.includes('session-stop.js'));
+  assert.equal(doctor.runDoctor().checks.find((c) => c.name === 'замыкание bin/ резолвится').status, 'PASS');
+});
+
+// --- 020 T012: документация установки не расходится с рантаймом ---------------------------
+//
+// `docs/INSTALL.md` — единственное, что читает человек перед первой командой. Команда из него,
+// ведущая в несуществующий файл или несуществующий флаг, выглядит рабочей ровно до момента
+// запуска. Markdown никто не компилирует, поэтому проверка нужна отдельная.
+
+const INSTALL = fs.readFileSync(path.join(doctor.PLUGIN_ROOT, 'docs', 'INSTALL.md'), 'utf8');
+
+test('INSTALL.md: каждая команда `node <файл>` ведёт в существующий файл плагина', () => {
+  const targets = [...INSTALL.matchAll(/node\s+((?:bin|tools)\/[A-Za-z0-9._\-/]+\.js)/g)].map((m) => m[1]);
+  assert.ok(targets.length >= 3, `в инструкции найдено ${targets.length} команд — разбор сломался`);
+  const missing = [...new Set(targets)].filter((rel) => !fs.existsSync(path.join(doctor.PLUGIN_ROOT, rel)));
+  assert.deepEqual(missing, [], 'инструкция по установке ведёт в несуществующие файлы');
+});
+
+test('INSTALL.md: каждый флаг host-surface из инструкции реально разбирается', () => {
+  const src = fs.readFileSync(path.join(doctor.PLUGIN_ROOT, 'tools', 'host-surface.js'), 'utf8');
+  const flags = [...new Set([...INSTALL.matchAll(/host-surface\.js((?:\s+--[a-z-]+)+)/g)]
+    .flatMap((m) => m[1].trim().split(/\s+/)))];
+  assert.ok(flags.length >= 2, `флагов найдено ${flags.length} — разбор сломался`);
+  for (const flag of flags) {
+    assert.ok(src.includes(`'${flag}'`), `флаг ${flag} назван в инструкции, но не разбирается в host-surface.js`);
+  }
+});
+
+test('INSTALL.md: снятая развёртка ~/.claude/bin названа только как СНЯТАЯ, не как шаг', () => {
+  for (const m of INSTALL.matchAll(/^.*\.claude[/\\]bin.*$/gm)) {
+    assert.match(m[0], /снят|не удал|не трог|не запис/i,
+      `строка про ~/.claude/bin читается как действующий маршрут: ${m[0].trim()}`);
+  }
+});
+
+test('INSTALL.md: описанный состав поверхности совпадает с тем, что объявляет доктор', () => {
+  const skills = doctor.SURFACE.filter((f) => f.startsWith('skills/')).length;
+  const agents = doctor.SURFACE.filter((f) => f.startsWith('agents/')).length;
+  const commands = doctor.SURFACE.filter((f) => f.startsWith('commands/')).length;
+  // Скилы Claude Code показывает вместе с командами: три команды приезжают как скилы тоже.
+  assert.match(INSTALL, new RegExp(`${skills + commands} скилов`), 'число скилов в инструкции разошлось с манифестом');
+  assert.match(INSTALL, new RegExp(`${agents} агентов`), 'число агентов в инструкции разошлось с манифестом');
+
+  const events = Object.keys(JSON.parse(fs.readFileSync(path.join(doctor.PLUGIN_ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks);
+  assert.match(INSTALL, new RegExp(`${events.length} хука`), 'число хуков в инструкции разошлось с манифестом');
+  for (const event of events) assert.ok(INSTALL.includes(event), `событие ${event} не описано в инструкции`);
+});
