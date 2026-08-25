@@ -220,7 +220,7 @@ function commitFiles(cwd, commitHash) {
 // T016/T017 спеки 014 получили рубрику из specs/002-elt-fleet и были заблокированы «не по той
 // задаче». Без taskText молчит и scope-триггер L0 (011 T024 берёт зону из `[files:]`).
 // Оба поля есть у `elt commit` в момент запуска фона — их надо просто донести.
-async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile = null, judgeImpl = null, judgeCfg = null }) {
+async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile = null, judgeImpl = null, judgeCfg = null, reviewCfg = null }) {
   const back = spawnSync('git', ['reset', '--soft', 'HEAD~1'], { cwd: wt, encoding: 'utf8' });
   if (back.status !== 0) return { verdict: 'dead', reasons: [`reset --soft не удался: ${back.stderr || back.stdout}`] };
   // 020 T007: конфиг судьи — из того же снапшота коммита, что и остальные слои.
@@ -229,6 +229,10 @@ async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile =
   try {
     const r = await runJudge({
       cwd: wt, tid: taskId || commitHash, taskText: taskText || '',
+      // 020 T010: конфиг ревью едет из ТОГО ЖЕ снапшота коммита, что и остальные слои (020 T007).
+      // Иначе фон судил бы старый коммит новыми правилами ревью — молчаливое расхождение,
+      // от которого в отчёте не остаётся следа. `null` = решает сам runJudge по дереву worktree.
+      review: reviewCfg || null,
       // specFile — путь к tasks.md спеки слайса ОТНОСИТЕЛЬНО основного дерева; резолвится он в
       // worktree (cwd: wt), где лежит тот же коммит, поэтому относительный путь и корректен.
       specFile,
@@ -348,7 +352,7 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
     if (on.has('judge')) {
       const t = Date.now();
       const raw = await withJudgeTimeout(
-        runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile, judgeImpl, judgeCfg: snapField('judge') }),
+        runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile, judgeImpl, judgeCfg: snapField('judge'), reviewCfg: snapField('review') }),
         judgeTimeoutMs,
       );
       const j = classifyJudge(raw && raw.verdict);
