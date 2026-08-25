@@ -3,7 +3,7 @@
 - [ ] **T001** Закрити D27: довести шість Windows-green/Linux-red випадків до
   platform-hermetic контрактів, залишити найменші discriminating regressions і відтворити
   точні попередні CI failures локально або в Linux-контейнері.
-  [files: tools/adapters/openshell.js tools/adapters/openshell.test.js tools/agent-surface-audit.js tools/agent-surface-audit.test.js tools/doctor.test.js tools/elt-config.test.js tools/git-workflow-audit.js tools/judge-core.js tools/project-bootstrap.js .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md]
+  [files: tools/adapters/openshell.js tools/adapters/openshell.test.js tools/agent-surface-audit.js tools/agent-surface-audit.test.js tools/doctor.test.js tools/elt-config.test.js tools/git-workflow-audit.js tools/judge-core.js tools/judge-core.test.js tools/project-bootstrap.js .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md]
 
 - [ ] **T002** Перенести benchmark із session scratchpad у versioned, resume-safe контур:
   Gemini-only runner, append-only raw logs, deterministic dataset builder, integrity/anti-leak
