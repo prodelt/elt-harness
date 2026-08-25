@@ -151,6 +151,40 @@ test('runOneTask: agent ok + grader fail -> outcome fail, no tamper false-positi
   assert.equal(result.graderDetail, '2 failed');
 });
 
+// --- graders (real pytest, not mocked — the grader is not part of ELT) ---
+
+test('gradePolyglotWriter: real pytest pass/fail, not mocked', async () => {
+  const dir = tmpDir('elt-bench-grade-');
+  fs.writeFileSync(path.join(dir, 'sol.py'), 'def add(a, b):\n    return a + b\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'sol_test.py'), 'from sol import add\ndef test_add():\n    assert add(2, 3) == 5\n', 'utf8');
+  const passResult = await runner.gradePolyglotWriter({ workDir: dir, item: { guardPath: 'sol_test.py' } });
+  assert.equal(passResult.pass, true);
+
+  fs.writeFileSync(path.join(dir, 'sol.py'), 'def add(a, b):\n    return a - b\n', 'utf8'); // now wrong
+  const failResult = await runner.gradePolyglotWriter({ workDir: dir, item: { guardPath: 'sol_test.py' } });
+  assert.equal(failResult.pass, false);
+  assert.ok(failResult.detail.length > 0);
+});
+
+test('graderFor: swebench-gate throws a clear not-implemented error instead of faking a verdict', async () => {
+  const grade = runner.graderFor('swebench-gate');
+  await assert.rejects(() => grade({ hand: 'bare-gold' }), /не реализован/);
+  await assert.rejects(() => grade({ hand: 'judgeDiff-gold' }), /не реализован/);
+});
+
+test('itemFromDatasetRow: writer prompt is byte-identical across hands (no per-hand contamination)', () => {
+  const row = { id: 'x', file: 'x.py', testFile: 'x_test.py', stub: 's', test: 't' };
+  const item = runner.itemFromDatasetRow(row, 'polyglot-writer');
+  assert.equal(item.prompt('plain'), item.prompt('elt'));
+});
+
+test('itemFromDatasetRow: swebench-gate materialize rejects an unknown hand loudly', () => {
+  const row = { id: 'x', repo: 'r', baseCommit: 'c', goldPatch: 'g', brokenPatch: 'b' };
+  const item = runner.itemFromDatasetRow(row, 'swebench-gate');
+  const dir = tmpDir('elt-bench-gate-materialize-');
+  assert.throws(() => item.materialize(dir, 'not-a-real-hand'), /unknown hand/);
+});
+
 // --- build-gate-dataset: polyglot-writer ---
 
 function makePolyglotFixture(root) {
