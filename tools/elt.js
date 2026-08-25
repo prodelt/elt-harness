@@ -71,13 +71,32 @@ function git(args) {
 
 // ── tasks.md (spec-kit): newest plan is the active plan ───────────────────────
 const TASK_LINE_RE = /^(\s*(?:[-*]\s*)?)\[( |X|x)\]\s*(?:\*\*)?(T\d+)?(?:\*\*)?[:.]?\s*(.*)$/;
+// 020 T023: у задачи ДВА текста, и путать их нельзя.
+//   `text`  — строка с маркером: заголовок для показа человеку (`slice next`, `status`);
+//   `block` — весь блок задачи вместе со строками-продолжения, то есть с `[files: …]`.
+// До этой правки существовал только первый, и всё, что читает задачу МАШИНОЙ, получало одну
+// строку. Дороже всего это стоило scope-триггеру L0: `taskScopeFiles` не находил `[files:]`
+// в заголовке и молчал на КАЖДОЙ задаче планов 019/020 — они все многострочные. Слайс T012 из
+// 12 файлов, шесть из которых вне объявленной зоны, получил `l0-clean` и судью не звал.
+function blockAt(lines, lineNo) {
+  const out = [lines[lineNo]];
+  for (let i = lineNo + 1; i < lines.length; i += 1) {
+    const ln = lines[i];
+    if (TASK_LINE_RE.test(ln)) break;      // следующая задача
+    if (/^\s*$/.test(ln) && out.length > 1) break; // пустая строка закрывает блок
+    out.push(ln);
+  }
+  return out.join('\n');
+}
 function parseTasksFile(f) {
   const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
   const open = [], done = [];
   lines.forEach((ln, i) => {
     const m = ln.match(TASK_LINE_RE);
     if (!m) return;
-    (m[2] === ' ' ? open : done).push({ file: f, lineNo: i, id: m[3] || `L${i + 1}`, text: m[4].trim() });
+    (m[2] === ' ' ? open : done).push({
+      file: f, lineNo: i, id: m[3] || `L${i + 1}`, text: m[4].trim(), block: blockAt(lines, i),
+    });
   });
   return { file: f, open, done, lines };
 }
@@ -570,18 +589,13 @@ function writeBatchState(state) {
   fs.mkdirSync(path.dirname(f), { recursive: true });
   fs.writeFileSync(f, JSON.stringify(state, null, 2) + '\n');
 }
-// `item.text` — только ПЕРВАЯ строка задачи (parseTasksFile режет по строкам), а `[files: ...]`
-// в этом плане живёт на строке-продолжении. Планировщику нужен весь блок, иначе зоны задач
-// пусты и проверка пересечения молча всегда зелёная.
+// 020 T016 завёл эту функцию для планировщика батча — он единственный тогда читал `[files:]`.
+// 020 T023 перенёс сборку блока в `parseTasksFile`: одного потребителя оказалось мало, полный
+// текст нужен и судье, и фоновой верификации. Здесь остался тонкий доступ к тому же полю,
+// чтобы вызывающие не начали собирать блок каждый по-своему — расхождение двух копий одного
+// разбора уже стоило нам дефектов D9/D15/D19.
 function taskBlockText(plan, item) {
-  const out = [plan.lines[item.lineNo]];
-  for (let i = item.lineNo + 1; i < plan.lines.length; i += 1) {
-    const ln = plan.lines[i];
-    if (TASK_LINE_RE.test(ln)) break;
-    if (/^\s*$/.test(ln) && out.length > 1) break;
-    out.push(ln);
-  }
-  return out.join('\n');
+  return item.block !== undefined ? item.block : blockAt(plan.lines, item.lineNo);
 }
 // Состав батча снимается из ПЛАНА, а не из argv: `--task T001,T002` остаётся фасадом.
 function batchItems(taskId) {
@@ -1129,9 +1143,11 @@ if (cmd === 'judge' && sub === 'run') {
   const judgeRepair = flag('--repair');
   const binding = findTaskBinding(taskId, { includeDone: judgeRepair });
   if (!binding) die(`elt judge run: задача ${taskId} не найдена среди ${judgeRepair ? 'задач плана' : 'открытых [ ]'}`, 4);
+  // 020 T023: судье уходит ВЕСЬ блок задачи, а не заголовок. В блоке живёт `[files: …]` —
+  // зона scope-триггера L0 и критерии, по которым судья вообще может судить.
   const texts = taskId.split(',').map((id) => {
     const found = findTaskItem(id, !judgeRepair);
-    return found ? `${id} ${found.item.text}` : id;
+    return found ? taskBlockText(found.plan, found.item) : id;
   });
   // T003 010: мост резолвится локально (репо-разработчик) → из каталога плагина → явный
   // --invoke сильнее обоих.
@@ -1521,15 +1537,21 @@ if (cmd === 'commit') {
   const ids = parseTaskIds(taskId);
   // 020 T016: repair НЕ трогает план — задача уже закрыта, и «переоткрыть, чтобы закрыть
   // снова» было бы подделкой состояния. Поколение растёт в batch-state, план неизменен.
-  const texts = ids.map((id) => {
+  // 020 T023: два разных текста, и раньше здесь был только один. Заголовок идёт в сообщение
+  // коммита (там он ещё и обрезается до 90 символов), блок — фоновой верификации: её L0 и её
+  // судья читают `[files: …]` оттуда же, откуда синхронные. Пока оба брались из `item.text`,
+  // фон судил слайс по одной строке задачи.
+  const picked = ids.map((id) => {
     if (repair || flag('--keep-task-open')) {
       const found = findTaskItem(id, !repair);
       if (!found) die(`задача ${id} не найдена среди ${repair ? 'задач плана' : 'открытых [ ]'}`);
-      return found.item.text;
+      return { title: found.item.text, block: taskBlockText(found.plan, found.item) };
     }
-    return markDone(id).text;
+    const item = markDone(id);
+    return { title: item.text, block: item.block };
   });
-  const taskText = texts[0] + (texts.length > 1 ? ` (+${texts.length - 1})` : '');
+  const texts = picked.map((p) => p.block);
+  const taskText = picked[0].title + (picked.length > 1 ? ` (+${picked.length - 1})` : '');
 
   // 011 T004: метка ставится ПОСЛЕ обрезки до 90 — иначе длинный заголовок съедал бы её
   // ровно на тех слайсах, где она и нужна.
