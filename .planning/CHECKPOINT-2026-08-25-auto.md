@@ -1,16 +1,16 @@
-# Checkpoint (auto) — 2026-08-24
+# Checkpoint (auto) — 2026-08-25
 
-Автозаписан `checkpoint-writer.js` на пороге ~386k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~417k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/elt-v5-one-hour`
-- dirty files: 0
+- dirty files: 2
 
 ## Last Run
-- commit: `57dc58a`
+- commit: `379d515`
 - verdict: (none)
-- oracle exit: ?
-- msg: 
+- oracle exit: 0
+- msg: fix: T009 регрессы на фоновую ветку гейта и запрет красного пруфа [repair gen 2]
 
 ## Next Slice
 - plan file: `specs\020-elt-v5-codex-release-certification\tasks.md`
