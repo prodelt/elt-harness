@@ -21,6 +21,7 @@ const {
   getPolicyForNode,
   checkNodeAvailability,
   validatePromptOnlyNode,
+  runExternalNode,
 } = require('./capability-broker');
 
 let tmpRoot = null;
@@ -172,8 +173,113 @@ function testLogRollbackReceipt() {
   assert.equal(result.ok, true);
 }
 
+
+// ── 020 T018 (поколение 2): тесты НАСТОЯЩЕЙ границы ──────────────────────────────────────
+// Прежние тесты проверяли те же таблицы policy, что и реализация, — то есть согласованность
+// объекта с самим собой. Ниже проверяются ПОПЫТКИ: узел реально запускается и реально
+// упирается в границу. Каждый тест краснеет, если границу убрать.
+
+const sandboxes = [];
+function sandbox(entrySource) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-sandbox-'));
+  sandboxes.push(dir);
+  fs.writeFileSync(path.join(dir, 'node.js'), entrySource);
+  return dir;
+}
+function cleanupSandboxes() {
+  for (const d of sandboxes) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* уборка не гейт */ } }
+}
+
+// Главное свойство: секреты host'а физически недоступны. Не «мы их не передаём по политике»,
+// а «их нет в процессе»: узел печатает то, что видит, и мы это читаем.
+function testExternalNodeCannotSeeHostSecrets() {
+  const dir = sandbox([
+    "const leaked = ['GH_TOKEN','ANTHROPIC_API_KEY','AWS_SECRET_ACCESS_KEY','ELT_GATE_TRUST_ORACLE']",
+    "  .filter((k) => process.env[k]);",
+    "process.stdout.write('ELT-PROPOSAL:' + JSON.stringify({ leaked, sandbox: process.env.ELT_SANDBOX }) + '\\n');",
+  ].join('\n'));
+  const before = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'секрет-который-не-должен-уехать';
+  try {
+    const r = runExternalNode({ nodeId: 'grail/probe', entryFile: 'node.js', sandboxDir: dir });
+    assert.equal(r.ok, true, r.reason);
+    assert.deepEqual(r.proposal.leaked, [], 'ни одна секретная переменная не имеет права доехать до внешнего узла');
+    assert.equal(r.proposal.sandbox, '1');
+  } finally {
+    if (before === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = before;
+  }
+}
+
+// Запрещённая способность — отказ, а не «записали в лог и пошли дальше».
+function testDeniedCapabilityStopsTheNode() {
+  const dir = sandbox([
+    "process.stdout.write('ELT-BROKER:' + JSON.stringify({ capability: 'git', action: 'commit' }) + '\\n');",
+    "process.stdout.write('ELT-PROPOSAL:' + JSON.stringify({ did: 'commit' }) + '\\n');",
+  ].join('\n'));
+  const log = path.join(dir, 'broker.log');
+  const r = runExternalNode({ nodeId: 'grail/committer', entryFile: 'node.js', sandboxDir: dir, brokerLog: log });
+  assert.equal(r.ok, false);
+  assert.equal(r.state, 'denied');
+  assert.equal(r.denied[0].capability, 'git');
+  assert.ok(fs.existsSync(log), 'запрос обязан остаться в журнале брокера');
+  assert.match(fs.readFileSync(log, 'utf8'), /"granted":false/);
+}
+
+// Пять классов способностей — пять отказов. Ни один не имеет права оказаться разрешённым
+// по умолчанию: default-empty toolset и есть смысл всей конструкции.
+function testEveryCapabilityClassIsDeniedByDefault() {
+  for (const [capability, action] of [['fs', 'write-append'], ['git', 'force-push'], ['network', 'https-fetch'], ['secrets', 'read'], ['process', 'spawn-subprocess']]) {
+    const dir = sandbox(`process.stdout.write('ELT-BROKER:' + JSON.stringify({ capability: ${JSON.stringify(capability)}, action: ${JSON.stringify(action)} }) + '\\n');`);
+    const r = runExternalNode({ nodeId: 'grail/x', entryFile: 'node.js', sandboxDir: dir });
+    assert.equal(r.state, 'denied', `${capability}/${action} обязана быть запрещена внешнему узлу`);
+  }
+}
+
+// Вход вне песочницы отвергается ДО запуска: иначе `../../tools/elt.js` исполнился бы как
+// «узел pack'а» с правами родителя.
+function testEntryOutsideSandboxIsRefusedBeforeSpawn() {
+  const dir = sandbox('process.stdout.write("ELT-PROPOSAL:{}\\n");');
+  const r = runExternalNode({ nodeId: 'grail/escape', entryFile: path.join('..', '..', 'tools', 'elt.js'), sandboxDir: dir });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'entry-outside-sandbox');
+}
+
+// Нет границы — нет исполнения. Состояние `unavailable`, а не «выполним как получится».
+function testWithoutIsolationNodeIsUnavailable() {
+  const dir = sandbox('process.stdout.write("ELT-PROPOSAL:{}\\n");');
+  const brokenRunner = () => ({ status: 1, stdout: '', stderr: 'no spawn here' });
+  const r = runExternalNode({ nodeId: 'grail/x', entryFile: 'node.js', sandboxDir: dir, runner: brokenRunner });
+  assert.equal(r.state, 'unavailable');
+  assert.equal(r.ok, false);
+}
+
+// Узел без schema-validated proposal не считается отработавшим: «ничего не вернул» — это не
+// «согласился».
+function testNodeWithoutProposalIsError() {
+  const dir = sandbox('process.stdout.write("просто текст\\n");');
+  const r = runExternalNode({ nodeId: 'grail/mute', entryFile: 'node.js', sandboxDir: dir });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'no-schema-valid-proposal');
+}
+
+// Core-узел через брокер не исполняется вовсе: ядро — это та сторона, которая выдаёт
+// способности, и пропускать его через песочницу значило бы делать вид, что оно ограничено.
+function testCoreNodeIsNotRunThroughBroker() {
+  const dir = sandbox('process.stdout.write("ELT-PROPOSAL:{}\\n");');
+  const r = runExternalNode({ nodeId: 'elt/oracle', trust: 'core', entryFile: 'node.js', sandboxDir: dir });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'core-node-must-not-run-through-broker');
+}
+
 function main() {
   const tests = [
+    testExternalNodeCannotSeeHostSecrets,
+    testDeniedCapabilityStopsTheNode,
+    testEveryCapabilityClassIsDeniedByDefault,
+    testEntryOutsideSandboxIsRefusedBeforeSpawn,
+    testWithoutIsolationNodeIsUnavailable,
+    testNodeWithoutProposalIsError,
+    testCoreNodeIsNotRunThroughBroker,
     testDeniedFsRead,
     testCorePolicyAllowsFs,
     testDeniedGitForcePush,
@@ -205,8 +311,9 @@ function main() {
     }
   });
   cleanup();
-  console.log('All tests completed.');
-  if (process.exitCode === 1) process.exit(1);
+  cleanupSandboxes();
+  if (process.exitCode === 1) { console.error('capability-broker tests: FAIL'); process.exit(1); }
+  console.log('capability-broker tests: PASS');
 }
 
 if (require.main === module) main();

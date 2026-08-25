@@ -162,19 +162,54 @@ test('T009 gen2: доверие к байтам пруфа НЕ проводит
   assert.equal(r.status, 4, 'совпадение хеша байтов не делает красный оракул зелёным');
 });
 
-test('T009 gen2: доверие проводит ровно ТЕ байты, что назвал elt commit', () => {
+// 020 T009 (поколение 3). Судья нашёл дыру в поколении 2, и прошлый тест её ЗАКРЕПЛЯЛ:
+// он двигал дерево посторонним файлом `moved.txt` и ждал pass. Значение
+// `ELT_GATE_TRUST_ORACLE` считается из ПУБЛИЧНЫХ байтов `.git/elt-oracle-proof.json`, то есть
+// доступно любому, кто может позвать `git commit`, — и при досрочном выходе из гейта оно
+// проводило произвольную правку дерева. Ниже проверяется исправленная семантика: доверие
+// прощает ровно одну известную мутацию (маркер задачи) и НИЧЕГО больше.
+test('T009 gen3: доверие прощает смену [X], но не постороннюю правку дерева', () => {
   const root = bgFixture();
+  fs.writeFileSync(path.join(root, 'slice.js'), '// код слайса\n');
   assert.equal(run(root, ['oracle']).status, 0);
   const raw = fs.readFileSync(oracleProofPath(root), 'utf8');
-  // Дерево двигаем намеренно: доверенный путь существует именно ради этого случая (между
-  // валидацией в `elt commit` и хуком меняется `[X]` в tasks.md).
-  fs.writeFileSync(path.join(root, 'moved.txt'), 'как после markDone\n');
-  const good = gateRun(root, { ELT_GATE_TRUST_ORACLE: crypto.createHash('sha256').update(raw).digest('hex') });
+  const trust = crypto.createHash('sha256').update(raw).digest('hex');
+
+  // Ровно то, ради чего доверенный путь заведён: `markDone()` ставит `[X]` после того, как
+  // `elt commit` уже проверил пруф. Это обязано проходить.
+  //
+  // Кодовый файл в дереве обязателен: без него гейт отпускает коммит раньше, на документной
+  // двери ('только .planning/** и specs/**'), и доверенная ветка вообще не выполняется — тест
+  // проверял бы не то, что думает.
+  const plan = path.join(root, 'specs', '001-fixture', 'tasks.md');
+  fs.writeFileSync(plan, fs.readFileSync(plan, 'utf8').replace('- [ ] **T001**', '- [X] **T001**'));
+  const good = gateRun(root, { ELT_GATE_TRUST_ORACLE: trust });
   assert.equal(good.status, 0, good.stderr);
   assert.match(good.stdout, /trusted elt commit/);
 
+  // А это — подделка: тот же вычислимый хеш плюс посторонний файл. Раньше проходило.
+  fs.writeFileSync(path.join(root, 'moved.txt'), 'посторонняя правка после оракула\n');
+  const smuggled = gateRun(root, { ELT_GATE_TRUST_ORACLE: trust });
+  assert.equal(smuggled.status, 4, 'доверие не смеет проводить правку вне маркера задачи');
+  assert.match(smuggled.stderr, /вне маркера задачи/);
+
   const forged = gateRun(root, { ELT_GATE_TRUST_ORACLE: 'f'.repeat(64) });
   assert.equal(forged.status, 4, 'чужой хеш обязан упасть на независимой проверке дерева');
+});
+
+// Пруф, записанный до появления нормализованного хеша, не имеет права молча получить
+// доверенный проход: старая схема — это ровно то состояние, в котором дыра и жила.
+test('T009 gen3: пруф старой схемы без нормализованного хеша не проходит доверием', () => {
+  const root = bgFixture();
+  fs.writeFileSync(path.join(root, 'slice.js'), '// код слайса\n');
+  assert.equal(run(root, ['oracle']).status, 0);
+  const parsed = JSON.parse(fs.readFileSync(oracleProofPath(root), 'utf8'));
+  delete parsed.hashTaskMarksNormalized;
+  const legacy = JSON.stringify(parsed);
+  fs.writeFileSync(oracleProofPath(root), legacy);
+  const r = gateRun(root, { ELT_GATE_TRUST_ORACLE: crypto.createHash('sha256').update(legacy).digest('hex') });
+  assert.equal(r.status, 4);
+  assert.match(r.stderr, /старой схемы/);
 });
 
 test('T009 gen2: прямой git commit с кодом в background-проекте отвергается хуком', () => {

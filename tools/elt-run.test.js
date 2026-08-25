@@ -193,6 +193,100 @@ function testClaudeAndCodexSurfacesSeeTheSameRoute() {
   assert.equal(asClaude.graphVersion, asCodex.graphVersion);
 }
 
+
+// ── 020 T015 (поколение 2): претензии судьи ──────────────────────────────────────────────
+// Судья заблокировал первое поколение по трём пунктам, и все три были справедливы: не было
+// регрессов на инъекцию нерасследованного ledger в старт сессии, на возврат debrief→recon по
+// уверенной находке и на то, что низкоуровневые команды пишут ОБЩУЮ историю. Ниже — каждый.
+
+// SessionStart обязан показывать не только узел, но и то, что накопилось: нерасследованные
+// записи журнала расхождений и очередь разбора. Без этого «инъекция состояния» — это половина
+// состояния, а вторая половина видна лишь тому, кто вспомнит про отдельную команду.
+function testSessionStartInjectsUnresolvedLedgerAndQueue() {
+  const root = fixture();
+  fs.mkdirSync(path.join(root, '.elt'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.elt', 'ledger.jsonl'),
+    JSON.stringify({ kind: 'weak-signal', rule: 'review/review-bugs', note: 'слабый сигнал', ts: new Date().toISOString() }) + '\n');
+  fs.mkdirSync(path.join(root, '.harness'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.harness', 'review-queue.jsonl'),
+    JSON.stringify({ kind: 'bg-red', task: 'T001', commit: 'abcdef0', specPath: 'specs/001-fixture/tasks.md' }) + '\n');
+
+  const text = run(root, ['run']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /очередь разбора: 1/, 'старт сессии обязан показывать очередь разбора');
+  assert.match(text.stdout, /журнал расхождений: 1/, 'нерасследованный слабый сигнал обязан быть виден');
+
+  // Тот же факт машинно: команда, которую зовёт хук, и `--json` обязаны говорить одно и то же.
+  const json = JSON.parse(run(root, ['run', '--json']).stdout);
+  assert.equal(json.unresolvedReview, 1);
+  assert.equal(json.ledger.records, 1);
+}
+
+// Уверенная находка (≥80) возвращает следующую сессию в `recon`, а не закрывает прогон. Это
+// и есть обратная связь: разбор не заканчивается записью в журнал, он меняет маршрут.
+function testHighConfidenceDebriefReturnsToRecon() {
+  const root = fixture();
+  const steps = [
+    ['known-zone', 'familiar-zone,scope-within-limit'],
+    ['ready', 'task-dependencies-closed'],
+    ['landed', 'l0-green'],
+    ['mirror-terminal', 'batch-head-immutable'],
+  ];
+  for (const [event, guards] of steps) {
+    const r = run(root, ['advance', '--event', event, '--guard', guards]);
+    assert.equal(r.status, 0, `${event}: ${r.stderr}`);
+  }
+  assert.equal(JSON.parse(run(root, ['run', '--json']).stdout).node, 'debrief');
+
+  const back = run(root, ['advance', '--event', 'finding-confident', '--json']);
+  assert.equal(back.status, 0, back.stderr);
+  const after = JSON.parse(run(root, ['run', '--json']).stdout);
+  assert.equal(after.node, 'recon', 'уверенная находка обязана вернуть прогон в разведку');
+  assert.equal(after.generation, 2, 'возврат — это НОВОЕ поколение, а не повтор прежнего');
+}
+
+// Слабая находка (<80) в `recon` не возвращает: она уходит в журнал, а прогон идёт к
+// сертификации. Разница между двумя рёбрами и есть отсечка 80.
+function testWeakFindingGoesToLedgerNotBackToRecon() {
+  const root = fixture();
+  for (const [event, guards] of [
+    ['known-zone', 'familiar-zone,scope-within-limit'],
+    ['ready', 'task-dependencies-closed'],
+    ['landed', 'l0-green'],
+    ['mirror-terminal', 'batch-head-immutable'],
+  ]) assert.equal(run(root, ['advance', '--event', event, '--guard', guards]).status, 0);
+
+  const certified = run(root, ['advance', '--event', 'ledger-only', '--guard', 'oracle-green,review-terminal,hashes-match', '--json']);
+  assert.equal(certified.status, 0, certified.stderr);
+  const after = JSON.parse(run(root, ['run', '--json']).stdout);
+  assert.equal(after.node, 'certified');
+  assert.equal(after.generation, 1, 'слабый сигнал не открывает нового поколения');
+}
+
+// Низкоуровневая команда пишет в ТОТ ЖЕ журнал, что и явный переход. Иначе после compact
+// половина прогона отсутствовала бы в истории, и resume предлагал бы уже сделанный шаг.
+function testFacadeCommandsShareOneHistory() {
+  const root = fixture();
+  assert.equal(run(root, ['advance', '--event', 'known-zone', '--guard', 'familiar-zone,scope-within-limit']).status, 0);
+  const journalBefore = journalLines(root).length;
+
+  fs.writeFileSync(path.join(root, 'slice.js'), '// код слайса\n');
+  assert.equal(run(root, ['oracle']).status, 0);
+  const proof = run(root, ['judge-proof', 'write', '--task', 'T001', '--verdict', 'pass', '--model', 'sonnet']);
+  assert.equal(proof.status, 0, proof.stderr);
+  const commit = run(root, ['commit', '--task', 'T001', '--skip-oracle', '-m', 'feat: слайс']);
+  assert.equal(commit.status, 0, commit.stderr);
+
+  const journalAfter = journalLines(root);
+  assert.ok(journalAfter.length > journalBefore, 'elt commit обязан оставить события в журнале графа');
+  const events = journalAfter.map((l) => JSON.parse(l));
+  assert.ok(events.some((e) => e.event === 'landed'), 'посадка обязана быть видна как переход landing');
+  const landed = events.find((e) => e.event === 'landed');
+  assert.ok(landed.commit, 'событие посадки несёт commit — иначе его не с чем сверить');
+  assert.equal(JSON.parse(run(root, ['run', '--json']).stdout).node, 'mirror',
+    'после посадки следующий шаг — зеркало, и он вычислен, а не назван человеком');
+}
+
 function main() {
   try {
     testRunOnEmptyJournalStartsAtEntry();
@@ -204,6 +298,10 @@ function main() {
     testCutoverSwitchesAuthorityOnceAndIsIdempotent();
     testCutoverRefusesUnsignedApprovalSchema();
     testClaudeAndCodexSurfacesSeeTheSameRoute();
+    testSessionStartInjectsUnresolvedLedgerAndQueue();
+    testHighConfidenceDebriefReturnsToRecon();
+    testWeakFindingGoesToLedgerNotBackToRecon();
+    testFacadeCommandsShareOneHistory();
   } finally {
     cleanup();
   }

@@ -92,10 +92,34 @@ function testLoadCatalogDetectsDuplicateNodeIds() {
   });
   fs.writeFileSync(file, JSON.stringify(manifest), 'utf8');
   const result = loadCatalog(file);
-  assert.equal(result.ok, true);
-  assert.ok(result.errors, 'errors поле мав бути присутним');
-  const dupError = result.errors.find((e) => e.reason === 'duplicate-node-id');
-  assert.ok(dupError, 'мав бути виявлений duplicate-node-id');
+  // Коллизия — ОТКАЗ загрузки, а не «каталог с замечаниями». Прежняя версия возвращала
+  // ok:true с полем errors, в которое никто не смотрел: resolveNode() проверял только
+  // catalog.ok, и работа продолжалась с реестром, где один ID означает две разные вещи.
+  assert.equal(result.ok, false, 'неоднозначный реестр не имеет права загрузиться');
+  assert.equal(result.reason, 'duplicate-node-id');
+  assert.match(result.detail, /elt\/oracle/);
+
+  // И следствие, ради которого всё делалось: с таким каталогом ничего не резолвится.
+  const resolved = resolveNode(result, 'elt/oracle');
+  assert.equal(resolved.ok, false);
+  assert.equal(resolved.reason, 'catalog-invalid');
+}
+
+// Дубликат ищется в ИСХОДНОМ манифесте: в схлопнутом индексе его быть не может по
+// определению, поэтому прежняя проверка возвращала пустой список всегда.
+function testDuplicateDetectionReadsManifestNotIndex() {
+  const file = tmpCatalog();
+  const manifest = defaultManifest();
+  manifest.packs[0].nodes.push({
+    id: 'elt/oracle', kind: 'action', consumes: [], produces: [], guards: [],
+    sideEffects: [], trust: 'core', timeoutMs: 30000, failure: 'block',
+  });
+  fs.writeFileSync(file, JSON.stringify(manifest), 'utf8');
+  assert.deepEqual(checkDuplicateNodeIds(file), ['elt/oracle']);
+
+  const clean = tmpCatalog();
+  fs.writeFileSync(clean, JSON.stringify(defaultManifest()), 'utf8');
+  assert.deepEqual(checkDuplicateNodeIds(clean), [], 'чистый манифест дубликатов не имеет');
 }
 
 // Missing pack: резолюція несуществующей node'и.
@@ -168,9 +192,8 @@ function testValidPolicyNoErrors() {
 function testCheckDuplicateNodeIds() {
   const file = tmpCatalog();
   fs.writeFileSync(file, JSON.stringify(defaultManifest()), 'utf8');
-  const catalog = loadCatalog(file);
-  const duplicates = checkDuplicateNodeIds(catalog);
-  assert.deepEqual(duplicates, []);
+  // Проверка читает манифест, а не собранный индекс: см. комментарий у самой функции.
+  assert.deepEqual(checkDuplicateNodeIds(file), []);
 }
 
 // List packs у catalog
@@ -187,6 +210,7 @@ function main() {
   const tests = [
     testLoadEmptyCatalog,
     testLoadCatalogDetectsDuplicateNodeIds,
+    testDuplicateDetectionReadsManifestNotIndex,
     testResolveNodeNotFound,
     testResolveNodeFound,
     testPolicyViolationExternalPackWithAuthorityCapability,
@@ -207,14 +231,15 @@ function main() {
     }
   });
   cleanup();
-  console.log('All tests completed.');
-  if (process.exitCode === 1) process.exit(1);
+  if (process.exitCode === 1) { console.error('component-catalog tests: FAIL'); process.exit(1); }
+  console.log('component-catalog tests: PASS');
 }
 
 if (require.main === module) main();
 module.exports = {
   testLoadEmptyCatalog,
   testLoadCatalogDetectsDuplicateNodeIds,
+  testDuplicateDetectionReadsManifestNotIndex,
   testResolveNodeNotFound,
   testResolveNodeFound,
   testPolicyViolationExternalPackWithAuthorityCapability,
