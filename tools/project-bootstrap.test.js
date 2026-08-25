@@ -16,6 +16,7 @@ const {
   checkOracleVerifierContract,
   classifyKind,
   detectStack,
+  fileCount,
   inspectProject,
   migrationPlan,
   planTargetState,
@@ -82,6 +83,22 @@ function testScanChoosesBoundedGrepForSmallProject() {
   assert.ok(report.recommended_probes.length > 0);
   assert.equal(report.checks.ai_docs.ok, false);
   assert.ok(report.actions.some((action) => action.id === 'project-docs' && action.safe));
+}
+
+function testFileCountIsIndependentOfRipgrepAndSkipsGeneratedTrees() {
+  const root = tempProject();
+  fs.mkdirSync(path.join(root, 'node_modules', 'pkg'), { recursive: true });
+  for (let i = 0; i < 100; i += 1) {
+    fs.writeFileSync(path.join(root, 'node_modules', 'pkg', `${i}.js`), 'generated\n');
+  }
+  const originalPath = process.env.PATH;
+  process.env.PATH = ''; // точное прежнее окружение: внешняя команда `rg` не разрешается
+  try {
+    const counted = fileCount(root);
+    assert.deepEqual(counted, { ok: true, count: 2, outputChars: 26, source: 'fs-walk' });
+  } finally {
+    process.env.PATH = originalPath;
+  }
 }
 
 function testApplyCreatesOnlySafeInfrastructure() {
@@ -834,6 +851,7 @@ function testGateContractRejectsInstalledButDisabledHook() {
 
 function main() {
   testScanChoosesBoundedGrepForSmallProject();
+  testFileCountIsIndependentOfRipgrepAndSkipsGeneratedTrees();
   testApplyCreatesOnlySafeInfrastructure();
   testDetectsNextAppRouterAndRecommendsBoundedProbes();
   testScanReportsControlPlaneAndSupplyChainSurface();

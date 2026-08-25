@@ -542,13 +542,17 @@ function withHome(home, fn) {
 // deliberate-failure fixture used to feed produced a false stuck-detector nudge
 // with zero real red-stops in run-log — fixed by dropping the transcript path
 // entirely and making `elt oracle` log too, so run-log alone is complete.
+// Оболочка фикстур — платформенная величина: `powershell` на Linux не существует, и фикстура
+// с ним даёт красный оракул в CI по причине, не имеющей отношения к проверяемому поведению.
+const FIXTURE_SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
+
 function testEltCommitLogsRedStopOnOracleFail() {
   const { execFileSync } = require('node:child_process');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-redstop-'));
   execFileSync('git', ['init', '-q'], { cwd: root });
   write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
     kind: 'code',
-    oracle: 'exit 1', shell: 'powershell', branchPolicy: 'feature', push: false, judge: { enabled: false },
+    oracle: 'exit 1', shell: FIXTURE_SHELL, branchPolicy: 'feature', push: false, judge: { enabled: false },
   }));
   write(path.join(root, 'dirty.txt'), 'change\n');
 
@@ -587,7 +591,7 @@ function testRunLogMigrationLeavesTwoCommitsClean() {
   g(['config', 'user.email', 'test@test.local']);
   g(['config', 'user.name', 'test']);
   write(path.join(root, '.harness', 'harness.json'), JSON.stringify({
-    kind: 'code', oracle: 'exit 0', shell: 'powershell', branchPolicy: 'feature', push: false,
+    kind: 'code', oracle: 'exit 0', shell: FIXTURE_SHELL, branchPolicy: 'feature', push: false,
     judge: { enabled: true, model: 'test' },
   }));
   write(path.join(root, 'specs', '001-test', 'tasks.md'), '- [ ] **T001** first\n- [ ] **T002** second\n');

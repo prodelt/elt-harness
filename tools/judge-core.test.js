@@ -239,22 +239,44 @@ test('gate: красный оракул → stage oracle, судья не зов
 // судьи (он и так асинхронный) и регресс маскирует — проверено, первая версия теста прошла
 // и с spawnSync. Блокировка event loop видна только как дыра длиной в сам оракул.
 test('gate: оракул не блокирует event loop оркестратора', async () => {
-  const ORACLE_MS = 2000;
-  writeHarness(`node -e "setTimeout(()=>{},${ORACLE_MS})"`); // «долгий» оракул, зелёный
+  // Детерминированный handshake вместо wall-clock порога. Oracle не завершится, пока родитель
+  // не увидит heartbeat и не пришлёт ack. С async spawn это обычный обмен; с spawnSync родитель
+  // не может послать ack, ребёнок аварийно выйдет по safety-timeout и gate станет красным.
+  const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-oracle-heartbeat-'));
+  const heartbeat = path.join(markerDir, 'heartbeat');
+  const ack = path.join(markerDir, 'ack');
+  const oracleScript = path.join(markerDir, 'oracle.js');
+  fs.writeFileSync(oracleScript, [
+    "'use strict';",
+    "const fs = require('node:fs');",
+    `fs.writeFileSync(${JSON.stringify(heartbeat)}, 'beat');`,
+    `const deadline = Date.now() + 30000;`,
+    `const poll = setInterval(() => {`,
+    `  if (fs.existsSync(${JSON.stringify(ack)})) { clearInterval(poll); process.exit(0); }`,
+    `  if (Date.now() > deadline) { clearInterval(poll); process.exit(2); }`,
+    `}, 25);`,
+  ].join('\n'));
+  writeHarness(`node "${oracleScript}"`); // «долгий» оракул, зелёный
   process.env.FLEET_BIN_CLAUDE = JSON.stringify(['node', PASS_STUB]);
   fs.writeFileSync(path.join(REPO, 'heartbeat.txt'), 'work\n');
-  let last = Date.now();
-  let maxGap = 0;
-  const beat = setInterval(() => { const now = Date.now(); maxGap = Math.max(maxGap, now - last); last = now; }, 50);
+  let acknowledged = false;
+  const beat = setInterval(() => {
+    if (fs.existsSync(heartbeat) && !acknowledged) {
+      fs.writeFileSync(ack, 'continue');
+      acknowledged = true;
+    }
+  }, 25);
+  let result;
   try {
-    await gate.gate({ tid: 'T3', taskText: 'x', cwd: REPO });
+    result = await gate.gate({ tid: 'T3', taskText: 'x', cwd: REPO });
   } finally {
     clearInterval(beat);
     delete process.env.FLEET_BIN_CLAUDE;
     writeHarness('node --version');
+    fs.rmSync(markerDir, { recursive: true, force: true });
   }
-  // async: зазоры ~интервал таймера. spawnSync: одна дыра длиной в оракул (≈ORACLE_MS).
-  assert.ok(maxGap < ORACLE_MS / 2, `event loop стоял ${maxGap}мс при оракуле ${ORACLE_MS}мс — гейт снова синхронный`);
+  assert.equal(acknowledged, true, 'event loop не ответил живому oracle — гейт снова синхронный');
+  assert.notEqual(result.stage, 'oracle', `oracle не получил ack: ${JSON.stringify(result)}`);
 });
 
 // --- 006 T007: межрепо-слепота судьи — [files:] может указывать на путь ВНЕ репо worktree'а ---

@@ -432,8 +432,17 @@ function gitRoot(dir) {
 }
 // 009 T014: возвращаем не только корни, но и ЗОНУ внутри каждого — внешний репо
 // показывается судье только по объявленным файлам, а не целиком.
+// Пути сравниваются КАНОНИЧЕСКИ, а не строками. Там, где временный каталог — symlink или
+// короткое 8.3-имя (оба случая живут на CI-раннерах), `gitRoot()` возвращает разрешённый
+// путь, а `cwd` остаётся исходным: тогда СВОЙ же репозиторий выглядит чужим, и судье уезжает
+// «внешний дифф», которого нет. Поймано красным CI на windows-latest.
+function canonicalPath(p) {
+  try { return fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p); }
+  catch { return p; }
+}
+
 function externalRepoScopes(cwd, files) {
-  const cwdRoot = gitRoot(cwd);
+  const cwdRoot = canonicalPath(gitRoot(cwd) || cwd);
   const byRoot = new Map();
   for (const f of files) {
     const abs = expandHome(f);
@@ -441,7 +450,7 @@ function externalRepoScopes(cwd, files) {
     const dir = path.dirname(abs);
     if (!fs.existsSync(dir)) continue;
     const root = gitRoot(dir);
-    if (!root || root === cwdRoot) continue;
+    if (!root || canonicalPath(root) === cwdRoot) continue;
     const rel = path.relative(root, abs).split(path.sep).join('/');
     if (!byRoot.has(root)) byRoot.set(root, []);
     byRoot.get(root).push(rel);

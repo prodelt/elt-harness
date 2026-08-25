@@ -86,6 +86,10 @@ function probe(opts = {}) {
   // Перевіримо Docker (необхідний для OpenShell)
   if (checkDocker) {
     const dockerAvailable = checkDocker_();
+    // Требуемый образ называется ВСЕГДА, а не только когда до него дошла проверка. Читатель
+    // отчёта должен видеть, чего именно не хватает, даже в ветке «докера нет»: иначе
+    // `unavailable` не отличить от «адаптер не знает, что ему нужно».
+    evidence.push(`required pinned image: ${OPENSHELL_IMAGE}`);
     evidence.push(`Docker available: ${dockerAvailable}`);
 
     if (!dockerAvailable) {

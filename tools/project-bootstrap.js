@@ -12,11 +12,39 @@ const DEFAULT_MANIFEST = path.resolve(__dirname, '..', 'config', 'agent-skill-so
 // Скилы deprecated-маршрутов: зеркала намеренно не обновляются (см. CLAUDE.md «Deprecated»).
 const DEPRECATED_SKILLS = new Set(['pipeline']);
 
+// Каталоги, которых нет в вопросе «насколько велик проект»: они не пишутся человеком и
+// не влияют на выбор стратегии разведки.
+const FILE_COUNT_SKIP = new Set(['.git', 'node_modules', '.fleet-wt', '.codegraph', 'dist', 'build', 'coverage']);
+
+// Размер проекта — механический сигнал выбора стратегии, поэтому у него не может быть двух
+// реализаций с разной семантикой. Считаем средствами Node на ВСЕХ машинах: наличие `rg`, его
+// версия и правила hidden/.gitignore больше не меняют ответ. Генерируемые тяжёлые каталоги
+// исключены явным одинаковым контрактом. Поймано красным CI на Ubuntu без ripgrep.
+function walkFileCount(root, limit = 5000) {
+  let count = 0;
+  let outputChars = 0;
+  const stack = [root];
+  while (stack.length && count <= limit) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!FILE_COUNT_SKIP.has(entry.name)) stack.push(path.join(dir, entry.name));
+      } else if (entry.isFile()) {
+        count += 1;
+        const relative = path.relative(root, path.join(dir, entry.name)).split(path.sep).join('/');
+        outputChars += Buffer.byteLength(relative, 'utf8') + 1;
+        if (count > limit) break;
+      }
+    }
+  }
+  return { count, outputChars };
+}
+
 function fileCount(root) {
-  const completed = spawnSync('rg', ['--files'], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
-  if (completed.status !== 0) return { ok: false, count: 0, outputChars: 0, error: completed.stderr || completed.error?.message || '' };
-  const files = completed.stdout.split(/\r?\n/).filter(Boolean);
-  return { ok: true, count: files.length, outputChars: Buffer.byteLength(completed.stdout, 'utf8') };
+  const counted = walkFileCount(root);
+  return { ok: true, ...counted, source: 'fs-walk' };
 }
 
 function exists(root, relative) {
@@ -784,6 +812,7 @@ module.exports = {
   classifyKind,
   controlPlaneStatus,
   detectStack,
+  fileCount,
   inspectProject,
   migrationPlan,
   planProjectMigration,

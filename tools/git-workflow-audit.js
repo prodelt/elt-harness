@@ -77,11 +77,15 @@ function isDubiousOwnership(stderr) {
   return /dubious ownership/i.test(stderr) || /detected dubious ownership/i.test(stderr);
 }
 
+// Распознаются ОБЕ формы корня независимо от того, на какой ОС исполняется код: `path.parse`
+// на POSIX не знает про буквы дисков и считает 'C:/' обычным относительным именем, поэтому
+// проверка молча теряла смысл на Linux — тест был зелёным на Windows и красным в CI. Путь в
+// отчёте может прийти и с другой машины: «репозиторий в корне диска C:» обязан оставаться
+// распознанным где угодно.
 function isDiskRoot(absPath) {
   const normalized = normalizePath(absPath);
-  const parsed = path.parse(normalized);
-  // disk root on Windows: e.g. 'C:/', '/'; on POSIX: '/'
-  return normalized === normalizePath(parsed.root);
+  if (normalized === '/') return true;
+  return /^[a-zA-Z]:\/?$/.test(normalized);
 }
 
 function gitStatusPath(statusLine) {
