@@ -11,7 +11,7 @@
   і повторити targeted перевірки на Windows та Linux.
   [files: tools/git-workflow-audit.js tools/git-workflow-audit.test.js tools/project-bootstrap.js tools/project-bootstrap.test.js]
 
-- [ ] **T002** Перенести benchmark із session scratchpad у versioned, resume-safe контур:
+- [X] **T002** Перенести benchmark із session scratchpad у versioned, resume-safe контур:
   Gemini-only runner, append-only raw logs, deterministic dataset builder, integrity/anti-leak
   checks, transport-only retry та machine-generated summary. Зафіксувати preregistration і hash
   runner'а до першого нового result row; старі змішані результати зареєструвати як
