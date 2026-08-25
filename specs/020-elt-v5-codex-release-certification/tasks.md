@@ -58,7 +58,7 @@
   і plugin hooks/surfaces, а не лише наявність façade-файлів.
   [files: .github/workflows/test.yml tools/elt-oracle-runner.js tools/elt-oracle-runner.test.js tools/elt-skill-frontgate-contract.test.js tools/skills-frontgate-contract.test.js tools/agent-surface-audit.test.js tools/doctor.test.js bin/doctor.js bin/doctor.test.js]
 
-- [ ] **T012** Чиста установка і client parity: додати versioned plugin hooks для
+- [X] **T012** Чиста установка і client parity: додати versioned plugin hooks для
   SessionStart/Stop без абсолютних шляхів; довести приватний marketplace у fresh profile.
   Codex-native surface встановлюється з того самого repo й має v5 hash/version parity з Claude
   та Gemini без `~/.claude/bin/elt.js`. Зберегти exact install/doctor commands і не видаляти
