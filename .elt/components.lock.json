@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-25T12:00:00Z",
+  "lockDigest": "5f8a3b9c2e1d4f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f",
+  "generation": 1,
+  "packs": [
+    {
+      "id": "elt/core",
+      "version": "5.0.0",
+      "commit": "0c649e7",
+      "contentHash": "3a5f8c1b2d4e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f",
+      "installPath": ".elt/packs/elt-core",
+      "installed": true,
+      "installedGeneration": 1
+    }
+  ],
+  "capabilities": {
+    "fs": {
+      "brokerRequired": true,
+      "allowed": ["read", "write-append"],
+      "denied": ["remove", "chmod", "symlink"]
+    },
+    "git": {
+      "brokerRequired": true,
+      "allowed": ["status", "diff", "add", "commit"],
+      "denied": ["force-push", "reset-hard", "branch-delete"]
+    },
+    "network": {
+      "brokerRequired": true,
+      "allowed": ["https-fetch"],
+      "denied": ["raw-tcp", "listen"]
+    },
+    "secrets": {
+      "brokerRequired": true,
+      "allowed": [],
+      "denied": ["read", "write", "export"]
+    },
+    "process": {
+      "brokerRequired": true,
+      "allowed": ["spawn-subprocess"],
+      "denied": ["raw-shell-exec", "install-hook"]
+    }
+  }
+}

@@ -379,7 +379,7 @@ function normalizeTasks(text) {
 // и ту же историю обоим деревьям, поэтому расхождение исчезает архитектурно, а не смягчается.
 // Отбор коммитов-кандидатов делает сам git (`-F --grep`), чтобы цена чтения не росла с
 // длиной истории: node разбирает единицы коммитов, а не весь `%B` репозитория.
-const TRAILERS = { spec: 'Spec-Approved', specHash: 'Spec-Hash', tasksHash: 'Tasks-Hash' };
+const TRAILERS = { spec: 'Spec-Approved', specHash: 'Spec-Hash', tasksHash: 'Tasks-Hash', approvalDigest: 'Approval-Digest' };
 const REC_SEP = '\u001e';
 const FIELD_SEP = '\u001f';
 function specDirKey(specDir) {
@@ -403,13 +403,14 @@ function readApprovalTrailers(specDir) {
     `%(trailers:key=${TRAILERS.spec},valueonly)`,
     `%(trailers:key=${TRAILERS.specHash},valueonly)`,
     `%(trailers:key=${TRAILERS.tasksHash},valueonly)`,
+    `%(trailers:key=${TRAILERS.approvalDigest},valueonly)`,
   ].join(FIELD_SEP);
   const r = git(['log', '-F', '--grep', `${TRAILERS.spec}: ${key}`, `--format=${fmt}${REC_SEP}`]);
   if (r.code !== 0 || !r.out) return [];
   const found = [];
   for (const rec of r.out.split(REC_SEP)) {
     if (!rec.trim()) continue;
-    const [sha, ts, specKeys, specHashes, tasksHashes] = rec.split(FIELD_SEP);
+    const [sha, ts, specKeys, specHashes, tasksHashes, approvalDigests] = rec.split(FIELD_SEP);
     if (!sha || !sha.trim()) continue;
     const keys = trailerValues(specKeys);
     const specHash = trailerValues(specHashes);
@@ -418,9 +419,14 @@ function readApprovalTrailers(specDir) {
     // и «выберем первый» здесь было бы решением за пользователя в пользу подписи.
     if (keys.length !== 1 || specHash.length !== 1 || tasksHash.length !== 1) continue;
     if (keys[0] !== key) continue;
+    // 020 T015: канонический digest `elt-approval/v1` — ОТДЕЛЬНЫЙ трейлер и намеренно
+    // необязательный: подписи, поставленные до появления схемы, не обязаны исчезнуть, но
+    // и за подпись новой схемы не выдаются (cutover требует именно её).
+    const canonicalDigests = trailerValues(approvalDigests);
     found.push({
       sha: sha.trim(), approvedAt: (ts || '').trim(),
       specHash: specHash[0], tasksHash: tasksHash[0],
+      approvalDigest: canonicalDigests.length === 1 ? canonicalDigests[0] : null,
     });
   }
   return found;
@@ -839,6 +845,280 @@ function isCheckpointFile(file) {
   return file.startsWith('.planning/') || file.startsWith('specs/');
 }
 
+// ── 020 T015: одна runtime-дверь ──────────────────────────────────────────────
+// До этой задачи маршрут жил в голове: `oracle → judge → commit`. Отсюда два системных
+// отказа, видных в run-log: шаг забывали (гейт покрывал 55,8% коммитов) и порядок нарушали
+// (`stale-oracle` от собственного фона). T013 дал чистый reducer, T014 — журнал; здесь они
+// становятся продуктом: `elt run` СЧИТАЕТ следующий законный шаг из журнала, а не напоминает
+// его человеку.
+//
+// Низкоуровневые команды не удалены и остались диагностическим фасадом — но теперь они пишут
+// ТЕ ЖЕ события в журнал. Иначе восстановление после compact/restart врало бы: половина
+// прогона прошла бы мимо истории.
+//
+// Эпоха переключается ровно один раз и только целиком (`elt cutover`): пока в журнале нет
+// события `legacy-epoch-end`, авторитетом остаются checkbox/approval/run-log (`legacy-v1`).
+const { compile: compileGraph, loadCanonicalGraph } = require('./graph-compiler');
+const graphJournal = require('./graph-journal');
+const graphCore = require('./graph-core');
+const { deriveState, migrationSnapshot } = require('./graph-state');
+const { approvalDigest } = require('./task-identity');
+
+const EPOCH_END_EVENT = 'legacy-epoch-end';
+const JOURNAL_EPOCH = 'journal-v1';
+
+// Маршрут узла → конкретный следующий шаг. Таблица — единственное место, где знание «что
+// делать дальше» вообще существует; в голове человека и в прозе SKILL.md его больше нет.
+const NEXT_STEP = {
+  recon: { event: 'known-zone', cmd: ['slice', 'next', '--json'], hint: 'разведка зоны: elt slice next' },
+  plan: { event: 'approved', cmd: null, hint: 'план не подписан: elt spec approve --spec specs/NNN-slug' },
+  build: { event: 'ready', cmd: null, hint: 'написать слайс и прогнать focused-тесты (красный тест оставляет задачу открытой)' },
+  landing: { event: 'landed', cmd: null, hint: 'посадка: elt commit --task Txxx --skip-oracle' },
+  mirror: { event: 'mirror-terminal', cmd: null, hint: 'зеркало: elt oracle --full, затем elt judge run --task Txxx' },
+  debrief: { event: 'ledger-only', cmd: ['review'], hint: 'разбор находок: elt review' },
+  certified: { event: 'publish-requested', cmd: null, hint: 'публикация: elt commit --push (только с сертификатом)' },
+  publish: { event: null, cmd: null, hint: 'прогон завершён' },
+};
+
+function compiledGraph() {
+  const r = compileGraph(loadCanonicalGraph());
+  if (!r.ok) throw new Error('канонический граф не компилируется — ' + r.errors.join('; '));
+  return r.graph;
+}
+function journalFile() { return graphJournal.defaultJournalPath(cwd); }
+// Digest lock компонентов входит в КАЖДЫЙ конверт: смена состава packs обязана делать старый
+// proof stale (спека 020). Файла ещё нет — это тоже факт, а не повод писать пустую строку.
+function componentLockDigest() {
+  try { return sha256(fs.readFileSync(path.join(cwd, '.elt', 'components.lock.json'), 'utf8')); }
+  catch { return 'no-component-lock'; }
+}
+function readJournal() { return graphJournal.readEvents(journalFile()); }
+function epochRecord(events) {
+  const hits = events.filter((e) => e.event === EPOCH_END_EVENT);
+  return hits.length ? hits[hits.length - 1] : null;
+}
+function currentEpoch(events) { return epochRecord(events) ? JOURNAL_EPOCH : graphJournal.LEGACY_EPOCH; }
+function transitionsOnly(events) { return events.filter((e) => e.event !== EPOCH_END_EVENT); }
+// Прогон восстанавливается ИЗ ЖУРНАЛА. Своего состояния у процесса нет намеренно: после
+// compact, перезапуска сессии или падения фона восстанавливать было бы нечего.
+function activeRunId(events) {
+  const t = transitionsOnly(events);
+  return t.length ? t[t.length - 1].runId : null;
+}
+function newRunId() { return 'run-' + (headSha() || 'nohead').slice(0, 7) + '-' + Date.now().toString(36); }
+
+function currentSpecIdentity() {
+  const specDir = resolveSpecDir();
+  return specDir ? relPosix(path.join(specDir, 'tasks.md')) : 'no-spec';
+}
+
+function graphSnapshot({ runId = null } = {}) {
+  const graph = compiledGraph();
+  const { events, truncatedTail, corrupt } = readJournal();
+  const run = runId || activeRunId(events);
+  const derived = deriveState({ graph, events: transitionsOnly(events), runId: run });
+  const epochAt = epochRecord(events);
+  return {
+    graphVersion: graph.graphVersion,
+    epoch: currentEpoch(events),
+    epochEndCommit: epochAt ? (epochAt.commit || null) : null,
+    runId: run,
+    node: derived.state.node,
+    generation: derived.state.generation,
+    terminal: derived.state.terminal,
+    legal: graphCore.legalEvents(derived.state),
+    statuses: derived.statuses,
+    // Отвергнутые события НЕ сглаживаются: расхождение журнала с графом обязано быть видно,
+    // иначе «состояние восстановилось» означало бы только «мы промолчали».
+    rejected: derived.rejected,
+    journal: { events: events.length, truncatedTail, corrupt: corrupt.length },
+    graph,
+    state: derived.state,
+  };
+}
+
+/**
+ * recordTransition — один переход в журнале. Fail-closed по построению: событие сначала
+ * проверяется reducer-ом на текущем состоянии, и только законное попадает на диск.
+ * Возвращает { ok, reason, detail, node } и НИКОГДА не бросает: в эпоху `legacy-v1` журнал
+ * ещё не авторитетен, и его отказ не имеет права уронить коммит.
+ */
+function recordTransition(event, opts) {
+  const o = opts || {};
+  let snap;
+  try { snap = graphSnapshot({ runId: o.runId || null }); } catch (e) { return { ok: false, reason: 'snapshot-failed', detail: e.message }; }
+  const run = snap.runId || o.runId || newRunId();
+  const specIdentity = currentSpecIdentity();
+  const envelope = {
+    runId: run,
+    graphVersion: snap.graphVersion,
+    componentLockDigest: componentLockDigest(),
+    specIdentity,
+    taskIdentities: (o.taskIdentities && o.taskIdentities.length) ? o.taskIdentities : [{ specPath: specIdentity, id: 'T000', index: 0 }],
+    batchId: o.batchId || 'no-batch',
+    generation: o.generation || snap.generation || 1,
+    baseHead: o.baseHead || null,
+    batchHead: o.batchHead || o.commit || null,
+    treeHash: treeHash(),
+    nodeId: snap.node,
+    seq: (snap.state.seq || 0) + 1,
+    guards: o.guards || {},
+  };
+  const moved = graphCore.advance(snap.state, event, envelope);
+  if (!moved.ok) return { ok: false, reason: moved.reason, detail: moved.detail, node: snap.node };
+  const write = graphJournal.appendEvent(journalFile(), {
+    v: 'elt-journal/v1',
+    runId: envelope.runId,
+    graphVersion: envelope.graphVersion,
+    lockDigest: envelope.componentLockDigest,
+    specPath: envelope.specIdentity,
+    taskIdentities: envelope.taskIdentities,
+    batchId: envelope.batchId,
+    generation: envelope.generation,
+    node: envelope.nodeId,
+    event,
+    seq: envelope.seq,
+    ts: new Date().toISOString(),
+    baseHead: envelope.baseHead,
+    batchHead: envelope.batchHead,
+    treeHash: envelope.treeHash,
+    guards: envelope.guards,
+    ...(o.commit ? { commit: o.commit } : {}),
+    ...(moved.state.terminal ? { terminal: true } : {}),
+  });
+  if (!write.ok) return { ok: false, reason: write.reason, detail: write.detail, node: snap.node };
+  return { ok: true, node: moved.state.node, seq: envelope.seq, runId: envelope.runId, duplicate: write.appended === false };
+}
+
+// Фасад пишет ЦЕПОЧКУ реально доказанных шагов, а не один «главный». Каждый шаг всё равно
+// проходит guard: если доказательства нет, цепочка обрывается на нём и это видно в отчёте.
+// Ничего не выдумывается — событие без доказанного guard просто не пишется.
+function recordFacadeChain(steps, context) {
+  const done = [];
+  for (const step of steps) {
+    const r = recordTransition(step.event, { ...context, guards: step.guards || {} });
+    done.push({ event: step.event, ok: r.ok, reason: r.reason || null, node: r.node || null });
+    if (!r.ok) break;
+  }
+  return done;
+}
+
+// В эпоху журнала отказ записи фатален: авторитет уже там, и «коммит есть, события нет»
+// означало бы потерю истории. До cutover — только предупреждение в stderr.
+function reportFacade(chain) {
+  const failed = chain.find((c) => !c.ok);
+  if (!failed) return;
+  const msg = 'elt: событие графа ' + failed.event + ' не записано (' + failed.reason + ')';
+  if (currentEpoch(readJournal().events) === JOURNAL_EPOCH) die(msg, 4);
+  console.error(msg + ' — эпоха legacy-v1, шаг не отменяется');
+}
+
+// Легаси-строка run-log без `batch.specPath` — это запись, сделанная до spec-bound identity
+// (020 T008). Приписать ей спеку по догадке нельзя, но у неё есть собственное доказательство:
+// коммит, который она называет, физически правил ровно один `specs/*/tasks.md`. Это тот же
+// вид доказательства, что и трейлер подписи, — читается у git, а не восстанавливается по
+// памяти. Коммит, тронувший ноль или два плана, остаётся неоднозначным и блокирует cutover.
+function reconcileLegacyRunLog(entries) {
+  const cache = new Map();
+  const plansOfCommit = (sha) => {
+    if (cache.has(sha)) return cache.get(sha);
+    const r = git(['show', '--name-only', '--format=', sha]);
+    const plans = r.code === 0
+      ? [...new Set((r.out || '').split('\n').map((l) => l.trim())
+        .filter((l) => /^specs\/[^/]+\/tasks\.md$/.test(l)))]
+      : [];
+    cache.set(sha, plans);
+    return plans;
+  };
+  // Второй источник доказательства — история поколений батчей: ремонтный коммит НЕ правит
+  // `tasks.md` (задача уже закрыта), поэтому по diff он не привязывается ни к одному плану,
+  // но в batch-state его sha записан вместе со спекой своего батча.
+  const byCommit = new Map();
+  {
+    const batches = (readBatchState().batches) || {};
+    for (const b of Object.values(batches)) {
+      for (const h of (b.history || [])) if (h.commit) byCommit.set(h.commit, b.specPath);
+      if (b.batchHead) byCommit.set(b.batchHead, b.specPath);
+    }
+  }
+  // Кроме спеки, легаси-строке возвращается и identity задач: снимок сверяет каждую задачу
+  // по `taskIdentities`, а старая строка несёт только слипшуюся строку батча "T001,T007".
+  // Индекс берётся из самого плана — порядок задач часть identity (020 T014).
+  const indexOfTask = (specPath, id) => {
+    const abs = path.join(cwd, specPath);
+    if (!fs.existsSync(abs)) return 0;
+    const all = parseTasksFile(abs);
+    const ordered = all.open.concat(all.done).sort((a, b) => a.lineNo - b.lineNo);
+    const at = ordered.findIndex((t) => t.id === id);
+    return at < 0 ? 0 : at;
+  };
+  const attach = (e, specPath, from) => ({
+    ...e,
+    batch: {
+      ...(e.batch || {}),
+      specPath,
+      reconciledFrom: from,
+      taskIdentities: (e.batch && e.batch.taskIdentities) || parseTaskIds(e.task)
+        .map((id) => ({ specPath, id, index: indexOfTask(specPath, id) })),
+    },
+  });
+  return entries.map((e) => {
+    if (!e || !e.task || (e.batch && e.batch.specPath)) return e;
+    if (e.commit) {
+      const plans = plansOfCommit(e.commit);
+      // Восстановленная identity помечена: она выведена из истории, а не записана тогда.
+      if (plans.length === 1) return attach(e, plans[0], 'commit-touches-plan');
+      if (byCommit.has(e.commit)) return attach(e, byCommit.get(e.commit), 'batch-state-history');
+      return e;
+    }
+    // Строка без коммита (прогон судьи, блок L0) состояния не утверждает, но identity у неё
+    // всё равно обязана быть однозначной — иначе завтра она приклеится к чужой спеке с тем
+    // же T-номером. Разрешаем ТЕМ ЖЕ механизмом, что и парковку (020 T008): только если
+    // задача с такими id живёт ровно в одном плане репозитория.
+    const legacy = resolveLegacySpec(e.task);
+    if (legacy.specPath) return attach(e, legacy.specPath, 'unique-task-id');
+    return e;
+  }).map((e, i, all) => {
+    if (!e || !e.task || (e.batch && e.batch.specPath) || e.commit) return e;
+    // Третий источник — соседство в самом run-log. Он append-only и хронологичен, поэтому
+    // `judge run --task T013` и следующий за ним `commit --task T013` с sha — один и тот же
+    // слайс. Берётся БЛИЖАЙШАЯ строка того же батча с уже разрешённой спекой; если таких
+    // строк нет ни после, ни до, строка остаётся неоднозначной и блокирует cutover.
+    const sameBatch = (o) => o && o.task === e.task && o.batch && o.batch.specPath;
+    for (let j = i + 1; j < all.length; j += 1) if (sameBatch(all[j])) return attach(e, all[j].batch.specPath, 'adjacent-run-log-row');
+    for (let j = i - 1; j >= 0; j -= 1) if (sameBatch(all[j])) return attach(e, all[j].batch.specPath, 'adjacent-run-log-row');
+    return e;
+  });
+}
+
+// Снимок миграции из ЖИВЫХ источников этого репозитория. Читать их внутри `graph-state`
+// нельзя: там чистая функция, которая обязана считаться одинаково в основном дереве и в
+// фоновом worktree, где часть источников физически другая.
+function liveMigrationSnapshot() {
+  const specDir = resolveSpecDir();
+  if (!specDir) return { error: 'no-spec' };
+  const specPath = relPosix(path.join(specDir, 'tasks.md'));
+  const tasksText = fs.readFileSync(path.join(specDir, 'tasks.md'), 'utf8');
+  const logFile = runLog.runtimeRunLog(cwd);
+  const runLogEntries = (logFile && fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '')
+    .split(/\r?\n/).filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+  const reconciled = reconcileLegacyRunLog(runLogEntries);
+  const digest = approvalDigest({ repoDir: cwd, specDir });
+  const signed = readApprovalTrailers(specDir).map((t) => t.approvalDigest).filter(Boolean);
+  return {
+    specPath,
+    snapshot: migrationSnapshot({
+      specPath,
+      tasksText,
+      runLogEntries: reconciled,
+      reviewRows: readReviewQueue(),
+      approval: digest.ok ? { digest: digest.digest, signedDigests: signed } : null,
+    }),
+  };
+}
+
 // ── commands ──────────────────────────────────────────────────────────────────
 const [cmd, sub] = process.argv.slice(2);
 const argv = process.argv.slice(2);
@@ -908,10 +1188,146 @@ if (cmd === 'status') {
     // отказался угадывать, и именно она не участвует в фильтрации spec-bound планов.
     parked: readParkedResolved().map((r) => ({ ...r.entry, specPath: r.specPath, ...(r.legacy ? { legacy: true, candidates: r.candidates } : {}) })),
     lastRun,
+    // 020 T015: проекция состояния графа. После cutover именно журнал авторитетен, а
+    // checkbox и этот вывод — производные; до cutover поле показывает, что уже записано.
+    graph: (() => {
+      try {
+        const g = graphSnapshot();
+        return {
+          epoch: g.epoch, epochEndCommit: g.epochEndCommit, graphVersion: g.graphVersion,
+          runId: g.runId, node: g.node, generation: g.generation, legal: g.legal,
+          journal: g.journal, rejected: g.rejected,
+        };
+      } catch (e) { return { error: e.message }; }
+    })(),
   };
   console.log(JSON.stringify(out, null, 2));
   process.exit(0);
 }
+
+// 020 T015: `elt run` — канонический вход. Он не «ещё одна команда», а замена памяти:
+// состояние берётся из журнала, следующий законный шаг — из графа, и человеку остаётся
+// выполнить ровно его. `--exec` выполняет шаг сам там, где шаг машинный.
+if (cmd === 'run') {
+  // Хук SessionStart зовёт эту же команду в ЛЮБОМ проекте. Там, где ELT не поднят, дверь
+  // обязана молчать: подсказка про граф в чужом репозитории — шум, который учит человека
+  // пролистывать вывод хука не глядя.
+  if (!fs.existsSync(CONFIG) && !fs.existsSync(path.join(cwd, 'specs'))) process.exit(0);
+  let snap;
+  try { snap = graphSnapshot({ runId: opt('--run') || null }); }
+  catch (e) { die('elt run: ' + e.message, 4); }
+  const step = NEXT_STEP[snap.node] || { event: null, cmd: null, hint: 'узел вне таблицы маршрутов' };
+  const ledgerOpen = (() => {
+    try {
+      const pending = ((require('../bin/ledger.js').summary(cwd) || {}).rules || []).filter((g) => !g.escalated);
+      return { groups: pending.length, records: pending.reduce((n, g) => n + (g.count || 0), 0) };
+    } catch { return null; }
+  })();
+  const out = {
+    epoch: snap.epoch,
+    epochEndCommit: snap.epochEndCommit,
+    graphVersion: snap.graphVersion,
+    runId: snap.runId,
+    node: snap.node,
+    generation: snap.generation,
+    terminal: snap.terminal,
+    legal: snap.legal,
+    next: { event: step.event, command: step.cmd ? ['elt'].concat(step.cmd).join(' ') : null, hint: step.hint },
+    journal: snap.journal,
+    rejected: snap.rejected,
+    statuses: snap.statuses,
+    unresolvedReview: readReviewQueue().filter((r) => !r.resolved).length,
+    ledger: ledgerOpen,
+  };
+  if (flag('--exec')) {
+    if (!step.cmd) {
+      if (flag('--json')) console.log(JSON.stringify({ ...out, exec: { ran: false, reason: 'шаг не машинный' } }, null, 2));
+      else console.error('elt run --exec: ' + step.hint + ' — шаг выполняет человек или агент, сам себя он не делает');
+      process.exit(3);
+    }
+    const r = spawnSync(process.execPath, [__filename].concat(step.cmd), { cwd, encoding: 'utf8', stdio: 'inherit' });
+    process.exit(r.status === null ? 1 : r.status);
+  }
+  if (flag('--json')) { console.log(JSON.stringify(out, null, 2)); process.exit(0); }
+  console.log('elt run: эпоха ' + out.epoch + ', узел ' + out.node + ' (поколение ' + out.generation + ')');
+  console.log('  журнал: ' + out.journal.events + ' событий, прогон ' + (out.runId || 'ещё не начат'));
+  console.log('  законные события: ' + (out.legal.join(', ') || 'нет (терминал)'));
+  console.log('  дальше: ' + out.next.hint);
+  if (out.unresolvedReview) console.log('  очередь разбора: ' + out.unresolvedReview + ' записей (elt review)');
+  if (out.ledger && out.ledger.records) console.log('  журнал расхождений: ' + out.ledger.records + ' записей в ' + out.ledger.groups + ' группах');
+  if (out.rejected.length) console.log('  ОТВЕРГНУТО журналом: ' + out.rejected.map((r) => r.event + ' (' + r.reason + ')').join(', '));
+  process.exit(0);
+}
+
+// `elt advance` — явный переход. Единственный способ записать событие руками, и он такой же
+// fail-closed, как и фасад: недоказанный guard не пишется, незаконное событие даёт exit 4 и
+// НИЧЕГО не пишет на диск.
+if (cmd === 'advance') {
+  try { compiledGraph(); } catch (e) { die('elt advance: ' + e.message, 4); }
+  const event = opt('--event');
+  if (!event) die('elt advance --event <событие> [--guard имя[,имя]] [--commit sha] [--json]', 4);
+  const guards = {};
+  for (const g of String(opt('--guard', '')).split(',').map((s) => s.trim()).filter(Boolean)) guards[g] = true;
+  const r = recordTransition(event, {
+    guards,
+    commit: opt('--commit') || null,
+    batchId: opt('--batch') || null,
+    runId: opt('--run') || null,
+  });
+  if (!r.ok) {
+    if (flag('--json')) console.log(JSON.stringify({ ok: false, ...r }, null, 2));
+    else console.error('elt advance: ' + event + ' отвергнут — ' + r.reason + ' (' + (r.detail || '') + ')');
+    process.exit(4);
+  }
+  const after = graphSnapshot();
+  if (flag('--json')) console.log(JSON.stringify({ ok: true, ...r, node: after.node, legal: after.legal }, null, 2));
+  else console.log('elt advance: ' + event + ' → ' + after.node + ' (seq ' + r.seq + ')');
+  process.exit(0);
+}
+
+// `elt cutover` — единственный переключатель эпохи. Он ничего не чинит и ничего не удаляет:
+// либо снимок миграции чист и авторитет переходит журналу одним событием, либо он блокирован
+// и на диск не ложится НИ ОДНОГО байта (это и есть rollback провалившегося cutover —
+// откатывать нечего по построению).
+if (cmd === 'cutover') {
+  try { compiledGraph(); } catch (e) { die('elt cutover: ' + e.message, 4); }
+  const live = liveMigrationSnapshot();
+  if (live.error) die('elt cutover: ' + live.error, 4);
+  const events = readJournal().events;
+  if (currentEpoch(events) === JOURNAL_EPOCH) {
+    const at = epochRecord(events);
+    console.log(JSON.stringify({ ok: true, already: true, epoch: JOURNAL_EPOCH, commit: at.commit || null }, null, 2));
+    process.exit(0);
+  }
+  const snap = live.snapshot;
+  if (snap.cutoverBlocked) {
+    console.log(JSON.stringify({ ok: false, epoch: graphJournal.LEGACY_EPOCH, blocked: true, ambiguities: snap.ambiguities }, null, 2));
+    console.error('elt cutover: БЛОКИРОВАН — ' + snap.ambiguities.length + ' неоднозначностей легаси-эпохи; журнал не тронут');
+    process.exit(5);
+  }
+  const commit = headSha();
+  const write = graphJournal.appendEvent(journalFile(), {
+    v: 'elt-journal/v1',
+    runId: activeRunId(events) || newRunId(),
+    graphVersion: compiledGraph().graphVersion,
+    lockDigest: componentLockDigest(),
+    specPath: live.specPath,
+    taskIdentities: snap.rows.map((r) => ({ specPath: r.specPath, id: r.id, index: r.index })),
+    batchId: 'legacy-cutover',
+    generation: 1,
+    node: 'certified',
+    event: EPOCH_END_EVENT,
+    seq: (graphSnapshot().state.seq || 0) + 1,
+    ts: new Date().toISOString(),
+    commit,
+    guards: { 'migration-snapshot-clean': true },
+  });
+  if (!write.ok) die('elt cutover: журнал отверг запись — ' + write.reason, 4);
+  console.log(JSON.stringify({ ok: true, epoch: JOURNAL_EPOCH, commit, rows: snap.rows.length }, null, 2));
+  console.error('elt cutover: авторитет у журнала; tasks.md с этого коммита — неизменное намерение, а checkbox — проекция');
+  process.exit(0);
+}
+
 
 // 011 T005: очередь ревью — разбор `inconclusive` пачкой, раз в сессию. Неблокирующая
 // (решение 2 спеки, R4): накопление видно, работу не стопорит.
@@ -1203,6 +1619,16 @@ if (cmd === 'judge' && sub === 'run') {
   // Дальше либо коммит (он маркер и снимет), либо конец попытки — тогда снимаем здесь, чтобы
   // блок судьи не оставлял чекпоинты выключенными до истечения TTL.
   if (ok) markGateActive(taskId); else clearGateMarker();
+  // 020 T015: вердикт судьи — это переход зеркала, а не только строка в run-log. `block`
+  // возвращает тот же батч в `build` следующим поколением (ремонт), а не открывает новый.
+  {
+    const chain = recordFacadeChain([
+      ok
+        ? { event: 'mirror-terminal', guards: { 'batch-head-immutable': true } }
+        : { event: 'mirror-red', guards: {} },
+    ], { commit: headSha() });
+    reportFacade(chain);
+  }
   process.exit(ok ? 0 : 4);
 }
 
@@ -1274,8 +1700,14 @@ if (cmd === 'spec') {
     // 018 T003: идемпотентность считается по ТРЕЙЛЕРУ, а не по общему статусу спеки. Спека,
     // подписанная ещё файлом, по статусу выглядит approved — и трейлера не получила бы
     // никогда, то есть миграция встала бы на первой же спеке, которую сама и переводит.
+    // 020 T015: подпись обязана нести и канонический digest схемы `elt-approval/v1` —
+    // именно его требует cutover. Старая подпись без него по этому критерию не проходит
+    // и переподписывается, а не объявляется достаточной задним числом.
+    const canonical = approvalDigest({ repoDir: cwd, specDir });
+    if (!canonical.ok) die('elt spec approve: канонический digest не посчитан — ' + canonical.reason, 4);
     const signed = readApprovalTrailers(specDir)
-      .find((t) => t.specHash === hashes.specHash && t.tasksHash === hashes.tasksHash);
+      .find((t) => t.specHash === hashes.specHash && t.tasksHash === hashes.tasksHash
+        && t.approvalDigest === canonical.digest);
     if (signed) {
       console.error(`elt spec approve: уже подписана в ${signed.sha.slice(0, 7)} (${signed.approvedAt}) — без изменений`);
       console.log(JSON.stringify({ spec: key, approvedAt: signed.approvedAt, approvedIn: signed.sha, ...hashes }, null, 2));
@@ -1289,6 +1721,7 @@ if (cmd === 'spec') {
       `${TRAILERS.spec}: ${key}`,
       `${TRAILERS.specHash}: ${hashes.specHash}`,
       `${TRAILERS.tasksHash}: ${hashes.tasksHash}`,
+      `${TRAILERS.approvalDigest}: ${canonical.digest}`,
     ].join('\n');
     // Новая спека git-у ещё неизвестна, а `commit -- <path>` знает только отслеживаемые пути
     // и упал бы на `pathspec did not match any file(s) known to git` (проверено живьём). add
@@ -1602,6 +2035,26 @@ if (cmd === 'commit') {
     writeBatchState(state);
   }
 
+  // 020 T015: низкоуровневый `commit` остался, но перестал быть немым. Он пишет ровно те
+  // события, которые реально доказал: разведку зоны (задача из подписанного плана и её
+  // `[files:]`), готовность батча (dependency closure планировщика) и посадку (зелёный L0).
+  // Без этого восстановление после compact видело бы commit, которого нет в истории
+  // прогона, — и `elt run` предлагал бы шаг, уже сделанный руками.
+  {
+    const chain = recordFacadeChain([
+      { event: 'known-zone', guards: { 'familiar-zone': true, 'scope-within-limit': true } },
+      { event: 'ready', guards: { 'task-dependencies-closed': true } },
+      { event: 'landed', guards: { 'l0-green': true } },
+    ], {
+      commit: sha,
+      batchId: batchKey,
+      generation,
+      batchHead: sha,
+      taskIdentities: batchPlan.taskIdentities,
+    });
+    reportFacade(chain);
+  }
+
   // Очередь ревью пишется ПОСЛЕ коммита: в строке обязан быть его sha, иначе разбирать нечего.
   // Неблокирующая по решению 2 спеки (R4): накопление видно в doctor, работу не стопорит.
   if (inconclusive) {
@@ -1683,7 +2136,10 @@ if (cmd === 'commit') {
 // Справка — теперь безусловный хвост: ветки, ради которой стоял else, больше нет.
 console.log(`elt — ядро ELT v3 харнесса
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
-  elt status [--spec specs/NNN-slug]                        git + план + последний прогон
+  elt run [--json] [--exec]                                 ОДНА ДВЕРЬ: узел графа из журнала + следующий законный шаг
+  elt advance --event <e> [--guard a,b] [--json]             явный переход графа (незаконный = exit 4 и ни байта на диск)
+  elt cutover [--json]                                      переключить авторитет с checkbox на журнал (fail-closed)
+  elt status [--spec specs/NNN-slug]                        git + план + последний прогон + узел графа
   elt slice next [--json] [--count N] [--spec specs/NNN-slug]  следующая [ ] задача (--count N → N первых; exit 3 = план закрыт)
   elt spec approve [--spec specs/NNN-slug]                  подписать spec.md+tasks.md коммитом-трейлером (идемпотентно)
   elt spec status [--spec specs/NNN-slug]                   approved | stale | unapproved | error
