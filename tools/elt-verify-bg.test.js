@@ -8,7 +8,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, test } = require('node:test');
 
-const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath, enabledLayers, LAYERS, classifyJudge, harnessConfigAt, REVIEW_QUEUE } = require('./elt-verify-bg');
+const bg = require('./elt-verify-bg');
+const { runBackgroundVerify, spawnBackgroundVerify, ensureWorktree, worktreePath, enabledLayers, LAYERS, classifyJudge, harnessConfigAt, REVIEW_QUEUE } = bg;
 const { validateHarnessConfig, verifyMode, VERIFY_MODES } = require('./elt-config');
 
 const ELT = path.join(__dirname, 'elt.js');
@@ -609,3 +610,209 @@ test('T007: classifyJudge — закрытый список, всё осталь
 after(() => {
   for (const root of roots) { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* windows lock */ } }
 });
+
+// ── 020 T017 (поколение 2): сертификат выписывается из РЕАЛЬНЫХ результатов ───────────────
+// Судья заблокировал первое поколение по существу: алгебра сертификата существовала
+// изолированно, `createBatchCertificate` звали только её собственные юнит-тесты. Значит
+// требование «push/merge/tag/release принимают только соответствующий proof» было физически
+// недостижимо: proof не выписывал никто. Ниже проверяется именно проводка.
+
+const certification = require('./certification');
+
+function certFixture(over = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-cert-wire-'));
+  // Настоящий git-репозиторий, а не каталог с `.git`: путь к состоянию батчей резолвит сам
+  // git (`rev-parse --git-dir`), и в worktree он не совпадает с `<cwd>/.git`. Подделка каталога
+  // проверяла бы не тот код, который работает на живой машине.
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+  fs.writeFileSync(path.join(root, 'seed.txt'), 'seed');
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'seed'], { cwd: root });
+  // Настоящий коммит, а не строка: сертификат привязывается к `<commit>^{tree}`, и на
+  // выдуманном хеше алгебра честно отвечает `hash-missing` — фикстура обязана это учитывать,
+  // а не ослаблять требование.
+  const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  fs.mkdirSync(path.join(root, '.git', 'elt'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.git', 'elt', 'batch-state.json'), JSON.stringify({
+    batches: {
+      'batch-abc': {
+        specPath: 'specs/020-x/tasks.md', taskIds: ['T001'],
+        taskIdentities: [{ specPath: 'specs/020-x/tasks.md', id: 'T001', index: 0 }],
+        generation: 1, batchHead: head, history: [],
+      },
+    },
+  }));
+  return { root, head, ...over };
+}
+
+// Зелёный прогон обязан ОСТАВИТЬ сертификат. Это и есть та единственная точка, где алгебра
+// встречается с фактами: терминал оракула, терминалы линз, терминал оценщика и хеши.
+function testGreenRunIssuesCertificate() {
+  const { root, head } = certFixture();
+  const sections = [
+    { layer: 'suite', exit: 0, red: false },
+    {
+      layer: 'judge',
+      verdict: 'pass',
+      review: {
+        lensResults: {
+          'review-bugs': { status: 'review-pass' },
+          'review-claude-md': { status: 'review-pass' },
+          'review-code-comments': { status: 'review-pass' },
+        },
+        scorerTerminal: 'review-pass',
+        findings: [],
+      },
+    },
+  ];
+  const r = bg.issueBatchCertificate({
+    cwd: root, commitHash: head, taskId: 'T001',
+    specFile: 'specs/020-x/tasks.md', sections, outcome: 'pass',
+  });
+  assert.equal(r.ok, true, `сертификат обязан выписаться: ${r.reason} ${r.detail || ''}`);
+  assert.equal(r.certificate.v, certification.BATCH_CERT_SCHEMA);
+  assert.equal(r.certificate.commit, head);
+
+  // И он лежит ВНЕ дерева: запись в дерево после сертификата сделала бы его stale немедленно.
+  const certFile = certification.batchCertificatePath(root, 'batch-abc', 1);
+  assert.ok(certFile.includes('.git'), 'сертификат обязан жить вне рабочего дерева');
+  assert.ok(fs.existsSync(certFile));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// Красный прогон сертификата НЕ получает — иначе «proof» перестаёт что-либо значить.
+function testRedRunIssuesNothing() {
+  const { root, head } = certFixture();
+  const r = bg.issueBatchCertificate({
+    cwd: root, commitHash: head, taskId: 'T001', specFile: 'specs/020-x/tasks.md',
+    sections: [{ layer: 'suite', exit: 1, red: true }], outcome: 'red',
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'outcome-not-pass');
+  assert.equal(fs.existsSync(certification.batchCertificatePath(root, 'batch-abc', 1)), false,
+    'красный прогон не смеет оставить сертификат на диске');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// Отсутствие данных ревью — отказ, а не «наверное всё прошло». Подставить умолчание здесь
+// значило бы выписывать proof по умолчанию, то есть ровно fail-open.
+function testMissingReviewEvidenceRefusesCertificate() {
+  const { root, head } = certFixture();
+  const r = bg.issueBatchCertificate({
+    cwd: root, commitHash: head, taskId: 'T001', specFile: 'specs/020-x/tasks.md',
+    sections: [{ layer: 'suite', exit: 0 }, { layer: 'judge', verdict: 'pass' }],
+    outcome: 'pass',
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'review-evidence-missing');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// Мёртвая линза не даёт сертификата, даже когда общий исход выглядит зелёным: вердикт четырёх
+// линз, выданный за вердикт пяти, — та же подмена, что закрыл T007 для фона.
+function testDeadLensBlocksCertificate() {
+  const { root, head } = certFixture();
+  const r = bg.issueBatchCertificate({
+    cwd: root, commitHash: head, taskId: 'T001', specFile: 'specs/020-x/tasks.md',
+    sections: [
+      { layer: 'suite', exit: 0 },
+      {
+        layer: 'judge', verdict: 'pass',
+        review: {
+          lensResults: {
+            'review-bugs': { status: 'review-dead', reason: 'линза не отработала' },
+            'review-claude-md': { status: 'review-pass' },
+            'review-code-comments': { status: 'review-pass' },
+          },
+          scorerTerminal: 'review-pass',
+          findings: [],
+        },
+      },
+    ],
+    outcome: 'pass',
+  });
+  assert.equal(r.ok, false, 'мёртвая требуемая линза обязана блокировать сертификат');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// Находка с уверенностью ровно 80 блокирует; 79 — нет. Это и есть отсечка, ради которой
+// заведён оценщик.
+function testFindingAtCutoffBlocksCertificate() {
+  for (const [confidence, shouldIssue] of [[79, true], [80, false]]) {
+    const { root, head } = certFixture();
+    const r = bg.issueBatchCertificate({
+      cwd: root, commitHash: head, taskId: 'T001', specFile: 'specs/020-x/tasks.md',
+      sections: [
+        { layer: 'suite', exit: 0 },
+        {
+          layer: 'judge', verdict: 'pass',
+          review: {
+            lensResults: {
+              'review-bugs': { status: 'review-pass' },
+              'review-claude-md': { status: 'review-pass' },
+              'review-code-comments': { status: 'review-pass' },
+            },
+            scorerTerminal: 'review-pass',
+            findings: [{ lens: 'review-bugs', file: 'a.js', line: 1, confidence }],
+          },
+        },
+      ],
+      outcome: 'pass',
+    });
+    assert.equal(r.ok, shouldIssue, `уверенность ${confidence}: сертификат ${shouldIssue ? 'обязан' : 'не имеет права'} выписаться`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Батч, которого нет в состоянии, сертификата не получает: иначе proof выписывался бы на
+// коммит, который никакому батчу не принадлежит.
+function testUnregisteredBatchGetsNoCertificate() {
+  const { root, head } = certFixture();
+  const r = bg.issueBatchCertificate({
+    cwd: root, commitHash: 'deadbee', taskId: 'T001', specFile: 'specs/020-x/tasks.md',
+    sections: [{ layer: 'suite', exit: 0 }, { layer: 'judge', review: { lensResults: {}, scorerTerminal: 'review-pass', findings: [] } }],
+    outcome: 'pass',
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'batch-not-registered');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// Второй прогон на том же batchHead/generation — no-op, а не второй сертификат. «Ровно один
+// impact oracle и один подграф ревью на одном batchHead» проверяется именно здесь.
+function testSecondCertificateOnSameHeadIsRefused() {
+  const { root, head } = certFixture();
+  const args = {
+    cwd: root, commitHash: head, taskId: 'T001', specFile: 'specs/020-x/tasks.md',
+    sections: [
+      { layer: 'suite', exit: 0 },
+      {
+        layer: 'judge', verdict: 'pass',
+        review: {
+          lensResults: {
+            'review-bugs': { status: 'review-pass' },
+            'review-claude-md': { status: 'review-pass' },
+            'review-code-comments': { status: 'review-pass' },
+          },
+          scorerTerminal: 'review-pass', findings: [],
+        },
+      },
+    ],
+    outcome: 'pass',
+  };
+  assert.equal(bg.issueBatchCertificate(args).ok, true);
+  const again = bg.issueBatchCertificate(args);
+  assert.equal(again.ok, false);
+  assert.equal(again.reason, 'certificate-exists');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+test('T017 gen2: зелёный фоновой прогон выписывает сертификат батча', testGreenRunIssuesCertificate);
+test('T017 gen2: красный прогон сертификата не получает', testRedRunIssuesNothing);
+test('T017 gen2: без данных ревью сертификат не выписывается', testMissingReviewEvidenceRefusesCertificate);
+test('T017 gen2: мёртвая линза блокирует сертификат', testDeadLensBlocksCertificate);
+test('T017 gen2: отсечка 80 — 79 проходит, 80 блокирует', testFindingAtCutoffBlocksCertificate);
+test('T017 gen2: незарегистрированный батч сертификата не получает', testUnregisteredBatchGetsNoCertificate);
+test('T017 gen2: второй сертификат на том же batchHead отвергается', testSecondCertificateOnSameHeadIsRefused);

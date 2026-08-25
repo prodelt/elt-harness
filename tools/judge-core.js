@@ -669,7 +669,21 @@ async function runJudge({ cwd, tid, taskText, provider = 'claude', model = 'sonn
       reasons: rr.reasons && rr.reasons.length ? rr.reasons : [`review: ${rr.status}`],
       filesReviewed: [...new Set((rr.findings || []).map((f) => f.file))],
       judgeLog: null, runOk, durationSec,
-      review: { status: rr.status, blocking: (rr.blocking || []).length, weak: (rr.weak || []).length, scorer: rr.scorer },
+      review: {
+        status: rr.status, blocking: (rr.blocking || []).length, weak: (rr.weak || []).length, scorer: rr.scorer,
+        // 020 T017: терминальное состояние КАЖДОЙ линзы поимённо и все находки с их
+        // уверенностью. Сертификат обязан считаться по фактам, а не по счётчикам: из числа
+        // «2 блокирующих» нельзя восстановить, все ли требуемые линзы вообще отработали.
+        lensResults: Object.fromEntries((rr.lenses || []).map((l) => [l.name, {
+          status: l.ok ? 'review-pass' : 'review-dead',
+          reason: l.reason || null,
+          findings: (l.findings || []).length,
+        }])),
+        scorerTerminal: rr.scorer && rr.scorer.ok ? 'review-pass' : 'review-dead',
+        findings: (rr.findings || []).map((f) => ({
+          lens: f.lens || null, file: f.file, line: f.line, confidence: f.confidence,
+        })),
+      },
       judges: [{
         provider: reviewCfg.provider || provider, model: 'five-lens+scorer',
         verdict: runOk ? rr.verdict : 'dead', reasons: rr.reasons || [], durationSec, runOk,

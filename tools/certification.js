@@ -184,7 +184,9 @@ function createBatchCertificate(cwd, {
   // Запиши append-only
   fs.writeFileSync(certPath, JSON.stringify(certificate, null, 2) + '\n');
 
-  return { ok: true, certificateId: certificate.certificateId, digest };
+  // Сам сертификат возвращается вызывающему: без него проводка вынуждена перечитывать файл,
+  // который только что написала, — лишний повод разойтись с тем, что легло на диск.
+  return { ok: true, certificateId: certificate.certificateId, digest, certificate };
 }
 
 /**

@@ -359,6 +359,9 @@ async function runBackgroundVerify({ cwd, commitHash, taskId, taskText, specFile
       const why = (raw && raw.reasons || []).join('; ');
       sections.push({
         layer: 'judge', verdict: j.verdict, conclusive: j.conclusive,
+        // 020 T017: сырьё для сертификата. Оно живёт ровно здесь, потому что дальше по коду
+        // остаются только терминальные строки очереди, из которых алгебру pass не собрать.
+        review: (raw && raw.review) || null,
         red: j.verdict === 'block',
         // 020 T007: неконклюзивный судья и `inconclusive` больше не «ничего»: у каждого есть
         // причина в отчёте, потому что зелёным они уже не станут.
@@ -415,6 +418,75 @@ function classifyRun(sections) {
   return 'pass';
 }
 
+// 020 T017: сертификат батча выписывается ЗДЕСЬ — в единственной точке, где одновременно
+// известны терминал оракула, терминалы линз, терминал оценщика и хеши коммита. Раньше
+// алгебра существовала отдельным модулем, который звали только его собственные тесты: это
+// значит, что требование «push принимает только соответствующий proof» было недостижимо —
+// proof не выписывал никто. Сертификат живёт ВНЕ дерева (`.git/elt/certificates/`), иначе
+// сам факт его записи делал бы его stale.
+function issueBatchCertificate({ cwd, commitHash, taskId, specFile, sections, outcome }) {
+  if (outcome !== 'pass') return { ok: false, reason: 'outcome-not-pass' };
+  let certification; let batchState; let graph;
+  try {
+    certification = require('./certification');
+    const compiler = require('./graph-compiler');
+    graph = compiler.compile(compiler.loadCanonicalGraph()).graph;
+  } catch (e) { return { ok: false, reason: 'certification-unavailable', detail: e.message }; }
+
+  const gitDir = runLog.gitDir(cwd);
+  try { batchState = JSON.parse(fs.readFileSync(path.join(gitDir, 'elt', 'batch-state.json'), 'utf8')); }
+  catch { return { ok: false, reason: 'batch-state-missing' }; }
+  const entry = Object.entries(batchState.batches || {})
+    .find(([, b]) => String(b.batchHead || '').startsWith(commitHash) || commitHash.startsWith(String(b.batchHead || '')));
+  if (!entry) return { ok: false, reason: 'batch-not-registered' };
+  const [batchId, batch] = entry;
+
+  const suite = sections.find((x) => x.layer === 'suite') || {};
+  const judge = sections.find((x) => x.layer === 'judge') || {};
+  const review = judge.review || null;
+  // Нет данных ревью — нет сертификата. Подставить сюда «наверное всё прошло» значило бы
+  // выписать proof по умолчанию, то есть ровно fail-open, который T017 и закрывает.
+  if (!review || !review.lensResults) return { ok: false, reason: 'review-evidence-missing' };
+
+  let lockDigest = 'no-component-lock';
+  try {
+    lockDigest = require('node:crypto').createHash('sha256')
+      .update(fs.readFileSync(path.join(cwd, '.elt', 'components.lock.json'), 'utf8')).digest('hex');
+  } catch { /* lock ещё нет — это состояние, а не отказ */ }
+
+  const treeHashOfCommit = (() => {
+    const r = spawnSync('git', ['rev-parse', `${commitHash}^{tree}`], { cwd, encoding: 'utf8' });
+    return r.status === 0 ? String(r.stdout).trim() : null;
+  })();
+
+  const evidence = {
+    oracleTerminal: suite.exit === 0 ? certification.ORACLE_TERMINAL.exit0
+      : suite.skipped ? certification.ORACLE_TERMINAL.unknown : certification.ORACLE_TERMINAL.nonzero,
+    lensResults: review.lensResults,
+    scorerTerminal: review.scorerTerminal,
+    findings: review.findings || [],
+    riskLevel: 'default',
+    graphHash: graph.graphVersion,
+    lockHash: lockDigest,
+    specHash: specFile,
+    batchHash: batchId,
+    generationHash: String(batch.generation),
+    commitHash,
+    treeHash: treeHashOfCommit,
+    expected: {
+      graphHash: graph.graphVersion, lockHash: lockDigest, specHash: specFile,
+      batchHash: batchId, generationHash: String(batch.generation),
+      commitHash, treeHash: treeHashOfCommit,
+    },
+  };
+  return certification.createBatchCertificate(cwd, {
+    batchId, generation: batch.generation, commit: commitHash, treeHash: treeHashOfCommit,
+    specIdentity: specFile, taskIdentities: batch.taskIdentities || [],
+    graphVersion: graph.graphVersion, componentLockDigest: lockDigest,
+    riskLevel: 'default', evidence,
+  });
+}
+
 function finish({ sections, started, cwd, commitHash, taskId, specFile = null, logPath, wt, configSource }) {
   const outcome = classifyRun(sections);
   const durationSec = (Date.now() - started) / 1000;
@@ -432,6 +504,9 @@ function finish({ sections, started, cwd, commitHash, taskId, specFile = null, l
     enqueueBgRed(cwd, { task: taskId || null, specPath: specFile, commit: commitHash, layer: s.layer, reason: s.reason, logPath, kind });
   }
   const exit = outcome === 'pass' ? 0 : 1;
+  // Сертификат — часть терминального результата, а не отдельный ритуал. Его отказ НЕ делает
+  // зелёный прогон красным: причина уезжает в run-log, где её видно, а не в тишину.
+  const certificate = issueBatchCertificate({ cwd, commitHash, taskId, specFile, sections, outcome });
   runLog.appendRunLog(cwd, {
     task: taskId || null,
     commit: commitHash,
@@ -439,10 +514,13 @@ function finish({ sections, started, cwd, commitHash, taskId, specFile = null, l
     status: BG_TERMINAL[outcome],
     background: {
       layer: 'suite', exit, outcome, durationSec, sections, configSource,
+      certificate: certificate.ok
+        ? { id: certificate.certificate.certificateId, schema: certificate.certificate.v }
+        : { issued: false, reason: certificate.reason, detail: certificate.detail || null },
       worktree: path.relative(cwd, cleanup.path), worktreeRemoved: cleanup.removed,
     },
   });
-  return { exit, outcome, status: BG_TERMINAL[outcome], durationSec, sections, worktree: wt, worktreeRemoved: cleanup.removed, configSource };
+  return { exit, outcome, status: BG_TERMINAL[outcome], durationSec, sections, certificate, worktree: wt, worktreeRemoved: cleanup.removed, configSource };
 }
 
 if (require.main === module) {
@@ -466,4 +544,5 @@ module.exports = {
   enqueueBgRed, REVIEW_QUEUE, LAYERS, enabledLayers,
   bgChildEnv, bgChildContextFromEnv, runJudgeLayer,
   classifyJudge, classifyRun, harnessConfigAt, withJudgeTimeout, BG_TERMINAL, JUDGE_VERDICTS,
+  issueBatchCertificate,
 };
