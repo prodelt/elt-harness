@@ -199,7 +199,7 @@
   certified batch, publish receipt і run-log. Один кейс = plumbing, три = лише directional evidence.
   [files: benchmarks/README.md benchmarks/preregistration-v5.0.0.json benchmarks/results-v5.0.0.json .planning/ELT-V5-CODEX-LIVE-CERT-2026-08-24.md]
 
-- [ ] **T006** Release engineering і фінальне закриття: додати SemVer/runbook і механічну
+- [X] **T006** Release engineering і фінальне закриття: додати SemVer/runbook і механічну
   перевірку узгодженості version; README публікує benchmark-таблицю з raw evidence і чесною
   межею claim. Спочатку створити final `prepare-release` commit із version/docs/state/queue;
   потім без жодного запису в certificate-bound tree: full oracle → усі 5 lenses → scorer →
