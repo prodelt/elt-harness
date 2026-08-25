@@ -31,7 +31,12 @@ const REQUIRED_FIELDS = [
 ];
 
 const LOCK_STALE_MS = 30000;
-const LOCK_WAIT_MS = 5000;
+// Ждать замок МЕНЬШЕ, чем длится его протухание, — значит сдаваться раньше, чем система сама
+// починит ситуацию: осиротевший замок снимается на LOCK_STALE_MS, а процесс уходил с
+// `lock-timeout` уже на пятой секунде. Под нагрузкой (фоновой оракул на восьми воркерах) это
+// давало ЧЕСТНЫЙ отказ записи, который вызывающий, не проверяющий результат, превращал в
+// молча потерянное событие. Поймано фоном на 1158b7e: 29 записей из 30.
+const LOCK_WAIT_MS = LOCK_STALE_MS + 1000;
 
 function defaultJournalPath(repoDir) {
   // В worktree `.git` — файл с указателем; журнал обязан быть один на репозиторий, иначе
@@ -174,6 +179,10 @@ function eventsForRun(journalPath, runId) {
 
 module.exports = {
   JOURNAL_SCHEMA,
+  LOCK_STALE_MS,
+  LOCK_WAIT_MS,
+  acquireLock,
+  releaseLock,
   LEGACY_EPOCH,
   appendEvent,
   defaultJournalPath,

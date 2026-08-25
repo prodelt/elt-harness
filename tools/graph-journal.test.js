@@ -11,7 +11,10 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  JOURNAL_SCHEMA, appendEvent, defaultJournalPath, eventsForRun, readEvents, validateEvent,
+  JOURNAL_SCHEMA,
+  LOCK_STALE_MS,
+  LOCK_WAIT_MS,
+  acquireLock, appendEvent, defaultJournalPath, eventsForRun, readEvents, validateEvent,
 } = require('./graph-journal');
 
 let tmpRoot = null;
@@ -172,20 +175,33 @@ function testStaleLockIsBrokenAfterTimeout() {
   assert.equal(fs.existsSync(lockPath), false, 'после записи замок снят');
 }
 
-function testFreshLockBlocksWithTimeout() {
+// Окно ожидания теперь равно порогу протухания, поэтому в НОРМАЛЬНОЙ работе `lock-timeout`
+// недостижим: замок мёртвого процесса снимается раньше, чем ожидающий сдастся. Это и есть
+// починка дефекта, который фон нашёл на 1158b7e (29 записей из 30 под нагрузкой). Но контракт
+// отказа обязан остаться проверяемым — проверяем его напрямую, коротким окном, а не 31-секундным
+// ожиданием в тесте.
+function testFreshLockRefusesWithinItsWindow() {
   const file = tmpJournal();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const lockPath = `${file}.lock`;
   fs.mkdirSync(lockPath);
   try {
     const started = Date.now();
-    const result = appendEvent(file, event());
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, 'lock-timeout');
-    assert.ok(Date.now() - started >= 1000, 'замок держится ожиданием, а не мгновенным отказом');
+    const lock = acquireLock(file, 300);
+    assert.equal(lock.ok, false);
+    assert.equal(lock.reason, 'lock-timeout');
+    assert.ok(Date.now() - started >= 200, 'замок держится ожиданием, а не мгновенным отказом');
   } finally {
     fs.rmdirSync(lockPath);
   }
+}
+
+// Умолчание обязано быть НЕ меньше порога протухания: иначе процесс сдаётся раньше, чем
+// система сама снимет осиротевший замок, и честный отказ превращается в потерянное событие
+// у любого вызывающего, который не проверяет результат.
+function testDefaultWaitOutlivesStaleThreshold() {
+  assert.ok(LOCK_WAIT_MS > LOCK_STALE_MS,
+    `окно ожидания ${LOCK_WAIT_MS} мс обязано быть больше порога протухания ${LOCK_STALE_MS} мс`);
 }
 
 // Два процесса пишут в один журнал одновременно: ни одна строка не должна порваться и ни
@@ -198,13 +214,16 @@ async function testConcurrentWritersDoNotTearLines() {
     "const { appendEvent } = require(" + JSON.stringify(path.join(__dirname, 'graph-journal.js')) + ');',
     'const [file, runId, from] = process.argv.slice(2);',
     'for (let i = 0; i < 10; i += 1) {',
-    '  appendEvent(file, {',
+    '  const r = appendEvent(file, {',
     "    v: 'elt-journal/v1', runId, graphVersion: '5.0.0', lockDigest: 'lock-1',",
     "    specPath: 'specs/020-x/tasks.md',",
     "    taskIdentities: [{ specPath: 'specs/020-x/tasks.md', id: 'T014', index: 0 }],",
     "    batchId: 'batch-1', generation: 1, node: 'recon', event: 'unknown-zone',",
     "    guards: {}, seq: Number(from) + i, ts: new Date().toISOString(), terminal: false,",
     '  });',
+    // Результат записи проверяется: без этого отказ замка (законный, с причиной) выглядел бы
+    // ровно как потерянное событие, и тест не различал бы две очень разные вещи.
+    "  if (!r.ok) { process.stderr.write(String(r.reason)); process.exit(3); }",
     '}',
   ].join('\n'), 'utf8');
 
@@ -252,7 +271,8 @@ async function main() {
     testCorruptMiddleLineBlocksAppend();
     testJournalIsAppendOnly();
     testStaleLockIsBrokenAfterTimeout();
-    testFreshLockBlocksWithTimeout();
+    testFreshLockRefusesWithinItsWindow();
+    testDefaultWaitOutlivesStaleThreshold();
     await testConcurrentWritersDoNotTearLines();
     testJournalPathFollowsWorktreePointer();
   } finally {
