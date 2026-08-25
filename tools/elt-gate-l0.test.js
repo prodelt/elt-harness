@@ -794,6 +794,113 @@ async function testDeadPrimaryWithoutAltStaysDead() {
   assert.notEqual(result.verdict, 'pass');
 }
 
+// 020 T023 — разделители в `[files:]`. Разбор принимал ТОЛЬКО запятую, а планы 019 и 020 пишут
+// список через пробел. Такой список схлопывался в один глоб «tools/a.js tools/b.js», которому
+// не равен ни один путь: триггер объявлял вне зоны всё подряд, включая объявленные файлы.
+// Живой след — слайс 020/T012, где под out-of-scope попали и `bin/doctor.js`, и `docs/INSTALL.md`,
+// хотя оба перечислены в задаче.
+function testScopeSeparatorsSpaceCommaNewline() {
+  const diff = [
+    diffFor('tools/a.js', { removed: 1, added: 1 }),
+    diffFor('tools/b.js', { removed: 1, added: 1 }),
+    diffFor('tools/c.js', { removed: 1, added: 1 }),
+  ].join('\n');
+
+  // Пробелы — форма реальных планов.
+  const spaced = evaluate({ diff, config: {}, taskText: 'задача [files: tools/a.js tools/b.js tools/c.js]' });
+  assert.deepEqual(names(spaced), [], 'все три файла объявлены — нарушать нечего');
+
+  // Запятые — форма, которую разбор понимал и раньше: она обязана работать по-прежнему.
+  const commas = evaluate({ diff, config: {}, taskText: 'задача [files: tools/a.js, tools/b.js, tools/c.js]' });
+  assert.deepEqual(names(commas), []);
+
+  // Длинный список в tasks.md переносится — перевод строки тоже разделитель.
+  const wrapped = evaluate({ diff, config: {}, taskText: 'задача [files: tools/a.js tools/b.js\n  tools/c.js]' });
+  assert.deepEqual(names(wrapped), []);
+}
+
+// Дискриминирующая половина: разбор, ставший терпимее к разделителям, не имеет права ослабить
+// сам триггер. Без неё «зелено» означало бы лишь, что зона проглотила всё подряд.
+function testScopeStillFiresWithSpaceSeparatedZone() {
+  const result = evaluate({
+    diff: [
+      diffFor('tools/a.js', { removed: 1, added: 1 }),
+      diffFor('tools/stray-module.js', { removed: 1, added: 1 }),
+    ].join('\n'),
+    config: {},
+    taskText: 'задача [files: tools/a.js tools/b.js]',
+  });
+  assert.deepEqual(names(result), ['out-of-scope']);
+  assert.deepEqual(result.triggers[0].files, ['tools/stray-module.js'], 'назван ровно нарушитель, а не вся зона');
+  assert.equal(result.judgeNeeded, true);
+}
+
+// Многострочная задача целиком — та форма, в которой задачи и написаны в планах 019/020.
+// До T023 сюда приезжала одна строка, и `[files:]` не находился вовсе.
+function testScopeFromMultilineTaskBlock() {
+  const block = [
+    '- [ ] **T012** Чиста установка і client parity: додати versioned plugin hooks для',
+    '  SessionStart/Stop без абсолютних шляхів; довести приватний marketplace у fresh profile.',
+    '  [files: hooks/hooks.json bin/doctor.js docs/INSTALL.md]',
+  ].join('\n');
+
+  const clean = evaluate({
+    diff: [
+      diffFor('bin/doctor.js', { removed: 1, added: 1 }),
+      diffFor('hooks/hooks.json', { removed: 1, added: 1 }),
+    ].join('\n'),
+    config: {}, taskText: block,
+  });
+  assert.deepEqual(names(clean), [], 'объявленные файлы многострочной задачи не считаются выходом за зону');
+
+  const stray = evaluate({
+    diff: [
+      diffFor('bin/doctor.js', { removed: 1, added: 1 }),
+      diffFor('tools/unrelated.js', { removed: 1, added: 1 }),
+    ].join('\n'),
+    config: {}, taskText: block,
+  });
+  assert.deepEqual(names(stray), ['out-of-scope']);
+  assert.deepEqual(stray.triggers[0].files, ['tools/unrelated.js']);
+}
+
+// 020 T023 — `taskCountOf` считает задачи в ОБЕИХ формах маркера.
+//
+// Этот регресс написан по находке судьи, а не «на всякий случай». Правка, отдавшая гейту
+// полный блок задачи, поменяла и форму текста: было `T001 …`, стало `- [ ] **T001** …`.
+// Якорь `^T\d+` перестал совпадать, батч из двух задач стал считаться одной, и порог
+// `diff-size` (он умножается на число задач) перестал удваиваться — L0 ложно поднимал бы
+// `diff-size` на каждом легитимном батче. Ни один тест этого не ловил: соседний
+// `testDiffSizeScalesWithBatchSize` кормит синтетический `T001 …`, то есть форму, которую
+// `elt.js` уже не производит.
+//
+// Поэтому здесь проверяется именно ТА форма, которую пишет рантайм, и обе рядом.
+function testTaskCountAcceptsBothMarkerForms() {
+  const bigDiff = diffFor('tools/wide.js', { removed: 0, added: DEFAULT_DIFF_SIZE + 200 });
+  const hasDiffSize = (taskText) => names(evaluate({ diff: bigDiff, config: {}, taskText })).includes('diff-size');
+
+  // Форма, которую `elt judge run` отдаёт СЕГОДНЯ — блок задачи как он записан в плане.
+  const twoBlocks = [
+    '- [ ] **T001** первая задача батча',
+    '  [files: tools/wide.js]',
+    '- [ ] **T002** вторая задача батча',
+    '  [files: tools/other.js]',
+  ].join('\n');
+  assert.equal(hasDiffSize(twoBlocks), false, 'батч из двух задач получает удвоенный порог, а не порог одной');
+
+  const oneBlock = '- [ ] **T001** одна задача\n  подробности задачи';
+  assert.equal(hasDiffSize(oneBlock), true, 'одна задача — порог не удваивается, иначе проверка бессмысленна');
+
+  // Форма прошлых прогонов (`T001 …`) обязана считаться по-прежнему: её всё ещё несут
+  // сохранённые дескрипторы и фикстуры соседних тестов.
+  assert.equal(hasDiffSize('T001 первая\nT002 вторая'), false);
+  assert.equal(hasDiffSize('T001 одна'), true);
+
+  // Закрытая задача (`[X]`) — тот же маркер: `commit` зовёт фоновую верификацию уже ПОСЛЕ
+  // markDone, то есть с блоками, где галка проставлена.
+  assert.equal(hasDiffSize('- [X] **T001** первая\n- [X] **T002** вторая'), false);
+}
+
 async function main() {
   testVerifyOffForThisRepo();
   testRepoJudgeProviderIsAlive();
@@ -825,6 +932,10 @@ async function main() {
   testPrivateFieldAndTemplateInterpolationAreCode();
   testKnownPackagesDegradesQuietly();
   testOutOfScopeGlobPrefixMatchesSubpath();
+  testScopeSeparatorsSpaceCommaNewline();
+  testScopeStillFiresWithSpaceSeparatedZone();
+  testScopeFromMultilineTaskBlock();
+  testTaskCountAcceptsBothMarkerForms();
   testHighFaninTriggersOnCentralModule();
   testHighFaninSilentOnLeafFile();
   testHighFaninThresholdFromConfig();

@@ -176,7 +176,7 @@
   post-release promotion gates; до них README показує `not yet measured`, а не fake pass.
   [files: tools/graph-conformance.test.js tools/graph-kpi.js tools/graph-kpi.test.js bin/doctor.js docs/ARCHITECTURE.md specs/020-elt-v5-codex-release-certification/diagrams/elt-v5-graph-harness.mmd specs/020-elt-v5-codex-release-certification/diagrams/elt-v5-batch-certification.mmd specs/020-elt-v5-codex-release-certification/diagrams/elt-v5-safe-update.mmd]
 
-- [ ] **T023** Полный текст задачи доезжает до гейта: `parseTasksFile` обязан отдавать ВЕСЬ блок
+- [X] **T023** Полный текст задачи доезжает до гейта: `parseTasksFile` обязан отдавать ВЕСЬ блок
   задачи, а не только строку с маркером. Сегодня продолжение многострочной задачи вместе с
   `[files:]` теряется, поэтому scope-триггер L0 `out-of-scope` не срабатывает ни на одной задаче
   планов 019/020, а судья получает огрызок описания вместо критериев (доказательство —
