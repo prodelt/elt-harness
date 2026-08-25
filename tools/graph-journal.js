@@ -79,7 +79,17 @@ function readEvents(journalPath) {
     if (!line.trim()) return;
     try { events.push(JSON.parse(line)); } catch { corrupt.push({ line: i + 1, text: line.slice(0, 200) }); }
   });
-  return { events, truncatedTail: Boolean(tail && tail.trim()), corrupt };
+  return { events, truncatedTail: Boolean(tail && tail.trim()), corrupt, completeBytes: Buffer.byteLength(raw, 'utf8') - Buffer.byteLength(tail || '', 'utf8') };
+}
+
+// Обрыв процесса посреди writeSync оставляет неполную последнюю строку без перевода. Дописать
+// после неё нельзя: новая строка слепится с огрызком в одну невалидную, та перестанет быть
+// последней и уйдёт в corrupt — журнал навсегда закроется на запись от ОДНОГО падения.
+// Поэтому перед записью crash-хвост усекается ровно по последней завершённой строке. Это
+// не «починка молча»: усекается только незакоммиченный хвост, все полные строки остаются
+// байт в байт, а вызывающему возвращается recoveredTail.
+function truncateCrashTail(journalPath, completeBytes) {
+  fs.truncateSync(journalPath, completeBytes);
 }
 
 function sleepMs(ms) {
@@ -128,8 +138,10 @@ function appendEvent(journalPath, event) {
   const lock = acquireLock(journalPath);
   if (!lock.ok) return { ok: false, reason: lock.reason };
   try {
-    const { events, corrupt } = readEvents(journalPath);
+    const { events, corrupt, truncatedTail, completeBytes } = readEvents(journalPath);
     if (corrupt.length) return { ok: false, reason: 'journal-corrupt', detail: `line ${corrupt[0].line}` };
+    let recoveredTail = false;
+    if (truncatedTail) { truncateCrashTail(journalPath, completeBytes); recoveredTail = true; }
 
     const sameRun = events.filter((e) => e.runId === event.runId);
     if (sameRun.some((e) => e.seq === event.seq)) return { ok: true, appended: false, reason: 'duplicate' };
@@ -148,7 +160,9 @@ function appendEvent(journalPath, event) {
       fs.writeSync(fd, `${JSON.stringify({ ...event, v: JOURNAL_SCHEMA })}\n`);
       fs.fsyncSync(fd);
     } finally { fs.closeSync(fd); }
-    return { ok: true, appended: true, seq: event.seq };
+    return recoveredTail
+      ? { ok: true, appended: true, seq: event.seq, recoveredTail: true }
+      : { ok: true, appended: true, seq: event.seq };
   } finally {
     releaseLock(lock.lockPath);
   }

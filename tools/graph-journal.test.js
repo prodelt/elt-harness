@@ -119,6 +119,25 @@ function testTruncatedTailIsDetectedNotSwallowed() {
   assert.equal(read.truncatedTail, true, 'оборванный хвост обязан быть виден вызывающему');
 }
 
+// Регресс на реальный failure-mode «падение → следующая попытка записи»: одного обрыва
+// достаточно, чтобы журнал закрылся на запись НАВСЕГДА, если хвост не усечь перед append.
+function testAppendRecoversAfterCrashTail() {
+  const file = tmpJournal();
+  appendEvent(file, event());
+  fs.appendFileSync(file, '{"v":"elt-journal/v1","runId":"run-1","seq":2');
+  const after = appendEvent(file, event({ seq: 2, node: 'plan', event: 'approved' }));
+  assert.equal(after.ok, true, 'обрыв процесса не имеет права закрыть журнал на запись');
+  assert.equal(after.appended, true);
+  assert.equal(after.recoveredTail, true, 'усечение crash-хвоста обязано быть видимым, а не молчаливым');
+  const read = readEvents(file);
+  assert.deepEqual(read.corrupt, [], 'слепленной строки не осталось');
+  assert.equal(read.truncatedTail, false);
+  assert.deepEqual(read.events.map((e) => e.seq), [1, 2]);
+  // Третья запись доказывает, что журнал не «принял один раз и умер».
+  assert.equal(appendEvent(file, event({ seq: 3, node: 'build', event: 'ready' })).appended, true);
+  assert.equal(readEvents(file).events.length, 3);
+}
+
 function testCorruptMiddleLineBlocksAppend() {
   const file = tmpJournal();
   appendEvent(file, event());
@@ -229,6 +248,7 @@ async function main() {
     testNonMonotonicSeqIsRefused();
     testSecondTerminalInSameGenerationIsRefused();
     testTruncatedTailIsDetectedNotSwallowed();
+    testAppendRecoversAfterCrashTail();
     testCorruptMiddleLineBlocksAppend();
     testJournalIsAppendOnly();
     testStaleLockIsBrokenAfterTimeout();
