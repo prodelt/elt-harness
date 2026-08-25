@@ -1,0 +1,70 @@
+# 020 T019 — Неизменяемая authority policy для mattpocock-skills GrailPack
+#
+# Эта policy определяет, какие операции разрешены для этого pack'а.
+# Pack не может изменить этот файл; он часть core contract.
+
+schemaVersion: 1
+packId: mattpocock-skills
+authority: elt
+
+# Authority policy: только ELT владеет approval, oracle, judge, commit, publish
+owns_spec: elt
+owns_tasks: elt
+owns_oracle: elt
+owns_judge: elt
+owns_commit: elt
+owns_publish: elt
+
+# Implicit default: все отклонено, кроме явно разрешенного
+implicit_default: false
+
+# Side-effect policy: какие capability требуют human approval
+sideEffectPolicy:
+  fs:
+    # Чтение файлов - в порядке для prompt nodes
+    read: allowed
+    # Запись - требует declared edge и human approval
+    write: requires-edge-and-approval
+    write-append: requires-edge-and-approval
+    remove: requires-edge-and-approval
+    chmod: requires-edge-and-approval
+    symlink: requires-edge-and-approval
+
+  git:
+    # Все git операции - требуют declared edge и approval
+    status: requires-edge-and-approval
+    diff: requires-edge-and-approval
+    add: requires-edge-and-approval
+    commit: requires-edge-and-approval
+    force-push: blocked
+    reset-hard: blocked
+    branch-delete: blocked
+
+  network:
+    # Сетевые запросы - требуют declared edge
+    https-fetch: requires-edge-and-approval
+    raw-tcp: blocked
+    listen: blocked
+
+  secrets:
+    # Секреты - всегда заблокированы
+    read: blocked
+    write: blocked
+    export: blocked
+
+  process:
+    # Процессы - требуют declared edge и approval
+    spawn-subprocess: requires-edge-and-approval
+    raw-shell-exec: blocked
+    install-hook: blocked
+
+# Shell-backed nodes policy: CRLF на Windows диях shell-backed nodes disabled
+shellNodes:
+  disableOnCRLF: true
+  reason: "Windows CRLF incompatibility with bash -n validation"
+
+# Node authority: 25 promoted nodes в namespace grail/*
+promotedNamespace: grail
+promotedCount: 25
+nonPromotedCount: 11
+nonPromotedDisposition: not-imported
