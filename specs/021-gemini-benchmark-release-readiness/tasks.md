@@ -20,8 +20,9 @@
 
 - [ ] **T004** Зробити GitHub front page release-grade: короткий перший екран, чесні badges,
   5-хвилинний quick start, один наскрізний приклад слайса, схема гейта, результати benchmark із
-  межами claim, install/update/rollback/troubleshooting. Прибрати або позначити застарілі KPI.
-  [files: README.md docs/INSTALL.md docs/USAGE.md benchmarks/README.md specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.svg]
+  межами claim, install/update/rollback/troubleshooting. Прибрати або позначити застарілі KPI;
+  CLI help має називати поточний runtime ELT v5, а не історичний v3, із regression-тестом.
+  [files: README.md docs/INSTALL.md docs/USAGE.md benchmarks/README.md tools/elt.js tools/elt-cli.test.js specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.svg]
 
 - [ ] **T005** Довести реальну працездатність із чистого середовища: fresh project/plugin
   install, `bin/doctor`, first `/elt` bootstrap, Codex/Gemini surface parity та headless `agy`
@@ -33,4 +34,3 @@
   default branch, release-ready description/topics і нуль blocking review rows. Public visibility,
   tag та GitHub Release не створювати до фінального підтвердження користувача.
   [files: .github/workflows/test.yml .claude-plugin/plugin.json .claude-plugin/marketplace.json README.md .planning/ELT-V5-RELEASE-CANDIDATE-2026-08-25.md]
-
