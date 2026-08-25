@@ -9,11 +9,16 @@
 // 5. CRLF shell-файл → node disabled, а не «сойдёт»
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
 const { probe, PROMOTED_SKILLS, MATTPOCOCK_MANIFEST_SHA256 } = require('./mattpocock');
 
-const testRepoDir = process.cwd();
+// Рабочие каталоги тестов НИКОГДА не создаются внутри репозитория: `elt commit` делает
+// `git add -A`, и любой оставшийся после падения каталог уехал бы в коммит. Плюс уборка
+// ниже безусловная — раньше она стояла после assert и при падении не выполнялась.
+const testRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-mattpocock-'));
+process.on('exit', () => { try { fs.rmSync(testRepoDir, { recursive: true, force: true }); } catch { /* уборка не гейт */ } });
 
 // Помощник: создать fake manifest с N nodes
 function makeManifest(nodeCount, namespace = 'grail') {

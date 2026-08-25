@@ -253,6 +253,51 @@ function runDoctor({ root = PLUGIN_ROOT, cwd = process.cwd() } = {}) {
     return `${events.length} событий, ${commands} команд, все цели на месте`;
   }));
 
+  // 020 T022: граф и packs показываются как ready/degraded/unavailable, а не как «файл есть».
+  // Разница принципиальная: наличие `graphs/elt-v5.json` ничего не доказывает — граф,
+  // который не компилируется, делает нерабочей ВСЮ дверь `elt run`, и узнать об этом на
+  // старте сессии лучше, чем на первом переходе.
+  checks.push(check('graph: канонический граф компилируется', () => {
+    let compiler;
+    try { compiler = require(path.join(root, 'tools', 'graph-compiler.js')); }
+    catch (e) { return { status: 'FAIL', detail: `graph-compiler недоступен: ${e.message}` }; }
+    const r = compiler.compile(compiler.loadCanonicalGraph());
+    if (!r.ok) return { status: 'FAIL', detail: `unavailable — ${(r.errors || []).join('; ').slice(0, 200)}` };
+    const nodes = Object.keys(r.graph.nodes).length;
+    return `ready — graph ${r.graph.graphVersion}, ${nodes} узлов, ${r.graph.edges.length} рёбер`;
+  }));
+
+  checks.push(check('graph: журнал прогона', () => {
+    let journal;
+    try { journal = require(path.join(root, 'tools', 'graph-journal.js')); }
+    catch (e) { return { status: 'FAIL', detail: `graph-journal недоступен: ${e.message}` }; }
+    const file = journal.defaultJournalPath(cwd);
+    if (!fs.existsSync(file)) return { status: 'INFO', detail: 'журнала ещё нет — прогон не начинался' };
+    const read = journal.readEvents(file);
+    // Порча в середине — это правленый журнал, и он важнее любой другой строки отчёта:
+    // на нём стоит весь resume.
+    if (read.corrupt.length) return { status: 'FAIL', detail: `unavailable — порча в строке ${read.corrupt[0].line}` };
+    if (read.truncatedTail) return { status: 'WARN', detail: `degraded — оборванный хвост после падения; ${read.events.length} событий` };
+    return `ready — ${read.events.length} событий`;
+  }));
+
+  checks.push(check('packs: реестр компонентов', () => {
+    const manifestFile = path.join(cwd, '.elt', 'components.json');
+    const lockFile = path.join(cwd, '.elt', 'components.lock.json');
+    if (!fs.existsSync(manifestFile)) return { status: 'INFO', detail: 'реестра нет — packs не подключены' };
+    let catalog;
+    try { catalog = require(path.join(root, 'tools', 'component-catalog.js')); }
+    catch (e) { return { status: 'FAIL', detail: `component-catalog недоступен: ${e.message}` }; }
+    const loaded = catalog.loadCatalog(manifestFile);
+    // Коллизия имён — это `unavailable`, а не «каталог с замечаниями»: при неоднозначном
+    // реестре какой узел выполнится, решает порядок чтения файла.
+    if (!loaded.ok) return { status: 'FAIL', detail: `unavailable — ${loaded.reason}${loaded.detail ? `: ${loaded.detail}` : ''}` };
+    const packs = Object.keys(loaded.packs).length;
+    const nodes = Object.keys(loaded.nodeById).length;
+    if (!fs.existsSync(lockFile)) return { status: 'WARN', detail: `degraded — ${packs} packs без lock: старый proof не станет stale` };
+    return `ready — ${packs} packs, ${nodes} узлов, lock на месте`;
+  }));
+
   // Проект — не плагин: его отсутствие это состояние, а не поломка.
   checks.push(check('проект: .harness/harness.json', () => {
     const file = path.join(cwd, '.harness', 'harness.json');
