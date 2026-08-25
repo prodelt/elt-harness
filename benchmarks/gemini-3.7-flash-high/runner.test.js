@@ -185,6 +185,27 @@ test('itemFromDatasetRow: swebench-gate materialize rejects an unknown hand loud
   assert.throws(() => item.materialize(dir, 'not-a-real-hand'), /unknown hand/);
 });
 
+// --- hash-lock enforcement ---
+
+test('verifyRunnerHash: ok=true when preregistration matches the real file on disk', () => {
+  const realHash = runner.sha256(fs.readFileSync(path.join(__dirname, 'runner.js'), 'utf8'));
+  const dir = tmpDir('elt-bench-hashlock-');
+  const preregPath = path.join(dir, 'preregistration.json');
+  fs.writeFileSync(preregPath, JSON.stringify({ runner: { sha256: realHash } }), 'utf8');
+  const result = runner.verifyRunnerHash(preregPath);
+  assert.equal(result.ok, true);
+});
+
+test('verifyRunnerHash: ok=false and reports both hashes on mismatch', () => {
+  const dir = tmpDir('elt-bench-hashlock-');
+  const preregPath = path.join(dir, 'preregistration.json');
+  fs.writeFileSync(preregPath, JSON.stringify({ runner: { sha256: 'deadbeef' } }), 'utf8');
+  const result = runner.verifyRunnerHash(preregPath);
+  assert.equal(result.ok, false);
+  assert.equal(result.expected, 'deadbeef');
+  assert.notEqual(result.actual, 'deadbeef');
+});
+
 // --- build-gate-dataset: polyglot-writer ---
 
 function makePolyglotFixture(root) {
