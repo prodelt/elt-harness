@@ -114,23 +114,66 @@ test('лог пишется и содержит вывод стаба', async ()
   assert.match(fs.readFileSync(r.logPath, 'utf8'), /hello world/);
 });
 
-test('баг #10: claude резолвится в .exe → спавн БЕЗ shell (inline JSON schema не рвётся cmd.exe)', () => {
-  const prev = process.env.FLEET_BIN_CLAUDE;
-  delete process.env.FLEET_BIN_CLAUDE; // без стаб-оверрайда — реальный резолв
-  try {
-    const bin = resolveBin('claude');
-    const exe = claudeExe();
-    if (exe) {
-      // claude.exe найден на этой машине → resolveBin вернул путь к нему, и needsShell=false
-      assert.match(bin[0], /claude\.exe$/i, 'claude резолвится в .exe, а не в .cmd-шим');
-      assert.equal(needsShell(bin[0]), false, '.exe спавнится без shell → node квотит JSON-схему сам');
-    } else {
-      // claude.exe не найден (напр. CI без установленного claude) → fallback на голое имя
-      assert.deepEqual(bin, ['claude']);
-    }
-  } finally {
-    if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev;
+// Баг #10: `claude` на PATH — это .cmd-шим, спавн через cmd.exe рвёт кавычки inline
+// `--json-schema`, и КАЖДЫЙ вызов судьи со схемой падает. 020 T011: проверка переехала на
+// фикстуру. До этого она была ветвью `if (claudeExe()) {...} else { deepEqual(bin,['claude']) }`
+// — на CI и на любой машине без установленного claude срабатывала пустая половина, то есть
+// единственный страж бага #10 молча ничего не проверял. Обе раскладки и обе платформы
+// проверяются теперь везде одинаково.
+const claudeLayout = (kind) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-layout-'));
+  if (kind === 'native') {
+    // Нативный установщик 2.1.x: `where` сразу отдаёт настоящий .exe.
+    const exe = path.join(dir, 'claude.exe');
+    fs.writeFileSync(exe, '');
+    return { dir, exe, hits: [path.join(dir, 'claude.cmd'), exe] };
   }
+  // npm-раскладка: на PATH только .cmd-шим, реальный .exe лежит внутри пакета.
+  const exe = path.join(dir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, '');
+  return { dir, exe, hits: [path.join(dir, 'claude.cmd')] };
+};
+
+test('баг #10: нативная раскладка — резолв в .exe, спавн БЕЗ shell', () => {
+  const prev = process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE; // без стаб-оверрайда — настоящий путь резолва
+  try {
+    const fx = claudeLayout('native');
+    const bin = resolveBin('claude', { lookup: () => fx.hits, isWin: true });
+    assert.deepEqual(bin, [fx.exe], 'из двух попаданий выбран .exe, а не .cmd-шим');
+    assert.equal(needsShell(bin[0], true), false, '.exe спавнится без shell → node квотит JSON-схему сам');
+  } finally { if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev; }
+});
+
+test('баг #10: npm-раскладка — .cmd-шим разворачивается в .exe внутри пакета', () => {
+  const prev = process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE;
+  try {
+    const fx = claudeLayout('npm');
+    assert.deepEqual(resolveBin('claude', { lookup: () => fx.hits, isWin: true }), [fx.exe]);
+  } finally { if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev; }
+});
+
+test('баг #10: exe не найден → fallback на голое имя, и ЭТОТ путь требует shell', () => {
+  const prev = process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE;
+  try {
+    assert.deepEqual(resolveBin('claude', { lookup: () => [], isWin: true }), ['claude']);
+    assert.equal(needsShell('claude', true), true, 'ровно та ветка, в которой cmd.exe и рвал схему');
+    assert.equal(claudeExe(() => ['C:\\nope\\claude.cmd'], true), null, 'несуществующий .exe не резолвится');
+  } finally { if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev; }
+});
+
+test('не-Windows: резолв не ищет .exe вовсе, shell не нужен никогда', () => {
+  const prev = process.env.FLEET_BIN_CLAUDE;
+  delete process.env.FLEET_BIN_CLAUDE;
+  try {
+    const fx = claudeLayout('native');
+    assert.equal(claudeExe(() => fx.hits, false), null);
+    assert.deepEqual(resolveBin('claude', { lookup: () => fx.hits, isWin: false }), ['claude']);
+    assert.equal(needsShell('claude', false), false);
+  } finally { if (prev !== undefined) process.env.FLEET_BIN_CLAUDE = prev; }
 });
 
 // --- T019: явная модель + lean-профиль на каждом spawn ---

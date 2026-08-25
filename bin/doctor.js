@@ -26,6 +26,11 @@ const SURFACE = [
   'commands/elt-defects.md',
   'commands/elt-doctor.md',
   'skills/elt/SKILL.md',
+  // 020 T011: скилы поверхности три, а не один. `harness-method` и `project-bootstrap`
+  // Claude Code подхватывает из каталога так же, как `elt`, — значит они установлены у
+  // каждого, кто поставил плагин, и их пропажа так же ломает поверхность.
+  'skills/harness-method/SKILL.md',
+  'skills/project-bootstrap/SKILL.md',
   'agents/review-bugs.md',
   'agents/review-claude-md.md',
   'agents/review-code-comments.md',
@@ -33,6 +38,46 @@ const SURFACE = [
   'agents/review-prior-comments.md',
   'agents/confidence-scorer.md',
 ];
+
+// 020 T011. Ниже — три проверки, которые смотрят на ПОВЕДЕНИЕ, а не на наличие файла.
+// Причина: «поверхность плагина на месте» это `fs.existsSync` по списку, и она осталась бы
+// зелёной, если бы `/elt` вёл в несуществующий файл, если бы фоновой прогон снова начал
+// считать любой неучтённый исход зелёным (см. 020 T007) или если бы в `agents/` появился
+// файл, о котором манифест не знает. Каждый из трёх классов уже случался.
+
+// Каталоги поверхности и то, что в них считается файлом поверхности. Нужны обе стороны
+// сверки: объявленного нет на диске И на диске есть необъявленное.
+const SURFACE_DIRS = [
+  { dir: 'agents', match: (name) => name.endsWith('.md') },
+  { dir: 'commands', match: (name) => name.endsWith('.md') },
+];
+
+function surfaceOnDisk(root) {
+  const found = [];
+  for (const { dir, match } of SURFACE_DIRS) {
+    const full = path.join(root, dir);
+    if (!fs.existsSync(full)) continue;
+    for (const name of fs.readdirSync(full)) if (match(name)) found.push(`${dir}/${name}`);
+  }
+  const skills = path.join(root, 'skills');
+  if (fs.existsSync(skills)) {
+    for (const name of fs.readdirSync(skills)) {
+      if (fs.existsSync(path.join(skills, name, 'SKILL.md'))) found.push(`skills/${name}/SKILL.md`);
+    }
+  }
+  return found.sort();
+}
+
+// Ссылки инструкции на файлы репозитория. Глобы и плейсхолдер `NNN-name` — не пути.
+// `json` в альтернативе раньше `js`: иначе `cases-ingested.json` обрезается до `.js`.
+function referencedFiles(text) {
+  const out = new Set();
+  for (const m of text.matchAll(/(?:tools|bin|agents|commands|skills|specs)\/[A-Za-z0-9._\-/]+\.(?:json|js|md)/g)) {
+    if (m[0].includes('*') || m[0].includes('NNN')) continue;
+    out.add(m[0]);
+  }
+  return [...out];
+}
 
 function check(name, fn) {
   try {
@@ -105,6 +150,76 @@ function runDoctor({ root = PLUGIN_ROOT, cwd = process.cwd() } = {}) {
     const missing = SURFACE.filter((f) => !fs.existsSync(path.join(root, f)));
     if (missing.length) throw new Error(`нет файлов: ${missing.join(', ')}`);
     return `${SURFACE.length} файлов`;
+  }));
+
+  // Обратная сторона той же сверки: файл, лежащий в `agents/` или `commands/`, но не
+  // объявленный в SURFACE, — это поверхность, которую никто не диагностирует. Так и появлялись
+  // «есть в каталоге, нет в манифесте» расхождения.
+  checks.push(check('поверхность объявлена целиком (обе стороны)', () => {
+    const disk = surfaceOnDisk(root);
+    const declared = new Set(SURFACE);
+    const undeclared = disk.filter((f) => !declared.has(f));
+    if (undeclared.length) throw new Error(`на диске есть, в манифесте нет: ${undeclared.join(', ')}`);
+    return `${disk.length} файлов сверено в обе стороны`;
+  }));
+
+  // Замыкание `/elt`: инструкция ссылается на файлы, и markdown никто не компилирует —
+  // оборванная ссылка это тупик посреди маршрута, который иначе видно только человеку.
+  checks.push(check('/elt: замыкание инструкции', () => {
+    const skill = path.join(root, 'skills', 'elt', 'SKILL.md');
+    if (!fs.existsSync(skill)) throw new Error('нет skills/elt/SKILL.md — входа /elt не существует');
+    const text = fs.readFileSync(skill, 'utf8');
+    const refs = referencedFiles(text);
+    if (refs.length < 5) throw new Error(`инструкция ссылается всего на ${refs.length} файлов — разбор сломался`);
+    const missing = refs.filter((rel) => !fs.existsSync(path.join(root, rel)));
+    if (missing.length) throw new Error(`инструкция ведёт в несуществующие файлы: ${missing.join(', ')}`);
+    const version = /^version:\s*(\S+)\s*$/m.exec(text);
+    if (!version) throw new Error('в frontmatter скила нет version');
+    if (manifest && version[1] !== manifest.version) {
+      throw new Error(`версии разошлись: plugin.json ${manifest.version}, skills/elt/SKILL.md ${version[1]}`);
+    }
+    return `${refs.length} ссылок целы, version ${version[1]}`;
+  }));
+
+  // Схема терминальных состояний фона. 020 T007 перевернул умолчание: раньше всё, что не
+  // помечено красным, автоматически становилось pass. Проверка гоняет сам классификатор на
+  // синтетических слоях, а не смотрит на наличие файла: приоритет red > dead > inconclusive
+  // это и есть то, что ломается молча.
+  checks.push(check('фон: схема терминальных состояний', () => {
+    const bg = require(path.join(root, 'tools', 'elt-verify-bg.js'));
+    const { BG_TERMINAL, classifyRun } = bg;
+    const expected = ['pass', 'red', 'dead', 'inconclusive', 'error'];
+    const actual = Object.keys(BG_TERMINAL).sort();
+    if (actual.join(',') !== [...expected].sort().join(',')) {
+      throw new Error(`исходы разошлись со схемой: ${actual.join(', ')}`);
+    }
+    for (const [k, v] of Object.entries(BG_TERMINAL)) {
+      if (!String(v).startsWith('background-verify-')) throw new Error(`статус ${k} = "${v}" без префикса background-verify- — детектор bg-silent его не найдёт`);
+    }
+    const cases = [
+      [[{}], 'pass'],
+      [[{ red: true }, { nonConclusive: true }, { inconclusive: true }], 'red'],
+      [[{ nonConclusive: true }, { inconclusive: true }], 'dead'],
+      [[{ inconclusive: true }, {}], 'inconclusive'],
+    ];
+    for (const [sections, want] of cases) {
+      const got = classifyRun(sections);
+      if (got !== want) throw new Error(`classifyRun(${JSON.stringify(sections)}) = ${got}, ожидается ${want}`);
+    }
+    return `${expected.length} исходов, приоритет red > dead > inconclusive держится`;
+  }));
+
+  // Хуки плагина. Их ещё нет (их ставит 020 T012) — это состояние, а не поломка. Но если
+  // файл появился, он обязан быть разбираемым и без абсолютных путей: абсолютный путь в
+  // хуке — это чужая машина, на которой плагин молча не работает.
+  checks.push(check('plugin hooks', () => {
+    const file = path.join(root, 'hooks', 'hooks.json');
+    if (!fs.existsSync(file)) return { status: 'INFO', detail: 'hooks/hooks.json нет — плагин без хуков' };
+    const raw = fs.readFileSync(file, 'utf8');
+    JSON.parse(raw);
+    const absolute = raw.match(/[A-Za-z]:\\\\|"\/(?:home|Users)\//g);
+    if (absolute) throw new Error(`в хуках абсолютные пути (${absolute.join(', ')}) — на чужой машине они не разрешатся`);
+    return 'hooks.json разбирается, абсолютных путей нет';
   }));
 
   // Проект — не плагин: его отсутствие это состояние, а не поломка.

@@ -14,6 +14,19 @@ const { after, test } = require('node:test');
 const WATCH = path.join(__dirname, 'harness-watch.js');
 const ELT = path.join(__dirname, 'elt.js');
 const { detect, runOnce, fallbackJudge } = require('./harness-watch');
+
+// 020 T011 — доступность judge-CLI задаётся ФИКСТУРОЙ, а не машиной.
+// `fallbackJudge` спрашивает `providers.available`, то есть реально ли установлен CLI. Три
+// теста ниже проверяют маршрут фолбэка, и на машине разработчика они были зелёными только
+// потому, что claude/codex там стоят: на CI (и на любой чистой машине) фолбэку некуда идти,
+// действие `judge-fallback` не появляется, и тесты краснеют — не из-за кода, а из-за окружения.
+// Приём тот же, что уже применён ниже в «fallback судьи пропускает отсутствующий CLI».
+function withAvailable(installed, fn) {
+  const providers = require('./providers');
+  const original = providers.available;
+  providers.available = (provider) => installed.includes(provider);
+  try { return fn(); } finally { providers.available = original; }
+}
 const roots = [];
 
 function fixture(config) {
@@ -342,7 +355,7 @@ test('действия из закрытого списка: cooldown / park / j
     { task: 'T004', status: 'judge-dead' },
     { task: 'T005', status: 'judge-dead' },
   ]);
-  const first = runOnce(root);
+  const first = withAvailable(['claude', 'codex'], () => runOnce(root));
   const byAction = Object.fromEntries(first.actions.map((a) => [a.action, a]));
   assert.deepEqual(Object.keys(byAction).sort(), ['cooldown', 'judge-fallback', 'park']);
   assert.equal(byAction.cooldown.from, 'claude');
@@ -358,9 +371,9 @@ test('действия из закрытого списка: cooldown / park / j
 
   // Пока применение не подтверждено — действие выдаётся снова: падение потребителя между
   // записью и применением иначе теряло бы решение навсегда.
-  assert.equal(runOnce(root).actions.length, 3, 'неподтверждённое действие не теряется');
+  assert.equal(withAvailable(['claude', 'codex'], () => runOnce(root)).actions.length, 3, 'неподтверждённое действие не теряется');
   require('./harness-watch').ack(root, first.actions.map((a) => a.key));
-  assert.deepEqual(runOnce(root).actions, [], 'после подтверждения — ни разу больше');
+  assert.deepEqual(withAvailable(['claude', 'codex'], () => runOnce(root)).actions, [], 'после подтверждения — ни разу больше');
 
   const health = fs.readFileSync(path.join(root, '.harness', 'health.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(health.filter((r) => r.action).length, 3, 'каждое действие записано один раз');
@@ -379,7 +392,7 @@ test('cooldown судьи: маршрут из цепочки судей, пар
     { tid: 'T001', provider: 'agy', limitHit: true }, // agy = judge.provider фикстуры
     { tid: 'T002', provider: 'agy', limitHit: true },
   ]);
-  const [action] = runOnce(root).actions;
+  const [action] = withAvailable(['claude'], () => runOnce(root)).actions;
   assert.equal(action.action, 'cooldown');
   assert.equal(action.subject, 'judge');
   assert.equal(action.to, 'claude', 'fallback judge не зависит от legacy verify или worker-цепочки');
@@ -434,13 +447,13 @@ test('судья берётся из ФАКТИЧЕСКОГО прогона (ov
   ]);
 
   // Без override claude — обычный воркер: маршрута нет, судья в фолбэке — agy из конфига.
-  const byStatic = Object.fromEntries(runOnce(root).actions.map((a) => [a.action, a]));
+  const byStatic = Object.fromEntries(withAvailable(['claude', 'codex'], () => runOnce(root)).actions.map((a) => [a.action, a]));
   assert.equal(byStatic.cooldown.subject, 'worker', 'claude не судья этого прогона');
   assert.equal(byStatic['judge-fallback'].from, 'agy');
 
   // Тот же run-log, но прогон запущен с `-JudgeProvider claude`: теперь лимит claude —
   // это лимит СУДЬИ, и уводить надо его.
-  const byRuntime = Object.fromEntries(runOnce(root, { judgeProvider: 'claude' }).actions.map((a) => [a.action, a]));
+  const byRuntime = Object.fromEntries(withAvailable(['claude', 'codex'], () => runOnce(root, { judgeProvider: 'claude' })).actions.map((a) => [a.action, a]));
   assert.equal(byRuntime.cooldown.from, 'claude');
   assert.equal(byRuntime.cooldown.subject, 'judge');
   assert.ok(byRuntime.cooldown.to && byRuntime.cooldown.to !== 'claude',
@@ -448,7 +461,7 @@ test('судья берётся из ФАКТИЧЕСКОГО прогона (ov
   assert.equal(byRuntime['judge-fallback'].from, 'claude', 'откат заявляется от того, кто судит сейчас');
 
   // И после первого фолбэка (судья уже codex в памяти прогона) — от codex, не от agy.
-  const after = runOnce(root, { judgeProvider: 'codex' }).actions.find((a) => a.action === 'judge-fallback');
+  const after = withAvailable(['claude', 'codex'], () => runOnce(root, { judgeProvider: 'codex' })).actions.find((a) => a.action === 'judge-fallback');
   assert.equal(after.from, 'codex');
   assert.ok(after.to !== 'codex' && after.toModel, 'новый судья приходит парой provider+model');
 });

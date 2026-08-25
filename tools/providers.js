@@ -87,36 +87,43 @@ function promptRefForAgy(cwd, prompt) {
 // node_modules/@anthropic-ai/claude-code/bin/claude.exe): .exe спавнится БЕЗ shell (needsShell) →
 // node сам корректно квотит argv → схема долетает целой. Не нашли exe → fallback 'claude' (старое).
 let _claudeExe; // кеш: undefined=не искали, null=не нашли, string=путь
-function claudeExe() {
-  if (_claudeExe !== undefined) return _claudeExe;
-  _claudeExe = null;
-  if (!IS_WIN) return _claudeExe;
+// 020 T011: `lookup` и `isWin` инъектируются, чтобы контракт резолва проверялся на ФИКСТУРЕ, а
+// не только на машине, где claude установлен. Единственная проверка этого класса была ветвью
+// `if (exe) {...} else { assert.deepEqual(bin, ['claude']); }` — на CI и на любой машине без
+// claude срабатывала пустая половина, и баг #10 не стерёг никто. Кеш остаётся только у резолва
+// по умолчанию: инъекция обязана видеть свою фикстуру, а не результат прошлого вызова.
+function claudeExe(lookup, isWin = IS_WIN) {
+  const cached = lookup === undefined;
+  if (cached && _claudeExe !== undefined) return _claudeExe;
+  let found = null;
+  if (!isWin) { if (cached) _claudeExe = found; return found; }
   try {
-    const hits = execFileSync('where', ['claude'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
+    const hits = lookup ? lookup() : execFileSync('where', ['claude'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
     for (const h of hits) {
       // Нативный установщик (2.1.x): `where` уже отдаёт настоящий claude.exe, вложенного
       // node_modules рядом с ним нет. Без этой ветки резолв падал в fallback 'claude' →
       // needsShell=true → cmd.exe КОНКАТЕНИРУЕТ argv вместо экранирования → `--json-schema`
       // приезжал битым (`--json-schema is not valid JSON`) и КАЖДЫЙ вызов судьи со схемой
       // умирал с exit 1 (~1.7 s). Обычные вызовы выживали: у них промпт идёт через STDIN.
-      if (/\.exe$/i.test(h) && fs.existsSync(h)) { _claudeExe = h; break; }
+      if (/\.exe$/i.test(h) && fs.existsSync(h)) { found = h; break; }
       // npm-раскладка: шим на PATH указывает на exe внутри пакета.
       const exe = path.join(path.dirname(h), 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
-      if (fs.existsSync(exe)) { _claudeExe = exe; break; }
+      if (fs.existsSync(exe)) { found = exe; break; }
     }
   } catch { /* where/шим недоступен → fallback на 'claude' */ }
-  return _claudeExe;
+  if (cached) _claudeExe = found;
+  return found;
 }
 
 // Переопределение бинарника: env FLEET_BIN_<PROVIDER> = JSON-массив argv-префикса
 // (напр. ["node","/path/stub.js"]) или строка-путь. Дефолт — имя CLI из PATH (claude → .exe, баг #10).
-function resolveBin(provider) {
+function resolveBin(provider, { lookup, isWin = IS_WIN } = {}) {
   const env = process.env['FLEET_BIN_' + provider.toUpperCase()];
   if (env) {
     try { const j = JSON.parse(env); return Array.isArray(j) ? j.map(String) : [String(j)]; }
     catch { return [env]; }
   }
-  if (provider === 'claude') { const exe = claudeExe(); if (exe) return [exe]; }
+  if (provider === 'claude') { const exe = claudeExe(lookup, isWin); if (exe) return [exe]; }
   return [provider];
 }
 
@@ -169,10 +176,10 @@ function logDirFor(cwd) {
 // ponytail: shell:true нужен ТОЛЬКО чтобы node мог запустить .cmd/.bat-шим (реальные
 // CLI на Windows) — с node ≥18.20 прямой spawn .cmd бросает EINVAL. node-стабы и .exe
 // зовём без shell (иначе пробелы в пути ломают склейку аргументов при shell:true).
-function needsShell(cmd) {
+function needsShell(cmd, isWin = IS_WIN) {
   // agy резолвится в реальный .exe на PATH (T003 live: `where agy`), не .cmd-шим —
   // спавним напрямую (без cmd.exe), иначе argv-промпт agy открыл бы shell-injection.
-  return IS_WIN && cmd !== 'node' && cmd !== 'agy' && !/\.exe$/i.test(cmd);
+  return isWin && cmd !== 'node' && cmd !== 'agy' && !/\.exe$/i.test(cmd);
 }
 
 function hardKill(child) {

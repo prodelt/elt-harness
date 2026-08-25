@@ -151,6 +151,29 @@ function classify(issues, components) {
   return { verdict, issues: norm, execFileCount: execFiles.size };
 }
 
+// 020 T011. Детектор ТИХОГО дрейфа имён категорий: сканер переименовал категорию (2.1.3 → 2.8.2
+// это уже случалось живьём), наш `CODE_CATEGORIES` про новое имя не знает, и находка в
+// исполняемом файле перестаёт блокировать — гейт слабеет, не выдав ни одной ошибки.
+//
+// Раньше логика жила ВНУТРИ теста и работала только когда на машине есть бинарь сканера; без
+// него тест печатал «SKIPPED» и оставался зелёным, то есть на CI не проверял ничего. Теперь это
+// функция от отчёта: механический оракул гоняет её на фикстурном отчёте везде, а живой бинарь,
+// когда он есть, кормит её настоящим выводом сканера.
+function unknownCodeCategories(raw) {
+  const components = Array.isArray(raw && raw.components) ? raw.components : [];
+  const issues = Array.isArray(raw && raw.issues) ? raw.issues : [];
+  const execFiles = new Set(components.filter((c) => c.executable).map((c) => c.path));
+  const unknown = new Set();
+  for (const i of issues) {
+    const sev = String(i.severity || '').toUpperCase();
+    if (sev !== 'HIGH' && sev !== 'CRITICAL') continue;
+    const file = i.location && i.location.file;
+    if (!file || !execFiles.has(file)) continue;
+    if (!HARD_BLOCK_IDS.has(i.id) && !CODE_CATEGORIES.has(i.category)) unknown.add(i.category);
+  }
+  return [...unknown];
+}
+
 function summarize(target, raw) {
   const risk = raw.risk_assessment || {};
   const components = Array.isArray(raw.components) ? raw.components : [];
@@ -209,4 +232,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { resolveBinary, scannerVersion, summarize, classify, HARD_BLOCK_IDS, CODE_CATEGORIES };
+module.exports = { resolveBinary, scannerVersion, summarize, classify, unknownCodeCategories, HARD_BLOCK_IDS, CODE_CATEGORIES };
