@@ -449,9 +449,17 @@ function externalRepoScopes(cwd, files) {
     if (!path.isAbsolute(abs)) continue; // относительный путь = зона внутри cwd-репо
     const dir = path.dirname(abs);
     if (!fs.existsSync(dir)) continue;
-    const root = gitRoot(dir);
-    if (!root || canonicalPath(root) === cwdRoot) continue;
-    const rel = path.relative(root, abs).split(path.sep).join('/');
+    // Канонизируем И root, И abs — на 8.3-именах (RUNNER~1) Windows-раннер даёт `dir` в
+    // короткой форме, а `gitRoot(dir)` git отдаёт в длинной; path.relative() двух разных
+    // представлений одного каталога плутает `../../../../RUNNER~1/...` вместо простого
+    // относительного пути, и `git diff HEAD -- <это>` падает «is outside repository».
+    const rawRoot = gitRoot(dir);
+    if (!rawRoot) continue; // файл вне ЛЮБОГО git-репо — не наша зона, как и раньше
+    const canonicalDir = canonicalPath(dir);
+    const canonicalAbs = path.join(canonicalDir, path.basename(abs));
+    const root = canonicalPath(rawRoot);
+    if (root === cwdRoot) continue;
+    const rel = path.relative(root, canonicalAbs).split(path.sep).join('/');
     if (!byRoot.has(root)) byRoot.set(root, []);
     byRoot.get(root).push(rel);
   }

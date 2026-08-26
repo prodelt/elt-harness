@@ -49,6 +49,7 @@ function probe(opts = {}) {
           reason: 'wsl2-required-on-windows',
           evidence: [
             ...evidence,
+            `required pinned image: ${OPENSHELL_IMAGE}`,
             'OpenShell вимагає WSL2 на Windows',
             'Без WSL2 або WSL 1 адаптер не працює',
           ],
@@ -70,6 +71,7 @@ function probe(opts = {}) {
         reason: 'landlock-hard-requirement',
         evidence: [
           ...evidence,
+          `required pinned image: ${OPENSHELL_IMAGE}`,
           'OpenShell вимагає Landlock для изоляции',
           'hard_requirement: true - без Landlock недоступна',
         ],

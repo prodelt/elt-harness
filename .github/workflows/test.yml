@@ -27,6 +27,21 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # 021/T008 — benchmarks/gemini-3.7-flash-high/runner.js судит writer-руку реальным pytest,
+      # не мок-грейдером; корень benchmarks/ попал під оракул у T003 і вперше оголив, що pytest
+      # на раннері не стоїть. Гейт слайса не слабшає — ставимо залежність, яку тест реально кличе.
+      # Ставимо саме тим інтерпретатором, який зве `pytestCommand()` (runner.js) — на Windows це
+      # лаунчер `py -3`, який може резолвитись НЕ в той Python, що `python` з PATH.
+      - name: pytest для gradePolyglotWriter (windows)
+        if: runner.os == 'Windows'
+        run: py -3 -m pip install --disable-pip-version-check --quiet pytest
+      - name: pytest для gradePolyglotWriter (linux)
+        if: runner.os != 'Windows'
+        run: python3 -m pip install --disable-pip-version-check --quiet pytest
 
       # Тесты создают git-фикстуры и коммитят в них. Без личности и без имени ветки по
       # умолчанию `git commit` в фикстуре падает, и красным станет весь сьют, а не код.

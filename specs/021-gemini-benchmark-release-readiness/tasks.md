@@ -45,7 +45,7 @@
   tag та GitHub Release не створювати до фінального підтвердження користувача.
   [files: .github/workflows/test.yml .claude-plugin/plugin.json .claude-plugin/marketplace.json README.md .planning/ELT-V5-RELEASE-CANDIDATE-2026-08-25.md tools/elt-brief.test.js]
 
-- [ ] **T008** Довести матрицю GitHub Actions до зеленого на обох платформах: після 021/T003
+- [X] **T008** Довести матрицю GitHub Actions до зеленого на обох платформах: після 021/T003
   корінь `benchmarks/` уперше потрапив під оракул і оголив тест, який не гонявся жодного разу
   (`gradePolyglotWriter` кличе справжній pytest, якого на раннері немає) — поставити Python і
   pytest у workflow, НЕ послаблюючи тест. Решта — залишок D27, який T001 оголосила закритим, а

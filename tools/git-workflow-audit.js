@@ -85,6 +85,11 @@ function isDubiousOwnership(stderr) {
 function isDiskRoot(absPath) {
   const raw = String(absPath || '');
   if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+[\\/]?$/.test(raw)) return true;
+  // Windows drive root (C:\, C:/, c:/) is a root regardless of the host platform:
+  // path.resolve() only understands drive letters on win32, so on Linux CI the
+  // normalized check below silently misses "C:\" — it must be recognized from the
+  // raw string, not from a platform-dependent resolve().
+  if (/^[a-zA-Z]:[\\/]?$/.test(raw)) return true;
   const normalized = normalizePath(absPath);
   if (normalized === '/') return true;
   return /^[a-zA-Z]:\/?$/.test(normalized);
