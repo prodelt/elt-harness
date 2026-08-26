@@ -71,3 +71,19 @@
   `safe.directory` лише для шляху чекауту, не для всього `D:\`. Критерій закриття — той самий, що
   й у T008: свіжий push дає зелену матрицю на `windows-latest` і `ubuntu-latest`.
   [files: benchmarks/gemini-3.7-flash-high/runner.js .github/workflows/test.yml]
+
+- [ ] **T010** T009 частково помилилась з діагнозом. Run 32961892569: ubuntu-latest ЗЕЛЕНИЙ
+  (`PYTHONDONTWRITEBYTECODE` дійсно був корінь) — але windows-latest лишився червоним, і
+  `safe.directory '*'` нічого не полагодив: "dubious ownership" з T009 виявився хибним діагнозом.
+  Справжня причина `generated planning state does not dirty-block closeout` — інша: `checkGitRoot`
+  (git-workflow-audit.js) порівнює `gitRoot` (від `git rev-parse --show-toplevel`, довга форма
+  шляху) з `projectRoot` (від `os.tmpdir()`, на windows-latest це 8.3-коротке ім'я RUNNER~1)
+  РЯДКОМ — той самий клас 8.3-бага, що вже було закрито для judge-core.js в T008, але в ІНШІЙ
+  точці входу, тому T008 його не зачепила. Порівняння виправлено канонічними (realpath.native)
+  формами обох сторін. Заразом полагоджено ще один залишок 8.3-бага в judge-core.test.js
+  (`externalRepoRoots`) — тест звіряв `roots` через звичайний `fs.realpathSync`, який НЕ
+  розгортає короткі імена в довгі, тому порівнював дві різні форми того самого шляху; звіряння
+  переведено на `.native` з обох боків. `safe.directory '*'` з T009 лишений — нешкідливий, хоч і
+  не був причиною. Критерій закриття — той самий: свіжий push дає зелену матрицю на обох
+  платформах.
+  [files: tools/git-workflow-audit.js tools/judge-core.test.js]
