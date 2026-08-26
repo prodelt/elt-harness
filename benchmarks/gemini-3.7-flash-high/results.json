@@ -1,0 +1,56 @@
+{
+  "schema": "elt-benchmark-results/v1",
+  "generatedAt": "2026-08-25T23:17:56.834Z",
+  "runnerSha256": "a65f583b7106010843cf06fbfcad6c57e6d105919fd52d8f26e6c4ed5ef463c1",
+  "datasetSha256": "e70ab9e3a313d0288694acbaafd302d3a21bff5d9e43c028a9030e1db6fef27a",
+  "writer": {
+    "status": "complete",
+    "experimentId": "writer-plain-vs-elt",
+    "summary": {
+      "schema": "elt-benchmark-summary/v1",
+      "generatedAt": "2026-08-25T23:17:09.380Z",
+      "kind": "polyglot-writer",
+      "datasetSha256": "e70ab9e3a313d0288694acbaafd302d3a21bff5d9e43c028a9030e1db6fef27a",
+      "n": 30,
+      "hands": [
+        {
+          "hand": "plain",
+          "n": 30,
+          "pass": 30,
+          "fail": 0,
+          "invalid": 0,
+          "incomplete": 0,
+          "graded": 30,
+          "passRate": 1,
+          "ci95": {
+            "lo": 0.886482908609522,
+            "hi": 1
+          }
+        },
+        {
+          "hand": "elt",
+          "n": 30,
+          "pass": 30,
+          "fail": 0,
+          "invalid": 0,
+          "incomplete": 0,
+          "graded": 30,
+          "passRate": 1,
+          "ci95": {
+            "lo": 0.886482908609522,
+            "hi": 1
+          }
+        }
+      ],
+      "claimEligible": true,
+      "claimEligibleReason": "обе руки имеют терминальный результат по каждому элементу датасета"
+    }
+  },
+  "gate": {
+    "status": "not-run",
+    "experimentId": "gate-bare-vs-judgeDiff",
+    "reason": "graderFor('swebench-gate') намеренно бросает not-implemented — нет реального SWE-bench test harness (bare-*) и judgeDiff-* не адаптирован под внешний дифф (см. README.md \"Известное ограничение\")"
+  },
+  "claimEligibleOverall": false,
+  "claimEligibleOverallReason": "writerExperiment.claimEligible=true, но gateExperiment не выполнен — заявленный в T003 полный Gemini-only benchmark (writer A/B + gate A/B) неполон; claim допустим только по writer-плечу отдельно."
+}

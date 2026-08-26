@@ -1,8 +1,29 @@
 # gemini-3.7-flash-high — versioned, resume-safe benchmark contour
 
-Замена ручному прогону из session scratchpad (T002, `specs/021-gemini-benchmark-release-readiness`).
-Всё, что здесь есть, — код и preregistration; сырых результатов ещё нет, они появляются
-только когда T003 реально исполнит оба эксперимента.
+Замена ручному прогону из session scratchpad (T002/T003, `specs/021-gemini-benchmark-release-readiness`).
+`writer-plain-vs-elt` реально выполнен (30+30 живых вызовов `agy`, gemini-3.7-flash-high,
+2026-08-25). `gate-bare-vs-judgeDiff` — не выполнен, см. «Известное ограничение» ниже; T003
+оставлена открытой ([ ] в tasks.md), а не отмечена закрытой — честно неполна.
+
+## Результат — writer-plain-vs-elt (30 пар, 2026-08-25)
+
+| hand | pass/graded | pass rate [95% CI] | invalid | incomplete |
+| --- | --- | --- | --- | --- |
+| plain | 30/30 | 100.0% [88.6, 100.0] | 0 | 0 |
+| elt | 30/30 | 100.0% [88.6, 100.0] | 0 | 0 |
+
+`claimEligible=true` (`results.json`, `summary-writer.json`) — обе руки терминальны на всех 30
+задачах, 0 transport failures (`transport-failures.jsonl` пуст), 0 guard-tamper (`invalid`).
+
+**Что это доказывает:** тот же ceiling-эффект, что и v5.0.0 (3/3 против 3/3), но теперь на
+статистически значимой выборке (Wilson 95% CI [88.6%, 100%] вместо ненадёжной 3-парной оценки) —
+gemini-3.7-flash-high решает python-задачи `Aider-AI/polyglot-benchmark` этого уровня с первой
+попытки в обеих руках, разницы между `plain` и `elt` в pass rate по построению быть не может
+(primary endpoint не меняется гейтом, см. `preregistration.json.writerExperiment.protocol`).
+
+**Чего не доказывает:** превосходства ELT в pass rate — тот же потолок, что и раньше, теперь
+подтверждённый на 30 парах, а не 3. Overhead сертификации (время судьи поверх кода) не измерялся
+в этом прогоне — вне primary endpoint этой preregistration.
 
 ## Контур
 
@@ -59,16 +80,21 @@ node build-gate-dataset.js --kind swebench-gate --instances <path-to-instances.j
 (`datasetSha256` совпадает) — это и есть детерминизм, не обещание, а проверяемое свойство
 (`runner.test.js`).
 
-## Запуск (T003, не выполнялся в T002)
+## Запуск (как реально исполнено в T003)
 
 ```powershell
-node runner.js --dataset dataset-writer.json --hand plain --out raw-writer.jsonl --model gemini-3.7-flash-high
-node runner.js --dataset dataset-writer.json --hand elt   --out raw-writer.jsonl --model gemini-3.7-flash-high
-node summarize.js --dataset dataset-writer.json --log raw-writer.jsonl --hands plain,elt --out summary-writer.json
+node runner.js --dataset dataset-writer.json --hand plain --out writer-results.jsonl --model gemini-3.7-flash-high
+node runner.js --dataset dataset-writer.json --hand elt   --out writer-results.jsonl --model gemini-3.7-flash-high
+node summarize.js --dataset dataset-writer.json --log writer-results.jsonl --hands plain,elt --out summary-writer.json
 ```
 
 Прервать и перезапустить безопасно: `runner.js` пропускает (id, hand) пары, уже терминальные в
-логе (`pendingItems`); `transport-failure` не терминален и будет ретраён следующим запуском.
+логе (`pendingItems`); `transport-failure` не терминален и будет ретраён следующим запуском. В
+реальном прогоне ретраев не понадобилось — 0 transport failures на 60 вызовов.
+
+`results.json` — канонический выход: `writer` (полный `summary-writer.json` внутри) +
+`gate` (`status: not-run` с причиной) + `claimEligibleOverall` (false — T003 просила ОБА
+эксперимента, выполнен один). `checksums.sha256` — sha256 всех файлов-свидетельств.
 
 ## Инвалидация старых данных
 
