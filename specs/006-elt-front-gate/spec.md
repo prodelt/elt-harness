@@ -77,7 +77,7 @@ flowchart LR
 6. Новая зависимость в манифесте без записи в `.harness/ctx7-log.jsonl` →
    warn (или block по `ctx7Gate`) на `elt commit`.
 7. `elt commit` гарантирует `.git/elt/run-log.jsonl` (репро кейса
-   Marketing_tg_bot, где лог не появился) — тест воспроизводит и чинит.
+   <another-project>, где лог не появился) — тест воспроизводит и чинит.
 8. Новый код-проект без `.harness` → ровно одна строка-хинт на старте сессии;
    с харнессом — тишина.
 9. Оракул репо зелёный: `node tools/elt-oracle-runner.js`; изменения elt.js

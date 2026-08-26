@@ -23,7 +23,7 @@ changelog:
 1. **`inspect`** — читает текущее состояние: тип проекта (код/доки/unknown, авто-детект по
    манифестам/расширениям), статус AI-доков, `.harness/harness.json`, codegraph-индекс, git-gate.
    ```bash
-   node "C:/Claude playground/Pipiline setupper/tools/project-bootstrap.js" inspect --root . --json
+   node "<repo-root>/tools/project-bootstrap.js" inspect --root . --json
    ```
 2. **`plan`** — те же данные + какие решения CLI примет (нужен ли оракул, судья, git-gate) и
    почему; ничего не пишет.
@@ -39,12 +39,12 @@ changelog:
    сервисы не терпят второго экземпляра). Существующий конфиг БЕЗ этих полей продолжает
    работать по-старому — их отсутствие означает синхронное поведение 011.
    ```bash
-   node "C:/Claude playground/Pipiline setupper/tools/project-bootstrap.js" apply --root . --json
+   node "<repo-root>/tools/project-bootstrap.js" apply --root . --json
    ```
 4. **`verify`** — контракты docs/harnessConfig/oracleVerifier/gate/skillAvailability +
    сигналы specReadiness/cleanTree. `ok:true` = проект готов.
    ```bash
-   node "C:/Claude playground/Pipiline setupper/tools/project-bootstrap.js" verify --root . --json
+   node "<repo-root>/tools/project-bootstrap.js" verify --root . --json
    ```
 
 ## Что остаётся ручным (по требованию, не скаффолдится)
@@ -67,5 +67,5 @@ changelog:
 ретрофит недостающего, без задвоения.
 
 ## Связь
-Карта — `PLAYBOOK.md`. Метод харнесса — `/harness-method`. Флот-обзор по всем проектам —
+Карта — `docs/USAGE.md`. Метод харнесса — `/harness-method`. Флот-обзор по всем проектам —
 `node tools/doctor.js --fleet`. Точка входа задач после bootstrap — `/elt`.

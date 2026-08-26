@@ -79,8 +79,12 @@ test('isDiskRoot: C:\\ returns true', () => {
 });
 
 test('isDiskRoot: project path returns false', () => {
-  assert.equal(isDiskRoot('C:\\Claude playground\\Pipiline setupper'), false);
-  assert.equal(isDiskRoot('C:/Claude playground/Pipiline setupper'), false);
+  // Обе формы разделителя на ОДНОМ и том же многосегментном пути: корень диска отличается от
+  // проекта под ним не буквой диска, а наличием сегментов. Обезличивание пути в 022/T001
+  // чуть не съело именно это — вторая строка стала плейсхолдером без буквы диска и без
+  // разделителей, то есть возвращала false независимо от того, работает ли регэксп.
+  assert.equal(isDiskRoot('C:\\projects\\my repo'), false);
+  assert.equal(isDiskRoot('C:/projects/my repo'), false);
 });
 
 test('isDiskRoot: D:\\ returns true', () => {

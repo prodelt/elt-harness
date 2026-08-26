@@ -62,4 +62,4 @@ gets deleted, not muted.
 
 ## Source
 Full method writeup: `.planning/WORKING-SYSTEM.md` (this repo). Proof case: `HANDOFF.md` in
-`C:\Ametrin projects\Ametrin web ecosystem 3` (live-fire 2026-06-19).
+`<another-project>` (live-fire 2026-06-19).

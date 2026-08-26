@@ -18,9 +18,9 @@
 - [X] **T008** elt SKILL.md Режим 0 v2: grill обязателен при новом проекте / отсутствии зафиксированных решений / UI-проекте; шаблон спеки = контракт lint (T003) + Mermaid-схема; судейская рубрика += «слайсы по неутверждённой спеке = block». Контракт-тест SKILL.md. [files: ~/.claude/skills/elt/SKILL.md]
 
 ## Фаза C — Луп: вход, экономика, наблюдаемость
-- [ ] **T009** `elt loop [N] [--model X] [--dry-run]`: подкоманда спавнит драйвер (Node spawn, не PS-заклинание); путь драйвера: env `ELT_DRIVER` → дефолт «C:\Claude playground\Pipiline setupper\tools\elt-loop.ps1»; флаги прокидываются. Тест (dry-run). [files: ~/.claude/bin/elt.js, tools/elt-loop-cmd.test.js]
+- [ ] **T009** `elt loop [N] [--model X] [--dry-run]`: подкоманда спавнит драйвер (Node spawn, не PS-заклинание); путь драйвера: env `ELT_DRIVER` → дефолт «<repo-root>\tools\elt-loop.ps1»; флаги прокидываются. Тест (dry-run). [files: ~/.claude/bin/elt.js, tools/elt-loop-cmd.test.js]
 - [ ] **T010** Экономика моделей драйвера: `harness.json.implModel` (дефолт "sonnet") и `implEffort` (дефолт "medium") читаются elt-config и передаются в Invoke-Claude всегда (heal-эскалация до max остаётся); больше никакого наследования дефолта CLI юзера (opus/xhigh). Тест конфиг-чтения. [files: tools/elt-loop.ps1, ~/.claude/bin/elt-config.js]
-- [ ] **T011** Run-log гарантирован: репро кейса Marketing_tg_bot/tg_bot_reclamaties (elt commit прошёл, `.git/elt/` не появился) → фикс (mkdir гарантированно на каждом commit; невозможность писать = громкая ошибка, не тихий скип). Регресс-тест. [files: ~/.claude/bin/elt.js, ~/.claude/bin/run-log.js, tools/elt-runlog-guarantee.test.js]
+- [ ] **T011** Run-log гарантирован: репро кейса <another-project>/tg_bot_reclamaties (elt commit прошёл, `.git/elt/` не появился) → фикс (mkdir гарантированно на каждом commit; невозможность писать = громкая ошибка, не тихий скип). Регресс-тест. [files: ~/.claude/bin/elt.js, ~/.claude/bin/run-log.js, tools/elt-runlog-guarantee.test.js]
 - [ ] **T012** `elt status` v2 — человекочитаемая сводка: спека+approve статус (T001), последние 3 записи run-log, свежесть последнего loop-прогона (`.harness/loop-logs` mtime) — ответ на «работает ли луп». Тест. [files: ~/.claude/bin/elt.js, tools/elt-status-v2.test.js]
 
 ## Фаза D — ctx7-гейт

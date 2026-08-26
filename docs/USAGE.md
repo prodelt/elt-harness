@@ -124,3 +124,33 @@ Four things at once, not three:
 
 A manual `git commit` is not technically forbidden, but it leaves no row in the run-log — and
 the share of work that went through the harness is measured from exactly that file.
+
+## Two verification modes — and only one of them is a gate
+
+`.harness/harness.json` carries a `verify` field. The difference between its two values is not
+a speed setting; it changes what a commit means.
+
+| `verify` | what happens | what a commit means |
+| --- | --- | --- |
+| `"sync"` *(default)* | the whole chain runs before the commit; a judge proof is required | **gated** — all four conditions above held before the commit existed |
+| `"background"` | L0 and a fast oracle run, then control returns; the full suite, mutation check, smoke and the judge run afterwards on a detached worktree | **speculative** — the commit exists before it is fully checked |
+
+In background mode a red result is written to the review queue; **the commit is not rolled
+back**. Automatic revert of work that is already committed was deliberately not built: it is
+more dangerous than a red row somebody has to read.
+
+```powershell
+node tools/elt.js review              # what the background left behind
+node tools/elt.js review close --task T001
+```
+
+The queue distinguishes four outcomes, and the distinction matters: `bg-red` (the judge answered
+and blocked), `bg-dead` (the judge did not answer at all — a crash, a timeout, unparseable
+output), `bg-inconclusive`, and silence longer than `backgroundTimeoutMin`, which is recorded as
+its own incident. Before this separation existed, a judge that never answered produced a green
+verdict — see D8 in [DEFECTS.md](DEFECTS.md).
+
+**Do not call background mode a release gate.** It is a fast local loop with an explicit
+unverified state. If work must not reach `main` unchecked, use `"sync"`, and back it with
+protected branches and required CI — the harness disciplines its own CLI path, it does not
+physically hold a `git push` back.

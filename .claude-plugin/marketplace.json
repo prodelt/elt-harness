@@ -2,7 +2,8 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "elt",
   "owner": {
-    "name": "elt"
+    "name": "prodelt",
+    "url": "https://github.com/prodelt"
   },
   "metadata": {
     "description": "Own marketplace of the ELT harness. One plugin, installed from this repository.",
@@ -15,8 +16,13 @@
       "version": "5.0.0",
       "category": "workflow",
       "author": {
-        "name": "elt"
+        "name": "prodelt",
+        "url": "https://github.com/prodelt"
       },
+      "homepage": "https://github.com/prodelt/elt-harness",
+      "repository": "https://github.com/prodelt/elt-harness",
+      "license": "MIT",
+      "keywords": ["harness", "spec-driven", "review", "oracle", "gate", "code-review"],
       "source": "./"
     }
   ]

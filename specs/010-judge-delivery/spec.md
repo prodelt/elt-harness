@@ -11,8 +11,8 @@
 
 | проект | мост судьи | записей | block | pass | `--skip-attest` |
 |---|---|---|---|---|---|
-| Pipiline setupper | есть | 82 | **29** | 14 | **0** |
-| Route_API_1C | нет | 27 | **0** | **27** | **20** |
+| <repo-root> | есть | 82 | **29** | 14 | **0** |
+| <another-project> | нет | 27 | **0** | **27** | **20** |
 | doc2md-tauri | нет | 11 | **0** | **11** | 2 |
 
 Block-rate 67% (судья = код) против 0% (судья = проза + `--skip-attest`).
@@ -72,15 +72,15 @@ flowchart TD
 **Р6. Хуки — только глушение авто-чекпоинта на время гейта.** Остальной активный слой хуков
 (dirty-exit, git-guardrails, codegraph) не трогаем.
 
-**Р7. Приёмка — живой блок в чужом проекте** (Route_API_1C), не зелёный оракул репо.
+**Р7. Приёмка — живой блок в чужом проекте** (<another-project>), не зелёный оракул репо.
 
 ### Разведанные факты (не спрашивались — проверены в коде)
 - **`fleet.js:182` уже починен** в `28aa4b7` (T010): `judgeAwayFrom` возвращает `null` →
   парковка `judge-unavailable`, а не судью == воркер. Пункт «НЕ ПРОВЕРЕНО #3» чекпоинта устарел.
   Fleet целиком — вне scope.
-- **Поверхность — 9 проектов, а не 122.** `.harness/harness.json` есть у: `Pipiline setupper`
-  (мост есть), `Ametryn_protocol_bot` ×3, `project_social_analysis`, `Route_API_1C`,
-  `Marketing_tg_bot`, `pdv`, `tg_bot_reclamaties-master`, `Ametrin web ecosystem 4` (моста нет).
+- **Поверхность — 9 проектов, а не 122.** `.harness/harness.json` есть у: `<repo-root>`
+  (мост есть), `Ametryn_protocol_bot` ×3, `<another-project>`, `<another-project>`,
+  `<another-project>`, `pdv`, `<another-project>`, `<another-project>` (моста нет).
   122 — это папки чатов, не харнессы.
 - **Замыкание моста — 8 файлов:** `judge-invoke.js` → `fleet/gate.js` →
   `fleet/{providers,exec,plan,router}.js` + `red-proof.js` + `elt-config.js` (последний уже
@@ -106,7 +106,7 @@ flowchart TD
 
 ## Критерии приёмки
 
-**AC1 (живой блок, главный).** В `C:/Ametrin projects/Route_API_1C` — проекте без моста и без
+**AC1 (живой блок, главный).** В `<another-project>` — проекте без моста и без
 единого правок — `elt judge run` стартует через глобальный резолв и выдаёт: `block` на диффе с
 внесённым нарушением scope и `pass` на чистом. Пруф — две записи в его `.git/elt/run-log.jsonl`.
 
@@ -120,7 +120,7 @@ flowchart TD
 **AC4.** `project-bootstrap verify` в проекте с `judge.enabled:true` и недоступным мостом даёт
 `ok:false` с причиной `judge bridge is not resolvable`. В проекте с доступным — контракт зелёный.
 
-**AC5.** `project-bootstrap verify` на `Route_API_1C` больше не красный без объяснения:
+**AC5.** `project-bootstrap verify` на `<another-project>` больше не красный без объяснения:
 причина `unknownSections` пробрасывается наружу и понижена до warn; deprecated-инсталлы
 (`pipeline`) не считаются дрейфом.
 
@@ -148,7 +148,7 @@ flowchart TD
 `judge-unavailable` в run-log; если станет массовым — это сигнал чинить провайдеров, не люк.
 
 **R3. Живая приёмка в чужом проекте (AC1) упрётся в rate-limit** — тот же блокер, что стопорил
-004/005. Смягчение: судья `Route_API_1C` берётся через `codex`/`agy`, не через Claude.
+004/005. Смягчение: судья `<another-project>` берётся через `codex`/`agy`, не через Claude.
 
 **R4. Разведка D0 даст N=1** — тогда половина причины регресса остаётся неустранённой до 011,
 а 010 закрывается «всего лишь» доставкой контура. Принято: порог объявлен заранее (Р4),

@@ -1,0 +1,36 @@
+name: Wrong verdict
+description: The gate blocked correct work, or let broken work through
+labels: ["verdict"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful report this project receives. A verdict that disagrees with
+        reality is what the defect ledger is built to consume.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Which way was it wrong?
+      options:
+        - false-positive — correct work was blocked
+        - miss — broken work was let through
+        - weak-signal — the verdict was right but the reason was noise
+    validations:
+      required: true
+  - type: input
+    id: rule
+    attributes:
+      label: Rule or check that fired
+      placeholder: "diff-size, out-of-scope, external-import-no-ctx7, judge…"
+  - type: textarea
+    id: detail
+    attributes:
+      label: What the verdict said, and what was actually true
+    validations:
+      required: true
+  - type: textarea
+    id: diff
+    attributes:
+      label: The change it judged
+      description: A redacted diff or a description of its shape is fine.
+      render: diff

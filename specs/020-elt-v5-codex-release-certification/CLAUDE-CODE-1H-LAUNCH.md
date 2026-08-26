@@ -12,8 +12,8 @@ ELT v5 до максимально можливого перевіреного �
 встигли, результат — приватний RC з exact blocker і resume-командою, а не tag `v5.0.0`.
 
 Працювати дозволено лише у dedicated clean worktree
-`C:\Claude playground\ELT-v5-one-hour`, створеному від approval commit. Початковий checkout
-`C:\Claude playground\Pipiline setupper` містить користувацькі dirty-файли й є read-only
+`<repo-root>`, створеному від approval commit. Початковий checkout
+`<repo-root>` містить користувацькі dirty-файли й є read-only
 reference для цієї implementation session.
 
 ## Канонічні входи — прочитати повністю
@@ -51,7 +51,7 @@ task/spec-команди, яка підтримує цей прапорець, �
 ## Перші команди
 
 ```powershell
-Set-Location 'C:\Claude playground\ELT-v5-one-hour'
+Set-Location '<repo-root>'
 if (git status --porcelain) { throw 'Dedicated ELT v5 worktree is not clean' }
 node specs/020-elt-v5-codex-release-certification/verify-packet.js
 node tools/elt.js spec status --spec specs/020-elt-v5-codex-release-certification
@@ -74,7 +74,7 @@ context. Перед API зовнішньої бібліотеки — pinned doc
 Головний Claude розподіляє задачі, читає результати, перевіряє diff і лишається єдиним judge.
 Субагенти не commit/push/tag, не змінюють spec approval і не оголошують task завершеною.
 `agy` допустимий лише як writer першої версії; prompt прямо вимагає спочатку прочитати
-`C:\Users\user\.gemini\skills\elt\SKILL.md`. Writer не може бути reviewer/fixer/judge.
+`~\.gemini\skills\elt\SKILL.md`. Writer не може бути reviewer/fixer/judge.
 
 ## Виконання і batch-gates
 

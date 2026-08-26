@@ -87,3 +87,21 @@ vendor/
 
 # рантайм-след прогонов fleet в tools/ (корневой .harness/ уже закрыт выше)
 tools/.harness/
+
+# ── Release hygiene (public repo) ────────────────────────────────────────────
+# Working notes, session checkpoints and research history. These are the
+# author's desk, not the product: hooks keep writing here, git ignores it.
+# The full unredacted history lives in the private archive repository.
+.planning/
+archive/
+sa-workspace/
+presentation/
+demo/
+memory/
+.rag/
+.cursor/
+docs/hermes-agent/
+
+# Judge scratch files (runtime, written next to the gate chain)
+.judge-desc.json
+.judge-out.json

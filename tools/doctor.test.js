@@ -45,10 +45,13 @@ function testParseArgs() {
 }
 
 function testProjectKeyStable() {
-  const first = projectKey('C:\\Claude playground\\Pipiline setupper');
-  const second = projectKey('C:/Claude playground/Pipiline setupper');
+  // Один и тот же корень, записанный двумя разделителями, обязан дать ОДИН ключ:
+  // иначе состояние проекта расщепляется на два в зависимости от того, как путь
+  // пришёл — от cmd или от Node.
+  const first = projectKey('C:\\projects\\My Repo');
+  const second = projectKey('C:/projects/My Repo');
   assert.equal(first, second);
-  assert.match(first, /^pipiline-setupper-[a-f0-9]{8}$/);
+  assert.match(first, /^my-repo-[a-f0-9]{8}$/);
 }
 
 function testSkillFrontmatter() {

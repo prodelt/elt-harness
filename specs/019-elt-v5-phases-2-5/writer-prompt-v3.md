@@ -37,7 +37,7 @@ ${agySkillNote}
 {"filesChanged":["path/a.js"],"testsAdded":["path/a.test.js"]}
 ```
 
-`agySkillNote` — обязательная строка «прочитай `C:\Users\user\.gemini\skills\elt\SKILL.md`»:
+`agySkillNote` — обязательная строка «прочитай `~\.gemini\skills\elt\SKILL.md`»:
 Antigravity не загружает скил сам и врёт, что загрузил (см. `reference_agy_no_skills_loading`).
 
 ## Эффорт и self-heal

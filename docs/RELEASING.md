@@ -31,8 +31,8 @@ node tools/version-check.js --tag v5.0.0   # и тег указывает на �
 привязан сертификат.
 
 1. **`prepare-release` commit.** Всё, что меняется перед релизом, входит сюда и только сюда:
-   версия в четырёх местах, `CHANGELOG.md`, `README.md`, `.planning/STATE.md`,
-   `.planning/PROJECT-HISTORY.md`, разбор очереди. После этого коммита дерево заморожено.
+   версия в четырёх местах, `CHANGELOG.md`, `README.md`, `docs/EVIDENCE.md`,
+   разбор очереди. После этого коммита дерево заморожено.
 2. **Полный оракул.** `node tools/elt.js oracle --full` — exit 0.
 3. **Все пять линз и оценщик.** Независимо от impact-выборки: релиз — это high-risk по
    определению (`certification.requiredLenses('release')` возвращает все пять).
