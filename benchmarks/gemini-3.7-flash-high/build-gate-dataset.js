@@ -76,7 +76,19 @@ function stripLastHunk(unifiedDiff) {
 function selectSweBenchInstances({ instances, count, seed }) {
   const byRepo = new Map();
   for (const inst of instances) {
-    if (!inst.instance_id || !inst.repo || !inst.patch) continue;
+    // problem_statement is required, not optional: it is the task text the judge is given.
+    // A gate item without it would ask the judge "is this diff in scope?" with no scope at
+    // all — the answer would measure REJECT-default, not the gate.
+    if (!inst.instance_id || !inst.repo || !inst.patch || !inst.problem_statement) continue;
+    // Eligibility: the synthesized negative must still LOOK like a candidate fix. A gold
+    // patch with a single hunk loses its whole file section (stripLastHunk) and degenerates
+    // into an empty diff — which any REJECT-default judge rejects for free, without reading
+    // anything. Measured on the first build of this dataset: 9/30 negatives were empty, i.e.
+    // 30% of the negative arm would have scored the gate for free. Such instances are
+    // dropped from the sampling frame here rather than scored, and the drop is stated in
+    // preregistration-gate.json (dataset.eligibility) as a limit on the claim.
+    const negative = stripLastHunk(inst.patch);
+    if (!negative.trim() || negative === inst.patch) continue;
     if (!byRepo.has(inst.repo)) byRepo.set(inst.repo, []);
     byRepo.get(inst.repo).push(inst);
   }
@@ -109,6 +121,8 @@ function selectSweBenchInstances({ instances, count, seed }) {
         id: inst.instance_id,
         repo: inst.repo,
         baseCommit: inst.base_commit,
+        problemStatement: inst.problem_statement,
+        problemStatementSha256: sha256(inst.problem_statement),
         goldPatch,
         brokenPatch,
         goldPatchSha256: sha256(goldPatch),

@@ -57,7 +57,7 @@ claude plugin install elt@elt
 
 Слайс закритий лише коли named oracle має exit 0, один judge дав `pass`/`inconclusive`, а
 `elt commit` створив commit і run-log. Для нового нетривіального розгалуження залишити найменший
-runnable regression test. Механічний оракул сканує ДВА корені — `tools/` і `bin/`. Перед фінальним
+runnable regression test. Механічний оракул сканує ТРИ корені — `tools/`, `bin/` і `benchmarks/`. Перед фінальним
 закриттям цього репо запускати `node tools/elt-oracle-runner.js --full`.
 
 ## Commit & PR

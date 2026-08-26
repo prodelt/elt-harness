@@ -156,7 +156,12 @@ function partitionByCache(run, root = ROOT, forceFull = false) {
 // частью того же механического оракула: иначе новый код харнеса живёт вне гейта, которым сам
 // же харнес всех и меряет. Список корней явный, а не «всё дерево»: `specs/`, `demo/` и
 // `vendor/` содержат чужие `*.test.js`, которые к нашему оракулу отношения не имеют.
-const TEST_ROOTS = ['tools', 'bin'];
+// 021 T003: третий корень — `benchmarks/`. Тесты замерочного контура (runner.test.js,
+// gate-runner.test.js) писались как discriminating regressions, но лежали ВНЕ оракула и
+// поэтому не гонялись ни разу ни на одном коммите. Замер, чьи регрессы не под гейтом, — это
+// тот же «новый код харнеса вне гейта», ради которого корнем сделали `bin/`. Список корней
+// по-прежнему явный: `specs/`, `demo/` и `vendor/` содержат чужие `*.test.js`.
+const TEST_ROOTS = ['tools', 'bin', 'benchmarks'];
 
 async function main() {
   const files = TEST_ROOTS

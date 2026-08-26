@@ -86,6 +86,14 @@ test('TEST_ROOTS: bin/ входит в оракул наравне с tools/', (
     assert.ok(found.includes(rel), `${rel} попадает в выборку оракула`);
   }
   assert.ok(found.some((f) => f.startsWith('tools/')), 'tools/ не потерялся');
+
+  // 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни разу. Проверка
+  // именно по конкретным файлам, а не по наличию строки 'benchmarks' в TEST_ROOTS: корень,
+  // который ничего не находит, прошёл бы вторую проверку и остался бы декорацией.
+  assert.ok(TEST_ROOTS.includes('benchmarks'), 'benchmarks/ добавлен корнем');
+  for (const rel of ['benchmarks/gemini-3.7-flash-high/runner.test.js', 'benchmarks/gemini-3.7-flash-high/gate-runner.test.js']) {
+    assert.ok(found.includes(rel), `${rel} попадает в выборку оракула`);
+  }
 });
 
 // 020 T011 — third-party Actions в CI прибиты к неизменяемому SHA.

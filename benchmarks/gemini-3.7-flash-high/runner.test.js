@@ -266,10 +266,14 @@ test('stripLastHunk: single-hunk patch drops the whole file section (never a no-
 });
 
 test('selectSweBenchInstances: balances across repos, deterministic, produces broken patch', () => {
-  const goldPatch = ['diff --git a/x.py b/x.py', '@@ -1,1 +1,1 @@', '-old', '+new', ''].join('\n');
+  // Two hunks and a problem statement: 021 T003 made both an eligibility condition of the
+  // sampling frame (single-hunk gold degenerates into an EMPTY negative, and a gate item
+  // without task text measures REJECT-default rather than the gate). The exclusions
+  // themselves are covered in gate-runner.test.js; this test is about round-robin balance.
+  const goldPatch = ['diff --git a/x.py b/x.py', '@@ -1,1 +1,1 @@', '-old', '+new', '@@ -9,1 +9,1 @@', '-old2', '+new2', ''].join('\n');
   const instances = [];
-  for (let i = 0; i < 3; i++) instances.push({ instance_id: `r1-${i}`, repo: 'repoA', base_commit: 'c1', patch: goldPatch });
-  for (let i = 0; i < 1; i++) instances.push({ instance_id: `r2-${i}`, repo: 'repoB', base_commit: 'c2', patch: goldPatch });
+  for (let i = 0; i < 3; i++) instances.push({ instance_id: `r1-${i}`, repo: 'repoA', base_commit: 'c1', patch: goldPatch, problem_statement: 'p' });
+  for (let i = 0; i < 1; i++) instances.push({ instance_id: `r2-${i}`, repo: 'repoB', base_commit: 'c2', patch: goldPatch, problem_statement: 'p' });
   const picked = datasetLib.selectSweBenchInstances({ instances, count: 2, seed: 'seed-2' });
   const repos = new Set(picked.map((p) => p.repo));
   assert.equal(picked.length, 2);
