@@ -165,8 +165,13 @@ const pathNode = require('node:path');
 
 const SNAPSHOT = pathNode.join(__dirname, 'kpi-release-snapshot.json');
 const README = pathNode.join(__dirname, '..', 'README.md');
+// Публичный релиз: README стал обложкой, а измерения с их границами переехали в
+// docs/EVIDENCE.md. Замок от этого не ослаб — он сверяет снимок с ОБЕИМИ страницами
+// сразу. Иначе перенос числа из README в docs выглядел бы как «число исчезло», и
+// первый же такой перенос заставил бы ослабить саму сверку.
+const EVIDENCE = pathNode.join(__dirname, '..', 'docs', 'EVIDENCE.md');
 const snapshot = () => JSON.parse(fsNode.readFileSync(SNAPSHOT, 'utf8'));
-const readme = () => fsNode.readFileSync(README, 'utf8');
+const readme = () => `${fsNode.readFileSync(README, 'utf8')}\n${fsNode.readFileSync(EVIDENCE, 'utf8')}`;
 
 test('T003: каждое число снимка присутствует в README дословно', () => {
   const snap = snapshot();
@@ -232,12 +237,42 @@ test('T004: оба плеча бенчмарка в README, и границы cl
   assert.match(text, /resolve rate/i, 'README обязан назвать то, что НЕ измерено');
 });
 
+// Публичный релиз. Прежний замок сверял README со СНИМКОМ, но никто не сверял снимок с
+// деревом: снимок держал 108 при фактических 109 тестовых файлах, и README честно печатал
+// устаревшее число. Дрейф ровно того сорта, который эта пара тестов должна была ловить.
+// Здесь сверка замыкается на реальность: число из снимка считается заново по трём корням.
+test('релиз: охват оракула в снимке равен фактическому числу тестов в трёх корнях', () => {
+  const snap = snapshot();
+  const roots = ['tools', 'bin', 'benchmarks'];
+  const repoRoot = pathNode.join(__dirname, '..');
+
+  const count = (dir) => {
+    let n = 0;
+    for (const entry of fsNode.readdirSync(dir, { withFileTypes: true })) {
+      // Корни оракула явные, и его же исключения: чужие тесты в этих директориях
+      // не входят в замер (см. tools/elt-oracle-runner.js).
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'red-team') continue;
+        n += count(pathNode.join(dir, entry.name));
+      } else if (entry.name.endsWith('.test.js')) n++;
+    }
+    return n;
+  };
+
+  const actual = roots
+    .map((r) => pathNode.join(repoRoot, r))
+    .filter((d) => fsNode.existsSync(d))
+    .reduce((sum, d) => sum + count(d), 0);
+
+  assert.equal(snap.oracle.files, actual, `снимок держит ${snap.oracle.files} тестов, в дереве ${actual}`);
+});
+
 test('T003: снимок самодостаточен — у каждого числа есть команда', () => {
   const snap = snapshot();
   assert.match(snap.asOf, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(snap.commitShare.command, /--as-of/, 'команда доли коммитов обязана нести --as-of');
   assert.ok(snap.loc.command.includes('wc -l'), 'у LOC своя команда, а не «посчитано где-то»');
-  assert.ok(snap.defects.command.includes('HARNESS-DEFECTS-REGISTRY'), 'у дефектов своя команда');
+  assert.ok(snap.defects.command.includes('docs/DEFECTS.md'), 'у дефектов своя команда');
   assert.equal(typeof snap.defects.open, 'number');
   assert.equal(snap.defects.blockingOpen, 0, 'блокирующих открытых дефектов быть не должно');
 });

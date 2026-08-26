@@ -6,7 +6,7 @@
 ## Фаза A — разведка D0 (порог объявлен заранее: N≥2 → smoke в эту спеку, N≤1 → спека 011)
 
 - [X] **T001** Разведка D0: по трём уехавшим регрессам (27.07 doc2md-tauri «ocr missing»,
-  29.07 doc2md-tauri «перестало считать токены», 27.07 Route_API_1C «визиком не участвует»)
+  29.07 doc2md-tauri «перестало считать токены», 27.07 <another-project> «визиком не участвует»)
   восстановить из git-истории проектов, какой дифф их внёс, и вынести вердикт «поймал бы
   smoke-контракт / нет» с обоснованием. Выход — `.planning/D0-smoke-feasibility.md` с секцией
   на каждый регресс (симптом / коммит / вердикт / обоснование) и итоговой строкой `N=<0..3>`.
@@ -51,7 +51,7 @@
 
 - [X] **T008** Шум вон из красного: причина `unknownSections` пробрасывается наружу
   (`project-bootstrap.js:197`) и понижается до warn (`project-docs-core.js:242` fail-closed →
-  warn), deprecated-инсталлы (`pipeline`) исключаются из drift. Тест на `Route_API_1C`-подобном
+  warn), deprecated-инсталлы (`pipeline`) исключаются из drift. Тест на `<another-project>`-подобном
   фикстуре: `ok:true`, причина видна. [AC5]
   [files: tools/project-bootstrap.js, tools/project-docs-core.js, tools/project-bootstrap.test.js]
 
@@ -69,7 +69,7 @@
 
 ## Фаза F — приёмка
 
-- [ ] **T011** Живой блок в чужом проекте: в `C:/Ametrin projects/Route_API_1C` без единой
+- [ ] **T011** Живой блок в чужом проекте: в `<another-project>` без единой
   правки — `elt judge run` через глобальный резолв, `block` на диффе с внесённым нарушением
   scope и `pass` на чистом. Судья `codex`/`agy` (не Claude, R3). Пруф — две записи в его
   `.git/elt/run-log.jsonl`, приложить в чекпоинт. [AC1]

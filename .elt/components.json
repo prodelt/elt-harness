@@ -6,7 +6,7 @@
       "id": "elt/core",
       "name": "ELT v5 Core",
       "version": "5.0.0",
-      "source": "https://github.com/ametrin-ai/elt-v5",
+      "source": "https://github.com/prodelt/elt-harness",
       "commit": "0c649e7",
       "license": "MIT",
       "trust": "core",

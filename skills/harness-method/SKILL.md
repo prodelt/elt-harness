@@ -4,7 +4,7 @@ description: Bootstraps a per-project harness (guide + sensor + enforcement + st
 version: 1.0.0
 requires: []
 changelog:
-  - 1.0.0 (2026-06-19): extracted from .planning/WORKING-SYSTEM.md after the AMOS decommission; proof case is Ametrin web ecosystem 3 (live-fire 2026-06-19)
+  - 1.0.0 (2026-06-19): extracted from .planning/WORKING-SYSTEM.md after the AMOS decommission; proof case is <another-project> (live-fire 2026-06-19)
 ---
 
 # /harness-method — Reusable Multi-Domain Harness Bootstrap
@@ -47,7 +47,7 @@ a live-fire test, not just green CI.
 7. Token budget (rounds × prefix size) is a design metric, not an afterthought.
 
 ## Proven case
-**Code domain**, `Ametrin web ecosystem 3` (`C:\Ametrin projects\Ametrin web ecosystem 3`):
+**Code domain**, `<another-project>` (`<another-project>`):
 Cargo workspace + `cargo-deny` + a crate-boundary script (`scripts/check-crate-boundaries.sh`,
 via `cargo tree`) + husky blocking pre-commit. Live-fire 2026-06-19: adding a forbidden
 `fixture-module` dependency to `crates/gateway/Cargo.toml` and committing was **rejected**

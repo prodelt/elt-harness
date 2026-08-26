@@ -1,6 +1,6 @@
 # Installing ELT
 
-The `elt@elt` plugin is installed from its own private marketplace. No step below writes files
+The `elt@elt` plugin is installed from its own marketplace. No step below writes files
 into `~/.claude/bin`: runtime deployment was removed by spec 019 T015 — the installed plugin
 directory **is** the source.
 
@@ -11,11 +11,10 @@ claude plugin marketplace add prodelt/elt-harness
 claude plugin install elt@elt
 ```
 
-The repository is private: access to `prodelt/elt-harness` must already be configured on the
-machine (`gh auth status`). For development, a local path is accepted instead of a repo name:
+For development, a local path is accepted instead of a repo name:
 
 ```powershell
-claude plugin marketplace add "C:\Claude playground\ELT-v5-one-hour"
+claude plugin marketplace add "<repo-root>"
 claude plugin install elt@elt
 ```
 
@@ -106,9 +105,9 @@ mere file presence:
 
 ```
   [ok           ] client parity — source 5.0.0 90dcc5e4b4f7
-      claude: ok (5.0.0 90dcc5e4b4f7) — C:\Users\espad\.claude\skills\elt\SKILL.md
-      codex:  ok (5.0.0 90dcc5e4b4f7) — C:\Users\espad\.codex\skills\elt\SKILL.md
-      gemini: ok (5.0.0 90dcc5e4b4f7) — C:\Users\espad\.gemini\skills\elt\SKILL.md
+      claude: ok (5.0.0 90dcc5e4b4f7) — ~\.claude\skills\elt\SKILL.md
+      codex:  ok (5.0.0 90dcc5e4b4f7) — ~\.codex\skills\elt\SKILL.md
+      gemini: ok (5.0.0 90dcc5e4b4f7) — ~\.gemini\skills\elt\SKILL.md
 ```
 
 Why by hash: a measurement on 2026-08-24 found the source at 5.0.0 and all three copies at
@@ -152,7 +151,7 @@ Day-to-day symptoms and their causes are collected in
 
 | symptom | cause | what to do |
 | --- | --- | --- |
-| `marketplace add` fails on a private repo | no GitHub access on this machine | `gh auth status`, then `gh auth login` |
+| `marketplace add` fails | no GitHub access on this machine | `gh auth status`, then `gh auth login` |
 | `doctor` reports a version mismatch | `plugin.json`, `marketplace.json` and the skill frontmatter disagree | align all three, they are one version |
 | the session summary prints twice | old global hooks plus the plugin's own | see section 6 |
 | Codex/Gemini behave as if the skill were old | copies drifted from the source | `node tools/host-surface.js --sync-clients` |

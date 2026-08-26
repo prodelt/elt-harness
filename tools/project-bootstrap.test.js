@@ -607,7 +607,7 @@ function testOracleVerifierDeepActuallySpawnsShell() {
   assert.equal(checkOracleVerifierContract(inspectProject(root), { deep: true }).ok, false, 'живой запуск тоже красный');
 }
 
-// 010 T008 (AC5): шум вон из красного — verify на Route_API_1C-подобном проекте (своя секция
+// 010 T008 (AC5): шум вон из красного — verify на <another-project>-подобном проекте (своя секция
 // в AGENTS.md + deprecated `pipeline` без зеркал) обязан быть зелёным, а причина — видимой.
 function testVerifyDowngradesUnknownSectionsAndIgnoresDeprecatedSkill() {
   const root = tempProject();

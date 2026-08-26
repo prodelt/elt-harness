@@ -24,7 +24,7 @@ Node.js 18+, PowerShell 5.1+, Git, Claude Code CLI, Codex CLI, Antigravity (`agy
   `tools/judge-core.js` — суддя.
 - `.harness/harness.json` — механічний oracle, smoke, impact-вибір і один judge.
 - `specs/*/{spec,tasks}.md` — затверджені плани; без `--spec` береться найновіший план.
-- `.planning/STATE.md` — живий стан; `PLAYBOOK.md` — коротка карта маршрутизації.
+- `docs/` — сторінки продукту: INSTALL, USAGE, ARCHITECTURE, EVIDENCE, DEFECTS, RELEASING.
 
 ## Commands
 
@@ -41,7 +41,7 @@ node tools/elt.js judge run --task T001
 node tools/elt.js commit --task T001 --skip-oracle -m "feat: опис"
 
 # установка в чистому проєкті
-claude plugin marketplace add "C:\Claude playground\Pipiline setupper"
+claude plugin marketplace add "<repo-root>"
 claude plugin install elt@elt
 ```
 
@@ -69,7 +69,7 @@ runnable regression test. Механічний оракул сканує ТРИ 
 ## Gotchas
 
 - `agy` не завантажує skill автоматично: у його prompt треба прямо вимагати прочитати
-  `C:\Users\espad\.gemini\skills\elt\SKILL.md`.
+  `~\.gemini\skills\elt\SKILL.md`.
 - Інструкції живуть в ОДНОМУ файлі — цьому. `AGENTS.md` і `.gemini/GEMINI.md` генеруються
   (`node tools/gen-agents-md.js`); правка копії руками червонить тест на дрейф.
 - `judge.verify` у старих конфігах ігнорується runtime; `project-bootstrap apply` видаляє поле.

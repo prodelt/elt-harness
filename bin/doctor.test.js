@@ -188,10 +188,10 @@ test('hooks: файла нет → INFO (его ставит T012), кривой
 });
 
 test('hooks: абсолютный путь внутри — FAIL, на чужой машине он не разрешится', () => {
-  const win = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: 'node C:\\Users\\espad\\hook.js' }] }) }), 'plugin hooks');
+  const win = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: 'node C:\\Users\\user\\hook.js' }] }) }), 'plugin hooks');
   assert.equal(win.status, 'FAIL');
   assert.match(win.detail, /абсолютные пути/);
-  const nix = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: '/home/espad/hook.js' }] }) }), 'plugin hooks');
+  const nix = checkIn(makePluginRoot({ hooks: JSON.stringify({ SessionStart: [{ command: '/home/user/hook.js' }] }) }), 'plugin hooks');
   assert.equal(nix.status, 'FAIL');
 });
 

@@ -4,8 +4,12 @@
   "version": "5.0.0",
   "description": "ELT — spec-driven harness for Claude Code: mechanical oracle, L0 gate, five review lenses with a confidence scorer, and a defect ledger that files its own issues.",
   "author": {
-    "name": "elt"
+    "name": "prodelt",
+    "url": "https://github.com/prodelt"
   },
-  "keywords": ["harness", "spec-driven", "review", "oracle", "gate"],
+  "homepage": "https://github.com/prodelt/elt-harness",
+  "repository": "https://github.com/prodelt/elt-harness",
+  "bugs": "https://github.com/prodelt/elt-harness/issues",
+  "keywords": ["harness", "spec-driven", "review", "oracle", "gate", "code-review", "claude-code"],
   "license": "MIT"
 }

@@ -205,6 +205,38 @@ function diffFileList(status) {
   }
   return files;
 }
+// 022 T003. Вторая сторона переименования: из `R  old -> new` список выше берёт только цель —
+// и правильно, спрашивать отчёт за исчезнувший путь нельзя. Но судья, назвавший ИСХОДНЫЙ путь,
+// не выдумал его: файла на диске уже нет, в diffSet его тоже нет, и он получал
+// `grounding:phantom-file`. Живой ложный block 2026-08-26 на переносе реестра дефектов
+// (`.planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md` → `docs/DEFECTS.md`). Асимметрия
+// намеренная: источник законно НАЗВАТЬ, но требовать его — значит завести новый ложный отказ
+// вместо снятого.
+// 022 T004: пути, удалённые этим слайсом. Порцелан помечает удаление буквой `D` в любой из
+// двух колонок (staged / worktree); переименование (`R  old -> new`) удалением НЕ является —
+// цель существует и за неё спрашивают как за обычный файл.
+function diffDeletedFiles(status) {
+  const files = [];
+  for (const line of (status || '').split(/\r?\n/)) {
+    if (line.length < 4) continue;
+    if (line[0] !== 'D' && line[1] !== 'D') continue;
+    const rel = line.slice(3).replace(/^"|"$/g, '').trim();
+    if (rel && rel.indexOf(' -> ') === -1) files.push(rel.replace(/\\/g, '/'));
+  }
+  return files;
+}
+function diffRenameSources(status) {
+  const sources = [];
+  for (const line of (status || '').split(/\r?\n/)) {
+    if (line.length < 4) continue;
+    const rel = line.slice(3).replace(/^"|"$/g, '').trim();
+    const arrow = rel.indexOf(' -> ');
+    if (arrow === -1) continue;
+    const from = rel.slice(0, arrow).replace(/^"|"$/g, '').trim();
+    if (from) sources.push(from.replace(/\\/g, '/'));
+  }
+  return sources;
+}
 // Grounding-чек (008 T001): filesReviewed===null → провайдер вообще не знает про поле
 // (старый стаб/провайдер без схемы, напр. существующие тесты gate.test.js/fleet.test.js,
 // где стаб — литерал `{"verdict":"pass"}` без reasons) — весь чек молчит целиком, и
@@ -238,10 +270,28 @@ function checkGrounding(status, filesReviewed, reasons, cwd = process.cwd(), omi
   // T001 2026-07-22: судья дал pass, перечислил 3 файла диффа + spec.md/tasks.md рубрики
   // и получил phantom-file — ложное срабатывание на добросовестном ответе.
   const resolveHome = (f) => (f.startsWith('~/') ? path.join(os.homedir(), f.slice(2)) : path.resolve(cwd, f));
-  for (const f of reviewed) if (!diffSet.has(f) && !fs.existsSync(resolveHome(f))) return 'grounding:phantom-file';
+  // 022 T003: исходная сторона переименования — не выдумка. Она входит в «что законно
+  // назвать», но НЕ в diffSet, за который спрашивает unreviewed-file ниже.
+  const namable = new Set([...diffSet, ...diffRenameSources(status)]);
+  for (const f of reviewed) if (!namable.has(f) && !fs.existsSync(resolveHome(f))) return 'grounding:phantom-file';
   const reviewedSet = new Set(reviewed);
   const notShown = new Set(omitted.map((f) => String(f).replace(/\\/g, '/')));
-  for (const f of diffSet) if (!reviewedSet.has(f) && !notShown.has(f)) return 'grounding:unreviewed-file';
+  // 022 T004: за удалённый файл `filesReviewed` не спрашиваем. Grounding ловит судью, который
+  // ЗАЯВИЛ прочитанным код, которого не читал; в удалении читать нечего, и требование назвать
+  // каждый путь превращает проверку в тест на длину ответа: слайс публичной гигиены удалил 544
+  // файла и получал block за то, что судья перечислил 45 осмысленных, а не 711 всех. Факт
+  // удаления остаётся в промпте отдельной строкой — спрятать удаление это не даёт.
+  const deleted = new Set(diffDeletedFiles(status));
+  // 022 T002: снятие внутреннего противоречия. Промпт судьи (строка 305) перечисляет владения
+  // харнеса и сгенерированное отдельной секцией с прямым указанием НЕ выносить по ним вердикт —
+  // а grounding тут же требовал назвать их в `filesReviewed`, иначе block. Судья, выполнивший
+  // инструкцию буквально, наказывался за послушание: живой блок на `.elt/ledger.jsonl`,
+  // `.harness/harness.json` и фикстуре `judge-bench`. Граница берётся из того же единственного
+  // списка (`harness-files.js`), что и сам запрет, — второй копии здесь не заводим.
+  for (const f of diffSet) {
+    if (reviewedSet.has(f) || notShown.has(f) || deleted.has(f) || isIgnoredForReview(f)) continue;
+    return 'grounding:unreviewed-file';
+  }
   return null;
 }
 
@@ -367,27 +417,93 @@ const MIN_FILE_BUDGET = 400; // меньше — показывать бессм
 // с формулировкой «диффы обрезаны, проверить нечего» — бюджет резал не хвосты, а суть слайса.
 // 60K символов (~15-20K токенов) современный судья читает целиком.
 const DIFF_CAP = Number(process.env.JUDGE_DIFF_CAP) || 60000;
+// 022 T002. Бюджет выше недостижим без этого лимита: дефолтный `maxBuffer` у execFileSync —
+// 1 МиБ, и `git diff HEAD` на большом слайсе БРОСАЕТ исключение раньше, чем `budgetDiff`
+// успевает что-либо урезать. Живьём: слайс с массовым удалением файлов дал дифф 6 МБ, и вся
+// цепочка гейта упала с «судья не вернул JSON» — то есть защита от большого диффа ломалась
+// ровно на большом диффе. Тот же класс уже чинили в `tools/elt.js` (020/T009) и в оракуле,
+// но чинили вызовы, а не корень; здесь лимит один на все читающие git-вызовы судьи.
+const GIT_MAX_BUFFER = 256 * 1024 * 1024;
+// 022 T004. Секция чистого удаления несёт ВСЁ содержимое исчезнувшего файла минусами. Читать
+// там нечего — важен факт удаления, — но платится за это дважды: содержимое занимает бюджет, а
+// сам файл уменьшает знаменатель `left/rest`. Живьём: слайс публичной гигиены удалил 544
+// файла, на каждый из 711 файлов диффа пришлось ~844 символа, и настоящая правка
+// `judge-core.js` оборвалась на середине — судья дал «не могу проверить» на код, который
+// показать было можно. Сворачиваем в уведомление: факт и объём остаются видимы, спрятать
+// удаление нельзя, а бюджет достаётся изменённому коду.
+const DELETED_FILE_RE = /^deleted file mode /m;
+function isPureDeletion(section) {
+  if (!DELETED_FILE_RE.test(section.text)) return false;
+  // Строгая проверка, а не доверие заголовку: ни одной добавленной строки. Иначе `deleted
+  // file mode` в одном месте патча скрыл бы дописанный код в другом.
+  return !section.text.split('\n').some((l) => l.startsWith('+') && !l.startsWith('+++'));
+}
+function collapseDeletion(section) {
+  const lines = section.text.split('\n').filter((l) => l.startsWith('-') && !l.startsWith('---')).length;
+  return { ...section, text: `diff --git a/${section.file} b/${section.file}\ndeleted file mode\n… файл удалён целиком: ${lines} строк …`, deleted: true };
+}
+
 function budgetDiff(sections, cap = DIFF_CAP, zoneFiles = []) {
-  const ordered = prioritize(sections, zoneFiles);
+  const ordered = prioritize(sections.map((s) => (isPureDeletion(s) ? collapseDeletion(s) : s)), zoneFiles);
   // Доля считается по ОСТАВШИМСЯ файлам, а не по всем сразу: мелкие файлы, влезающие целиком,
   // не тратят свою долю впустую — неиспользованный остаток достаётся крупным. Раньше `cap/N`
   // делил поровну, и крупный production-дифф резался, даже когда бюджет в целом не выбран
   // (живой block 2026-07-29: «диффы fleet.js/gate.js обрезаны, проверить нечего»).
+  // 022 T004: доля считается max-min fair, а не «остаток делить на число оставшихся». Старая
+  // формула возвращала неизрасходованное только тем, кто идёт ПОЗЖЕ, а `prioritize` ставит
+  // первым самое важное — то есть самый нужный файл получал долю, посчитанную по ещё не
+  // сжавшемуся знаменателю, и обрезался, пока сотни мелких секций после него не выбирали свою
+  // долю и близко. Живьём: 200 свёрнутых удалений и один изменённый `judge-core.js` — код
+  // резался до 400 символов при незанятом бюджете. Здесь сначала каждый, кто влезает в
+  // честную долю, получает СВОЮ фактическую длину, и только неизбежный остаток делится между
+  // крупными. Порядок показа при этом остаётся приоритетным.
+  const fairShare = (items, budget) => {
+    const share = new Map();
+    let left = budget;
+    let pending = items.slice();
+    for (;;) {
+      if (!pending.length) break;
+      const fair = Math.floor(left / pending.length);
+      const fits = pending.filter((s) => s.text.length <= fair);
+      if (!fits.length) {
+        for (const s of pending) share.set(s.file, fair);
+        break;
+      }
+      for (const s of fits) { share.set(s.file, s.text.length); left -= s.text.length; }
+      pending = pending.filter((s) => s.text.length > fair);
+    }
+    return share;
+  };
+
+  // Fair share делит бюджет эффективно, но он слеп к приоритету: при тесном бюджете крупный
+  // тестовый файл получал долю меньше минимума и выпадал, хотя `prioritize` поставил его
+  // первым. Второй проход возвращает приоритет: идём в порядке важности и дотягиваем долю до
+  // минимума за счёт САМЫХ НЕВАЖНЫХ секций с хвоста. Оба свойства нужны одновременно —
+  // без первого прохода важный файл голодает при сотнях мелких секций, без второго он
+  // выпадает при тесном бюджете.
+  const share = fairShare(ordered, cap);
+  for (const s of ordered) {
+    if (share.get(s.file) >= MIN_FILE_BUDGET || s.text.length <= share.get(s.file)) continue;
+    for (let i = ordered.length - 1; i > 0; i--) {
+      const donor = ordered[i];
+      if (donor.file === s.file) break; // до себя дошли — доноров ниже по важности больше нет
+      const need = MIN_FILE_BUDGET - share.get(s.file);
+      if (need <= 0) break;
+      const give = Math.min(need, share.get(donor.file));
+      if (!give) continue;
+      share.set(donor.file, share.get(donor.file) - give);
+      share.set(s.file, share.get(s.file) + give);
+    }
+  }
   const shown = [];
   const omitted = [];
-  let left = cap;
-  let rest = ordered.length;
   for (const s of ordered) {
-    const perFile = Math.max(MIN_FILE_BUDGET, Math.floor(left / Math.max(1, rest)));
-    rest -= 1;
-    const allow = Math.min(perFile, left);
+    const allow = share.get(s.file) || 0;
     if (allow < MIN_FILE_BUDGET && s.text.length > allow) { omitted.push(s.file); continue; }
     if (s.text.length > allow) {
       shown.push(`${s.text.slice(0, allow)}\n…(файл обрезан: показано ${allow} из ${s.text.length} символов)…`);
-      left -= allow;
     } else {
       shown.push(s.text);
-      left -= s.text.length;
     }
   }
   return { diff: shown.join('\n'), omitted };
@@ -397,10 +513,10 @@ function budgetDiff(sections, cap = DIFF_CAP, zoneFiles = []) {
 // чужие правки (живой ложный block T003 2026-07-24: settings.json/plans/**/projects-registry).
 function slurpDiff(cwd, cap = DIFF_CAP, zoneFiles = [], pathspec = null) {
   const scope = pathspec && pathspec.length ? ['--', ...pathspec] : [];
-  const tracked = execFileSync('git', ['diff', 'HEAD', ...scope], { cwd, encoding: 'utf8' });
+  const tracked = execFileSync('git', ['diff', 'HEAD', ...scope], { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
   const sections = splitDiffSections(tracked);
   try {
-    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z', ...scope], { cwd, encoding: 'utf8' })
+    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z', ...scope], { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER })
       .split('\0').filter(Boolean).sort();
     for (const file of untracked) {
       const full = path.join(cwd, file);
@@ -414,7 +530,7 @@ function slurpDiff(cwd, cap = DIFF_CAP, zoneFiles = [], pathspec = null) {
   } catch { /* unreadable untracked files remain visible in status */ }
   // -uall не дає Git згорнути нові `src/`/`test/` до каталогів: grounding має перелічувати
   // фактичні файли, а red-proof — бачити вкладений *.test.js.
-  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', ...scope], { cwd, encoding: 'utf8' });
+  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', ...scope], { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
   return { ...budgetDiff(sections, cap, zoneFiles), status };
 }
 
@@ -776,7 +892,7 @@ function normalizeWorktree(cwd, base, files) {
   if (base) gitSilent(['reset', '--soft', base], cwd); // un-commit self-commit воркера (HEAD→base)
   if (!base) return;                                   // без base откатывать нечем — только un-commit невозможен тоже
   let status = '';
-  try { status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd, encoding: 'utf8' }); } catch { return; }
+  try { status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER }); } catch { return; }
   for (const line of status.split(/\r?\n/)) {
     if (line.length < 4) continue;                     // "XY path" — минимум 4 символа
     const rel = line.slice(3).replace(/^"|"$/g, '').trim();
@@ -891,4 +1007,4 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
 // judgeDiffRetryNoReasons экспортируется наравне с judgeDiff: это и есть путь, которым
 // судью зовёт сам гейт (runJudge), поэтому любой внешний замер гейта обязан звать ЕГО, а
 // не голый judgeDiff — иначе меряется не тот контур, что работает в проде (021 T003).
-module.exports = { gate, runJudge, reviewTransport, reviewConfigOf, judgeDiff, judgeDiffRetryNoReasons, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly };
+module.exports = { gate, runJudge, reviewTransport, reviewConfigOf, judgeDiff, judgeDiffRetryNoReasons, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly, diffRenameSources, diffDeletedFiles, isPureDeletion };

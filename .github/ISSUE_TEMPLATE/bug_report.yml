@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in the harness behaves differently than documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security issue, do not use this form — see
+        [SECURITY.md](https://github.com/prodelt/elt-harness/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest sequence of commands that shows it.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Diagnostics
+      description: Output of `node bin/doctor.js` and `node tools/doctor.js`.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: ELT version
+      placeholder: "5.0.0 — from `claude plugin details elt@elt`"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows, Linux, macOS]
+    validations:
+      required: true
