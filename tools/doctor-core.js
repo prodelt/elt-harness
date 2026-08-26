@@ -22,7 +22,12 @@ function normalizePath(value) {
 }
 function projectKey(root) {
   const normalized = normalizePath(root).toLowerCase();
-  const base = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  // path.basename() only splits on the host platform's own separator, so a Windows-style
+  // path with backslashes comes back whole on POSIX (green on the author's Windows box,
+  // red the moment CI runs the same string on Ubuntu). Take the basename from the already
+  // slash-normalized form instead, which is the same on every platform.
+  const lastSegment = normalized.split('/').filter(Boolean).pop() || '';
+  const base = lastSegment.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 8);
   return `${base || 'project'}-${hash}`;
 }

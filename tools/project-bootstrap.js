@@ -71,10 +71,26 @@ const CODE_MANIFESTS = ['package.json', 'pyproject.toml', 'requirements.txt', 'C
 const CODE_EXTENSIONS = new Set(['.js', '.ts', '.tsx', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java', '.cs', '.rb', '.php', '.cpp', '.c', '.kt', '.swift']);
 const DOC_EXTENSIONS = new Set(['.md', '.docx', '.pdf', '.pptx', '.xlsx', '.txt']);
 
+// Тот же класс дефекта, что у walkFileCount выше: classifyKind() решает code/docs/unknown
+// по списку файлов, а `rg` есть не на каждой машине (красный CI на Ubuntu без ripgrep даёт
+// classifyKind()==='unknown' для проекта, где реально лежит README.md). Обходим средствами Node.
 function listFiles(root, limit = 500) {
-  const completed = spawnSync('rg', ['--files'], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
-  if (completed.status !== 0) return [];
-  return completed.stdout.split(/\r?\n/).filter(Boolean).slice(0, limit);
+  const found = [];
+  const stack = [root];
+  while (stack.length && found.length < limit) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!FILE_COUNT_SKIP.has(entry.name)) stack.push(path.join(dir, entry.name));
+      } else if (entry.isFile()) {
+        found.push(path.relative(root, path.join(dir, entry.name)).split(path.sep).join('/'));
+        if (found.length >= limit) break;
+      }
+    }
+  }
+  return found;
 }
 
 function classifyKind(root) {

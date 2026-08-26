@@ -18,7 +18,10 @@ function normalizePath(value) {
 
 function projectKey(root) {
   const normalized = normalizePath(root).toLowerCase();
-  const base = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  // Same fix as tools/doctor-core.js: path.basename() only understands the host platform's
+  // own separator, so a Windows-style path with backslashes came back whole on POSIX.
+  const lastSegment = normalized.split('/').filter(Boolean).pop() || '';
+  const base = lastSegment.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 8);
   return `${base || 'project'}-${hash}`;
 }
