@@ -21,8 +21,11 @@
 - [ ] **T003** Виконати повний Gemini-only benchmark: paired writer A/B 30+30 на
   `Aider-AI/polyglot-benchmark@7e0611e` і bare-vs-`judgeDiff` gate A/B на preregistered
   збалансованій SWE-bench вибірці. Дозапустити лише transport failures, згенерувати raw results,
-  checksums, summary та 95% CI; заборонити claim, якщо будь-яка рука неповна.
-  [files: benchmarks/gemini-3.7-flash-high/writer-results.jsonl benchmarks/gemini-3.7-flash-high/gate-results.jsonl benchmarks/gemini-3.7-flash-high/transport-failures.jsonl benchmarks/gemini-3.7-flash-high/results.json benchmarks/gemini-3.7-flash-high/checksums.sha256 benchmarks/gemini-3.7-flash-high/README.md]
+  checksums, summary та 95% CI; заборонити claim, якщо будь-яка рука неповна. Рука `bare`
+  рахується аналітично (конвеєр без гейта пропускає все за визначенням), бо per-instance
+  SWE-bench test harness у цьому репозиторії відсутній — відхилення і його ціна для claim
+  зафіксовані в `preregistration-gate.json` ДО першого рядка результату.
+  [files: benchmarks/gemini-3.7-flash-high/writer-results.jsonl benchmarks/gemini-3.7-flash-high/gate-results.jsonl benchmarks/gemini-3.7-flash-high/transport-failures.jsonl benchmarks/gemini-3.7-flash-high/results.json benchmarks/gemini-3.7-flash-high/checksums.sha256 benchmarks/gemini-3.7-flash-high/README.md benchmarks/gemini-3.7-flash-high/preregistration-gate.json benchmarks/gemini-3.7-flash-high/gate-runner.js benchmarks/gemini-3.7-flash-high/gate-runner.test.js benchmarks/gemini-3.7-flash-high/gate-summarize.js benchmarks/gemini-3.7-flash-high/build-gate-dataset.js benchmarks/gemini-3.7-flash-high/runner.test.js benchmarks/gemini-3.7-flash-high/export-swebench.py tools/judge-core.js tools/elt-oracle-runner.js tools/elt-oracle-runner.test.js CLAUDE.md AGENTS.md .gemini/GEMINI.md]
 
 - [ ] **T004** Зробити GitHub front page release-grade: короткий перший екран, чесні badges,
   5-хвилинний quick start, один наскрізний приклад слайса, схема гейта, результати benchmark із
