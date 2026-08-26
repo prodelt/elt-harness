@@ -39,7 +39,7 @@
   smoke на `gemini-3.7-flash-high`. Зберегти exact commands, exits і hashes у release evidence.
   [files: tools/smoke-elt-deploy.js tools/smoke-elt-deploy.test.js docs/INSTALL.md .planning/ELT-V5-RELEASE-CANDIDATE-2026-08-25.md]
 
-- [ ] **T006** Закрити release gate: повний oracle + smoke + doctor, рівно один Codex-judge,
+- [X] **T006** Закрити release gate: повний oracle + smoke + doctor, рівно один Codex-judge,
   ELT commits, push feature branch, зелена GitHub Actions matrix на Windows/Linux, `main` як
   default branch, release-ready description/topics і нуль blocking review rows. Public visibility,
   tag та GitHub Release не створювати до фінального підтвердження користувача.
