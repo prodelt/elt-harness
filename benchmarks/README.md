@@ -1,77 +1,82 @@
 # Benchmarks
 
-Один принцип: **всё, что здесь опубликовано, зафиксировано ДО прогона**. Преregistration
-(`preregistration-v5.0.0.json`) написан и сохранён до первого результата; после первого
-результата его поля неизменны. Это единственное, что отличает измерение от подгонки.
+One principle: **everything published here was frozen before the run**. The preregistration is
+written and saved before the first result; after the first result its fields are immutable.
+That is the only thing separating a measurement from a fit.
 
-## Актуальный контур — `gemini-3.7-flash-high/`
+## Current contour → [`gemini-3.7-flash-high/`](gemini-3.7-flash-high/README.md)
 
-Данные ниже (v5.0.0, 3 пары) — **`invalid-for-claim`** для headline-чисел релиза: ниже порога
-directional claim (≥30 пар) и прогнаны до появления hash-locked runner'а. Файлы остаются как
-честно промаркированный directional pilot, не удалены. Действующий versioned/resume-safe контур
-на 30+30 пар — `gemini-3.7-flash-high/README.md` (спека 021, T002/T003).
+The live, versioned, resume-safe contour (spec 021, T002/T003) covers two experiments at
+30 pairs / 60 cells:
 
-## Что измерялось (v5.0.0, directional pilot, invalid-for-claim)
+| experiment | without the harness | with the harness | conclusion |
+| --- | --- | --- | --- |
+| writer, 30 pairs (polyglot) | 100.0% | 100.0% | **no difference — the tasks hit a ceiling** |
+| gate, 60 cells (SWE-bench Verified) | 50.0% (analytic) | **85.0%** [73.9%, 91.9%] | **there is a difference** |
+
+Read [`gemini-3.7-flash-high/README.md`](gemini-3.7-flash-high/README.md) for the numbers, the
+9 fail-opens named one by one, and the limits of the claim — including the fact that **resolve
+rate was not measured at all**.
+
+## Archived: v5.0.0 directional pilot — `invalid-for-claim`
+
+The data below (3 pairs) is **`invalid-for-claim`** for any release headline: below the
+directional-claim threshold (≥30 pairs) and run before the hash-locked runner existed. The files
+are kept, not deleted, as an honestly labelled directional pilot.
 
 | | |
 | --- | --- |
-| dataset | [`Aider-AI/polyglot-benchmark@7e0611e`](https://github.com/Aider-AI/polyglot-benchmark) — чужие задачи, чужие тесты |
-| задачи | `bowling` (31 тест), `book-store` (20), `dominoes` (13), Python |
-| grader | `py -3 -m pytest <task>_test.py -q`, Python 3.11.6 — **не принадлежит ELT** |
-| агент | `agy` 1.1.19, модель `gemini-3.7-flash-high` — **в обеих руках один и тот же** |
-| руки | `plain` (агент без харнеса) и `elt` (тот же агент, гейт поверх) |
-| исполнение | параллельное — эффекта порядка нет по построению |
-| пары | 3 |
+| dataset | [`Aider-AI/polyglot-benchmark@7e0611e`](https://github.com/Aider-AI/polyglot-benchmark) — third-party tasks, third-party tests |
+| tasks | `bowling` (31 tests), `book-store` (20), `dominoes` (13), Python |
+| grader | `py -3 -m pytest <task>_test.py -q`, Python 3.11.6 — **not owned by ELT** |
+| agent | `agy` 1.1.19, model `gemini-3.7-flash-high` — **the same in both hands** |
+| hands | `plain` (agent without the harness) and `elt` (same agent, gate on top) |
+| execution | parallel — no order effect by construction |
+| pairs | 3 |
 
-Замена агента: спека 020 (T005) называла Codex. Прогон сделан на `agy` по решению
-пользователя, принятому **до первого результата** и записанному в преregistration как
-явное отклонение. Этот пилот ничего не говорит о Codex.
+Agent substitution: spec 020 (T005) named Codex. The run used `agy`, a user decision taken
+**before the first result** and recorded in the preregistration as an explicit deviation. This
+pilot says nothing about Codex.
 
-## Результат
+### Result
 
-| задача | plain | elt | grader |
+| task | plain | elt | grader |
 | --- | --- | --- | --- |
-| bowling | PASS (96,8 с) | PASS (51,2 с) | 31 passed |
-| book-store | PASS (46,3 с) | PASS (61,6 с) | 20 passed |
-| dominoes | PASS (42,4 с) | PASS (47,4 с) | 13 passed |
-| **итого** | **3/3** | **3/3** | 64 теста |
+| bowling | PASS (96.8 s) | PASS (51.2 s) | 31 passed |
+| book-store | PASS (46.3 s) | PASS (61.6 s) | 20 passed |
+| dominoes | PASS (42.4 s) | PASS (47.4 s) | 13 passed |
+| **total** | **3/3** | **3/3** | 64 tests |
 
-## Что это доказывает и чего не доказывает
+### What it proves, and what it does not
 
-**Доказывает:** измерительный контур работает. Задачи настоящие, grader чужой, обе руки
-стартуют от одних байт скелета (`stubSha256` в преregistration), результат подан одному и
-тому же независимому проверяющему.
+**Proves:** the measurement contour works. The tasks are real, the grader is third-party, both
+hands start from identical stub bytes (`stubSha256` in the preregistration), and the result goes
+to the same independent checker.
 
-**Не доказывает — и это важнее:**
+**Does not prove — and this matters more:**
 
-* **Превосходства ELT нет в этих данных.** 3/3 против 3/3: различия нет и быть не могло —
-  задачи такого уровня выбранная модель решает с первой попытки, обе руки упёрлись в
-  потолок. Benchmark оказался слишком лёгким для сравнения.
-* **Время ничего не значит.** 160 с против 185 с суммарно — шум одного прогона на
-  стохастическом агенте. Для утверждения о скорости нужны десятки пар.
-* **Overhead сертификации не измерялся.** Гейт ELT работает над слайсами репозитория, где
-  есть спека, план и оракул; изолированная задача polyglot не имеет ничего из этого.
-  Поставить сюда цифру overhead значило бы её выдумать.
+* **There is no ELT superiority in this data.** 3/3 vs 3/3: there was no difference and there
+  could not have been — the chosen model solves tasks at this level on the first try, and both
+  hands hit the ceiling. The benchmark turned out too easy to compare anything.
+* **Timing means nothing here.** 160 s vs 185 s in total is the noise of a single run on a
+  stochastic agent. A claim about speed needs dozens of pairs.
+* **Certification overhead was not measured.** The ELT gate operates on repository slices that
+  have a spec, a plan and an oracle; an isolated polyglot task has none of those. Putting an
+  overhead number here would mean inventing it.
 
-По собственной шкале преregistration три пары дают **directional pilot без права заявлять
-превосходство**. Ровно это и записано.
+By the preregistration's own scale, three pairs give a **directional pilot with no right to
+claim superiority**. That is exactly what was recorded.
 
-## Что нужно для настоящего сравнения
-
-Класс задач, где агент **ошибается** — иначе сравнивать нечего. Кандидаты:
-SWE-bench Verified (реальные issue) либо polyglot на языках, где модель слабее.
-Порог для directional claim с доверительным интервалом — ≥30 пар.
-
-## Воспроизведение
+### Reproduction
 
 ```powershell
 git clone https://github.com/Aider-AI/polyglot-benchmark
 git -C polyglot-benchmark checkout 7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f
-# скелет и тест каждой задачи сверяются по stubSha256/testSha256 из преregistration
-py -3 -m pytest bowling_test.py -q   # на исходном скелете: 31 failed — это база
+# each task's stub and test are verified against stubSha256/testSha256 from the preregistration
+py -3 -m pytest bowling_test.py -q   # on the original stub: 31 failed — that is the baseline
 ```
 
-Сырые результаты — `results-v5.0.0.json`: по каждому прогону хеш ответа, размер, время
-кодирования, время grader'а, его exit и дословная сводка. Токены и стоимость записаны как
-`missing`: транспорт `agy` их не отдаёт, а оценка «на глаз» в отчёте о замере — то же
-враньё, только вежливое.
+Raw results — `results-v5.0.0.json`: per run, the answer hash, size, coding time, grader time,
+grader exit and its verbatim summary. Tokens and cost are recorded as `missing`: the `agy`
+transport does not return them, and an eyeballed estimate in a measurement report is the same
+lie, only politer.

@@ -4,20 +4,58 @@
     "фиксированный asOf и команду воспроизведения: без этого проценты в README устаревали",
     "молча — читатель видел «сегодня», а число было снято неделями раньше и другой выборкой.",
     "Регресс tools/kpi-commit-share.test.js сверяет README с этим файлом. Обновлять снимок",
-    "означает: перемерить командой ниже, вписать новые числа СЮДА и в README одним слайсом."
+    "означает: перемерить командой ниже, вписать новые числа СЮДА и в README одним слайсом.",
+    "021 T004: добавлены branch у LOC, охват оракула и headline бенчмарка. Прежний снимок",
+    "(asOf 2026-08-24, loc 28272) был снят в ОСНОВНОМ чекауте, стоявшем на ветке",
+    "feature/judge-bench-parallel-oracle, — то есть описывал не то дерево, которое релизится.",
+    "Поэтому у LOC теперь есть поле branch: без него две цифры расходятся молча."
   ],
-  "asOf": "2026-08-24",
+  "asOf": "2026-08-26",
+  "branch": "feature/elt-v5-one-hour",
   "commitShare": {
     "days": 14,
-    "window": "2026-08-10..2026-08-24",
-    "command": "node tools/kpi-commit-share.js --days 14 --as-of 2026-08-24 --cwd \"C:\\Claude playground\\Pipiline setupper\" --cwd \"C:\\Ametrin projects\\Izi_translate\" --cwd \"C:\\Ametrin projects\\Izi tracker\\izi-tracker\"",
-    "combined": { "share": "53,8%", "hit": 121, "total": 225 },
-    "thisRepo": { "share": "76,5%", "hit": 52, "total": 68 }
+    "window": "2026-08-12..2026-08-26",
+    "command": "node tools/kpi-commit-share.js --days 14 --as-of 2026-08-26 --cwd \"C:\\Claude playground\\Pipiline setupper\" --cwd \"C:\\Ametrin projects\\Izi_translate\" --cwd \"C:\\Ametrin projects\\Izi tracker\\izi-tracker\"",
+    "combined": { "share": "54.6%", "hit": 106, "total": 194 },
+    "thisRepo": { "share": "100%", "hit": 37, "total": 37 }
   },
   "loc": {
     "command": "find tools bin \\( -name \"*.js\" -o -name \"*.ps1\" \\) | grep -v node_modules | xargs wc -l | tail -1",
-    "total": 28272,
-    "scope": "tools/ + bin/ плагина, без node_modules"
+    "total": 42628,
+    "files": 187,
+    "branch": "feature/elt-v5-one-hour",
+    "scope": "tools/ + bin/ плагина, без node_modules",
+    "note": "Рост против 28 272 (снимок 2026-08-24) — не дрейф замера, а другая ветка: старое число снято на feature/judge-bench-parallel-oracle, где нет ни фиксов D27, ни замерочного контура benchmarks/ с его тестами. Цель фазы 3 (≤5 000) не взята и стала дальше, а не ближе."
+  },
+  "oracle": {
+    "command": "node tools/elt-oracle-runner.js --full",
+    "files": 108,
+    "roots": "tools/ + bin/ + benchmarks/",
+    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите."
+  },
+  "benchmark": {
+    "model": "gemini-3.7-flash-high",
+    "dir": "benchmarks/gemini-3.7-flash-high",
+    "writer": {
+      "id": "writer-plain-vs-elt",
+      "pairs": 30,
+      "plain": "100.0%",
+      "elt": "100.0%",
+      "verdict": "разницы нет — потолок задач",
+      "ci95": "[88.6, 100.0]"
+    },
+    "gate": {
+      "id": "gate-bare-vs-judgeDiff",
+      "cells": 60,
+      "bare": "50.0%",
+      "bareKind": "аналитическая",
+      "judgeDiff": "85.0%",
+      "ci95": "[73.9%, 91.9%]",
+      "failOpen": "9/30",
+      "falseBlock": "0/30",
+      "verdict": "разница есть, но только в гейте"
+    },
+    "notMeasured": "resolve rate: тесты SWE-bench не запускались ни в одной руке (нет per-instance окружения) — см. preregistration-gate.json"
   },
   "defects": {
     "command": "grep -cE \"^\\| \\*\\*D[0-9]+\\*\\* \\| ⚠️\" .planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md",

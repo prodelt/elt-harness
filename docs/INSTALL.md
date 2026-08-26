@@ -1,8 +1,8 @@
-# Установка ELT
+# Installing ELT
 
-Плагин `elt@elt` ставится из собственного приватного marketplace. Ни один шаг ниже не
-записывает файлы в `~/.claude/bin`: развёртка рантайма снята спекой 019 T015, установленный
-каталог плагина и есть исходник.
+The `elt@elt` plugin is installed from its own private marketplace. No step below writes files
+into `~/.claude/bin`: runtime deployment was removed by spec 019 T015 — the installed plugin
+directory **is** the source.
 
 ## 1. Claude Code
 
@@ -11,15 +11,15 @@ claude plugin marketplace add prodelt/elt-harness
 claude plugin install elt@elt
 ```
 
-Репозиторий приватный: доступ к `prodelt/elt-harness` должен быть настроен на машине заранее
-(`gh auth status`). Для разработки вместо имени репозитория принимается локальный путь:
+The repository is private: access to `prodelt/elt-harness` must already be configured on the
+machine (`gh auth status`). For development, a local path is accepted instead of a repo name:
 
 ```powershell
 claude plugin marketplace add "C:\Claude playground\ELT-v5-one-hour"
 claude plugin install elt@elt
 ```
 
-Проверка:
+Verify:
 
 ```powershell
 claude plugin list
@@ -27,81 +27,119 @@ claude plugin details elt@elt
 node bin/doctor.js
 ```
 
-`plugin details` показывает, что именно приехало: 6 скилов, 6 агентов, 2 хука. Хуки помечены
-`harness-only — no model context cost`: они исполняются процессом Claude Code и не занимают
-контекст модели.
+`plugin details` shows exactly what arrived: 6 skills, 6 agents, 2 hooks. The hooks are marked
+`harness-only — no model context cost`: they are executed by the Claude Code process and take up
+no model context.
 
-## 2. Что даёт установка
+<details>
+<summary><strong>Expected <code>doctor</code> output in a clean project</strong></summary>
 
-| поверхность | состав |
+```
+elt-doctor — plugin elt 5.0.0
+  [PASS] node >= 18 — node 24.14.0
+  [PASS] git on PATH — git version 2.51.0.windows.2
+  [PASS] plugin.json — elt 5.0.0
+  [PASS] marketplace.json agrees with plugin.json — marketplace elt 5.0.0
+  [PASS] bin/ entry points — 4
+  [PASS] bin/ closure resolves — 4 modules loaded
+  [PASS] plugin surface present — 10 files
+  [INFO] project: .harness/harness.json — no config — clean project; created by /elt
+  PASS=7 WARN=0 INFO=1 FAIL=0
+```
+
+A missing `.harness/harness.json` is `INFO`, not a failure.
+
+</details>
+
+## 2. What the installation gives you
+
+| surface | contents |
 | --- | --- |
-| скилы | `elt`, `elt-verify`, `elt-defects`, `elt-doctor`, `harness-method`, `project-bootstrap` |
-| агенты | пять линз `review-*` и `confidence-scorer` |
-| хуки | `SessionStart` — сводка проекта; `Stop` — dirty-exit gate |
+| skills | `elt`, `elt-verify`, `elt-defects`, `elt-doctor`, `harness-method`, `project-bootstrap` |
+| agents | five `review-*` lenses and `confidence-scorer` |
+| hooks | `SessionStart` — project summary; `Stop` — dirty-exit gate |
 
-Хуки версионируются вместе с плагином и живут в `hooks/hooks.json`, а их код — в
-`bin/session-start.js` и `bin/session-stop.js`. Абсолютных путей в них нет: команды идут от
-`${CLAUDE_PLUGIN_ROOT}`, поэтому один и тот же манифест работает на любой машине.
+Hooks are versioned together with the plugin and live in `hooks/hooks.json`; their code is in
+`bin/session-start.js` and `bin/session-stop.js`. They contain no absolute paths — commands run
+from `${CLAUDE_PLUGIN_ROOT}`, so one manifest works on any machine.
 
-**SessionStart** печатает ветку, состояние дерева, режим `verify`, счёт открытых задач плана и
-очередь фоновых красных. В проекте без `.harness/harness.json` он молчит: не ELT-проект — нечего
-говорить.
+**SessionStart** prints the branch, tree state, `verify` mode, the count of open plan tasks and
+the queue of background reds. In a project without `.harness/harness.json` it stays silent: not
+an ELT project, nothing to say.
 
-**Stop** не даёт закончить сессию, которая правила файлы в ELT-проекте и оставила дерево
-грязным. Незакоммиченная правка не попадает ни в run-log, ни под судью — то есть выпадает и из
-ревью, и из замера «доля работы через харнес». Гейт fail-open по построению: не ELT-проект,
-чистое дерево, правок этой сессии не было, транскрипт нечитаем — он молчит.
+**Stop** refuses to end a session that edited files in an ELT project and left the tree dirty.
+An uncommitted edit reaches neither the run-log nor the judge — it drops out of review *and* out
+of the "share of work through the harness" measurement. The gate is fail-open by construction:
+not an ELT project, a clean tree, no edits this session, or an unreadable transcript — and it
+says nothing.
 
-## 3. Codex и Gemini
+## 3. Codex and Gemini
 
-Claude получает `/elt` установкой плагина. Codex и Gemini читают скилы из своих домашних
-каталогов, поэтому туда кладётся копия того же самого файла:
+Claude gets `/elt` from the plugin installation. Codex and Gemini read skills from their own
+home directories, so a copy of the very same file is placed there:
 
 ```powershell
-node tools/host-surface.js --sync-clients --dry-run   # что изменится
-node tools/host-surface.js --sync-clients             # применить
+node tools/host-surface.js --sync-clients --dry-run   # what would change
+node tools/host-surface.js --sync-clients             # apply
 ```
 
-Команда переписывает ровно `~/.codex/skills/elt/SKILL.md` и `~/.gemini/skills/elt/SKILL.md`
-(и `~/.claude/...`, если там осталась старая копия) содержимым репозиторного
-`skills/elt/SKILL.md`, сохраняя прежнее рядом как `.bak-<timestamp>`. Она ничего не удаляет:
-ни чужие скилы, ни снятую развёртку `~/.claude/bin/elt.js`.
+The command rewrites exactly `~/.codex/skills/elt/SKILL.md` and `~/.gemini/skills/elt/SKILL.md`
+(and `~/.claude/...` if an old copy is still there) with the contents of the repository's
+`skills/elt/SKILL.md`, keeping the previous version alongside as `.bak-<timestamp>`. It deletes
+nothing — neither third-party skills nor the retired `~/.claude/bin/elt.js` deployment.
 
-Проверка паритета — `node tools/host-surface.js`. Строка `паритет клиентов` сверяет SHA-256, а
-не наличие файла:
+Parity check — `node tools/host-surface.js`. The `client parity` line compares SHA-256, not
+mere file presence:
 
 ```
-  [ok           ] паритет клиентов — источник 5.0.0 90dcc5e4b4f7
+  [ok           ] client parity — source 5.0.0 90dcc5e4b4f7
       claude: ok (5.0.0 90dcc5e4b4f7) — C:\Users\user\.claude\skills\elt\SKILL.md
-      codex: ok (5.0.0 90dcc5e4b4f7) — C:\Users\user\.codex\skills\elt\SKILL.md
+      codex:  ok (5.0.0 90dcc5e4b4f7) — C:\Users\user\.codex\skills\elt\SKILL.md
       gemini: ok (5.0.0 90dcc5e4b4f7) — C:\Users\user\.gemini\skills\elt\SKILL.md
 ```
 
-Почему по хешу: замер 2026-08-24 показал источник 5.0.0 и все три копии 4.0.0 — два клиента
-из трёх месяц читали снятый маршрут, и сверка «файл есть» этого не видела в принципе.
+Why by hash: a measurement on 2026-08-24 found the source at 5.0.0 and all three copies at
+4.0.0 — two clients out of three had been reading a retired route for a month, and a
+"the file exists" check could not see that in principle.
 
-## 4. Проект
+## 4. The project
 
-Плагин ставится ДО бутстрапа, поэтому `node bin/doctor.js` в чистом проекте зелёный:
-отсутствие `.harness/harness.json` — это `INFO`, а не отказ. Конфиг проекта создаёт `/elt`.
+The plugin is installed **before** bootstrap, which is why `node bin/doctor.js` is green in a
+clean project. The project config is created by `/elt`.
 
-## 5. Обновление и откат
+## 5. Update and rollback
 
 ```powershell
-claude plugin update elt          # обновить (нужен перезапуск)
-claude plugin uninstall elt@elt   # снять
+claude plugin update elt          # update (restart required)
+claude plugin uninstall elt@elt   # remove
 ```
 
-Версия обязана совпадать в `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` и во
-frontmatter `skills/elt/SKILL.md` — расхождение валит `claude plugin tag` при релизе, и
-`node bin/doctor.js` показывает его заранее отдельной строкой.
+The version must match in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and
+in the frontmatter of `skills/elt/SKILL.md` — a mismatch fails `claude plugin tag` at release
+time, and `node bin/doctor.js` shows it beforehand on its own line.
 
-## 6. Если ELT-хуки уже стоят глобально
+Rolling back to a previous version means reinstalling that version from the marketplace; the
+plugin keeps no state of its own outside the project, so removing it leaves `.harness/`,
+`.git/elt/run-log.jsonl` and the plans untouched.
 
-На машине, где ELT жил до плагина, `~/.claude/settings.json` может вызывать
-`~/.claude/hooks/elt-session-brief.js` и `~/.claude/hooks/dirty-exit-gate.js`. После установки
-плагина то же самое делают его хуки, и сводка печатается дважды.
+## 6. If ELT hooks are already installed globally
 
-Плагин их не трогает — это пользовательский профиль, и удалять оттуда файлы, чей источник ему
-неизвестен, он не имеет права. Убрать дубль можно вручную: снять две записи из
-`hooks` в `~/.claude/settings.json` (сами файлы можно оставить — они перестанут вызываться).
+On a machine where ELT lived before the plugin, `~/.claude/settings.json` may still call
+`~/.claude/hooks/elt-session-brief.js` and `~/.claude/hooks/dirty-exit-gate.js`. After the
+plugin is installed its own hooks do the same thing, and the summary is printed twice.
+
+The plugin does not touch them — that is the user profile, and it has no right to delete files
+whose origin it does not know. Remove the duplicate by hand: drop the two entries from `hooks`
+in `~/.claude/settings.json` (the files themselves can stay; they simply stop being called).
+
+## Troubleshooting
+
+Day-to-day symptoms and their causes are collected in
+[USAGE.md → Troubleshooting](USAGE.md#troubleshooting). For installation specifically:
+
+| symptom | cause | what to do |
+| --- | --- | --- |
+| `marketplace add` fails on a private repo | no GitHub access on this machine | `gh auth status`, then `gh auth login` |
+| `doctor` reports a version mismatch | `plugin.json`, `marketplace.json` and the skill frontmatter disagree | align all three, they are one version |
+| the session summary prints twice | old global hooks plus the plugin's own | see section 6 |
+| Codex/Gemini behave as if the skill were old | copies drifted from the source | `node tools/host-surface.js --sync-clients` |
