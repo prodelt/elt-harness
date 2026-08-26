@@ -11,6 +11,19 @@ function normalizePath(value) {
   return path.resolve(value).replace(/\\/g, '/');
 }
 
+// 021/T009 — на windows-latest os.tmpdir() отдаёт 8.3-короткое имя (RUNNER~1), а
+// `git rev-parse --show-toplevel` для того же каталога отдаёт длинную форму (runneradmin).
+// Строковое сравнение этих двух представлений одного и того же пути никогда не совпадёт —
+// см. тот же класс бага в tools/judge-core.js (externalRepoScopes).
+function canonicalPath(value) {
+  try {
+    const resolved = fs.realpathSync.native ? fs.realpathSync.native(value) : fs.realpathSync(value);
+    return resolved.replace(/\\/g, '/');
+  } catch {
+    return normalizePath(value);
+  }
+}
+
 const GIT_WORKFLOW_AUDIT_TTL_MS = 24 * 60 * 60 * 1000;
 const PLANNING_DIR = '.planning';
 const AUDIT_FILE_BASE = 'git-workflow-audit-latest';
@@ -154,8 +167,18 @@ function checkGitRoot(projectRoot) {
 
   const gitRootLower = gitRoot.toLowerCase();
   const projectRootLower = normalizedProject.toLowerCase();
+  const rawMismatch = !projectRootLower.startsWith(gitRootLower + '/') && projectRootLower !== gitRootLower;
+  // Строковое сравнение выше даёт ложный mismatch на 8.3-именах (см. canonicalPath) —
+  // прежде чем объявить mismatch, сверяем канонические (realpath) формы обеих сторон.
+  const mismatch = rawMismatch
+    ? (() => {
+        const gitRootCanon = canonicalPath(revParse.stdout).toLowerCase();
+        const projectRootCanon = canonicalPath(projectRoot).toLowerCase();
+        return !projectRootCanon.startsWith(gitRootCanon + '/') && projectRootCanon !== gitRootCanon;
+      })()
+    : false;
 
-  if (!projectRootLower.startsWith(gitRootLower + '/') && projectRootLower !== gitRootLower) {
+  if (mismatch) {
     return [
       result(
         'warn',
