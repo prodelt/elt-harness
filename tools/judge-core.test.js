@@ -304,7 +304,12 @@ test('externalRepoRoots: файл зоны в другом git-репо → ег
     }
     fs.writeFileSync(path.join(otherRepo, 'skill.md'), 'изменено\n');
     const roots = gate.externalRepoRoots(cwdRepo, [path.join(otherRepo, 'skill.md'), 'tools/local.js']);
-    assert.deepEqual(roots.map((r) => fs.realpathSync(r)), [fs.realpathSync(otherRepo)]);
+    // Обычный fs.realpathSync() НЕ разворачивает 8.3-имена (RUNNER~1) в длинную форму — на
+    // GitHub-раннере windows-latest os.tmpdir() отдаёт короткое имя, а `git rev-parse
+    // --show-toplevel` внутри externalRepoRoots — длинное; сравнение обеих сторон через
+    // .native делает проверку такой же канонической, как и сам продакшн-код.
+    const canon = (p) => (fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p));
+    assert.deepEqual(roots.map(canon), [canon(otherRepo)]);
     const diffs = gate.slurpExternalDiffs(cwdRepo, [path.join(otherRepo, 'skill.md')]);
     assert.equal(diffs.length, 1);
     assert.match(diffs[0].status, /skill\.md/);

@@ -72,7 +72,7 @@
   й у T008: свіжий push дає зелену матрицю на `windows-latest` і `ubuntu-latest`.
   [files: benchmarks/gemini-3.7-flash-high/runner.js .github/workflows/test.yml]
 
-- [ ] **T010** T009 частково помилилась з діагнозом. Run 32961892569: ubuntu-latest ЗЕЛЕНИЙ
+- [X] **T010** T009 частково помилилась з діагнозом. Run 32961892569: ubuntu-latest ЗЕЛЕНИЙ
   (`PYTHONDONTWRITEBYTECODE` дійсно був корінь) — але windows-latest лишився червоним, і
   `safe.directory '*'` нічого не полагодив: "dubious ownership" з T009 виявився хибним діагнозом.
   Справжня причина `generated planning state does not dirty-block closeout` — інша: `checkGitRoot`
