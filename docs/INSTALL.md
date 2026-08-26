@@ -40,14 +40,27 @@ elt-doctor — plugin elt 5.0.0
   [PASS] git on PATH — git version 2.51.0.windows.2
   [PASS] plugin.json — elt 5.0.0
   [PASS] marketplace.json agrees with plugin.json — marketplace elt 5.0.0
-  [PASS] bin/ entry points — 4
-  [PASS] bin/ closure resolves — 4 modules loaded
-  [PASS] plugin surface present — 10 files
+  [PASS] bin/ entry points — 6
+  [PASS] bin/ closure resolves — 6 modules loaded
+  [PASS] plugin surface present — 12 files
+  [PASS] surface fully declared (both directions) — 12 files cross-checked
+  [PASS] /elt: instruction closure — 7 links intact, version 5.0.0
+  [PASS] background: terminal state schema — 5 outcomes, priority red > dead > inconclusive holds
+  [PASS] plugin hooks — 2 events, 3 commands, every target present
+  [PASS] graph: canonical graph compiles — ready — graph 5.0.0, 8 nodes, 12 edges
+  [INFO] graph: run journal — no journal yet — no run has started
+  [INFO] packs: component registry — no registry — packs not connected
   [INFO] project: .harness/harness.json — no config — clean project; created by /elt
-  PASS=7 WARN=0 INFO=1 FAIL=0
+  PASS=12 WARN=0 INFO=3 FAIL=0
 ```
 
-A missing `.harness/harness.json` is `INFO`, not a failure.
+A missing `.harness/harness.json` is `INFO`, not a failure. After the first `/elt` bootstrap
+that line becomes `[PASS] project: .harness/harness.json — oracle: <your command>` and the
+count moves to `PASS=13 INFO=2`.
+
+This output is not decorative: `node tools/smoke-elt-deploy.js` reproduces both states
+mechanically (a clean directory, then a freshly bootstrapped git repository), and
+`tools/smoke-elt-deploy.test.js` fails if either stops holding.
 
 </details>
 

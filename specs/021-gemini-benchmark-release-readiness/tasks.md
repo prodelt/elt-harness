@@ -34,7 +34,7 @@
   Сторінка англомовна: README, обидва docs і benchmark-звіт — англійською, з діаграмами.
   [files: README.md docs/INSTALL.md docs/USAGE.md benchmarks/README.md benchmarks/gemini-3.7-flash-high/README.md benchmarks/gemini-3.7-flash-high/checksums.sha256 tools/elt.js tools/elt-cli.test.js tools/kpi-release-snapshot.json tools/kpi-commit-share.test.js bin/doctor.test.js specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.svg]
 
-- [ ] **T005** Довести реальну працездатність із чистого середовища: fresh project/plugin
+- [X] **T005** Довести реальну працездатність із чистого середовища: fresh project/plugin
   install, `bin/doctor`, first `/elt` bootstrap, Codex/Gemini surface parity та headless `agy`
   smoke на `gemini-3.7-flash-high`. Зберегти exact commands, exits і hashes у release evidence.
   [files: tools/smoke-elt-deploy.js tools/smoke-elt-deploy.test.js docs/INSTALL.md .planning/ELT-V5-RELEASE-CANDIDATE-2026-08-25.md]
