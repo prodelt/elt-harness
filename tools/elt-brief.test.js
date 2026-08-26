@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, test } = require('node:test');
 
-const { brief, format } = require('./elt-brief');
+const { brief, format, isRed } = require('./elt-brief');
 const ELT = path.join(__dirname, 'elt.js');
 const roots = [];
 after(() => { for (const r of roots) try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* windows lock */ } });
@@ -82,4 +82,36 @@ test('elt brief: CLI печатает человеку и --json машине; �
   const json = JSON.parse(run(['brief', 'hot.js', '--json']).stdout);
   assert.equal(json.reds, 3);
   assert.equal(run(['brief']).status, 4, 'без аргументов — отказ, а не brief по всему репо');
+});
+
+// 021 T006 — регресс, которого не было. Судья на b6cd3b4 (019/T001+T007) заблокировал слайс
+// именно за это: `isRed()` расширили с одного терминала фона на все не-зелёные, но ни одна
+// проверка на функцию не смотрела — «ни старая, ни новая логика не покрыты регрессом».
+// Строка провисела в очереди разбора до релизного гейта.
+//
+// Что защищается: brief — это то, что человек читает ПЕРЕД правкой файла. Если
+// `background-verify-dead` или `-inconclusive` снова станут «зелёными», в сводке пропадёт
+// сигнал «здесь не смогли проверить», и человек пойдёт править вслепую, думая, что чисто.
+test('isRed: каждый не-зелёный терминал фона считается красным, кроме -pass', () => {
+  for (const status of ['background-verify-red', 'background-verify-dead', 'background-verify-inconclusive', 'background-verify-error']) {
+    assert.equal(isRed({ status }), true, `${status} обязан читаться как красный: это «здесь не смогли проверить»`);
+  }
+  // Дискриминирующая половина: узкое сравнение `status === 'background-verify-red'` прошло бы
+  // проверку выше только для первого случая, а вот эту строку не переживёт ни одна реализация,
+  // которая красит фон целиком.
+  assert.equal(isRed({ status: 'background-verify-pass' }), false, 'зелёный терминал фона не может быть красным');
+});
+
+test('isRed: прямые вердикты гейта и посторонние статусы различаются', () => {
+  for (const e of [{ status: 'red-stop' }, { status: 'l0-block' }, { status: 'judge-block' }, { verdict: 'block' }]) {
+    assert.equal(isRed(e), true, `${JSON.stringify(e)} — красный`);
+  }
+  for (const e of [{ status: 'ok' }, { status: 'green' }, { verdict: 'pass' }, {}]) {
+    assert.equal(isRed(e), false, `${JSON.stringify(e)} не красный — иначе сводка станет сплошь красной и её перестанут читать`);
+  }
+  // Граница префикса: похожее имя из другого семейства цепляться не должно. Проверено
+  // фактом, а не предположением — `background-verification-passed` расходится с
+  // `background-verify` на 17-м символе, поэтому в красные не попадает.
+  assert.equal(isRed({ status: 'background-verification-passed' }), false,
+    'чужое имя, лишь похожее на префикс фона, не должно краснить сводку');
 });
