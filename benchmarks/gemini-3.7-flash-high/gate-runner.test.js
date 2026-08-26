@@ -216,9 +216,14 @@ test('hash-locked files are checked out with LF on every platform (CRLF breaks t
 test('every file in checksums.sha256 is pinned to LF by .gitattributes (git decides, not us)', () => {
   const { execFileSync } = require('child_process');
   const checksums = fs.readFileSync(path.join(__dirname, 'checksums.sha256'), 'utf8');
-  const files = checksums.split('\n').filter(Boolean)
-    .map((line) => line.slice(66).split(' ')[0])
-    .filter((f) => fs.existsSync(path.join(__dirname, f)));
+  // .trim() обязателен, а не косметика: сам checksums.sha256 под правило eol=lf НЕ попадает
+  // (он ничем не хешируется), поэтому на Windows-checkout его строки приходят с CRLF, и без
+  // обрезки имя файла получало хвостовой \r — existsSync давал false для ВСЕХ файлов, список
+  // становился пустым, и проверка падала на собственном разборе. Поймано фоновым прогоном на
+  // ecb8d38: тест про CRLF сломался от CRLF.
+  const files = checksums.split(/\r?\n/).filter(Boolean)
+    .map((line) => line.slice(66).trim().split(' ')[0])
+    .filter((f) => f && fs.existsSync(path.join(__dirname, f)));
   assert.ok(files.length >= 8, `в checksums найдено ${files.length} существующих файлов — разбор сломался`);
 
   const dir = path.basename(__dirname);
