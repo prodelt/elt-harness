@@ -58,3 +58,16 @@
   видаляти і не послаблювати. Критерій закриття — свіжий push дає зелену матрицю на
   `windows-latest` і `ubuntu-latest`.
   [files: .github/workflows/test.yml tools/adapters/openshell.js tools/adapters/openshell.test.js tools/doctor.test.js tools/doctor-core.js tools/project-docs-core.js tools/git-workflow-audit.js tools/git-workflow-audit.test.js tools/judge-core.js tools/judge-core.test.js tools/project-bootstrap.js tools/project-bootstrap.test.js benchmarks/gemini-3.7-flash-high/runner.test.js]
+
+- [ ] **T009** T008 закрита передчасно: коміт `8d92d9b` пройшов локальний гейт, але свіжий push
+  (run 32959223063) лишився червоним на ОБОХ платформах — той самий клас дефекту, що й D27/T001
+  ("закрита невірно, це записано тут, а не заглажено"). Ubuntu: `gradePolyglotWriter` тепер реально
+  кличе pytest, але `sol.py` переписується і перегрейдиться в межах однієї секунди — CPython кешує
+  `.pyc` по mtime, і другий прогін виконує СТАРИЙ байткод (`true == false` замість очікуваного fail
+  на свідомо зламаному рішенні). Windows: `runGitWorkflowAudit: generated planning state does not
+  dirty-block closeout` падає на `audit.summary.status` — тестовий репозиторій створюється під
+  `os.tmpdir()` (на windows-latest це `D:\a\_temp`, Dev Drive/ReFS), і git позначає щойно
+  ініціалізований СВОЇМ ЖЕ процесом репозиторій "dubious ownership"; `actions/checkout` реєструє
+  `safe.directory` лише для шляху чекауту, не для всього `D:\`. Критерій закриття — той самий, що
+  й у T008: свіжий push дає зелену матрицю на `windows-latest` і `ubuntu-latest`.
+  [files: benchmarks/gemini-3.7-flash-high/runner.js .github/workflows/test.yml]
