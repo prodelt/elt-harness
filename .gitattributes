@@ -1,1 +1,17 @@
 bin/ledger.js diff
+
+# 021 T003 (repair) — контур замера обязан приезжать с LF на любой платформе.
+#
+# Мотивирующий факт, пойманный фоновым судьёй на c5950b1 и подтверждённый живым клоном:
+# при core.autocrlf=true (дефолт Windows) git отдаёт gate-runner.js с 198 CRLF, и sha256
+# файла НА ДИСКЕ становится 5797e272… вместо зафиксированного в preregistration-gate.json
+# 0389af35… . Хеш-лок — заявленная «entire integrity story» gate-эксперимента — переставал
+# работать ровно у того, ради кого он заведён: у стороннего рецензента на Windows, который
+# получал exit 3 HASH-LOCK MISMATCH вместо прогона. А поскольку тот же слайс добавил
+# benchmarks/ третьим корнем механического оракула, это был ещё и красный оракул у каждого
+# нового пользователя.
+#
+# Чиним checkout, а не хеш: файл в git остаётся байт-в-байт тем же, что зарегистрирован,
+# preregistration не переписывается задним числом. Регресс — gate-runner.test.js
+# («hash-locked files are checked out with LF on every platform»).
+benchmarks/** text eol=lf

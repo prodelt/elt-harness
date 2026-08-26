@@ -1,21 +1,21 @@
 # Checkpoint (auto) — 2026-08-26
 
-Автозаписан `checkpoint-writer.js` на пороге ~332k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
+Автозаписан `checkpoint-writer.js` на пороге ~315k/1000k токенов (stage2) — ротация сессии, не ручной /checkpoint.
 
 ## Git
 - branch: `feature/elt-v5-one-hour`
-- dirty files: 5
+- dirty files: 13
 
 ## Last Run
 - commit: `(none)`
 - verdict: (none)
-- oracle exit: 1
+- oracle exit: 0
 - msg: 
 
 ## Next Slice
 - plan file: `specs\021-gemini-benchmark-release-readiness\tasks.md`
-- open: 4 / done: 3
-- next: T003 Виконати повний Gemini-only benchmark: paired writer A/B 30+30 на
+- open: 3 / done: 4
+- next: T004 Зробити GitHub front page release-grade: короткий перший екран, чесні badges,
 
 ## Resume Prompt
-/elt continue — план `specs\021-gemini-benchmark-release-readiness\tasks.md`, следующий слайс: T003 Виконати повний Gemini-only benchmark: paired writer A/B 30+30 на
+/elt continue — план `specs\021-gemini-benchmark-release-readiness\tasks.md`, следующий слайс: T004 Зробити GitHub front page release-grade: короткий перший екран, чесні badges,

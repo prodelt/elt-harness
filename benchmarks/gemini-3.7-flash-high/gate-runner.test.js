@@ -191,6 +191,28 @@ test('verifyGateRunnerHash: the committed preregistration-gate.json matches gate
   assert.equal(r.ok, true, `hash-lock разошёлся: ожидался ${r.expected}, реально ${r.actual}`);
 });
 
+// 021 T003 (repair). Найдено фоновым судьёй на c5950b1 и подтверждено живым клоном: при
+// core.autocrlf=true (дефолт Windows) git отдавал gate-runner.js с 198 CRLF, sha256 файла на
+// диске становился 5797e272… вместо зарегистрированного 0389af35…, и hash-lock ломался у
+// стороннего рецензента — ровно у того, ради кого он заведён.
+//
+// Тест проверяет ПРИЧИНУ (переводы строк), а не следствие (совпадение хешей): проверка выше
+// зелена в этом рабочем дереве и БЫЛА зелена, пока дефект жил, — потому что здесь файлы
+// лежат такими, какими их записали, а не такими, какими их отдаёт checkout.
+test('hash-locked files are checked out with LF on every platform (CRLF breaks the lock)', () => {
+  for (const rel of ['gate-runner.js', 'runner.js', 'build-gate-dataset.js', 'gate-summarize.js']) {
+    const raw = fs.readFileSync(path.join(__dirname, rel), 'utf8');
+    const crlf = (raw.match(/\r\n/g) || []).length;
+    assert.equal(crlf, 0, `${rel} лежит с ${crlf} CRLF — sha256 на диске разойдётся с preregistration (.gitattributes: benchmarks/** text eol=lf)`);
+  }
+});
+
+test('.gitattributes pins the benchmark contour to LF — without it the lock is inoperative on Windows', () => {
+  const attrs = fs.readFileSync(path.join(__dirname, '..', '..', '.gitattributes'), 'utf8');
+  assert.match(attrs, /^benchmarks\/\*\* +text +eol=lf$/m,
+    'правило LF для benchmarks/ снято — hash-lock снова сломается на любом Windows-клоне');
+});
+
 // --- dataset eligibility: the reason 9/30 negatives used to be free wins ---
 
 test('selectSweBenchInstances: single-hunk instances are excluded — an empty negative is a free reject', () => {
