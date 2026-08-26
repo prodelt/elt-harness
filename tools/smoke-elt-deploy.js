@@ -49,12 +49,75 @@ function smokeEltDeploy({ pluginRoot = PLUGIN_ROOT } = {}) {
   }
 }
 
+// 021 T005 — второй слой того же smoke: чистый ПРОЕКТ, а не чистый каталог.
+//
+// smokeEltDeploy выше отвечает на вопрос «плагин вообще запускается снаружи себя». Он не
+// отвечает на вопрос, ради которого человек ставит харнес: «я в новом репозитории — я получу
+// рабочий конфиг?». Между этими вопросами живёт целый класс отказов (доктор упал на проекте
+// без `.harness/`, `elt init` записал конфиг, который сам же доктор потом считает битым),
+// и до этой задачи его проверял только живой прогон руками — то есть никто.
+//
+// Проверка идёт в СВЕЖЕМ git-репозитории во временном каталоге: без него `elt init` не имеет
+// корня, а доктор судит не то дерево.
+function smokeFreshProject({ pluginRoot = PLUGIN_ROOT } = {}) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-fresh-project-'));
+  const runIn = (file, args) => spawnSync(process.execPath, [path.join(pluginRoot, file), ...args], { cwd: tmp, encoding: 'utf8' });
+  try {
+    for (const args of [['init', '-q'], ['config', 'user.email', 'smoke@elt.local'], ['config', 'user.name', 'smoke']]) {
+      const g = spawnSync('git', args, { cwd: tmp, encoding: 'utf8' });
+      if (g.status !== 0) return { ok: false, reason: 'git', detail: `git ${args[0]} упал: ${(g.stderr || '').slice(-300)}` };
+    }
+
+    // 1. Чистый проект БЕЗ конфига — доктор обязан быть зелёным. Отсутствие
+    // `.harness/harness.json` это INFO, а не отказ: плагин ставится ДО бутстрапа, и красный
+    // доктор в этот момент означал бы, что первый же шаг инструкции по установке лжёт.
+    const before = runIn(path.join('bin', 'doctor.js'), ['--json']);
+    if (before.status !== 0) {
+      return { ok: false, reason: 'doctor-clean', detail: `доктор в чистом проекте вернул ${before.status}: ${((before.stdout || '') + (before.stderr || '')).slice(-500)}` };
+    }
+
+    // 2. Первый bootstrap.
+    const init = runIn(path.join('tools', 'elt.js'), ['init', '--oracle', 'node --test']);
+    if (init.status !== 0) {
+      return { ok: false, reason: 'init', detail: `elt init вернул ${init.status}: ${((init.stdout || '') + (init.stderr || '')).slice(-500)}` };
+    }
+    const cfgPath = path.join(tmp, '.harness', 'harness.json');
+    if (!fs.existsSync(cfgPath)) return { ok: false, reason: 'init', detail: 'elt init отчитался успехом, но .harness/harness.json не появился' };
+    let cfg;
+    try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch (err) {
+      return { ok: false, reason: 'init', detail: `конфиг не разбирается как JSON: ${err.message}` };
+    }
+    if (cfg.oracle !== 'node --test') return { ok: false, reason: 'init', detail: `оракул в конфиге '${cfg.oracle}', а просили 'node --test'` };
+
+    // 3. Доктор ПОСЛЕ бутстрапа — он обязан увидеть свежесозданный конфиг проектом, а не
+    // промолчать. Именно эта половина ловит конфиг, который init пишет, а doctor не признаёт.
+    const after = runIn(path.join('bin', 'doctor.js'), ['--json']);
+    if (after.status !== 0) {
+      return { ok: false, reason: 'doctor-configured', detail: `доктор после init вернул ${after.status}: ${((after.stdout || '') + (after.stderr || '')).slice(-500)}` };
+    }
+    let report = null;
+    try { report = JSON.parse(after.stdout); } catch { /* ниже станет отказом */ }
+    const projectCheck = report && (report.checks || []).find((c) => /harness\.json/.test(c.name));
+    if (!projectCheck) return { ok: false, reason: 'doctor-configured', detail: 'доктор не сообщил о конфиге проекта вообще' };
+    if (projectCheck.status !== 'PASS') {
+      return { ok: false, reason: 'doctor-configured', detail: `доктор видит свой же свежий конфиг как ${projectCheck.status}: ${projectCheck.detail || ''}` };
+    }
+    return { ok: true, reason: 'ok', detail: `чистый проект: doctor PASS=${report.summary.pass}, оракул '${cfg.oracle}'` };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 function main() {
-  const r = smokeEltDeploy();
-  console.error(`smoke-elt-deploy: ${r.reason}${r.detail ? ' — ' + r.detail : ''}`);
-  process.exit(r.ok ? 0 : 1);
+  let failed = false;
+  for (const [name, fn] of [['plugin', smokeEltDeploy], ['fresh-project', smokeFreshProject]]) {
+    const r = fn();
+    console.error(`smoke-elt-deploy [${name}]: ${r.reason}${r.detail ? ' — ' + r.detail : ''}`);
+    if (!r.ok) failed = true;
+  }
+  process.exit(failed ? 1 : 0);
 }
 
 if (require.main === module) main();
 
-module.exports = { smokeEltDeploy, PLUGIN_ROOT };
+module.exports = { smokeEltDeploy, smokeFreshProject, PLUGIN_ROOT };
