@@ -1,6 +1,6 @@
 {
   "schema": "elt-benchmark-results/v1",
-  "generatedAt": "2026-08-25T23:17:56.834Z",
+  "generatedAt": "2026-08-26T06:20:37.284Z",
   "runnerSha256": "a65f583b7106010843cf06fbfcad6c57e6d105919fd52d8f26e6c4ed5ef463c1",
   "datasetSha256": "e70ab9e3a313d0288694acbaafd302d3a21bff5d9e43c028a9030e1db6fef27a",
   "writer": {
@@ -47,10 +47,132 @@
     }
   },
   "gate": {
-    "status": "not-run",
+    "status": "complete",
     "experimentId": "gate-bare-vs-judgeDiff",
-    "reason": "graderFor('swebench-gate') намеренно бросает not-implemented — нет реального SWE-bench test harness (bare-*) и judgeDiff-* не адаптирован под внешний дифф (см. README.md \"Известное ограничение\")"
+    "preregistration": "preregistration-gate.json",
+    "summary": {
+      "schema": "elt-gate-summary/v1",
+      "generatedAt": "2026-08-26T06:20:08.962Z",
+      "kind": "swebench-gate",
+      "datasetSha256": "db914ad41dcb5d806df62dce55d4d24068a8ca13533bd67ea17d2ca90b272ef0",
+      "n": 30,
+      "cells": 60,
+      "hands": [
+        {
+          "hand": "bare-gold",
+          "analytic": true,
+          "expect": "accept",
+          "n": 30,
+          "terminal": 30,
+          "incomplete": 0,
+          "correct": 30,
+          "wrong": 0,
+          "invalid": 0,
+          "graded": 30,
+          "accuracy": 1,
+          "verdicts": {
+            "analytic-accept": 30
+          }
+        },
+        {
+          "hand": "bare-broken",
+          "analytic": true,
+          "expect": "reject",
+          "n": 30,
+          "terminal": 30,
+          "incomplete": 0,
+          "correct": 0,
+          "wrong": 30,
+          "invalid": 0,
+          "graded": 30,
+          "accuracy": 0,
+          "verdicts": {
+            "analytic-accept": 30
+          }
+        },
+        {
+          "hand": "judgeDiff-gold",
+          "analytic": false,
+          "expect": "accept",
+          "n": 30,
+          "terminal": 30,
+          "incomplete": 0,
+          "correct": 30,
+          "wrong": 0,
+          "invalid": 0,
+          "graded": 30,
+          "accuracy": 1,
+          "verdicts": {
+            "pass": 30
+          }
+        },
+        {
+          "hand": "judgeDiff-broken",
+          "analytic": false,
+          "expect": "reject",
+          "n": 30,
+          "terminal": 30,
+          "incomplete": 0,
+          "correct": 21,
+          "wrong": 9,
+          "invalid": 0,
+          "graded": 30,
+          "accuracy": 0.7,
+          "verdicts": {
+            "block": 21,
+            "pass": 9
+          }
+        }
+      ],
+      "arms": {
+        "bare": {
+          "correct": 30,
+          "graded": 60,
+          "incomplete": 0,
+          "invalid": 0,
+          "accuracy": 0.5,
+          "ci95": {
+            "lo": 0.37734812427246284,
+            "hi": 0.6226518757275372
+          },
+          "analytic": true
+        },
+        "judgeDiff": {
+          "correct": 51,
+          "graded": 60,
+          "incomplete": 0,
+          "invalid": 0,
+          "accuracy": 0.85,
+          "ci95": {
+            "lo": 0.7388517410884039,
+            "hi": 0.9190265075770431
+          },
+          "analytic": false
+        }
+      },
+      "failureModes": {
+        "failOpen": 9,
+        "failOpenOf": 30,
+        "falseBlock": 0,
+        "falseBlockOf": 30,
+        "modelCalls": 60,
+        "latencySec": {
+          "p50": 21.026,
+          "p90": 25.309,
+          "n": 60
+        },
+        "verdictMix": {
+          "block": 21,
+          "pass": 39
+        }
+      },
+      "delta": 0.35,
+      "claimEligible": true,
+      "claimEligibleReason": "обе клетки измеряемой руки judgeDiff терминальны на каждом инстансе датасета",
+      "endpointNote": "gate discrimination (вердикт против известной по построению природы патча); НЕ resolve rate — тесты SWE-bench не запускались ни в одной руке"
+    }
   },
-  "claimEligibleOverall": false,
-  "claimEligibleOverallReason": "writerExperiment.claimEligible=true, но gateExperiment не выполнен — заявленный в T003 полный Gemini-only benchmark (writer A/B + gate A/B) неполон; claim допустим только по writer-плечу отдельно."
+  "claimEligibleOverall": true,
+  "claimEligibleOverallReason": "оба эксперимента выполнены полностью: writer 30+30 терминальных пар, gate 60/60 терминальных клеток измеряемой руки. Рука bare gate-эксперимента аналитическая (см. preregistration-gate.json.deviationsFromFrozenRegistration) — resolve rate НЕ измерялся ни в одном плече.",
+  "gateRunnerSha256": "0389af35324a20414b63899097180f382a6ba39010033e990ca49bc8f651a91d"
 }

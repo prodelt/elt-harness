@@ -1,0 +1,121 @@
+{
+  "schema": "elt-gate-summary/v1",
+  "generatedAt": "2026-08-26T06:20:08.962Z",
+  "kind": "swebench-gate",
+  "datasetSha256": "db914ad41dcb5d806df62dce55d4d24068a8ca13533bd67ea17d2ca90b272ef0",
+  "n": 30,
+  "cells": 60,
+  "hands": [
+    {
+      "hand": "bare-gold",
+      "analytic": true,
+      "expect": "accept",
+      "n": 30,
+      "terminal": 30,
+      "incomplete": 0,
+      "correct": 30,
+      "wrong": 0,
+      "invalid": 0,
+      "graded": 30,
+      "accuracy": 1,
+      "verdicts": {
+        "analytic-accept": 30
+      }
+    },
+    {
+      "hand": "bare-broken",
+      "analytic": true,
+      "expect": "reject",
+      "n": 30,
+      "terminal": 30,
+      "incomplete": 0,
+      "correct": 0,
+      "wrong": 30,
+      "invalid": 0,
+      "graded": 30,
+      "accuracy": 0,
+      "verdicts": {
+        "analytic-accept": 30
+      }
+    },
+    {
+      "hand": "judgeDiff-gold",
+      "analytic": false,
+      "expect": "accept",
+      "n": 30,
+      "terminal": 30,
+      "incomplete": 0,
+      "correct": 30,
+      "wrong": 0,
+      "invalid": 0,
+      "graded": 30,
+      "accuracy": 1,
+      "verdicts": {
+        "pass": 30
+      }
+    },
+    {
+      "hand": "judgeDiff-broken",
+      "analytic": false,
+      "expect": "reject",
+      "n": 30,
+      "terminal": 30,
+      "incomplete": 0,
+      "correct": 21,
+      "wrong": 9,
+      "invalid": 0,
+      "graded": 30,
+      "accuracy": 0.7,
+      "verdicts": {
+        "block": 21,
+        "pass": 9
+      }
+    }
+  ],
+  "arms": {
+    "bare": {
+      "correct": 30,
+      "graded": 60,
+      "incomplete": 0,
+      "invalid": 0,
+      "accuracy": 0.5,
+      "ci95": {
+        "lo": 0.37734812427246284,
+        "hi": 0.6226518757275372
+      },
+      "analytic": true
+    },
+    "judgeDiff": {
+      "correct": 51,
+      "graded": 60,
+      "incomplete": 0,
+      "invalid": 0,
+      "accuracy": 0.85,
+      "ci95": {
+        "lo": 0.7388517410884039,
+        "hi": 0.9190265075770431
+      },
+      "analytic": false
+    }
+  },
+  "failureModes": {
+    "failOpen": 9,
+    "failOpenOf": 30,
+    "falseBlock": 0,
+    "falseBlockOf": 30,
+    "modelCalls": 60,
+    "latencySec": {
+      "p50": 21.026,
+      "p90": 25.309,
+      "n": 60
+    },
+    "verdictMix": {
+      "block": 21,
+      "pass": 39
+    }
+  },
+  "delta": 0.35,
+  "claimEligible": true,
+  "claimEligibleReason": "обе клетки измеряемой руки judgeDiff терминальны на каждом инстансе датасета",
+  "endpointNote": "gate discrimination (вердикт против известной по построению природы патча); НЕ resolve rate — тесты SWE-bench не запускались ни в одной руке"
+}

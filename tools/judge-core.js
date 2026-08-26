@@ -880,4 +880,7 @@ async function gate({ tid, taskText = '', cwd = process.cwd(), elt = ELT_CLI, ju
   return { ok: true, tid, verdict, judgeLog: j.judgeLog };
 }
 
-module.exports = { gate, runJudge, reviewTransport, reviewConfigOf, judgeDiff, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly };
+// judgeDiffRetryNoReasons экспортируется наравне с judgeDiff: это и есть путь, которым
+// судью зовёт сам гейт (runJudge), поэтому любой внешний замер гейта обязан звать ЕГО, а
+// не голый judgeDiff — иначе меряется не тот контур, что работает в проде (021 T003).
+module.exports = { gate, runJudge, reviewTransport, reviewConfigOf, judgeDiff, judgeDiffRetryNoReasons, JUDGE_ALTS, parseVerdict, parseReasons, parseFilesReviewed, diffFileList, checkGrounding, judgePrompt, loadRubric, findSpecDir, specArgsFor, normalizeWorktree, scopeFilesFromTask, inScope, mergeBase, externalRepoRoots, slurpExternalDiffs, slurpDiff, splitDiffSections, budgetDiff, reasonsAreNoiseOnly };

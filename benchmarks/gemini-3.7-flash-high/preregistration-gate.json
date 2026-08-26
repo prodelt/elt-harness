@@ -1,0 +1,91 @@
+{
+  "schema": "elt-benchmark-preregistration/v2",
+  "registeredAt": "2026-08-26",
+  "experimentId": "gate-bare-vs-judgeDiff",
+  "immutableAfterFirstResult": true,
+  "supersedes": null,
+  "narrows": "preregistration.json#gateExperiment",
+
+  "whySeparateFile": "preregistration.json заморожен: в writer-results.jsonl уже есть результаты, а его собственное правило immutableAfterFirstResult запрещает править протокол задним числом. Gate-плечо там описано в форме, которая в этом репозитории неисполнима (см. deviationsFromFrozenRegistration). Вместо переписывания замороженного файла — отдельная регистрация СУЖЕННОГО эксперимента, зарегистрированная ДО первой строки gate-results.jsonl (файла на момент регистрации не существует — проверено). Замороженный gateExperiment остаётся в силе как неисполненный: то, что здесь сделано, его не заменяет и не закрывает.",
+
+  "runner": {
+    "file": "gate-runner.js",
+    "sha256": "0389af35324a20414b63899097180f382a6ba39010033e990ca49bc8f651a91d",
+    "note": "Отдельный от runner.js файл ИМЕННО чтобы не ломать hash-lock уже завершённого writer-эксперимента. main() отказывается стартовать (exit 3), если реальный sha256 разойдётся с этим значением; то же проверяет gate-runner.test.js на каждом прогоне оракула."
+  },
+
+  "deviationsFromFrozenRegistration": {
+    "note": "Отклонения от preregistration.json#gateExperiment, записанные ДО первого результата. Каждое сужает claim, ни одно его не расширяет.",
+    "bareArmIsAnalyticNotMeasured": {
+      "frozenSaid": "arms.bare — «gold и broken патчи идут grader'у напрямую», primaryEndpoint «исход grader'а напрямую»",
+      "actual": "Рука bare не вызывает ни модель, ни grader. «bare» = «гейта нет», а конвейер без гейта пропускает ЛЮБОЙ патч по определению — его решение accept на всех 2N клетках аналитически, а не по наблюдению. Каждая строка помечена analytic:true.",
+      "why": "Настоящий grader требует per-instance SWE-bench окружения (docker на репозиторий при base_commit, прогон FAIL_TO_PASS/PASS_TO_PASS). Такого харнеса в репозитории нет, и он не строится в рамках T003.",
+      "costToClaim": "Из эксперимента исчезает resolve rate. Остаётся ТОЛЬКО gate discrimination. Заявлять «ELT повышает долю решённых задач» на этих данных нельзя."
+    },
+    "endpointNarrowedToDiscrimination": {
+      "frozenSaid": "для judgeDiff — согласие вердикта судьи с ожиданием (accept на gold, reject на broken)",
+      "actual": "Это плечо исполнено ДОСЛОВНО как заморожено — grader в нём не участвовал и по замороженному тексту не должен был. Изменился только headline: он считается по 2N клеткам обеих рук вместе, а не по руке judgeDiff отдельно.",
+      "why": "Гейт, отвергающий всё подряд, даёт 100% на broken-половине и 0% на gold-половине. Только объединённое число по 2N клеткам это показывает (gate-runner.test.js: «a judge that blocks EVERYTHING does not score above bare»)."
+    },
+    "datasetEligibilityFilter": {
+      "frozenSaid": "механическая порча: у последнего hunk последней секции файла в unified diff (stripLastHunk)",
+      "actual": "Порча та же, но инстансы, у которых gold-патч имеет один hunk, исключены из выборки: stripLastHunk сносит у них всю секцию файла, и негатив вырождается в ПУСТОЙ дифф.",
+      "measured": "На первой сборке этого датасета 9 из 30 негативов оказались пустыми — 30% негативного плеча судья отверг бы даром, не читая. Фильтр введён ДО первого результата (gate-results.jsonl не существовал).",
+      "costToClaim": "Sampling frame сужен: результат относится к многохунковым патчам SWE-bench Verified, а не ко всем."
+    },
+    "judgeCoreNeededNoAdaptation": {
+      "frozenSaid": "README.md (T003 partial): judgeDiff не адаптирован под внешний дифф, checkGrounding читает реальный git-статус в cwd",
+      "actual": "Это было неверно про сам код. judgePrompt() не читает диск, а `status` и `diff` — параметры judgeDiff(). Единственная правка в tools/judge-core.js — экспорт judgeDiffRetryNoReasons (гейт зовёт судью именно через него; внешний замер обязан звать тот же путь, иначе меряется не прод-контур).",
+      "costToClaim": "нет — это устранение ложного блокера, а не послабление"
+    }
+  },
+
+  "dataset": {
+    "kind": "swebench-gate",
+    "source": "SWE-bench Verified (princeton-nlp/SWE-bench_Verified), локальный HF-кеш, 500 инстансов, экспорт export-swebench.py (чистая конверсия формата: без отбора, фильтрации и смены порядка)",
+    "count": 30,
+    "seed": "elt-021-gate-30-2026-08-26",
+    "datasetSha256": "db914ad41dcb5d806df62dce55d4d24068a8ca13533bd67ea17d2ca90b272ef0",
+    "eligibility": "instance_id + repo + patch + problem_statement присутствуют И stripLastHunk(patch) даёт непустой дифф, отличный от gold. См. deviationsFromFrozenRegistration.datasetEligibilityFilter.",
+    "balance": "round-robin по repo (build-gate-dataset.js:selectSweBenchInstances) — 11 репозиториев, 2-3 инстанса на репозиторий",
+    "seedNote": "тот же repo/instances + count + seed обязаны дать байт-идентичный dataset.json (gate-runner.test.js + runner.test.js: determinism)"
+  },
+
+  "arms": {
+    "bare": {
+      "judge": "none",
+      "kind": "analytic",
+      "decisionRule": "accept на каждой клетке — конвейер без гейта пропускает всё",
+      "expectedAccuracy": 0.5,
+      "expectedAccuracyNote": "Ровно 50% на сбалансированной по построению выборке (N gold + N broken). Это не предсказание и не оценка — это определение отсутствия гейта."
+    },
+    "judgeDiff": {
+      "judge": "tools/judge-core.js judgeDiffRetryNoReasons()",
+      "kind": "measured",
+      "provider": "agy",
+      "model": "gemini-3.7-flash-high",
+      "input": "tid = instance_id, taskText = problem_statement инстанса, diff = патч (gold или broken), status = синтезированный из самого патча git status --porcelain",
+      "promptNote": "Промпт судьи используется БЕЗ изменений — включая формулировки про слайс и зелёный оракул. Это намеренно: измеряется гейт, который реально стоит в ELT, а не идеализированный судья, переписанный под бенчмарк."
+    }
+  },
+
+  "protocol": {
+    "cells": "2N = 60 клеток на руку: N gold + N broken",
+    "primaryEndpoint": "gate discrimination — доля клеток, где решение руки совпало с известной по построению природой патча (gold → accept, broken → reject), по 2N клеткам обеих половин вместе",
+    "decisionMapping": "block → reject; pass И inconclusive → accept. Это семантика самого ELT (inconclusive коммитится с записью в очередь ревью), а не более строгое бенчмарк-чтение: считать inconclusive отказом значило бы записать гейту поимку, которой он не делает.",
+    "notMeasured": "resolve rate. Ни один тест SWE-bench не запускался ни в одной руке.",
+    "retryPolicy": "только transport-failure (runner.js:classifyFailure), максимум --retry-max попыток; content-отказ не ретраится",
+    "guard": "candidate.patch на диске — held-out артефакт; sha256 до/после вызова судьи должен совпасть (судья зовётся readOnly), иначе outcome=invalid",
+    "resume": "(id, hand) с терминальным outcome (pass/fail/invalid) пропускаются при повторном запуске; transport-failure не терминален"
+  },
+
+  "claimLimits": {
+    "allowed": "Directional claim о РАЗЛИЧАЮЩЕЙ способности гейта на многохунковых патчах SWE-bench Verified, с Wilson 95% CI по 60 клеткам измеряемой руки.",
+    "forbidden": [
+      "любое утверждение о доле решённых задач (resolve rate) — тесты не запускались",
+      "перенос вывода на одно-hunk патчи — они исключены из выборки",
+      "объединение с writer-результатами в одно число: это разные эксперименты с разными endpoint'ами",
+      "закрытие замороженного preregistration.json#gateExperiment — он остаётся неисполненным"
+    ]
+  }
+}
