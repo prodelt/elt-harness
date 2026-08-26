@@ -45,6 +45,13 @@ jobs:
 
       # Тесты создают git-фикстуры и коммитят в них. Без личности и без имени ветки по
       # умолчанию `git commit` в фикстуре падает, и красным станет весь сьют, а не код.
+      #
+      # 021/T008 — `safe.directory '*'`: тестовые фикстуры создаются під os.tmpdir(), а на
+      # windows-latest це `D:\a\_temp` (Dev Drive/ReFS). git там повідомляє "dubious ownership"
+      # для щойно створеного СВОЇМ ЖЕ процесом репозиторію — actions/checkout додає
+      # safe.directory лише для шляху чекауту, а не для всього D:\. Ефемерний CI-раннер, а не
+      # чиясь машина, тому '*' тут безпечний — це не той хук, про який попереджає коментар у
+      # tools/git-workflow-audit.js.
       - name: git identity для фикстур
         shell: bash
         run: |
@@ -52,6 +59,7 @@ jobs:
           git config --global user.name "oracle"
           git config --global init.defaultBranch main
           git config --global commit.gpgsign false
+          git config --global --add safe.directory '*'
 
       # 020 T011 — герметичность прогона утверждается ЯВНО и ДО оракула. Раньше два файла
       # сьюта читали `os.homedir()` живой машины: у разработчика они были зелёными, здесь —

@@ -214,7 +214,13 @@ function pytestCommand(testFile) {
 async function gradePolyglotWriter({ workDir, item }) {
   const { spawnSync } = require('child_process');
   const [cmd, cmdArgs] = pytestCommand(item.guardPath);
-  const res = spawnSync(cmd, cmdArgs, { cwd: workDir, encoding: 'utf8', timeout: 120000 });
+  // PYTHONDONTWRITEBYTECODE: workDir gets sol.py overwritten and re-graded within the
+  // same second (fixture rewrite, resubmission after a fix). CPython's import cache keys
+  // .pyc invalidation off source mtime; on a filesystem with 1s mtime resolution two writes
+  // in one tick look "unchanged", and the second pytest run silently re-executes the FIRST
+  // sol.py from stale bytecode — a false pass on genuinely broken code. Caught on CI Ubuntu.
+  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' };
+  const res = spawnSync(cmd, cmdArgs, { cwd: workDir, encoding: 'utf8', timeout: 120000, env });
   const output = `${res.stdout || ''}${res.stderr || ''}`;
   return { pass: res.status === 0, detail: output.trim().slice(-2000) };
 }

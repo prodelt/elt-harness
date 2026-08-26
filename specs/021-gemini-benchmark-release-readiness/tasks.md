@@ -59,7 +59,7 @@
   `windows-latest` і `ubuntu-latest`.
   [files: .github/workflows/test.yml tools/adapters/openshell.js tools/adapters/openshell.test.js tools/doctor.test.js tools/doctor-core.js tools/project-docs-core.js tools/git-workflow-audit.js tools/git-workflow-audit.test.js tools/judge-core.js tools/judge-core.test.js tools/project-bootstrap.js tools/project-bootstrap.test.js benchmarks/gemini-3.7-flash-high/runner.test.js]
 
-- [ ] **T009** T008 закрита передчасно: коміт `8d92d9b` пройшов локальний гейт, але свіжий push
+- [X] **T009** T008 закрита передчасно: коміт `8d92d9b` пройшов локальний гейт, але свіжий push
   (run 32959223063) лишився червоним на ОБОХ платформах — той самий клас дефекту, що й D27/T001
   ("закрита невірно, це записано тут, а не заглажено"). Ubuntu: `gradePolyglotWriter` тепер реально
   кличе pytest, але `sol.py` переписується і перегрейдиться в межах однієї секунди — CPython кешує
