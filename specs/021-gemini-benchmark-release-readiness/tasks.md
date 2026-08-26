@@ -57,4 +57,4 @@
   довести до platform-hermetic контракту з найменшим discriminating regression; тести не
   видаляти і не послаблювати. Критерій закриття — свіжий push дає зелену матрицю на
   `windows-latest` і `ubuntu-latest`.
-  [files: .github/workflows/test.yml tools/adapters/openshell.test.js tools/doctor.test.js tools/git-workflow-audit.js tools/git-workflow-audit.test.js tools/judge-core.test.js tools/project-bootstrap.test.js benchmarks/gemini-3.7-flash-high/runner.test.js]
+  [files: .github/workflows/test.yml tools/adapters/openshell.js tools/adapters/openshell.test.js tools/doctor.test.js tools/doctor-core.js tools/project-docs-core.js tools/git-workflow-audit.js tools/git-workflow-audit.test.js tools/judge-core.js tools/judge-core.test.js tools/project-bootstrap.js tools/project-bootstrap.test.js benchmarks/gemini-3.7-flash-high/runner.test.js]
