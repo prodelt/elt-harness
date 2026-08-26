@@ -1,291 +1,412 @@
-# ELT — харнес для Claude Code
+<p align="center">
+  <strong>ELT</strong><br />
+  <sub>a harness for Claude Code that keeps unverified work out of <code>main</code></sub>
+</p>
 
-Плагин, который делает работу с кодом проверяемой: механический оракул перед судьёй, пять
-линз ревью с отсечкой по уверенности, и журнал, в который харнес записывает собственные
-промахи.
+<p align="center">
+  <img src="https://img.shields.io/badge/oracle-108%2F108-brightgreen" alt="oracle 108/108" />
+  <img src="https://img.shields.io/badge/gate%20accuracy-85.0%25-brightgreen" alt="gate accuracy 85.0%" />
+  <img src="https://img.shields.io/badge/false--block-0%2F30-brightgreen" alt="false-block 0/30" />
+  <img src="https://img.shields.io/badge/commits%20via%20harness-100%25-brightgreen" alt="commits via harness 100%" />
+  <img src="https://img.shields.io/badge/blocking%20defects-0-brightgreen" alt="blocking defects 0" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
+</p>
 
-Он построен на себе самом. Все числа ниже сняты с этого репозитория командами, которые тут же
-и указаны — их можно перепроверить, а не поверить.
+<p align="center">
+  <a href="#quick-start--5-minutes">Quick start</a> ·
+  <a href="#how-the-harness-works">How it works</a> ·
+  <a href="#does-the-harness-actually-help">Benchmark</a> ·
+  <a href="docs/INSTALL.md">Install</a> ·
+  <a href="docs/USAGE.md">Usage</a> ·
+  <a href="#defect-registry">Known defects</a>
+</p>
 
-## Установка
+---
+
+# ELT — a harness for Claude Code
+
+A mechanical oracle before the judge, **exactly one** judge, five parallel review lenses behind
+a confidence cutoff — and a ledger where the harness records its own misses.
+
+Measured on someone else's benchmark: the gate caught **21 broken patches out of 30** while
+rejecting **zero correct ones**. It does **not** make the writer smarter, and this README says
+so with the numbers — [see why that distinction is the whole point](#does-the-harness-actually-help).
+
+> [!NOTE]
+> Every number on this page comes from the command printed next to it and is locked to
+> `tools/kpi-release-snapshot.json` by `node tools/kpi-commit-share.test.js`. This page cannot
+> drift from the snapshot silently — that regression exists because it already had, once.
+
+---
+
+## Quick start — 5 minutes
 
 ```powershell
+# 1. install the plugin (private repo: gh access to prodelt/elt-harness required)
 claude plugin marketplace add prodelt/elt-harness
 claude plugin install elt@elt
+
+# 2. verify the plugin closure is intact
+node bin/doctor.js
+
+# 3. in your own project — create the harness config and close the first slice
+/elt
 ```
 
-Репозиторий приватный: GitHub-доступ к `prodelt/elt-harness` должен быть настроен на машине,
-с которой ставится marketplace. Для разработки локальный путь также поддерживается.
+In a clean project `doctor` is green: a missing `.harness/harness.json` is `INFO`, not a
+failure. `/elt` creates the config itself.
 
-Проверка установки — `/elt-doctor`. В чистом проекте он зелёный: отсутствие
-`.harness/harness.json` это `INFO`, а не отказ.
-
-```
-elt-doctor — плагин elt 5.0.0
-  [PASS] node >= 18 — node 24.14.0
-  [PASS] git на PATH — git version 2.51.0.windows.2
-  [PASS] plugin.json — elt 5.0.0
-  [PASS] marketplace.json согласован с plugin.json — marketplace elt 5.0.0
-  [PASS] точки входа bin/ — 4 шт.
-  [PASS] замыкание bin/ резолвится — 4 модулей загружены
-  [PASS] поверхность плагина на месте — 10 файлов
-  [INFO] проект: .harness/harness.json — конфига нет — чистый проект; создаётся командой /elt
-  PASS=7 WARN=0 INFO=1 FAIL=0
-```
-
-## Четыре входа
-
-| команда | что делает |
-| --- | --- |
-| `/elt` | слайс под гейтом: план по необходимости, оракул, один судья, коммит |
-| `/elt-verify` | ревью изменений пятью линзами параллельно, отсечка по уверенности 80 |
-| `/elt-defects` | журнал расхождений вердикта с реальностью; пять записей одного правила поднимают его на разбор |
-| `/elt-doctor` | цело ли замыкание плагина и настроен ли харнес проекта |
-
-## Что здесь измеряется и чем
-
-### Доля коммитов, прошедших через харнес
-
-Единственное число, которым харнес отчитывается о себе. Всё остальное — покрытие, число
-правил, время гейта — измеряет механизм, который может стоять выключенным.
-
-Запрошенная в спеке стрелка `18,6% → 62,0%` **не является одной выборкой**: 18,6% — старый
-концептуальный снимок нескольких проектов (41/220), а 62,0% — снимок только этого репозитория
-(49/79). Склеить их означало бы показать искусственный рост. Сопоставимые ряды такие:
-
-| выборка | на 2026-08-21 | на 2026-08-24 |
-| --- | --- | --- |
-| те же три проекта | 48,2% (106/220) | **53,8% (121/225)** |
-| только этот репозиторий | 58,7% (37/63) | **76,5% (52/68)** |
-
-Обе колонки — снимки с фиксированной датой, а не «сегодня»: числа живут в
-`tools/kpi-release-snapshot.json` (`asOf: 2026-08-24`), и регресс
-`node tools/kpi-commit-share.test.js` краснеет, если README и снимок разошлись.
-
-Историческая точка фазы 1 `59,5% → 62,0%` остаётся в подписанном снимке спеки 018; проверить
-сам снимок можно командой `git show a2cdabe:.planning/STATE.md | Select-String '59,5|62,0'`.
-Исходные 18,6% (41/220) — командой
-`git show 3376247:.planning/ELT-V5-CONCEPT-2026-08-22.html | Select-String '41 КОММИТ'`.
-
-Метод: сверка `.git/elt/run-log.jsonl` с `git log` **по хешу**, а не по времени. Сверка по
-времени завышала долю — коммит, сделанный руками через минуту после прогона харнеса, попадал
-в окно.
-
-Скрипт печатает и то, что прошло мимо, поимённо. Сегодня это почти целиком авточекпоинты и
-документные коммиты — то есть класс, для которого двери в харнесе пока нет.
-
-**Сводную выборку по нескольким репозиториям и однорепную смешивать нельзя:** знаменатель
-разный, и «доля упала» будет значить лишь, что в выборку добавился чужой проект.
+<details>
+<summary><strong>What a first slice actually looks like</strong></summary>
 
 ```powershell
-node tools/kpi-commit-share.js --days 14 --as-of 2026-08-24 `
+# what to do next
+node tools/elt.js status
+node tools/elt.js slice next --spec specs/021-gemini-benchmark-release-readiness
+
+# ...write the code and the smallest regression that proves this branch...
+
+# the gate chain — ONE pass, no writes to the tree in between
+node tools/elt.js oracle --full
+node tools/elt.js judge run --task T003 --spec specs/021-gemini-benchmark-release-readiness
+node tools/elt.js commit    --task T003 --spec specs/021-gemini-benchmark-release-readiness `
+  --skip-oracle -m "feat: description"
+```
+
+The last step produces three things at once: the commit, the `[X]` in the plan, and a row in
+`.git/elt/run-log.jsonl`. That row is the only proof the commit was gated.
+
+</details>
+
+→ **[Install, update, rollback](docs/INSTALL.md)** · **[Daily usage &
+troubleshooting](docs/USAGE.md)** · **[Benchmark evidence](benchmarks/gemini-3.7-flash-high/README.md)**
+
+---
+
+## How the harness works
+
+The full loop, from a goal to a commit that counts. Everything in blue is mechanical and costs
+no model call.
+
+```mermaid
+flowchart TD
+  subgraph PLAN["1 · Plan — only for a large goal"]
+    direction TB
+    G["a goal"] --> S["specs/NNN/spec.md<br/>+ tasks.md"]
+    S --> A["elt spec approve<br/><i>signature lives in git trailers</i>"]
+  end
+
+  A --> SL
+
+  subgraph SLICE["2 · Slice — one open task at a time"]
+    direction TB
+    SL["elt slice next"] --> W["writer produces code<br/>+ the smallest regression"]
+  end
+
+  W --> L0
+
+  subgraph GATE["3 · Gate"]
+    direction TB
+    L0{"L0 — mechanics<br/>no model call"}
+    L0 -->|low risk| CM
+    L0 -->|risk possible| OR
+    OR{"oracle<br/>the project's own command"}
+    OR -->|red| FIX["STOP · fix the cause<br/><i>max 2 narrow attempts</i>"]
+    OR -->|green| JD{"exactly one judge<br/>judgeDiff"}
+    JD -->|block| FIX
+    JD -->|inconclusive| RQ["review-queue.jsonl"]
+    JD -->|pass| CM
+    RQ --> CM
+  end
+
+  FIX -.->|re-run the whole chain| L0
+  CM["elt commit<br/>branch · [X] · commit"]
+
+  CM --> RL["run-log.jsonl"]
+  CM --> BG["5 review lenses in parallel<br/>+ confidence cutoff 80"]
+  BG --> LG["ledger.jsonl<br/><i>verdict vs reality</i>"]
+  LG -->|5 hits on one rule| ISS["raised for review — once"]
+  RL --> KPI["KPI: share of work<br/>that went through the harness"]
+
+  classDef mech fill:#e8f0fe,stroke:#4285f4,color:#111;
+  classDef stop fill:#fce8e6,stroke:#d93025,color:#111;
+  classDef done fill:#e6f4ea,stroke:#137333,color:#111;
+  class L0,OR,RL,KPI mech;
+  class FIX stop;
+  class CM done;
+```
+
+<sub>Source: [`elt-release-flow.mmd`](specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd) ·
+exported for slides and offline docs: [`elt-release-flow.svg`](specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.svg)</sub>
+
+**The three rules this picture encodes:**
+
+1. **The oracle runs before the judge.** A model is never asked about code whose own tests are
+   red — that spends a call to rediscover what a test already knows.
+2. **There is exactly one judge and no second round.** `block` means fix the cause, not argue.
+   A third outcome, `inconclusive`, exists precisely so that "I am not sure" does not silently
+   become a soft block: it commits, with a row in the review queue.
+3. **Only `elt commit` counts.** A manual `git commit` still works, but leaves no row in
+   `run-log.jsonl` — and the share of work that went through the harness is measured from
+   exactly that file.
+
+> [!IMPORTANT]
+> Run the three gate commands as **one pass, with no writes to the tree in between**. Any write
+> between steps yields `stale-tree`; re-running the oracle inside `commit` yields
+> `stale-oracle`. That is why `--skip-oracle` is always present in the chain.
+
+<details>
+<summary><strong>Batching, and the one thing that breaks it</strong></summary>
+
+A batch of 2–4 closely related tasks from **one** plan: `--task T001,T002,T003` in all three
+commands. Never batch across specs, risky architectural changes, or dependent tasks.
+
+**An edit outside the batch's tasks goes into its own slice.** The judge catches it as scope
+creep and blocks the *entire* batch, not the one line — this is the most common way a batch is
+lost.
+
+</details>
+
+### `Done` means four things at once
+
+| # | condition |
+| --- | --- |
+| 1 | mechanical oracle exits 0 |
+| 2 | smoke exits 0, if one is configured |
+| 3 | exactly one judge returned `pass` or `inconclusive` |
+| 4 | `elt commit` created the commit **and** the run-log row |
+
+### Four entry points
+
+| command | what it does |
+| --- | --- |
+| **`/elt`** | a slice under the gate: plan if needed, oracle, one judge, commit |
+| **`/elt-verify`** | review the diff with five lenses in parallel, confidence cutoff 80 |
+| **`/elt-defects`** | record a divergence between a verdict and reality |
+| **`/elt-doctor`** | is the plugin closure intact, is the project harness configured |
+
+Plus two hooks that work without being invoked: `SessionStart` prints a project summary, and
+`Stop` refuses to end a session that left uncommitted work behind.
+
+---
+
+## Does the harness actually help?
+
+Two experiments on third-party data, Gemini-only (`agy`, `gemini-3.7-flash-high`). Both
+preregistrations were frozen **before** the first result row. Full write-up:
+**[benchmarks/gemini-3.7-flash-high/README.md](benchmarks/gemini-3.7-flash-high/README.md)**.
+
+| where it was measured | without the harness | with the harness | conclusion |
+| --- | --- | --- | --- |
+| **writer** — 30 pairs, `Aider-AI/polyglot-benchmark@7e0611e` | 100.0% | 100.0% | **no difference** |
+| **gate** — 60 cells, SWE-bench Verified | 50.0% (analytic) | **85.0%** [73.9%, 91.9%] | **there is a difference** |
+
+```mermaid
+xychart-beta
+  title "Correct ship/stop decisions, 60 cells (SWE-bench Verified)"
+  x-axis ["no gate (analytic)", "ELT gate (measured)"]
+  y-axis "accuracy, %" 0 --> 100
+  bar [50, 85]
+```
+
+> [!TIP]
+> **The harness does not make the writer smarter — it keeps bad work out of `main`.** These are
+> two different places in the pipeline, and one number cannot describe both. The writer arm hit
+> a ceiling: the model solves those tasks on the first try in both arms. A negative result is
+> reported here as negative.
+
+```mermaid
+pie showData
+  title "What the gate did with 30 deliberately broken patches"
+  "caught — block" : 21
+  "let through — fail-open" : 9
+```
+
+| gate failure mode | count | what it costs |
+| --- | --- | --- |
+| **fail-open** — a broken patch shipped | **9/30** | it would have landed in `main` |
+| **false-block** — a correct patch rejected | **0/30** | correct work stopped |
+| judge latency | p50 21.0 s / p90 25.3 s | 60 calls, 0 transport failures |
+
+> [!WARNING]
+> **Resolve rate was not measured at all.** The "no gate" arm is analytic, not observed: a
+> pipeline without a gate ships every patch *by definition*, and there is no per-instance
+> SWE-bench environment here to run the real tests. This measures the gate's **discriminating
+> power**, not the share of issues solved.
+
+<details>
+<summary><strong>The remaining limits of the claim — read before quoting the numbers</strong></summary>
+
+* **Single-hunk instances were excluded** from the sampling frame: for them the synthetic
+  negative degenerates into an empty diff that any judge rejects for free. There were 9 of 30 —
+  so 30% of the negative arm would have been a free win for the gate. The conclusion applies to
+  multi-hunk patches only.
+* **All 9 misses** are cases where the truncated patch stayed coherent and reads like finished
+  work: `astropy-8707`, `astropy-8872`, `seaborn-3187`, `requests-2931`, `pylint-4661`,
+  `pytest-7236`, `scikit-learn-11310`, `sphinx-9461`, `sympy-14531`. That is the same
+  architectural hole [declared open below](#defect-registry): the judge checks the diff against
+  the task, not against external reality.
+* **`inconclusive` never occurred**, so the debatable "inconclusive counts as accept" rule
+  changed nothing on this data — it is still recorded in the preregistration, because it would
+  change something on another sample.
+* The older 3-pair pilot (`benchmarks/results-v5.0.0.json`) is marked `invalid-for-claim` and
+  enters no headline number.
+
+</details>
+
+---
+
+## Evidence
+
+Everything below is measured on this repository with the command shown next to it. The numbers
+are frozen in `tools/kpi-release-snapshot.json` (`asOf: 2026-08-26`, branch
+`feature/elt-v5-one-hour`).
+
+### Share of commits that went through the harness
+
+The single number the harness reports about itself. Everything else measures a mechanism that
+may well be switched off.
+
+| sample | share, 2026-08-26 |
+| --- | --- |
+| three projects combined | **54.6% (106/194)** |
+| this repository only | **100% (37/37)** |
+
+```powershell
+node tools/kpi-commit-share.js --days 14 --as-of 2026-08-26 `
   --cwd "C:\Claude playground\Pipiline setupper" `
   --cwd "C:\Ametrin projects\Izi_translate" `
   --cwd "C:\Ametrin projects\Izi tracker\izi-tracker"
 ```
 
-`--as-of` обязателен для обеих колонок: без него команда пересчитывает срез сегодняшней
-датой и перестаёт воспроизводить то, что напечатано выше. `--as-of 2026-08-21` даёт левую
-колонку, `--as-of 2026-08-24` — правую.
+`--as-of` is mandatory: without it the command recomputes the window with today's date and stops
+reproducing what is printed here. The method matches `.git/elt/run-log.jsonl` against `git log`
+**by hash**, not by time — matching by time inflated the share by counting a manual commit made
+a minute after a harness run.
 
-### Сигнал/шум блокирующих вердиктов
+> [!CAUTION]
+> Never mix the combined and single-repo samples: the denominators differ, so "the share
+> dropped" would only mean another project entered the sample.
+
+### Blocking verdicts: signal to noise
 
 ```powershell
 node tools/measure-noise.js
 ```
 
-| когда | отношение |
+| when | ratio |
 | --- | --- |
-| до фазы 2 | **1:7** — семь блокировок из восьми ложные |
-| после фазы 2 | **8:1** — 8 истинных, 1 ложное на 20 взятых вердиктов |
+| before phase 2 | **1:7** — seven blocks out of eight were false |
+| after phase 2 | **8:1** — 8 true, 1 false out of 20 sampled verdicts |
 
-Оговорка, без которой число врёт: **невыясненных 55%**. Одиннадцать вердиктов из двадцати
-механика разметить не смогла, и они не посчитаны ни в одну сторону.
+The caveat without which the number lies: **55% unresolved**. Eleven verdicts out of twenty
+could not be classified mechanically and are counted on neither side.
 
-Причина прежнего шума была одна на три дефекта (D9, D15, D19): не существовало единого списка
-«это принадлежит харнесу», каждая проверка держала свой, и они разошлись. Теперь список один —
-`tools/harness-files.js`.
+The old noise had a single root behind three defects (D9, D15, D19): there was no single list of
+"this belongs to the harness" — every check kept its own, and they drifted apart. There is one
+list now: `tools/harness-files.js`.
 
-Четвёртый источник (D10) закрыт отдельно: «новый внешний импорт» теперь сверяется с манифестом
-**на базе слайса**, а не считается по первому упоминанию пакета в диффе. До этого любой слайс с
-новым тест-файлом автоматически получал `block` за `import { test } from 'vitest'` — при том что
-vitest стоял в `package.json` с первого коммита.
+### Mechanical oracle
 
-### A/B пилот на чужом benchmark (020 T005)
+```powershell
+node tools/elt-oracle-runner.js --full
+```
 
-Всё зафиксировано ДО прогона: `benchmarks/preregistration-v5.0.0.json`. Сырые результаты —
-`benchmarks/results-v5.0.0.json`, разбор — [benchmarks/README.md](benchmarks/README.md).
+**108/108 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
+tests and the benchmark contour's tests must be part of the same gate the harness applies to
+everyone else: until 021/T003 the benchmark tests had never run on a single commit.
 
-Dataset — [`Aider-AI/polyglot-benchmark@7e0611e`](https://github.com/Aider-AI/polyglot-benchmark):
-чужие задачи, чужие тесты, чужой grader (`pytest`). Агент один и тот же в обеих руках —
-`agy` 1.1.19, `gemini-3.7-flash-high`; руки стартуют от одних байт скелета и выполняются
-параллельно, поэтому эффекта порядка нет по построению.
-
-| задача | plain | elt | grader |
-| --- | --- | --- | --- |
-| bowling | PASS (96,8 с) | PASS (51,2 с) | 31 passed |
-| book-store | PASS (46,3 с) | PASS (61,6 с) | 20 passed |
-| dominoes | PASS (42,4 с) | PASS (47,4 с) | 13 passed |
-| **primary endpoint** | **3/3** | **3/3** | 64 теста |
-
-**Результат отрицательный, и он полезнее положительного: benchmark оказался слишком лёгким,
-чтобы что-либо различить.** Обе руки решают эти задачи с первой попытки и упираются в потолок.
-Из таких данных нельзя заявить ни превосходство, ни его отсутствие — можно только сказать, что
-измерительный контур работает.
-
-Что НЕ измерено и почему:
-
-* **Overhead сертификации** — гейт ELT работает над слайсом репозитория со спекой, планом и
-  оракулом; изолированная задача polyglot не имеет ничего из этого, поэтому цифру взять неоткуда.
-* **Токены и стоимость** — транспорт `agy` их не возвращает, в результатах стоит `missing`.
-* **Разница во времени** — 160 с против 185 с суммарно это шум одного прогона.
-
-Три пары по собственной шкале преregistration дают directional pilot **без права заявлять
-превосходство**. Спека 020 называла Codex; замена агента на `agy` — решение пользователя,
-принятое до первого результата и записанное в преregistration как явное отклонение. О Codex
-этот пилот не говорит ничего.
-
-Чтобы сравнение стало осмысленным, нужен класс задач, где агент **ошибается**: SWE-bench
-Verified или polyglot на языках, где модель слабее, и ≥30 пар.
-
-### Латентность и объём графового ядра (020 T022)
-
-Замер на `61f6f3c`, команда — `node -e` поверх `tools/graph-kpi.js` и `.git/elt/run-log.jsonl`
-(регресс: `node tools/graph-kpi.test.js`).
-
-| метрика | цель | измерено | статус |
-| --- | --- | --- | --- |
-| `ready → local commit` p95 | < 5 с | **16,5 с** (p50 8,1 с, n=15) | **не взята** |
-| сертификация p50 / p90 | публикуется отдельно | 138 с / 183 с (n=31) | — |
-| graph-core LOC | ≤ 1 500 | **893** | взята |
-| release-core LOC | ≤ 3 500 | **20 084** | **не взята** |
-| adoption за неделю | ≥ 80% | окна ещё нет | `not yet measured` |
-| сигнал/шум на 20 новых диффах | ≥ 1:1 | окна ещё нет | `not yet measured` |
-
-Две цели не взяты, и это записано как есть, а не сглажено. Что за этим стоит:
-
-* **p95 = 16,5 с** — в выборку входят батчи, где посадка шла вместе с ремонтом и переносом
-  файлов; отдельная быстрая посадка укладывается в единицы секунд, но подменять общий
-  перцентиль удобной подвыборкой значило бы ровно ту подгонку, против которой заведён
-  измеритель.
-* **release-core 20 084** — цель ≤3 500 требует переписывания ядра в тонкий композитор; спека
-  020 явно вынесла это за scope. Порог не объявляется взятым и не «ребазлайнится» молча:
-  `locKpi` покажет `rebaselined` только с именем того, кто это одобрил.
-
-Наблюдательные пороги (adoption, сигнал/шум) до полного окна имеют статус `not yet measured` и
-**не блокируют** честный первый приватный тег — так записано в спеке. Ноль вместо `null` в этих
-клетках был бы враньём в свою пользу: `percentile([])` возвращает `null` именно поэтому.
-
-### Свой код
+### Our own code
 
 ```powershell
 find tools bin \( -name "*.js" -o -name "*.ps1" \) | grep -v node_modules | xargs wc -l | tail -1
 ```
 
-| когда | строк |
+**42,628 lines** across 187 files on branch `feature/elt-v5-one-hour`.
+
+**The phase-3 goal of ≤ 5,000 lines was not met — and it moved further away, not closer.** The
+previous figure of 28,272 was measured in the main checkout, which sat on a *different* branch:
+it described a tree that is not the one being released. The growth is real release work — the
+D27 fixes, the `benchmarks/` measurement contour and its tests. The largest remaining pieces are
+load-bearing (`elt.js` 2,254, `doctor-core.js` 966, `judge-core.js` 886): they cannot be
+trimmed, only rewritten, and the plugin delivered distribution, not a core rewrite.
+
+### Graph-core latency
+
+| metric | target | measured | status |
+| --- | --- | --- | --- |
+| `ready → local commit` p95 | < 5 s | **16.5 s** (p50 8.1 s, n=15) | **not met** |
+| certification p50 / p90 | published separately | 138 s / 183 s (n=31) | — |
+| graph-core LOC | ≤ 1,500 | **893** | met |
+
+Measured at `61f6f3c` (regression: `node tools/graph-kpi.test.js`). The p95 sample includes
+batches where landing ran together with repair and file moves; swapping the overall percentile
+for a convenient sub-sample would be exactly the fudge this measurement exists to prevent.
+
+---
+
+## Review: five lenses, then a cutoff
+
+The lenses run **in parallel** and never see each other's scores: a scorer seen in advance
+collapses five independent readings into one.
+
+| lens | what it looks for |
 | --- | --- |
-| до фазы 3 | 31 752 |
-| после фазы 3 (снят fleet, драйверы, мёртвые подсистемы) | 26 407 |
-| на 2026-08-24 (`tools/` + `bin/` плагина) | **28 272** |
+| `review-bugs` | obvious bugs in the changed lines themselves |
+| `review-claude-md` | violations of the project's own rules |
+| `review-code-comments` | comments that have drifted from the code |
+| `review-history` | a change that undoes a deliberate past decision |
+| `review-prior-comments` | a repeat of something already pointed out |
 
-Число снято своей командой выше и закреплено в `tools/kpi-release-snapshot.json`; строка
-«сегодня» убрана намеренно — она устаревала молча.
+The scorer (`claude-haiku-4-5-20251001`) assigns 0–100 with a cutoff of **80**. It knows the
+usual false positives by name: generated files, harness-owned files, pure formatting, "add a
+test" without naming an uncovered branch, renames with no behaviour change.
 
-**Цель фазы 3 — ≤ 5 000 строк — не взята, и это не оговорка задним числом.** Остаток не
-мёртвый: крупнейшие куски несущие (`elt.js` 1 308, `doctor-core.js` 1 016, `judge-core.js` 783),
-и срезать их нельзя — можно только переписать. Плагин дал дистрибуцию, но не переписывание ядра.
+## Self-repair ledger
 
-### Механический оракул
+The harness fixes itself from data, not from impressions. `.elt/ledger.jsonl` accumulates four
+classes of divergence: `weak-signal`, `miss`, `false-positive`, `harness-defect`. Five entries
+for one rule raise it for review — **exactly once**; a sixth does not open a second issue, or
+the review queue becomes the very noise the ledger exists to remove.
 
 ```powershell
-node tools/elt-oracle-runner.js --full
-```
-
-**77 файлов из 77.** Сканируются два корня — `tools/` и `bin/`: тесты самого плагина
-обязаны быть частью того же гейта, которым харнес меряет всех остальных.
-
-## Как устроен гейт
-
-```
-L0 (механика, без LLM)  →  оракул  →  один судья  →  commit + run-log
-```
-
-- **L0** — единственная синхронная часть. Не стоит ни одного вызова модели: смотрит дифф и
-  решает, будить ли судью вообще. Чистый низкорисковый дифф закрывается без судьи.
-- **Оракул** — названная в `.harness/harness.json` команда проекта. Плагин её не выдумывает:
-  нет конфига — честный откат на `node --test` с объявлением вслух.
-- **Судья** — ровно один. Второго раунда нет. `block` — не коммитить; `inconclusive` — коммит
-  с записью в очередь разбора, без повторного круга.
-
-`Done` означает четыре вещи одновременно: зелёный оракул, зелёный smoke (если настроен), ровно
-один судья `pass`/`inconclusive`, и коммит, сделанный самим `elt` — то есть попавший в run-log.
-
-## Ревью: пять линз, потом отсечка
-
-Линзы запускаются **параллельно** и не знают оценок друг друга: оценщик, увиденный заранее,
-схлопывает пять независимых взглядов в один.
-
-| линза | что ищет |
-| --- | --- |
-| `review-bugs` | явные баги в самих изменённых строках |
-| `review-claude-md` | нарушения правил проекта |
-| `review-code-comments` | комментарии, разошедшиеся с кодом |
-| `review-history` | правка отменяет осознанное прошлое решение |
-| `review-prior-comments` | повтор того, на что уже указывали |
-
-Оценщик (`claude-haiku-4-5-20251001`) ставит 0–100, отсечка **80**. Он знает типичные ложные
-срабатывания поимённо: сгенерированные файлы, владения харнеса, чистое форматирование,
-«добавьте тест» без названной непокрытой связи, стиль без правила в инструкции проекта,
-переименование без изменения поведения.
-
-## Журнал самофиксации
-
-Харнес чинит себя по данным, а не по впечатлению. `.elt/ledger.jsonl` копит четыре класса
-расхождений: `weak-signal`, `miss`, `false-positive`, `harness-defect`. Пять записей одного
-правила поднимают его на разбор — **ровно один раз**: шестая запись второго issue не даёт,
-иначе очередь разбора превращается в тот же шум, ради которого журнал и заведён.
-
-```powershell
-node bin/ledger.js record --kind false-positive --rule diff-size --note "порог не учёл сгенерированный lock"
+node bin/ledger.js record --kind false-positive --rule diff-size --note "threshold ignored a lock file"
 node bin/ledger.js summary
 ```
 
-## Реестр дефектов
+## Defect registry
 
-Система заявляет о своих проблемах сама. Из 24 номеров, заведённых полевыми отчётами и
-последующими прогонами, закрыты 22: часть исправлена с регрессом, часть исчезла вместе с
-удалённой подсистемой. **Блокирующих открытых — ноль.**
+The system reports its own problems. Of 24 numbered defects, 22 are closed.
+**Blocking open: zero.**
 
-| № | что | статус |
+| # | what | status |
 | --- | --- | --- |
-| D12 | `agent-browser eval --stdin` молча возвращает `null` | **открыт, не наш**: [issue #1](https://github.com/prodelt/elt-harness/issues/1); обход — inline-скрипт |
-| D24 | `tools/elt-checkpoint.test.js` зависает под `node --test` на Linux | **открыт, не блокирующий**: [issue #2](https://github.com/prodelt/elt-harness/issues/2); под `node <file>` — как его гонит оракул и CI — проходит |
+| D12 | `agent-browser eval --stdin` silently returns `null` | **open, not ours** — [issue #1](https://github.com/prodelt/elt-harness/issues/1) |
+| D24 | `tools/elt-checkpoint.test.js` hangs under `node --test` on Linux | **open, non-blocking** — [issue #2](https://github.com/prodelt/elt-harness/issues/2) |
 
-Полный реестр с корневыми причинами, измеренными эффектами и доказательством закрытия по
-каждому номеру — `.planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md`.
+Full registry with root causes and proof of closure per number:
+`.planning/HARNESS-DEFECTS-REGISTRY-2026-08-21.md`.
 
-Одна архитектурная проблема закрытой **не** объявлена: судья сверяет дифф со спекой, а не с
-внешней реальностью (схемой БД, семантикой чужого API). Задание, содержащее ошибку, проходит
-гейт. Частичное смягчение — пять линз ревью, которые читают код, а не задание.
+> [!WARNING]
+> One architectural problem is **not** declared closed: the judge checks the diff against the
+> spec, not against external reality (a DB schema, another API's semantics). A task that
+> contains an error passes the gate — and that same mechanism produces the 9 misses out of 30
+> measured above. Partial mitigation: the five review lenses, which read the code rather than
+> the task.
 
-Новые расхождения между вердиктом и реальностью копятся в `.elt/ledger.jsonl` через
-`/elt-defects`. Подтверждённые остатки ведутся в
-[GitHub Issues](https://github.com/prodelt/elt-harness/issues) с меткой `harness-defect`.
-
-## Разработка
+## Development
 
 ```powershell
-node bin/doctor.js                    # диагностика плагина
-node tools/doctor.js                  # диагностика проекта
-node tools/gen-agents-md.js --check   # дрейф инструкций
+node bin/doctor.js                    # plugin diagnostics
+node tools/doctor.js                  # project diagnostics
+node tools/gen-agents-md.js --check   # instruction drift
 node tools/elt-oracle-runner.js --full
 ```
 
-Инструкции живут в одном файле — `CLAUDE.md`. `AGENTS.md` и `.gemini/GEMINI.md` генерируются
-из него; правка копии руками краснит тест на дрейф.
+Instructions live in a single file — `CLAUDE.md`. `AGENTS.md` and `.gemini/GEMINI.md` are
+generated from it; editing a copy by hand turns the drift test red. CI runs the oracle on
+`windows-latest` and `ubuntu-latest`.
 
-CI гоняет оракул на `windows-latest` и `ubuntu-latest`.
+## License
 
-## Лицензия
-
-MIT — см. [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

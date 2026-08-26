@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 'use strict';
-// elt — machine-readable core of the ELT v3 harness. No deps, Node 18+.
+// elt — machine-readable core of the ELT v5 harness. No deps, Node 18+.
 // Commands: init | status | slice next | oracle | commit
 // Config:   .harness/harness.json   State log: .git/elt/run-log.jsonl
-// Design: ELT v3 — протокол замера и три схемы харнесса.html (Pipeline setupper repo).
+// v5 = тот же движок, распространяемый плагином `elt@elt`; ссылки на «ELT v3» ниже по файлу
+// описывают, что именно та версия СНЯЛА (verify-on-pass, второй судья), и остаются историей.
 // Invariants live HERE (exit codes), not in skill prose — that is the whole point.
 
 const fs = require('fs');
@@ -2223,7 +2224,10 @@ if (cmd === 'commit') {
 // самого судьи, но был НЕДОСТИЖИМ (D16): единственный вход требовал модуль, которого нет в
 // deploy-копии. Дальше эволюцию контура доказывает ledger из T019, а не мёртвая команда.
 // Справка — теперь безусловный хвост: ветки, ради которой стоял else, больше нет.
-console.log(`elt — ядро ELT v3 харнесса
+// 021 T004: справка называет ТЕКУЩИЙ рантайм. До этого она печатала «ядро ELT v3» — версию,
+// снятую двумя спеками назад: первое, что видит новый пользователь, сообщало ему неверную
+// версию продукта. Регресс — tools/elt-cli.test.js.
+console.log(`elt — ядро ELT v5 харнесса (плагин elt@elt)
   elt init --oracle "<cmd>" [--shell powershell] [--push]   создать .harness/harness.json
   elt run [--json] [--exec]                                 ОДНА ДВЕРЬ: узел графа из журнала + следующий законный шаг
   elt advance --event <e> [--guard a,b] [--json]             явный переход графа (незаконный = exit 4 и ни байта на диск)

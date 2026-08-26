@@ -27,7 +27,7 @@
   зафіксовані в `preregistration-gate.json` ДО першого рядка результату.
   [files: benchmarks/gemini-3.7-flash-high/writer-results.jsonl benchmarks/gemini-3.7-flash-high/gate-results.jsonl benchmarks/gemini-3.7-flash-high/transport-failures.jsonl benchmarks/gemini-3.7-flash-high/results.json benchmarks/gemini-3.7-flash-high/checksums.sha256 benchmarks/gemini-3.7-flash-high/README.md benchmarks/gemini-3.7-flash-high/preregistration-gate.json benchmarks/gemini-3.7-flash-high/gate-runner.js benchmarks/gemini-3.7-flash-high/gate-runner.test.js benchmarks/gemini-3.7-flash-high/gate-summarize.js benchmarks/gemini-3.7-flash-high/build-gate-dataset.js benchmarks/gemini-3.7-flash-high/runner.test.js benchmarks/gemini-3.7-flash-high/export-swebench.py tools/judge-core.js tools/elt-oracle-runner.js tools/elt-oracle-runner.test.js CLAUDE.md AGENTS.md .gemini/GEMINI.md]
 
-- [ ] **T004** Зробити GitHub front page release-grade: короткий перший екран, чесні badges,
+- [X] **T004** Зробити GitHub front page release-grade: короткий перший екран, чесні badges,
   5-хвилинний quick start, один наскрізний приклад слайса, схема гейта, результати benchmark із
   межами claim, install/update/rollback/troubleshooting. Прибрати або позначити застарілі KPI;
   CLI help має називати поточний runtime ELT v5, а не історичний v3, із regression-тестом.

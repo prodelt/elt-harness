@@ -294,9 +294,12 @@ test('INSTALL.md: каждый флаг host-surface из инструкции �
   }
 });
 
+// 021 T004: docs/INSTALL.md стал англоязычным (релизная страница ведёт на него первым же
+// шагом). Смысл обеих проверок ниже прежний — меняется только язык, на котором инструкция
+// обязана это сказать. Русские варианты оставлены: они ловят регресс, если файл вернут.
 test('INSTALL.md: снятая развёртка ~/.claude/bin названа только как СНЯТАЯ, не как шаг', () => {
   for (const m of INSTALL.matchAll(/^.*\.claude[/\\]bin.*$/gm)) {
-    assert.match(m[0], /снят|не удал|не трог|не запис/i,
+    assert.match(m[0], /снят|не удал|не трог|не запис|removed|retired|no step below writes|deletes nothing/i,
       `строка про ~/.claude/bin читается как действующий маршрут: ${m[0].trim()}`);
   }
 });
@@ -306,10 +309,12 @@ test('INSTALL.md: описанный состав поверхности сов�
   const agents = doctor.SURFACE.filter((f) => f.startsWith('agents/')).length;
   const commands = doctor.SURFACE.filter((f) => f.startsWith('commands/')).length;
   // Скилы Claude Code показывает вместе с командами: три команды приезжают как скилы тоже.
-  assert.match(INSTALL, new RegExp(`${skills + commands} скилов`), 'число скилов в инструкции разошлось с манифестом');
-  assert.match(INSTALL, new RegExp(`${agents} агентов`), 'число агентов в инструкции разошлось с манифестом');
+  // Сверяется ЧИСЛО рядом с существительным, а не голое число: «6» встречается в файле и в
+  // версии, и в путях — проверка на него одна прошла бы на любом тексте.
+  assert.match(INSTALL, new RegExp(`${skills + commands} (скилов|skills)`), 'число скилов в инструкции разошлось с манифестом');
+  assert.match(INSTALL, new RegExp(`${agents} (агентов|agents)`), 'число агентов в инструкции разошлось с манифестом');
 
   const events = Object.keys(JSON.parse(fs.readFileSync(path.join(doctor.PLUGIN_ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks);
-  assert.match(INSTALL, new RegExp(`${events.length} хука`), 'число хуков в инструкции разошлось с манифестом');
+  assert.match(INSTALL, new RegExp(`${events.length} (хука|hooks)`), 'число хуков в инструкции разошлось с манифестом');
   for (const event of events) assert.ok(INSTALL.includes(event), `событие ${event} не описано в инструкции`);
 });

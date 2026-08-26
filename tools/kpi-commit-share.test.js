@@ -176,8 +176,10 @@ test('T003: каждое число снимка присутствует в REA
   const expected = [
     `${cs.combined.share} (${cs.combined.hit}/${cs.combined.total})`,
     `${cs.thisRepo.share} (${cs.thisRepo.hit}/${cs.thisRepo.total})`,
-    // LOC печатается с неразрывной группировкой тысяч — как в таблице README
-    String(snap.loc.total).replace(/\B(?=(\d{3})+(?!\d))/g, ' '),
+    // 021 T004: README стал англоязычной релизной страницей, значит и разряды в нём
+    // группируются запятой (42,628), а не пробелом. Формат один на оба места, иначе
+    // сверка «число из снимка есть в README» краснеет на верном README.
+    String(snap.loc.total).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
   ];
   for (const value of expected) {
     assert.ok(text.includes(value), `README разошёлся со снимком: нет «${value}»`);
@@ -189,12 +191,45 @@ test('T003: у каждой колонки процентов есть фикс�
   const text = readme();
 
   assert.ok(text.includes(`--as-of ${snap.asOf}`), 'команда воспроизведения без --as-of невоспроизводима');
-  assert.ok(text.includes(`на ${snap.asOf}`), 'колонка обязана называть дату снимка');
   assert.ok(text.includes('tools/kpi-release-snapshot.json'), 'README обязан ссылаться на снимок');
 
-  // Заголовок колонки «сегодня» — ровно тот способ соврать, который эта задача закрывает.
-  const headers = text.split('\n').filter((l) => l.trim().startsWith('|') && l.includes('сегодня'));
-  assert.deepEqual(headers, [], `в таблицах остался заголовок «сегодня»: ${headers.join(' / ')}`);
+  // 021 T004: README стал англоязычным, поэтому проверка больше не привязана к слову «на»/«as
+  // of» — важно не как названа колонка, а что дата снимка в ней СТОИТ. Проверяем по строке
+  // таблицы с процентами: заголовок без даты — ровно тот дрейф, который эта задача закрывает.
+  const percentRows = text.split('\n').filter((l) => l.trim().startsWith('|') && l.includes('%'));
+  assert.ok(percentRows.length, 'в README обязана быть таблица с процентами');
+  const dated = text.split('\n').filter((l) => l.trim().startsWith('|') && l.includes(snap.asOf));
+  assert.ok(dated.length, `ни одна колонка таблиц не называет дату снимка ${snap.asOf}`);
+
+  // Заголовок колонки «сегодня»/«today» — способ соврать, который эта задача закрывает.
+  const headers = text.split('\n').filter((l) => l.trim().startsWith('|') && /сегодня|\btoday\b/i.test(l));
+  assert.deepEqual(headers, [], `в таблицах остался заголовок «сегодня/today»: ${headers.join(' / ')}`);
+});
+
+// 021 T004 — под замок ушли ещё три числа, каждое из которых уже успело разойтись с
+// реальностью молча: охват оракула (README держал 77 при фактических 107), LOC (снят на
+// ДРУГОЙ ветке) и headline бенчмарка (после gate-прогона в README нельзя оставить только
+// writer-плечо — это была бы правда, поданная как вся правда).
+
+test('T004: охват оракула и ветка LOC названы в README дословно', () => {
+  const snap = snapshot();
+  const text = readme();
+  assert.ok(text.includes(`${snap.oracle.files}/${snap.oracle.files}`), `README разошёлся с охватом оракула ${snap.oracle.files}`);
+  assert.ok(text.includes(snap.loc.branch), 'README обязан называть ветку, на которой снят LOC — иначе два числа расходятся молча');
+});
+
+test('T004: оба плеча бенчмарка в README, и границы claim вместе с ними', () => {
+  const snap = snapshot();
+  const text = readme();
+  const gate = snap.benchmark.gate;
+
+  assert.ok(text.includes(gate.judgeDiff), `README не называет измеренную точность гейта ${gate.judgeDiff}`);
+  assert.ok(text.includes(gate.falseBlock), `README не называет false-block ${gate.falseBlock}`);
+  // Дискриминирующая часть: fail-open — единственное число пары, которое невыгодно показывать.
+  // Без этой проверки README мог бы честно печатать 85% и молча опустить 9 промахов.
+  assert.ok(text.includes(gate.failOpen), `README не называет fail-open ${gate.failOpen} — половина результата`);
+  assert.ok(text.includes(snap.benchmark.writer.plain), 'writer-плечо (отрицательный результат) не должно исчезнуть из README');
+  assert.match(text, /resolve rate/i, 'README обязан назвать то, что НЕ измерено');
 });
 
 test('T003: снимок самодостаточен — у каждого числа есть команда', () => {
