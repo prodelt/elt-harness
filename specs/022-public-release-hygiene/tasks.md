@@ -19,3 +19,11 @@
   bin/doctor.test.js, skills/elt/SKILL.md, skills/harness-method/SKILL.md,
   skills/harness-method/REFERENCE.md, skills/project-bootstrap/SKILL.md,
   config/antigravity-elt-workflow.md, specs/**]
+
+- [ ] **T002** Судья слепнет на большом диффе раньше собственного бюджета: три читающих
+  `execFileSync('git', …)` в `judge-core.js` идут с дефолтным `maxBuffer` 1 МиБ, поэтому
+  `git diff HEAD` на 6 МБ бросает исключение ДО `budgetDiff`, и цепочка гейта падает с «судья
+  не вернул JSON». Класс дефекта уже закрыт в `tools/elt.js` (020/T009) и в оракуле — но
+  починили тогда вызовы, а не корень. Дать всем читающим git-вызовам судьи один явный лимит и
+  оставить регрессию: дифф больше 1 МиБ обязан вернуться урезанным по бюджету, а не исключением.
+  [files: tools/judge-core.js, tools/judge-diff-budget.test.js]
