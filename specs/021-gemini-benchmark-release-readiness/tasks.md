@@ -43,4 +43,4 @@
   ELT commits, push feature branch, зелена GitHub Actions matrix на Windows/Linux, `main` як
   default branch, release-ready description/topics і нуль blocking review rows. Public visibility,
   tag та GitHub Release не створювати до фінального підтвердження користувача.
-  [files: .github/workflows/test.yml .claude-plugin/plugin.json .claude-plugin/marketplace.json README.md .planning/ELT-V5-RELEASE-CANDIDATE-2026-08-25.md]
+  [files: .github/workflows/test.yml .claude-plugin/plugin.json .claude-plugin/marketplace.json README.md .planning/ELT-V5-RELEASE-CANDIDATE-2026-08-25.md tools/elt-brief.test.js]
