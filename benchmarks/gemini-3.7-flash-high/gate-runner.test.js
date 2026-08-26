@@ -207,10 +207,34 @@ test('hash-locked files are checked out with LF on every platform (CRLF breaks t
   }
 });
 
-test('.gitattributes pins the benchmark contour to LF — without it the lock is inoperative on Windows', () => {
+// Тест идёт ОТ списка в checksums.sha256, а не от захардкоженного расширения — и спрашивает
+// у самого git, что он сделает при checkout. Первая версия этой проверки смотрела только на
+// `*.js` и пропустила, что `*.json` не матчит `.jsonl`: три raw-лога остались бы без правила,
+// воспроизведя тот же дефект на другом подмножестве (поймано вторым прогоном судьи). Теперь
+// новый хешируемый тип файла не сможет проскочить молча — он появится в checksums и провалит
+// эту проверку, пока для него не будет правила.
+test('every file in checksums.sha256 is pinned to LF by .gitattributes (git decides, not us)', () => {
+  const { execFileSync } = require('child_process');
+  const checksums = fs.readFileSync(path.join(__dirname, 'checksums.sha256'), 'utf8');
+  const files = checksums.split('\n').filter(Boolean)
+    .map((line) => line.slice(66).split(' ')[0])
+    .filter((f) => fs.existsSync(path.join(__dirname, f)));
+  assert.ok(files.length >= 8, `в checksums найдено ${files.length} существующих файлов — разбор сломался`);
+
+  const dir = path.basename(__dirname);
+  for (const f of files) {
+    const rel = `benchmarks/${dir}/${f}`;
+    const out = execFileSync('git', ['check-attr', 'eol', '--', rel], { cwd: path.join(__dirname, '..', '..'), encoding: 'utf8' });
+    assert.match(out, /: eol: lf$/m, `${rel} хешируется, но не закреплён eol=lf — его sha256 на диске разойдётся на Windows-клоне`);
+  }
+});
+
+test('.gitattributes keeps the LF rule narrow — a blanket rule would corrupt binary artefacts', () => {
   const attrs = fs.readFileSync(path.join(__dirname, '..', '..', '.gitattributes'), 'utf8');
-  assert.match(attrs, /^benchmarks\/\*\* +text +eol=lf$/m,
-    'правило LF для benchmarks/ снято — hash-lock снова сломается на любом Windows-клоне');
+  // `benchmarks/** text` объявило бы текстовым и любой будущий бинарный артефакт ЧУЖОГО
+  // набора, то есть чинило бы одну поломку, заводя другую.
+  assert.doesNotMatch(attrs, /^benchmarks\/\*\* +text/m,
+    'правило расширено на все benchmark-наборы: text на бинарном артефакте повредит его при checkout');
 });
 
 // --- dataset eligibility: the reason 9/30 negatives used to be free wins ---
