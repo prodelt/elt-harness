@@ -1,0 +1,49 @@
+%% ELT v5 — full harness flow (spec 021 T004).
+%% Source of the diagram rendered on the GitHub front page. Kept here rather than only inline
+%% in README.md so the picture has one editable origin: the README embeds the same text, and
+%% elt-release-flow.svg is the exported copy for slides and offline docs.
+flowchart TD
+  subgraph PLAN["1 · Plan — only for a large goal"]
+    direction TB
+    G["a goal"] --> S["specs/NNN/spec.md<br/>+ tasks.md"]
+    S --> A["elt spec approve<br/><i>signature lives in git trailers</i>"]
+  end
+
+  A --> SL
+
+  subgraph SLICE["2 · Slice — one open task at a time"]
+    direction TB
+    SL["elt slice next"] --> W["writer produces code<br/>+ the smallest regression"]
+  end
+
+  W --> L0
+
+  subgraph GATE["3 · Gate"]
+    direction TB
+    L0{"L0 — mechanics<br/>no model call"}
+    L0 -->|low risk| CM
+    L0 -->|risk possible| OR
+    OR{"oracle<br/>the project's own command"}
+    OR -->|red| FIX["STOP · fix the cause<br/><i>max 2 narrow attempts</i>"]
+    OR -->|green| JD{"exactly one judge<br/>judgeDiff"}
+    JD -->|block| FIX
+    JD -->|inconclusive| RQ["review-queue.jsonl"]
+    JD -->|pass| CM
+    RQ --> CM
+  end
+
+  FIX -.->|re-run the whole chain| L0
+  CM["elt commit<br/>branch · [X] · commit"]
+
+  CM --> RL["run-log.jsonl"]
+  CM --> BG["5 review lenses in parallel<br/>+ confidence cutoff 80"]
+  BG --> LG["ledger.jsonl<br/><i>verdict vs reality</i>"]
+  LG -->|5 hits on one rule| ISS["raised for review — once"]
+  RL --> KPI["KPI: share of work<br/>that went through the harness"]
+
+  classDef mech fill:#e8f0fe,stroke:#4285f4,color:#111;
+  classDef stop fill:#fce8e6,stroke:#d93025,color:#111;
+  classDef done fill:#e6f4ea,stroke:#137333,color:#111;
+  class L0,OR,RL,KPI mech;
+  class FIX stop;
+  class CM done;

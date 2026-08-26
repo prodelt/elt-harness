@@ -31,7 +31,8 @@
   5-хвилинний quick start, один наскрізний приклад слайса, схема гейта, результати benchmark із
   межами claim, install/update/rollback/troubleshooting. Прибрати або позначити застарілі KPI;
   CLI help має називати поточний runtime ELT v5, а не історичний v3, із regression-тестом.
-  [files: README.md docs/INSTALL.md docs/USAGE.md benchmarks/README.md tools/elt.js tools/elt-cli.test.js specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.svg]
+  Сторінка англомовна: README, обидва docs і benchmark-звіт — англійською, з діаграмами.
+  [files: README.md docs/INSTALL.md docs/USAGE.md benchmarks/README.md benchmarks/gemini-3.7-flash-high/README.md benchmarks/gemini-3.7-flash-high/checksums.sha256 tools/elt.js tools/elt-cli.test.js tools/kpi-release-snapshot.json tools/kpi-commit-share.test.js bin/doctor.test.js specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.svg]
 
 - [ ] **T005** Довести реальну працездатність із чистого середовища: fresh project/plugin
   install, `bin/doctor`, first `/elt` bootstrap, Codex/Gemini surface parity та headless `agy`

@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 720" width="980" height="720" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">ELT v5 — full harness flow</title>
+  <desc id="desc">From a goal to a counted commit: plan and signature, slice, gate (L0, oracle, one judge), commit with run-log row, then background review lenses and the self-repair ledger. Exported copy of elt-release-flow.mmd.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5f6368"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d93025"/>
+    </marker>
+    <style>
+      .band  { fill:#fafafa; stroke:#dadce0; stroke-width:1; rx:10 }
+      .bandT { font-size:12px; font-weight:600; fill:#5f6368; letter-spacing:.04em }
+      .box   { fill:#ffffff; stroke:#9aa0a6; stroke-width:1.4; rx:8 }
+      .mech  { fill:#e8f0fe; stroke:#4285f4; stroke-width:1.4; rx:8 }
+      .stop  { fill:#fce8e6; stroke:#d93025; stroke-width:1.4; rx:8 }
+      .done  { fill:#e6f4ea; stroke:#137333; stroke-width:1.8; rx:8 }
+      .t     { font-size:12.5px; fill:#202124; text-anchor:middle }
+      .tb    { font-size:12.5px; font-weight:600; fill:#202124; text-anchor:middle }
+      .sub   { font-size:10.5px; fill:#5f6368; text-anchor:middle; font-style:italic }
+      .edge  { stroke:#5f6368; stroke-width:1.4; fill:none; marker-end:url(#arrow) }
+      .edgeR { stroke:#d93025; stroke-width:1.4; fill:none; marker-end:url(#arrowRed); stroke-dasharray:5 4 }
+      .lbl   { font-size:10.5px; fill:#3c4043; text-anchor:middle }
+      .lblR  { font-size:10.5px; fill:#d93025; text-anchor:middle }
+    </style>
+  </defs>
+
+  <rect width="980" height="720" fill="#ffffff"/>
+
+  <!-- ── band 1: plan ─────────────────────────────────────────────── -->
+  <rect class="band" x="24" y="34" width="380" height="150"/>
+  <text class="bandT" x="40" y="54">1 · PLAN — ONLY FOR A LARGE GOAL</text>
+
+  <rect class="box" x="46" y="68" width="96" height="40"/>
+  <text class="t" x="94" y="93">a goal</text>
+
+  <rect class="box" x="170" y="62" width="118" height="52"/>
+  <text class="t" x="229" y="83">specs/NNN/</text>
+  <text class="t" x="229" y="99">spec.md + tasks.md</text>
+
+  <rect class="box" x="316" y="62" width="72" height="52"/>
+  <text class="tb" x="352" y="84">approve</text>
+  <text class="sub" x="352" y="100">git trailers</text>
+
+  <line class="edge" x1="142" y1="88" x2="164" y2="88"/>
+  <line class="edge" x1="288" y1="88" x2="310" y2="88"/>
+  <text class="sub" x="214" y="140">a signature that lives in the commit,</text>
+  <text class="sub" x="214" y="154">not in a file — it cannot be forged</text>
+  <text class="sub" x="214" y="168">by ordinary commit text</text>
+
+  <!-- ── band 2: slice ────────────────────────────────────────────── -->
+  <rect class="band" x="440" y="34" width="380" height="150"/>
+  <text class="bandT" x="456" y="54">2 · SLICE — ONE OPEN TASK AT A TIME</text>
+
+  <rect class="box" x="464" y="68" width="118" height="40"/>
+  <text class="t" x="523" y="93">elt slice next</text>
+
+  <rect class="box" x="626" y="62" width="172" height="52"/>
+  <text class="t" x="712" y="83">writer produces code</text>
+  <text class="t" x="712" y="99">+ the smallest regression</text>
+
+  <line class="edge" x1="582" y1="88" x2="620" y2="88"/>
+  <path class="edge" d="M388 88 H 420 V 88 H 458"/>
+
+  <!-- ── band 3: gate ─────────────────────────────────────────────── -->
+  <rect class="band" x="24" y="214" width="796" height="266"/>
+  <text class="bandT" x="40" y="234">3 · GATE</text>
+
+  <!-- L0 -->
+  <rect class="mech" x="60" y="258" width="150" height="52"/>
+  <text class="tb" x="135" y="279">L0 — mechanics</text>
+  <text class="sub" x="135" y="295">no model call</text>
+
+  <!-- oracle -->
+  <rect class="mech" x="256" y="258" width="164" height="52"/>
+  <text class="tb" x="338" y="279">oracle</text>
+  <text class="sub" x="338" y="295">the project's own command</text>
+
+  <!-- judge -->
+  <rect class="box" x="470" y="258" width="164" height="52"/>
+  <text class="tb" x="552" y="279">exactly one judge</text>
+  <text class="sub" x="552" y="295">judgeDiff · no second round</text>
+
+  <!-- stop -->
+  <rect class="stop" x="256" y="382" width="164" height="52"/>
+  <text class="tb" x="338" y="403">STOP · fix the cause</text>
+  <text class="sub" x="338" y="419">max 2 narrow attempts</text>
+
+  <!-- review queue -->
+  <rect class="box" x="470" y="382" width="164" height="52"/>
+  <text class="t" x="552" y="403">review-queue.jsonl</text>
+  <text class="sub" x="552" y="419">a human reads it, not a re-run</text>
+
+  <!-- commit -->
+  <rect class="done" x="676" y="258" width="126" height="52"/>
+  <text class="tb" x="739" y="279">elt commit</text>
+  <text class="sub" x="739" y="295">branch · [X] · commit</text>
+
+  <!-- writer -> L0 -->
+  <path class="edge" d="M712 118 V 160 H 135 V 252"/>
+
+  <!-- L0 -> oracle -->
+  <line class="edge" x1="210" y1="284" x2="250" y2="284"/>
+  <text class="lbl" x="230" y="276">risk</text>
+
+  <!-- L0 -> commit (low risk bypass) -->
+  <path class="edge" d="M135 258 V 226 H 739 V 252"/>
+  <text class="lbl" x="437" y="220">low risk — closed with no judge at all</text>
+
+  <!-- oracle -> judge -->
+  <line class="edge" x1="420" y1="284" x2="464" y2="284"/>
+  <text class="lbl" x="442" y="276">green</text>
+
+  <!-- oracle -> stop -->
+  <line class="edge" x1="338" y1="310" x2="338" y2="376"/>
+  <text class="lbl" x="356" y="345">red</text>
+
+  <!-- judge -> stop -->
+  <path class="edge" d="M470 296 H 444 V 400 H 426"/>
+  <text class="lbl" x="447" y="345">block</text>
+
+  <!-- judge -> queue -->
+  <line class="edge" x1="552" y1="310" x2="552" y2="376"/>
+  <text class="lbl" x="600" y="345">inconclusive</text>
+
+  <!-- judge -> commit -->
+  <line class="edge" x1="634" y1="284" x2="670" y2="284"/>
+  <text class="lbl" x="652" y="276">pass</text>
+
+  <!-- queue -> commit -->
+  <path class="edge" d="M634 408 H 739 V 316"/>
+
+  <!-- stop -> L0 (re-run) -->
+  <path class="edgeR" d="M256 408 H 135 V 316"/>
+  <text class="lblR" x="196" y="446">re-run the whole chain</text>
+
+  <!-- ── band 4: after the commit ─────────────────────────────────── -->
+  <rect class="band" x="24" y="510" width="796" height="180"/>
+  <text class="bandT" x="40" y="530">4 · AFTER THE COMMIT — WHAT MAKES IT COUNT</text>
+
+  <rect class="mech" x="60" y="548" width="164" height="52"/>
+  <text class="tb" x="142" y="569">run-log.jsonl</text>
+  <text class="sub" x="142" y="585">the only proof it was gated</text>
+
+  <rect class="mech" x="60" y="622" width="164" height="52"/>
+  <text class="t" x="142" y="643">KPI: share of work</text>
+  <text class="t" x="142" y="659">through the harness</text>
+
+  <rect class="box" x="300" y="548" width="200" height="52"/>
+  <text class="t" x="400" y="569">5 review lenses in parallel</text>
+  <text class="sub" x="400" y="585">confidence cutoff 80</text>
+
+  <rect class="box" x="300" y="622" width="200" height="52"/>
+  <text class="t" x="400" y="643">ledger.jsonl</text>
+  <text class="sub" x="400" y="659">verdict vs reality</text>
+
+  <rect class="box" x="576" y="622" width="200" height="52"/>
+  <text class="t" x="676" y="643">raised for review</text>
+  <text class="sub" x="676" y="659">exactly once, never twice</text>
+
+  <path class="edge" d="M739 310 V 500 H 142 V 542"/>
+  <path class="edge" d="M739 500 H 400 V 542"/>
+  <line class="edge" x1="142" y1="600" x2="142" y2="616"/>
+  <line class="edge" x1="400" y1="600" x2="400" y2="616"/>
+  <line class="edge" x1="500" y1="648" x2="570" y2="648"/>
+  <text class="lbl" x="535" y="640">5 hits</text>
+  <text class="lbl" x="535" y="666">one rule</text>
+
+  <!-- legend -->
+  <rect class="mech" x="836" y="258" width="16" height="12"/>
+  <text x="860" y="269" font-size="11" fill="#3c4043">mechanical —</text>
+  <text x="860" y="283" font-size="11" fill="#3c4043">no model call</text>
+  <rect class="done" x="836" y="304" width="16" height="12"/>
+  <text x="860" y="315" font-size="11" fill="#3c4043">the only step</text>
+  <text x="860" y="329" font-size="11" fill="#3c4043">that counts</text>
+  <rect class="stop" x="836" y="350" width="16" height="12"/>
+  <text x="860" y="361" font-size="11" fill="#3c4043">stop — fix</text>
+  <text x="860" y="375" font-size="11" fill="#3c4043">the cause</text>
+
+  <text x="836" y="420" font-size="11" font-weight="600" fill="#202124">Done = 4 things:</text>
+  <text x="836" y="438" font-size="10.5" fill="#3c4043">1 oracle exits 0</text>
+  <text x="836" y="453" font-size="10.5" fill="#3c4043">2 smoke exits 0</text>
+  <text x="836" y="468" font-size="10.5" fill="#3c4043">3 one judge, not two</text>
+  <text x="836" y="483" font-size="10.5" fill="#3c4043">4 elt commit wrote</text>
+  <text x="836" y="498" font-size="10.5" fill="#3c4043">   the run-log row</text>
+
+  <text x="24" y="712" font-size="10" fill="#80868b">source: specs/021-gemini-benchmark-release-readiness/diagrams/elt-release-flow.mmd — edit the .mmd, then re-export</text>
+</svg>
