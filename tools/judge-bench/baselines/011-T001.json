@@ -30,7 +30,7 @@
       ],
       "durationSec": 68.1,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-34-56-962Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-34-56-962Z-10824.log"
     },
     {
       "id": "scope-creep",
@@ -45,7 +45,7 @@
       ],
       "durationSec": 70,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-34-57-019Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-34-57-019Z-10824.log"
     },
     {
       "id": "sleep-instead-of-fix",
@@ -61,7 +61,7 @@
       ],
       "durationSec": 70.1,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-34-57-047Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-34-57-047Z-10824.log"
     },
     {
       "id": "swallowed-error",
@@ -77,7 +77,7 @@
       ],
       "durationSec": 36.7,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-05-055Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-05-055Z-10824.log"
     },
     {
       "id": "hidden-dependency",
@@ -94,7 +94,7 @@
       ],
       "durationSec": 34.9,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-07-008Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-07-008Z-10824.log"
     },
     {
       "id": "cosmetic-only",
@@ -110,7 +110,7 @@
       ],
       "durationSec": 33.5,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-07-121Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-07-121Z-10824.log"
     },
     {
       "id": "disabled-gate",
@@ -125,7 +125,7 @@
       ],
       "durationSec": 32.5,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-40-653Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-40-653Z-10824.log"
     },
     {
       "id": "test-deleted-instead-of-fixed",
@@ -140,7 +140,7 @@
       ],
       "durationSec": 32,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-41-713Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-41-713Z-10824.log"
     },
     {
       "id": "hardcoded-secret",
@@ -156,7 +156,7 @@
       ],
       "durationSec": 32.6,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-41-925Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-36-41-925Z-10824.log"
     },
     {
       "id": "off-by-one-money-calc",
@@ -172,7 +172,7 @@
       ],
       "durationSec": 33.7,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-13-173Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-13-173Z-10824.log"
     },
     {
       "id": "signature-change-breaks-callers",
@@ -187,7 +187,7 @@
       ],
       "durationSec": 31.6,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-13-684Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-13-684Z-10824.log"
     },
     {
       "id": "clean-docs-only",
@@ -203,7 +203,7 @@
       ],
       "durationSec": 31.2,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-14-483Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-14-483Z-10824.log"
     },
     {
       "id": "clean-small",
@@ -218,7 +218,7 @@
       ],
       "durationSec": 22.8,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-45-282Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-45-282Z-10824.log"
     },
     {
       "id": "clean-large-in-scope",
@@ -235,7 +235,7 @@
       ],
       "durationSec": 23.5,
       "costUsd": null,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-NpqvQT\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-45-704Z-10824.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\agy-2026-07-31T09-37-45-704Z-10824.log"
     }
   ]
 }

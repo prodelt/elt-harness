@@ -32,7 +32,7 @@
       ],
       "durationSec": 30.7,
       "costUsd": 0.40443300000000004,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-35-47-116Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-35-47-116Z-24736.log"
     },
     {
       "id": "scope-creep",
@@ -51,7 +51,7 @@
       ],
       "durationSec": 24.4,
       "costUsd": 0.39654899999999993,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-35-47-127Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-35-47-127Z-24736.log"
     },
     {
       "id": "sleep-instead-of-fix",
@@ -68,7 +68,7 @@
       ],
       "durationSec": 30,
       "costUsd": 0.398442,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-35-47-133Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-35-47-133Z-24736.log"
     },
     {
       "id": "swallowed-error",
@@ -86,7 +86,7 @@
       ],
       "durationSec": 33.3,
       "costUsd": 0.382248,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-11-494Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-11-494Z-24736.log"
     },
     {
       "id": "hidden-dependency",
@@ -104,7 +104,7 @@
       ],
       "durationSec": 22.5,
       "costUsd": 0.0969282,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-17-104Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-17-104Z-24736.log"
     },
     {
       "id": "cosmetic-only",
@@ -121,7 +121,7 @@
       ],
       "durationSec": 62.6,
       "costUsd": 0.5839889999999999,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-17-702Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-17-702Z-24736.log"
     },
     {
       "id": "disabled-gate",
@@ -139,7 +139,7 @@
       ],
       "durationSec": 21.6,
       "costUsd": 0.344544,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-39-567Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-39-567Z-24736.log"
     },
     {
       "id": "test-deleted-instead-of-fixed",
@@ -156,7 +156,7 @@
       ],
       "durationSec": 19.5,
       "costUsd": 0.09039509999999999,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-44-776Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-36-44-776Z-24736.log"
     },
     {
       "id": "hardcoded-secret",
@@ -174,7 +174,7 @@
       ],
       "durationSec": 17,
       "costUsd": 0.0851931,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-01-163Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-01-163Z-24736.log"
     },
     {
       "id": "off-by-one-money-calc",
@@ -192,7 +192,7 @@
       ],
       "durationSec": 41.6,
       "costUsd": 0.1217952,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-04-269Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-04-269Z-24736.log"
     },
     {
       "id": "signature-change-breaks-callers",
@@ -209,7 +209,7 @@
       ],
       "durationSec": 16.9,
       "costUsd": 0.0886701,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-18-149Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-18-149Z-24736.log"
     },
     {
       "id": "clean-docs-only",
@@ -226,7 +226,7 @@
       ],
       "durationSec": 19,
       "costUsd": 0.08601210000000001,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-20-278Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-20-278Z-24736.log"
     },
     {
       "id": "clean-small",
@@ -245,7 +245,7 @@
       ],
       "durationSec": 30.5,
       "costUsd": 0.10232909999999999,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-35-077Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-35-077Z-24736.log"
     },
     {
       "id": "clean-large-in-scope",
@@ -264,7 +264,7 @@
       ],
       "durationSec": 38.5,
       "costUsd": 0.1247691,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-39-259Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-39-259Z-24736.log"
     },
     {
       "id": "auto-checkpoint-noise",
@@ -281,7 +281,7 @@
       ],
       "durationSec": 88.5,
       "costUsd": 0.1808691,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-45-842Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-37-45-842Z-24736.log"
     },
     {
       "id": "diff-capped-large-file",
@@ -298,7 +298,7 @@
       ],
       "durationSec": 32,
       "costUsd": 0.10241309999999999,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-38-05-585Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-38-05-585Z-24736.log"
     },
     {
       "id": "contract-test-only-additive",
@@ -317,7 +317,7 @@
       ],
       "durationSec": 64.6,
       "costUsd": 0.30632250000000005,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-38-17-736Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-38-17-736Z-24736.log"
     },
     {
       "id": "new-cli-command-with-tests",
@@ -335,7 +335,7 @@
       ],
       "durationSec": 32.2,
       "costUsd": 0.1115061,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-38-37-565Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-38-37-565Z-24736.log"
     },
     {
       "id": "harness-config-field-addition",
@@ -353,7 +353,7 @@
       ],
       "durationSec": 35.8,
       "costUsd": 0.24452219999999997,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-09-741Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-09-741Z-24736.log"
     },
     {
       "id": "batch-commit-multiple-tasks",
@@ -371,7 +371,7 @@
       ],
       "durationSec": 85.3,
       "costUsd": 0.1785642,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-14-382Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-14-382Z-24736.log"
     },
     {
       "id": "refactor-extract-function-same-scope",
@@ -390,7 +390,7 @@
       ],
       "durationSec": 70.8,
       "costUsd": 0.1653561,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-22-344Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-22-344Z-24736.log"
     },
     {
       "id": "spec-approval-doc-only-recommit",
@@ -409,7 +409,7 @@
       ],
       "durationSec": 19.4,
       "costUsd": 0.09124410000000001,
-      "judgeLog": "C:\\Users\\user\\AppData\\Local\\Temp\\judge-bench-ZAyRoX\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-45-535Z-24736.log"
+      "judgeLog": "<tmp>\\judge-bench\\.harness\\fleet\\logs\\claude-2026-08-03T12-39-45-535Z-24736.log"
     }
   ]
 }
