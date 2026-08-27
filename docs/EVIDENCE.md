@@ -103,18 +103,30 @@ list now: `tools/harness-files.js`.
 node tools/elt-oracle-runner.js --full
 ```
 
-**111/111 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
+**112/112 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
 tests and the benchmark contour's tests must be part of the same gate the harness applies to
 everyone else: until 021/T003 the benchmark tests had never run on a single commit. CI runs the
 same suite on `windows-latest` and `ubuntu-latest`.
 
-The count moved from 112 to 111 in 023/T001, and the reason is recorded rather than absorbed
-quietly. Spec 022 moved working directories such as `.planning/` out of the shipped tree, and
+The count moved from 112 to 111 in 023/T001 and back to 112 in 023/T003, and the reason is
+recorded rather than absorbed quietly. Spec 022 moved working directories such as `.planning/` out of the shipped tree, and
 two files — `d0-smoke-feasibility.test.js` and `gate-verdict.test.js` — asserted on the *shape*
 of one-off reports that lived there. They imported no project module and called no project
 function, so they guarded no code; they were also green only on the author's machine. They were
 removed and their numbers preserved below, and one file was added in their place:
-`oracle-hermetic.test.js`, so the net change is minus two plus one. The remaining suite is hermetic: `oracle-hermetic.test.js`
+`oracle-hermetic.test.js`, so that step was minus two plus one. 023/T003 then added
+`release-hygiene.test.js`, bringing the count back to 112.
+
+The hermetic lock was not the only check that had been promised and never built. Spec 022
+declared **AC3**: no tracked file carries the author's absolute paths. Nothing enforced it, and
+the cost showed up immediately — 023/T001 moved the two judge-bench baselines into the shipped
+tree, and 36 absolute paths of the form `C:\Users\<author>\AppData\Local\Temp\...` came with
+them, inside a `judgeLog` field nobody reads. The full suite stayed green, because there was
+nothing to catch it. A review lens found it — which is to say a model did, not a mechanism, and
+on the next such file there might not be one. `release-hygiene.test.js` now checks every tracked
+file for the *shape* of a home-directory path with any name inside it, so it fails the same way
+for a contributor's path as for the author's, and stays green on CI where the tree contains no
+home path at all. The remaining suite is hermetic: `oracle-hermetic.test.js`
 now fails any test file that reads a git-ignored path, which is the check that was missing when
 those five files were written.
 
