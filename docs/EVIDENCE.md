@@ -103,10 +103,20 @@ list now: `tools/harness-files.js`.
 node tools/elt-oracle-runner.js --full
 ```
 
-**112/112 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
+**111/111 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
 tests and the benchmark contour's tests must be part of the same gate the harness applies to
 everyone else: until 021/T003 the benchmark tests had never run on a single commit. CI runs the
 same suite on `windows-latest` and `ubuntu-latest`.
+
+The count moved from 112 to 111 in 023/T001, and the reason is recorded rather than absorbed
+quietly. Spec 022 moved working directories such as `.planning/` out of the shipped tree, and
+two files — `d0-smoke-feasibility.test.js` and `gate-verdict.test.js` — asserted on the *shape*
+of one-off reports that lived there. They imported no project module and called no project
+function, so they guarded no code; they were also green only on the author's machine. They were
+removed and their numbers preserved below, and one file was added in their place:
+`oracle-hermetic.test.js`, so the net change is minus two plus one. The remaining suite is hermetic: `oracle-hermetic.test.js`
+now fails any test file that reads a git-ignored path, which is the check that was missing when
+those five files were written.
 
 ### Size of the harness itself
 
@@ -136,6 +146,41 @@ batches where landing ran together with repair and file moves; swapping the over
 for a convenient sub-sample would be exactly the fudge this measurement exists to prevent.
 
 ---
+
+## Historical measurements from retired acceptance tests
+
+These numbers came from one-off reports under `.planning/`. The reports drove decisions that
+have since been made and the specs that produced them are closed, so the tests asserting their
+shape were retired in 023/T001. The numbers themselves are kept here, with their caveats.
+
+### Gate rework — spec 011/T015 (AC13), measured 2026-07-31
+
+| metric | baseline | after | source |
+| --- | --- | --- | --- |
+| block rate | 77% | **16.2%** | two independent REJECT-default judges were multiplying |
+| share reaching L3 | 100% | **88.1%** | before L0, the judge was called on every slice |
+| oracle p50 / p90 | 185 / 250 s (max 311 s) | **158 / 211 s** | impact selection instead of the full suite |
+| `inconclusive` share | threshold 15% | **2.7%** | above the threshold would be a circuit defect, not a norm |
+| judge-bench recall / FPR | — | **90.9% / 45.5%** | verdict: improvement |
+
+The false-positive rate of 45.5% is the honest half of that result: the gate got faster and
+stopped blocking everything, but nearly half of its blocks on clean slices were still wrong.
+That is what later drove 011/T023 to rebalance the case set so FPR could be measured at all.
+
+### D0 smoke feasibility — spec 010/T001, measured 2026-07-29
+
+Three real regressions from other projects were examined to decide whether a live smoke test
+could have caught them. The number was declared before the investigation, not after.
+
+| regression | reproducible by smoke | why |
+| --- | --- | --- |
+| `doc2md-tauri` — "ocr missing" | **no** | lives purely in CI release configuration |
+| `doc2md-tauri` — token counting stopped | **yes**, proven by a live call | real Gemini returns `usage` in a different shape than the parser expected |
+| `Route_API_1C` — Visicom dropped out | **yes**, proven by a live call | the address base indexes the short colloquial form, not the full one |
+
+**N = 2 of 3.** The saved live responses backing rows 2 and 3 were kept with the report, so the
+pre-fix/post-fix difference was evidence rather than prose — the first version of that report
+was blocked by the judge precisely for asserting "yes" without it.
 
 ## Review lenses and the confidence cutoff
 

@@ -29,9 +29,9 @@
   },
   "oracle": {
     "command": "node tools/elt-oracle-runner.js --full",
-    "files": 112,
+    "files": 111,
     "roots": "tools/ + bin/ + benchmarks/",
-    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите."
+    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите. 023 T001: 112 → 111 — сняты d0-smoke-feasibility.test.js и gate-verdict.test.js (проверяли форму одноразовых отчётов в .gitignore-нутом .planning/, кода не защищали), добавлен oracle-hermetic.test.js."
   },
   "benchmark": {
     "model": "gemini-3.7-flash-high",

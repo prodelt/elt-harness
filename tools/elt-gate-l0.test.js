@@ -18,7 +18,9 @@ const providers = require('./providers');
 const { runJudge } = require('./judge-core');
 
 const ROOT = path.join(__dirname, '..');
-const BENCH = path.join(ROOT, '.planning', 'JUDGE-BENCH-011-T001.json');
+// 023 T001 — baseline лежит в поставке, а не в `.planning/`: после 022 рабочие каталоги
+// ушли в .gitignore, и чтение оттуда делало сьют зелёным только на машине автора.
+const BENCH = path.join(__dirname, 'judge-bench', 'baselines', '011-T001.json');
 
 function testVerifyOffForThisRepo() {
   assert.equal(verifySettings(ROOT), null, 'у этого репо второго судьи нет — конъюнкция снята');
