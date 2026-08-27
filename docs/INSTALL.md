@@ -34,16 +34,16 @@ no model context.
 <summary><strong>Expected <code>doctor</code> output in a clean project</strong></summary>
 
 ```
-elt-doctor — plugin elt 5.0.0
+elt-doctor — plugin elt 5.0.1
   [PASS] node >= 18 — node 24.14.0
   [PASS] git on PATH — git version 2.51.0.windows.2
-  [PASS] plugin.json — elt 5.0.0
-  [PASS] marketplace.json agrees with plugin.json — marketplace elt 5.0.0
+  [PASS] plugin.json — elt 5.0.1
+  [PASS] marketplace.json agrees with plugin.json — marketplace elt 5.0.1
   [PASS] bin/ entry points — 6
   [PASS] bin/ closure resolves — 6 modules loaded
   [PASS] plugin surface present — 12 files
   [PASS] surface fully declared (both directions) — 12 files cross-checked
-  [PASS] /elt: instruction closure — 7 links intact, version 5.0.0
+  [PASS] /elt: instruction closure — 7 links intact, version 5.0.1
   [PASS] background: terminal state schema — 5 outcomes, priority red > dead > inconclusive holds
   [PASS] plugin hooks — 2 events, 3 commands, every target present
   [PASS] graph: canonical graph compiles — ready — graph 5.0.0, 8 nodes, 12 edges
