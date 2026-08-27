@@ -61,7 +61,8 @@ test('011 T023: pass-кейсов не меньше, чем block-кейсов �
 // Отчёт коммитится как артефакт задачи (T023 [files]), а не перегенерируется в оракуле —
 // живой судья стоит денег/времени (см. шапку judge-bench.js). Структуру проверяем без вызова судьи.
 test('011 T023: JUDGE-BENCH-011-T023.json имеет структуру отчёта judge-bench', () => {
-  const reportPath = path.join(__dirname, '..', '.planning', 'JUDGE-BENCH-011-T023.json');
+  // 023 T001 — отчёт переехал из `.planning/` в поставку рядом с набором, который он оценивает.
+  const reportPath = path.join(__dirname, 'judge-bench', 'baselines', '011-T023.json');
   const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
   assert.ok(report.ts && report.provider, 'нет метаданных прогона (ts/provider)');
   assert.ok(report.score, 'нет score');

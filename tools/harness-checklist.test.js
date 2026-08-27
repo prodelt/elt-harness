@@ -298,11 +298,31 @@ run('gatherFacts: real repo root returns boolean facts without throwing', () => 
   }
 });
 
-run('gatherFacts: this repo has core docs + planning', () => {
+run('gatherFacts: this repo has core docs', () => {
   const root = path.resolve(__dirname, '..');
   const facts = gatherFacts(root, os.homedir());
   assert.equal(facts.docsAgents, true, 'AGENTS.md should exist in this repo');
-  assert.equal(facts.planningNonEmpty, true, '.planning should be non-empty');
+});
+
+// 023 T001 — `planningNonEmpty` проверяется на фикстуре, а не на этом репозитории. После 022
+// `.planning/` не в поставке: у автора он на диске, в чистом клоне его нет, и утверждение
+// «в ЭТОМ репозитории он непуст» стало ложью, зелёной только на одной машине. Стеречь нужно
+// способность gatherFacts РАЗЛИЧАТЬ два случая — обе стороны и проверяются.
+run('gatherFacts: planningNonEmpty различает непустой .planning и его отсутствие', () => {
+  const withPlanning = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-planning-yes-'));
+  fs.mkdirSync(path.join(withPlanning, '.planning'), { recursive: true });
+  fs.writeFileSync(path.join(withPlanning, '.planning', 'STATE.md'), '# state');
+  assert.equal(gatherFacts(withPlanning, os.homedir()).planningNonEmpty, true, 'непустой .planning → true');
+  fs.rmSync(withPlanning, { recursive: true, force: true });
+
+  const withoutPlanning = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-planning-no-'));
+  assert.equal(gatherFacts(withoutPlanning, os.homedir()).planningNonEmpty, false, 'нет .planning → false');
+  fs.rmSync(withoutPlanning, { recursive: true, force: true });
+
+  const emptyPlanning = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-planning-empty-'));
+  fs.mkdirSync(path.join(emptyPlanning, '.planning'), { recursive: true });
+  assert.equal(gatherFacts(emptyPlanning, os.homedir()).planningNonEmpty, false, 'пустой .planning → false');
+  fs.rmSync(emptyPlanning, { recursive: true, force: true });
 });
 
 // ── CLI smoke ─────────────────────────────────────────────────────────────────
