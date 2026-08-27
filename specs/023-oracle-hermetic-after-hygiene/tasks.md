@@ -37,3 +37,35 @@
   tools/elt-gate-l0.test.js, tools/judge-bench.test.js, tools/harness-checklist.test.js,
   tools/oracle-hermetic.test.js, tools/d0-smoke-feasibility.test.js, tools/gate-verdict.test.js,
   docs/EVIDENCE.md, CHANGELOG.md, .gitignore]
+
+- [ ] **T002** Релизная подготовка 5.0.1 и дефект, который она вскрыла. Задача существует
+  потому, что `prepare-release` по `docs/RELEASING.md` — это правка манифестов и снимка KPI,
+  то есть НЕ документный коммит, и дверь `elt commit` законно требует за него задачу. Релиз
+  v5.0.0 такой задачи не имел: его тег висит на коммите «chore: авточекпоинт сессии».
+
+  (1) **Версия 5.0.1** — patch: ни контракт, ни поведение харнеса не менялись, слайс T001
+  чинил только герметичность сьюта. Поднята в `.claude-plugin/plugin.json`,
+  `.claude-plugin/marketplace.json` (дважды) и `CHANGELOG.md`, раздел `[Unreleased]` закрыт
+  датой.
+
+  (2) **D28 — версия объявлена в шести местах, `version-check` сверяет четыре.** Найден не
+  анализом, а попыткой пройти протокол: поднял версию ровно по инструкции («в четырёх
+  местах»), `version-check` сказал `ok`, полный оракул дал 107/111 — четыре красных файла с
+  одной причиной. Пятое место — `version:` во frontmatter `skills/elt/SKILL.md`: его сверяет
+  доктор, но не `version-check`, а инструкция релиза писалась по охвату `version-check`.
+  Шестое — `.elt/components.json`/`.lock.json`, где у `elt/core` своя версия, пришпиленная к
+  коммиту. Расхождение устранено (скил + примеры вывода доктора в `docs/INSTALL.md`), корень
+  оставлен открытым и записан: чинить его надо одним источником списка мест, как уже сделано
+  для владений харнеса в `tools/harness-files.js`, а не ещё одной проверкой рядом.
+
+  (3) **Счёт открытых дефектов приведён в соответствие с реестром.** `defects.command` в
+  снимке KPI считает только строки главной таблицы, а D26–D28 записаны разделами, поэтому
+  добавление D28 не сдвинуло бы число. Подгонять снимок под команду — то же враньё, что и
+  зелёный тест на красном коде: D28 внесён и строкой таблицы, снимок и `docs/EVIDENCE.md`
+  обновлены до 3 открытых из 28 (было 2 из 24). Блокирующих открытых по-прежнему ноль.
+
+  Регрессия: `node tools/version-check.js` → 5.0.1, `node bin/doctor.js` → FAIL=0,
+  `node tools/kpi-commit-share.test.js` → 16/16 на новых числах.
+  [files: .claude-plugin/plugin.json, .claude-plugin/marketplace.json, CHANGELOG.md,
+  skills/elt/SKILL.md, docs/INSTALL.md, docs/DEFECTS.md, docs/EVIDENCE.md,
+  tools/kpi-release-snapshot.json, specs/023-oracle-hermetic-after-hygiene/tasks.md]
