@@ -213,12 +213,13 @@ node bin/ledger.js summary
 
 ## Defects
 
-Of 24 numbered defects, 22 are closed. **Blocking open: zero.**
+Of 28 numbered defects, 25 are closed. **Blocking open: zero.**
 
 | # | what | status |
 | --- | --- | --- |
 | D12 | `agent-browser eval --stdin` silently returns `null` | **open, not ours** — [issue #1](https://github.com/prodelt/elt-harness/issues/1) |
 | D24 | `tools/elt-checkpoint.test.js` hangs under `node --test` on Linux | **open, non-blocking** — [issue #2](https://github.com/prodelt/elt-harness/issues/2) |
+| D28 | the version is declared in six places; `version-check` compares four | **open, non-blocking** — found by the 5.0.1 release run itself: the check said `ok`, four tests said otherwise four minutes later |
 
 One architectural problem is **not** declared closed: the judge checks the diff against the
 spec, not against external reality (a DB schema, another API's semantics). A task that contains

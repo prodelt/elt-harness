@@ -38,7 +38,7 @@
   tools/oracle-hermetic.test.js, tools/d0-smoke-feasibility.test.js, tools/gate-verdict.test.js,
   docs/EVIDENCE.md, CHANGELOG.md, .gitignore]
 
-- [ ] **T002** Релизная подготовка 5.0.1 и дефект, который она вскрыла. Задача существует
+- [X] **T002** Релизная подготовка 5.0.1 и дефект, который она вскрыла. Задача существует
   потому, что `prepare-release` по `docs/RELEASING.md` — это правка манифестов и снимка KPI,
   то есть НЕ документный коммит, и дверь `elt commit` законно требует за него задачу. Релиз
   v5.0.0 такой задачи не имел: его тег висит на коммите «chore: авточекпоинт сессии».
