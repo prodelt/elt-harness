@@ -10,7 +10,7 @@ const path = require('node:path');
 const { checkVersions, nextVersion, SEMVER } = require('./version-check');
 
 const roots = [];
-function fixture({ plugin = '5.0.0', marketMeta = '5.0.0', marketPlugin = '5.0.0', changelog = '5.0.0', pkg = '5.0.0' } = {}) {
+function fixture({ plugin = '5.0.0', marketMeta = '5.0.0', marketPlugin = '5.0.0', changelog = '5.0.0', pkg = '5.0.0', skill = '5.0.0' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'elt-version-'));
   roots.push(root);
   fs.mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
@@ -19,8 +19,11 @@ function fixture({ plugin = '5.0.0', marketMeta = '5.0.0', marketPlugin = '5.0.0
     name: 'elt', metadata: { version: marketMeta }, plugins: [{ name: 'elt', version: marketPlugin }],
   }));
   fs.writeFileSync(path.join(root, 'CHANGELOG.md'), `# CHANGELOG\n\n## [${changelog}] — 2026-08-25\n\nтекст\n`);
-  // 024 T007: пятый источник версии.
+  // 024 T007: пятый и шестой источники версии.
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'elt-harness', version: pkg }));
+  fs.mkdirSync(path.join(root, 'skills', 'elt'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'skills', 'elt', 'SKILL.md'),
+    `---\nname: elt\ndescription: fixture\nversion: ${skill}\n---\n\n# elt\n`);
   return root;
 }
 function cleanup() {
@@ -31,13 +34,13 @@ function testAllAlignedIsOk() {
   const r = checkVersions(fixture());
   assert.equal(r.ok, true, JSON.stringify(r.mismatches));
   assert.equal(r.version, '5.0.0');
-  assert.equal(r.sources.length, 5, 'все пять объявлений версии обязаны попасть в сверку');
+  assert.equal(r.sources.length, 6, 'все шесть объявлений версии обязаны попасть в сверку');
 }
 
 // Каждый источник проверяется ОТДЕЛЬНО: расхождение в любом одном обязано валить сверку.
 // Иначе достаточно забыть один файл, чтобы релиз ушёл с несогласованной версией.
 function testEachSourceCanBreakIt() {
-  for (const key of ['plugin', 'marketMeta', 'marketPlugin', 'changelog', 'pkg']) {
+  for (const key of ['plugin', 'marketMeta', 'marketPlugin', 'changelog', 'pkg', 'skill']) {
     const r = checkVersions(fixture({ [key]: '5.0.1' }));
     assert.equal(r.ok, false, `расхождение в ${key} обязано валить сверку`);
     assert.match(r.mismatches.join(' '), /версии разошлись/);
