@@ -178,7 +178,27 @@ test('T010: неполный набор линз — отказ, а не рев�
   fs.copyFileSync(path.join(AGENTS, 'review-bugs.md'), path.join(dir, 'review-bugs.md'));
   const r = await runReview({ lensesDir: dir, runLens: okLens([]), runScorer: okScorer([]) });
   assert.equal(r.status, REVIEW_TERMINAL.dead);
-  assert.match(r.reasons.join(' '), /ожидалось 5/);
+  // 024 T010: отказ называет, КАКИХ линз не хватает. Прежнее «ожидалось 5, найдено 1»
+  // сообщало количество и умалчивало имена — читателю оставалось сверять каталог руками.
+  assert.match(r.reasons.join(' '), /не хватает линз/);
+  assert.match(r.reasons.join(' '), /review-claude-md/);
+});
+
+test('024 T010: ШЕСТАЯ линза не убивает судью — набор закрыт снизу, а не сверху', async () => {
+  // Сверка была `lenses.length !== LENS_NAMES.length`, то есть лишняя линза давала ровно тот
+  // же `dead`, что и недостача. Форк, добавивший собственную линзу, получал мёртвого судью
+  // на КАЖДОМ слайсе: единственная объявленная точка расширения ломала харнес целиком.
+  const dir = tmp();
+  for (const f of fs.readdirSync(AGENTS).filter((x) => x.startsWith('review-') && x.endsWith('.md'))) {
+    fs.copyFileSync(path.join(AGENTS, f), path.join(dir, f));
+  }
+  const sixth = fs.readFileSync(path.join(AGENTS, 'review-bugs.md'), 'utf8')
+    .replace(/^name:\s*review-bugs\s*$/m, 'name: review-custom');
+  fs.writeFileSync(path.join(dir, 'review-custom.md'), sixth);
+
+  const r = await runReview({ lensesDir: dir, runLens: okLens([]), runScorer: okScorer([]) });
+  assert.notEqual(r.status, REVIEW_TERMINAL.dead, `шестая линза не должна убивать ревью: ${r.reasons.join(' ')}`);
+  assert.equal(r.lenses.length, 6, 'лишняя линза работает наравне, а не игнорируется');
 });
 
 test('T010: без транспорта рантайм отказывает, а не притворяется зелёным', async () => {

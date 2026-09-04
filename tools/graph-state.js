@@ -162,7 +162,10 @@ function migrationSnapshot({ specPath, tasksText, runLogEntries = [], reviewRows
   }
 
   for (const row of reviewRows) {
-    if (row.resolved) continue;
+    // 024 T010: `closedAt`, не `resolved` (поля `resolved` не пишет никто). Здесь цена ошибки
+    // выше, чем у счётчика в `elt status`: разобранная строка навсегда оставалась
+    // неоднозначностью и могла навсегда заблокировать `elt cutover`.
+    if (row.closedAt) continue;
     ambiguities.push(ambiguity('unresolved-review-row', `${row.kind || 'row'} ${row.task || '?'} @ ${row.commit || '?'}`));
   }
 

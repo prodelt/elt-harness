@@ -1437,7 +1437,12 @@ if (cmd === 'run') {
     journal: snap.journal,
     rejected: snap.rejected,
     statuses: snap.statuses,
-    unresolvedReview: readReviewQueue().filter((r) => !r.resolved).length,
+    // 024 T010: поле `closedAt`, а не `resolved`. `resolved` не пишет НИКТО — строки очереди
+    // закрываются меткой времени (`elt review close`, elt.js:1628), поэтому счётчик никогда
+    // не убывал: `elt run` вечно показывал «очередь разбора: N записей» после того, как все
+    // они разобраны. Проверка, которая не может сработать, хуже отсутствующей — она
+    // выглядит работающей.
+    unresolvedReview: readReviewQueue().filter((r) => !r.closedAt).length,
     ledger: ledgerOpen,
   };
   if (flag('--exec')) {
@@ -2366,7 +2371,20 @@ if (cmd === 'commit') {
           if (!cert || !cert.ok) return { ok: false, reason: 'сертификата батча нет (' + ((cert && cert.reason) || 'no-reason') + ')' };
           const c = cert.certificate || cert;
           if (c.v !== certification.BATCH_CERT_SCHEMA) return { ok: false, reason: 'чужая схема сертификата: ' + c.v };
-          if (c.commitHash && c.commitHash !== git(['rev-parse', 'HEAD']).out) return { ok: false, reason: 'сертификат выдан на другой commit' };
+          // 024 T010: привязка к коммиту проверяется по полю, которое у батч-сертификата
+          // РЕАЛЬНО есть. Гард читал `commitHash` — оно только у релизных сертификатов
+          // (certification.js:224); батчевые несут `commit` (там же :162), поэтому условие
+          // всегда было ложным и проверка не срабатывала НИ РАЗУ.
+          //
+          // Наивное переименование переключило бы её в «всегда блокировать»: `elt commit`
+          // отдаёт в сертификат КОРОТКИЙ sha (`rev-parse --short`, elt.js:2259), а сверка
+          // берёт полный. Сравниваем префиксом по длине того, что записано, — короткий
+          // против полного, полный против полного.
+          const certCommit = c.commit || c.commitHash || null;
+          const head = git(['rev-parse', 'HEAD']).out;
+          if (certCommit && !head.startsWith(certCommit)) {
+            return { ok: false, reason: `сертификат выдан на другой commit (${certCommit} ≠ ${head.slice(0, certCommit.length)})` };
+          }
           return { ok: true };
         } catch (e) { return { ok: false, reason: e.message }; }
       })();

@@ -77,7 +77,11 @@ test('024 T003: `elt commit` проходит при ВКЛЮЧЁННОМ manage
   // Ровно та установка, которую делает `project-bootstrap apply --apply`.
   fs.mkdirSync(path.join(root, '.githooks'), { recursive: true });
   const hook = path.join(root, '.githooks', 'pre-commit');
-  fs.writeFileSync(hook, `#!/bin/sh\nexec "${process.execPath}" "${ELT}" gate\n`, { mode: 0o755 });
+  // Прямые слэши намеренно: хук исполняет sh (на Windows — тот, что приходит с Git for
+  // Windows), а в его двойных кавычках обратный слэш перед некоторыми символами съедается.
+  // Windows-путь через прямые слэши понимают одинаково и sh, и node; через обратные — нет.
+  const posix = (p) => String(p).replace(/\\/g, '/');
+  fs.writeFileSync(hook, `#!/bin/sh\nexec "${posix(process.execPath)}" "${posix(ELT)}" gate\n`, { mode: 0o755 });
   git(root, ['config', 'core.hooksPath', '.githooks']);
   fs.chmodSync(hook, 0o755);
 
