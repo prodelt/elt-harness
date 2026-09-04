@@ -268,15 +268,21 @@ test('024 (ревью): elt gate --ci гоняет оракул мимо кэш�
   // Бэкстоп CI кэшу не доверяет: на границе, где решается «пускать ли в main», подделанный
   // или протухший кэш проезжал бы там, где проверка дороже всего.
   const root = fixture();
-  const marker = path.join(root, 'oracle-ran.txt');
   const cfgPath = path.join(root, '.harness', 'harness.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-  // Оракул фикстуры печатает, ВИДИТ ли он ELT_ORACLE_FULL — так проверяется, что --ci
-  // доносит full через границу процесса (shell-строка, а не argv).
-  fs.writeFileSync(cfgPath, JSON.stringify({
-    ...cfg,
-    oracle: `node -e "require('fs').writeFileSync(${JSON.stringify(marker).replace(/"/g, '\\"')}, String(process.env.ELT_ORACLE_FULL))"`,
-  }));
+  // Оракул фикстуры записывает, ВИДИТ ли он ELT_ORACLE_FULL — так проверяется, что --ci
+  // доносит full через границу процесса (`harness.json.oracle` — shell-СТРОКА, а не argv).
+  //
+  // Пробник вынесен в ФАЙЛ, а не написан как `node -e "…"`. Встроенный в shell-строку код
+  // приходится экранировать, и на Windows это ломается: абсолютный путь с обратными слэшами
+  // уезжает в powershell, оттуда в `node -e`, и обратный слэш перед буквой становится там
+  // «Expected unicode escape» — CI поймал это живьём. Файл плюс относительные пути (cwd
+  // оракула и есть корень фикстуры) не требуют экранирования вообще, поэтому одинаково
+  // работают под bash и под powershell.
+  fs.writeFileSync(path.join(root, 'oracle-probe.js'),
+    "require('fs').writeFileSync('oracle-ran.txt', String(process.env.ELT_ORACLE_FULL));\n");
+  const marker = path.join(root, 'oracle-ran.txt');
+  fs.writeFileSync(cfgPath, JSON.stringify({ ...cfg, oracle: 'node oracle-probe.js' }));
   const r = run(root, ['gate', '--ci']);
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
   assert.equal(fs.readFileSync(marker, 'utf8'), '1', 'gate --ci обязан выставить ELT_ORACLE_FULL=1');
