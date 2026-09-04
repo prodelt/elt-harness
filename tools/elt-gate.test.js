@@ -34,7 +34,10 @@ function installHook(root) {
   // 020 T015: `elt run|advance|cutover` втянули в замыкание модули графа — они требуются на
   // ВЕРХНЕМ уровне elt.js, поэтому их отсутствие в чужом чекауте убивает не команду графа, а
   // весь CLI ещё до разбора argv. Список ниже и есть та проверка, которая это ловит.
-  for (const name of ['elt.js', 'elt-config.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js',
+  // 024 T001: `shell-run.js` — тоже require верхнего уровня (и у elt.js, и у elt-config.js),
+  // поэтому он в списке по той же причине, что и остальные: без него чужой чекаут падает
+  // `Cannot find module` ещё до разбора argv.
+  for (const name of ['elt.js', 'elt-config.js', 'shell-run.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js',
     'graph-compiler.js', 'graph-core.js', 'graph-journal.js', 'graph-state.js', 'task-identity.js']) {
     fs.copyFileSync(path.join(__dirname, name), path.join(toolsDir, name));
   }

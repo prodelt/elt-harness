@@ -1,0 +1,41 @@
+{
+  "name": "elt-harness",
+  "version": "5.0.1",
+  "description": "ELT — spec-driven harness for coding agents: mechanical oracle, L0 gate, five review lenses with a confidence scorer, and a defect ledger that files its own issues.",
+  "keywords": ["harness", "spec-driven", "review", "oracle", "gate", "code-review", "claude-code"],
+  "homepage": "https://github.com/prodelt/elt-harness",
+  "bugs": "https://github.com/prodelt/elt-harness/issues",
+  "repository": { "type": "git", "url": "git+https://github.com/prodelt/elt-harness.git" },
+  "license": "MIT",
+  "author": "prodelt (https://github.com/prodelt)",
+  "type": "commonjs",
+  "private": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node tools/elt-oracle-runner.js --full",
+    "doctor": "node bin/doctor.js",
+    "gate": "node tools/elt.js gate --ci"
+  },
+  "bin": {
+    "elt": "tools/elt.js"
+  },
+  "files": [
+    ".claude-plugin",
+    ".githooks",
+    "agents",
+    "bin",
+    "commands",
+    "config",
+    "docs",
+    "hooks",
+    "skills",
+    "templates",
+    "tools",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "LICENSE",
+    "README.md"
+  ]
+}

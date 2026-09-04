@@ -62,7 +62,24 @@ function runCtx7(subcommand, subargs, options = {}) {
   }
 
   // Пишем ТОЛЬКО на успех: пруф означает «документация реально получена», а не «попытались».
-  if (ok && options.proofCwd !== false) appendCtx7Proof(subcommand, subargs, options.proofCwd || process.cwd());
+  //
+  // 024 T006: и только когда ctx7 звали ПО-НАСТОЯЩЕМУ. Подменённый `runner` — это тестовый шов;
+  // «успех» такого вызова означает, что стаб вернул нужную форму, а не что документация
+  // получена. Сьют оракула гоняет эти вызовы с `cwd: ROOT`, поэтому каждый прогон дописывал
+  // в `.harness/ctx7-proof.jsonl` ГЕЙТУЕМОГО проекта пять фиктивных строк. Живой реестр
+  // репозитория к моменту находки: 35 строк, все до одной фабрикация, и каждый прогон
+  // обновлял им отметку времени — 30-дневное окно свежести не истекало никогда. Через них
+  // L0 переставал блокировать новые импорты, то есть гейт выписывал разрешения сам себе.
+  // Условие пишется здесь, а не в тесте: правило, которое можно забыть в следующем тесте,
+  // не правило. При подменённом раннере пруф пишется только если вызывающий ЯВНО назвал
+  // `proofCwd` — то есть сам сказал, куда, и взял ответственность за уборку. Молчание
+  // означает `process.cwd()`, а у оракула это корень гейтуемого проекта: ровно так 75 строк
+  // фабрикации и накопились.
+  const realRunner = options.runner === undefined;
+  const destinationChosen = typeof options.proofCwd === 'string' && options.proofCwd.length > 0;
+  if (ok && options.proofCwd !== false && (realRunner || destinationChosen)) {
+    appendCtx7Proof(subcommand, subargs, options.proofCwd || process.cwd());
+  }
 
   return { ok, attemptedCommand, stdoutExcerpt, stderrExcerpt, exitCode, skipReason, timedOut };
 }

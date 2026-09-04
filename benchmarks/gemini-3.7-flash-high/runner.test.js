@@ -13,8 +13,12 @@ const datasetLib = require('./build-gate-dataset.js');
 const summarizeLib = require('./summarize.js');
 
 const tests = [];
-function test(name, fn) {
-  tests.push({ name, fn });
+// 024 T002: третий аргумент — причина пропуска (строка) или null. Пропуск ОБЯЗАН называть
+// причину: «не измерено» и «измерено и хорошо» — разные вещи, и без причины в выводе они
+// сливаются. Без этого шва единственный способ пережить отсутствие системной зависимости —
+// красный тест, который учит игнорировать красноту.
+function test(name, fn, skipReason = null) {
+  tests.push({ name, fn, skipReason });
 }
 function tmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -153,6 +157,9 @@ test('runOneTask: agent ok + grader fail -> outcome fail, no tamper false-positi
 
 // --- graders (real pytest, not mocked — the grader is not part of ELT) ---
 
+// 024 T002: honest skip, not a red. The grader needs a system dependency this repo does not
+// vendor; a suite that goes red on a missing interpreter teaches the reader to ignore red.
+// The skip names the dependency, so "not measured" never reads as "measured and fine".
 test('gradePolyglotWriter: real pytest pass/fail, not mocked', async () => {
   const dir = tmpDir('elt-bench-grade-');
   fs.writeFileSync(path.join(dir, 'sol.py'), 'def add(a, b):\n    return a + b\n', 'utf8');
@@ -164,7 +171,7 @@ test('gradePolyglotWriter: real pytest pass/fail, not mocked', async () => {
   const failResult = await runner.gradePolyglotWriter({ workDir: dir, item: { guardPath: 'sol_test.py' } });
   assert.equal(failResult.pass, false);
   assert.ok(failResult.detail.length > 0);
-});
+}, runner.pytestAvailable() ? null : 'pytest-unavailable: `python3 -m pytest` не установлен — грейдер замера не проверен (CI ставит его отдельным шагом)');
 
 test('graderFor: swebench-gate throws a clear not-implemented error instead of faking a verdict', async () => {
   const grade = runner.graderFor('swebench-gate');
@@ -331,7 +338,13 @@ async function main() {
   console.log('gemini-3.7-flash-high/runner.test.js');
   let passed = 0;
   let failed = 0;
-  for (const { name, fn } of tests) {
+  let skipped = 0;
+  for (const { name, fn, skipReason } of tests) {
+    if (skipReason) {
+      console.log(`  SKIP: ${name}\n    ${skipReason}`);
+      skipped += 1;
+      continue;
+    }
     try {
       await fn();
       console.log(`  PASS: ${name}`);
@@ -341,7 +354,7 @@ async function main() {
       failed += 1;
     }
   }
-  console.log(`\nrunner.test.js: ${tests.length} tests: ${passed} passed, ${failed} failed`);
+  console.log(`\nrunner.test.js: ${tests.length} tests: ${passed} passed, ${failed} failed, ${skipped} skipped`);
   if (failed > 0) process.exitCode = 1;
 }
 

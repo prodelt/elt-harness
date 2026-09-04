@@ -16,8 +16,16 @@
     "days": 14,
     "window": "2026-08-12..2026-08-26",
     "command": "node tools/kpi-commit-share.js --days 14 --as-of 2026-08-26 --cwd \"<repo-root>\" --cwd \"<another-project>\" --cwd \"<another-project>\"",
-    "combined": { "share": "54.6%", "hit": 106, "total": 194 },
-    "thisRepo": { "share": "100%", "hit": 37, "total": 37 }
+    "combined": {
+      "share": "54.6%",
+      "hit": 106,
+      "total": 194
+    },
+    "thisRepo": {
+      "share": "100%",
+      "hit": 37,
+      "total": 37
+    }
   },
   "loc": {
     "command": "find tools bin \\( -name \"*.js\" -o -name \"*.ps1\" \\) | grep -v node_modules | xargs wc -l | tail -1",
@@ -29,9 +37,9 @@
   },
   "oracle": {
     "command": "node tools/elt-oracle-runner.js --full",
-    "files": 112,
+    "files": 115,
     "roots": "tools/ + bin/ + benchmarks/",
-    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите. 023 T001: 112 → 111, затем T003 → 112 (добавлен release-hygiene.test.js) — сняты d0-smoke-feasibility.test.js и gate-verdict.test.js (проверяли форму одноразовых отчётов в .gitignore-нутом .planning/, кода не защищали), добавлен oracle-hermetic.test.js."
+    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите. 023 T001: 112 → 111, затем T003 → 112 (добавлен release-hygiene.test.js) — сняты d0-smoke-feasibility.test.js и gate-verdict.test.js (проверяли форму одноразовых отчётов в .gitignore-нутом .planning/, кода не защищали), добавлен oracle-hermetic.test.js. 024: 112 → 115 — три регрессии на дыры, у которых её не было: elt-tree-hash.test.js (пруф о дереве не зависит от индексации; до фикса elt commit под собственным хуком был непроходим), supply-exec-bit.test.js (хук гейта поставлялся режимом 100644 и git молча пропускал его на POSIX), shell-run.test.js (поставочный shell=powershell давал elt oracle: exit 1 (0s) без причины вне Windows)."
   },
   "benchmark": {
     "model": "gemini-3.7-flash-high",

@@ -103,10 +103,17 @@ list now: `tools/harness-files.js`.
 node tools/elt-oracle-runner.js --full
 ```
 
-**112/112 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
+**115/115 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
 tests and the benchmark contour's tests must be part of the same gate the harness applies to
 everyone else: until 021/T003 the benchmark tests had never run on a single commit. CI runs the
 same suite on `windows-latest` and `ubuntu-latest`.
+
+**Until 024 this suite had never been green on Linux or macOS.** Measured 2026-09-04 on Node
+22.22.2 / Linux, before the spec: `110/112, exit 1`. Two files were red, for two unrelated
+reasons, and both are recorded in `DEFECTS.md`. Since CLAUDE.md makes `exit 0` of this command
+the condition for closing a slice, no contributor on a POSIX machine could close one — the
+harness was mechanically closed to everyone but its author. After 024/T002 the same command on
+the same machine returns `115/115, exit 0`.
 
 The count moved from 112 to 111 in 023/T001 and back to 112 in 023/T003, and the reason is
 recorded rather than absorbed quietly. Spec 022 moved working directories such as `.planning/` out of the shipped tree, and
@@ -115,7 +122,10 @@ of one-off reports that lived there. They imported no project module and called 
 function, so they guarded no code; they were also green only on the author's machine. They were
 removed and their numbers preserved below, and one file was added in their place:
 `oracle-hermetic.test.js`, so that step was minus two plus one. 023/T003 then added
-`release-hygiene.test.js`, bringing the count back to 112.
+`release-hygiene.test.js`, bringing the count back to 112. 024 added three regressions for holes that had none, for 115: `elt-tree-hash.test.js` (the
+tree proof survives `git add -A`), `supply-exec-bit.test.js` (the shipped gate hook is
+executable in git's index — at mode `100644` git silently skips it on POSIX and commits) and
+`shell-run.test.js` (a missing interpreter is named, not reported as a red oracle).
 
 The hermetic lock was not the only check that had been promised and never built. Spec 022
 declared **AC3**: no tracked file carries the author's absolute paths. Nothing enforced it, and

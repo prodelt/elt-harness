@@ -177,13 +177,30 @@ function externalImports(diff) {
 }
 // Пруф читает ВЫЗЫВАЮЩИЙ и передаёт сюда: evaluate обязана остаться чистой (AC2) — иначе её
 // тест начнёт требовать репозиторий, а сама она сможет подвиснуть в гейте на вводе-выводе.
+// 024 T006: сверка по ТОЧНОМУ имени пакета, а не по вхождению подстроки. `includes` означал,
+// что одна строка пруфа про `/microsoft/playwright-mcp` покрывала разом `playwright`, `mcp`,
+// `cli`, `ai`, `agents` и `vercel` — то есть почти любой правдоподобный импорт. Замер живого
+// реестра репозитория: 35 строк, и все шесть перечисленных пакетов проходили как «покрытые».
+// Сверяются ТОЛЬКО `library` и `libraryId` — поля, куда приезжает имя пакета. Поле `query`
+// из сверки убрано совсем: это человеческая проза, которую ctx7 использует для ранжирования
+// («CLI usage for coding agents»), и её слова — не имена пакетов. Именно оно и покрывало
+// разом `cli`, `agents`, `ai` и `mcp`.
+//
+// Совпадением считается имя целиком либо сегмент library-id вида `/org/name`. Скоуп
+// сравнивается целиком: `@types/node` не покрывается пруфом про `node`.
+function ctx7NameMatches(pkg, value) {
+  const needle = String(pkg).toLowerCase();
+  const v = String(value).toLowerCase();
+  if (v === needle) return true;
+  if (v.startsWith('/')) return v.split('/').filter(Boolean).includes(needle); // `/org/name[/version]`
+  return false;
+}
 function ctx7Covered(pkg, proofs, freshDays) {
   const cutoff = Date.now() - freshDays * 24 * 60 * 60 * 1000;
-  const needle = pkg.toLowerCase();
   return proofs.some((p) => {
     const ts = Date.parse(p && p.ts);
     if (!Number.isFinite(ts) || ts < cutoff) return false;
-    return [p.library, p.query, p.libraryId].filter(Boolean).some((v) => String(v).toLowerCase().includes(needle));
+    return [p.library, p.libraryId].filter(Boolean).some((v) => ctx7NameMatches(pkg, v));
   });
 }
 
