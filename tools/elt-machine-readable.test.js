@@ -90,6 +90,19 @@ test('024 T009: ELT_JSON=1 — тот же конверт без флага (г�
   assert.equal(lastJson(r.stdout).reason, 'task-not-found');
 });
 
+test('024 T009: самые частые отказы гейта названы, а не отданы как exit-4', () => {
+  // Проверено на свежем клоне: `git commit` с кодом мимо `elt commit` отвергается — и это
+  // ровно тот отказ, который серверный агент встретит первым. Generic `exit-4` вместо slug
+  // означал бы, что ветвиться снова не по чему.
+  const root = fixture();
+  const r = run(root, ['gate', '--json'], { ELT_VERIFY_MODE: 'background' });
+  // В sync-режиме фикстуры гейт стережёт judge proof; slug обязан назвать ЧТО именно.
+  const env = lastJson(r.stdout);
+  assert.equal(env.ok, false, JSON.stringify(env));
+  assert.notEqual(env.reason, 'exit-4', `отказ гейта обязан нести slug, а не generic код: ${JSON.stringify(env)}`);
+  assert.match(env.reason, /^judge-proof-|^oracle-proof-/, JSON.stringify(env));
+});
+
 test('024 T009: успех gate тоже читается машиной', () => {
   const root = fixture();
   fs.rmSync(path.join(root, 'slice.txt'));

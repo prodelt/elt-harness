@@ -46,9 +46,21 @@ function ok(reason, payload, text) {
   else if (text) console.log(text);
   process.exit(0);
 }
+// 024 T008: предупреждения схемы печатаются ОДИН раз за процесс. Неизвестный ключ не валит
+// конфиг (у существующих проектов лежат поля от снятых спек, и отказ на них сломал бы
+// работающие установки), но и молчать о нём нельзя: `oracelSelect: "impact"` выглядит как
+// включённая выборка и не является ею. Отказ на неизвестный ключ включается следующей
+// минорной версией — счётчик в `harness-schema.js:SCHEMA_VERSION`.
+let configWarningsShown = false;
+function showConfigWarnings(warnings) {
+  if (configWarningsShown || !warnings || !warnings.length) return;
+  configWarningsShown = true;
+  for (const w of warnings) console.error(`elt: harness.json — ${w}`);
+}
 function loadConfig() {
   const loaded = readHarnessConfig(cwd);
-  if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
+  if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`, 1, 'config-invalid');
+  showConfigWarnings(loaded.warnings);
   // ELT v3 не исполняет старый verify-on-pass. Не показываем неактивное поле и в status,
   // иначе пользователь видит конфиг, который runtime сознательно не применяет.
   const config = { ...loaded.config };
@@ -375,7 +387,24 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // 020 T009: оба вызова обязаны ОТРАБОТАТЬ ПОЛНОСТЬЮ. Молчаливый провал здесь — худший из
   // возможных: хеш посчитается от пустого/обрезанного вывода, два разных дерева совпадут, и
   // `--skip-oracle` проведёт коммит по пруфу от ЧУЖОГО дерева. Отказ громкий, без фолбека.
-  const statusRun = git(['status', '--porcelain', '-uall'], { raw: true });
+  // 024 (ревью): вывод git приводится к КАНОНИЧЕСКОЙ форме принудительно, а не принимается
+  // как есть. Форма `git status`/`git diff` настраивается пользователем, и хеш, посчитанный
+  // от неё, зависит от чужого `.gitconfig`:
+  //   `diff.noprefix` / `diff.mnemonicPrefix` — заголовок приезжает без `a/`…`b/`, и разбор
+  //     блоков диффа не находит НИ ОДНОГО файла (весь дифф выпадал из хеша — то есть пруф
+  //     переставал видеть правки отслеживаемых файлов вовсе);
+  //   определение переименований — до индексации это `D` + `??`, после `git add -A` это одна
+  //     строка `R old -> new` плюс rename-блок в диффе, то есть ровно та зависимость от
+  //     индексации, ради снятия которой писался T003.
+  //   `core.quotepath` (включён по умолчанию) — путь с не-ASCII именем приезжает в
+  //     C-кавычках (`"\320\234…"`), и чтение содержимого такого файла с диска молча
+  //     проваливалось: `path.join(cwd, '"\320\234…"')` не существует, отказ съедался
+  //     `catch`. Путь в хеш попадал, а СОДЕРЖИМОЕ — нет, то есть правка такого файла после
+  //     пруфа оставалась невидимой. Тот же класс, что D21.
+  // `--no-renames` убирает переименования, `-c diff.*=false` — префиксы, `--no-ext-diff` —
+  // внешний diff-драйвер, который может отдать что угодно, `core.quotepath=false` — кавычки.
+  // Урок один: не хешировать формат, которым не управляешь.
+  const statusRun = git(['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '--no-renames'], { raw: true });
   if (statusRun.code !== 0) {
     die(`treeHash: git status не отработал (${statusRun.killed ? 'вывод обрезан/процесс убит' : `exit ${statusRun.code}`})`
       + `${statusRun.err ? `: ${statusRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
@@ -384,7 +413,10 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // резолвится, и это не отказ git, а отсутствие базы. Всё содержимое такого дерева и так
   // попадает в хеш через `??`-строки status.
   const hasHead = git(['rev-parse', '--verify', 'HEAD']).code === 0;
-  const diffRun = hasHead ? git(['diff', 'HEAD']) : { code: 0, out: '', killed: false, err: '' };
+  const diffRun = hasHead
+    ? git(['-c', 'core.quotepath=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false',
+      'diff', 'HEAD', '--no-renames', '--no-ext-diff'])
+    : { code: 0, out: '', killed: false, err: '' };
   if (diffRun.code !== 0) {
     die(`treeHash: git diff не отработал (${diffRun.killed ? 'вывод обрезан/процесс убит' : `exit ${diffRun.code}`})`
       + `${diffRun.err ? `: ${diffRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
@@ -629,15 +661,24 @@ function headSha() {
 // правку в дереве.
 const PROOF_SCHEMA = 2;
 
-// Пруф, по которому оракул не исполнил ни одного файла, — не доказательство. Возвращает
-// причину отказа или null.
+// Возвращает причину, по которой пруфу нельзя верить, или null.
+//
+// 024 (ревью): здесь стояло ещё правило «`ran === 0` при непустой выборке — не доказательство».
+// Оно НЕВЕРНО, и это моя ошибка, а не полумера. Тёплый кэш даёт ровно `ran: 0, cached: N,
+// total: N` — замер на этом репозитории: второй подряд прогон оракула печатает «118 попаданий,
+// 0 к прогону». Это штатный зелёный прогон, а не подделка: замыкание тестов не изменилось.
+// Правило ломало обычную работу — второй `elt commit` подряд умирал exit 4, и единственным
+// выходом был `--full`, о котором сообщение не говорило.
+//
+// От подделки кэша (audit E17) защищает не эта эвристика — из пруфа тёплый кэш и подделка
+// неотличимы В ПРИНЦИПЕ, — а два других изменения: кэш переехал в `.git/elt/`, где его не
+// примут за часть проекта, и `elt gate --ci`, документированный бэкстоп для CI, гоняет
+// оракул с `--full`, то есть кэш игнорирует целиком. Поля `ran`/`cached`/`total` остаются в
+// пруфе как наблюдаемость: по ним видно, что именно исполнялось.
 function oracleProofUseless(proof) {
   if (!proof) return null;
   if (proof.proofSchema !== PROOF_SCHEMA) {
     return `пруф схемы ${proof.proofSchema || 1}, текущая ${PROOF_SCHEMA} (форма хеша дерева изменилась в 024) — перепрогони оракул`;
-  }
-  if (proof.ran === 0 && Number(proof.total) > 0) {
-    return `оракул не исполнил ни одного файла (${proof.cached} из кэша, ${proof.total} в выборке) — это отсутствие проверки, а не зелёный прогон`;
   }
   return null;
 }
@@ -1354,7 +1395,11 @@ if (cmd === 'init') {
   const cfg = {
     kind: 'code',
     oracle,
-    shell: opt('--shell', 'bash'),
+    // 024 (ревью): `shell` пишется ТОЛЬКО когда его назвали явно. Дефолт `bash` прибивал в
+    // каждый новый проект то самое поле, которое T001 убрал из поставки, и на Windows
+    // порождал конфиг, немедленно умирающий «интерпретатор 'bash' не найден». Без поля
+    // дефолт считается по `process.platform` у того, кто запускает.
+    ...(opt('--shell') ? { shell: opt('--shell') } : {}),
     branchPolicy: opt('--branch-policy', 'feature'),
     push: flag('--push'),
     // ELT v3: один независимый judge + grounding/red-proof. Повторный verify-on-pass снят.
@@ -2001,10 +2046,13 @@ if (cmd === 'gate') {
   if (flag('--ci')) {
     const cfg = loadConfig();
     runLog.runtimeRunLog(cwd);
-    const exit = runOracle(cfg, { full: flag('--full') });
+    // 024 (ревью): бэкстоп CI кэшу не доверяет. Кэш — оптимизация внутреннего цикла; на
+    // границе, где решается «пускать ли в main», он обязан быть выключен, иначе подделанный
+    // или просто протухший кэш проезжает ровно там, где проверка дороже всего.
+    const exit = runOracle(cfg, { full: true });
     if (exit !== 0) {
       appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec, full: lastOracleFull } });
-      die(`elt gate --ci: оракул красный (exit ${exit})`, exit);
+      die(`elt gate --ci: оракул красный (exit ${exit})`, exit, 'oracle-red');
     }
     console.log('elt gate --ci: oracle green');
     process.exit(0);
@@ -2026,7 +2074,7 @@ if (cmd === 'gate') {
     if (bgMode) {
       let oracleRaw = null;
       try { oracleRaw = fs.readFileSync(oracleProofPath(), 'utf8'); } catch { /* нет пруфа — ниже отказ */ }
-      if (!oracleRaw) die('elt gate: нет оракул-пруфа (verify:"background") — коммить через elt commit', 4);
+      if (!oracleRaw) die('elt gate: нет оракул-пруфа (verify:"background") — коммить через elt commit', 4, 'oracle-proof-missing');
       let parsed = null;
       try { parsed = JSON.parse(oracleRaw); } catch { /* битый — отказ ниже */ }
       // Доверие к байтам пруфа снимает ТОЛЬКО проверку дерева (она заведомо не сойдётся: между
@@ -2045,7 +2093,7 @@ if (cmd === 'gate') {
         if (useless) die(`elt gate: ${useless}`, 4, 'oracle-proof-unproven');
         const normalized = parsed.hashTaskMarksNormalized;
         if (!normalized) {
-          die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4);
+          die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4, 'oracle-proof-stale');
         }
         if (normalized !== treeHashNormalizingTaskMarks()) {
           die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4, 'oracle-proof-stale');
@@ -2117,7 +2165,7 @@ if (cmd === 'commit') {
     oracleExit = runOracle(cfg, { full: flag('--full') });
     if (oracleExit !== 0) {
       appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit, durationSec: lastOracleSec, full: lastOracleFull } });
-      die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit);
+      die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit, 'oracle-red');
     }
   }
 
@@ -2128,7 +2176,7 @@ if (cmd === 'commit') {
   if (!taskId) {
     const nonDocs = changedFiles().filter((f) => !DOC_COMMIT_RE.test(f.replace(/\\/g, '/')));
     if (nonDocs.length) {
-      die(`elt commit: --task Txxx обязателен для коммита с кодом (не документные файлы: ${nonDocs.slice(0, 5).join(', ')}${nonDocs.length > 5 ? ` +${nonDocs.length - 5}` : ''})`, 4);
+      die(`elt commit: --task Txxx обязателен для коммита с кодом (не документные файлы: ${nonDocs.slice(0, 5).join(', ')}${nonDocs.length > 5 ? ` +${nonDocs.length - 5}` : ''})`, 4, 'task-required');
     }
     const msgDocs = opt('-m', 'docs: обновление документации');
     if (git(['add', '-A']).code !== 0) die('git add failed');
@@ -2388,7 +2436,7 @@ if (cmd === 'commit') {
           return { ok: true };
         } catch (e) { return { ok: false, reason: e.message }; }
       })();
-      if (!certOk.ok) die('elt commit --push: publish без terminal certificate — ' + certOk.reason, 4);
+      if (!certOk.ok) die('elt commit --push: publish без terminal certificate — ' + certOk.reason, 4, 'certificate-missing');
     }
     const p = git(['push', '-u', 'origin', branch]);
     if (p.code === 0) console.error('elt commit: pushed');

@@ -228,10 +228,21 @@ async function testConcurrentWritersDoNotTearLines() {
   ].join('\n'), 'utf8');
 
   // Процессы стартуют ОДНОВРЕМЕННО: последовательный запуск замок не проверяет вовсе.
+  // 024 (ревью): stderr дочернего процесса ЧИТАЕТСЯ. Скрипт выше специально пишет туда
+  // причину отказа замка (`lock-timeout`, `lock-failed: <code>`) — и `stdio: 'ignore'`
+  // выбрасывал её, оставляя только «writer b exited 3». Именно так этот тест и упал на
+  // windows-latest 2026-09-04: причина существовала, была напечатана и потеряна, а без неё
+  // «замок не дождался» неотличимо от «mkdir отказал кодом, который замок считает
+  // фатальным». Диагностика, которую отбрасывает тот же тест, что её производит, — не
+  // диагностика.
   const runs = ['a', 'b', 'c'].map((tag) => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script, file, `run-${tag}`, '1'], { stdio: 'ignore' });
+    const child = spawn(process.execPath, [script, file, `run-${tag}`, '1'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let why = '';
+    child.stderr.on('data', (b) => { why += b; });
     child.on('error', reject);
-    child.on('exit', (code) => (code === 0 ? resolve(code) : reject(new Error(`writer ${tag} exited ${code}`))));
+    child.on('exit', (code) => (code === 0
+      ? resolve(code)
+      : reject(new Error(`writer ${tag} exited ${code}${why ? `: ${why.trim()}` : ' (без причины на stderr)'}`))));
   }));
   await Promise.all(runs);
   const read = readEvents(file);

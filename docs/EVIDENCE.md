@@ -103,7 +103,7 @@ list now: `tools/harness-files.js`.
 node tools/elt-oracle-runner.js --full
 ```
 
-**117/117 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
+**118/118 files** across three roots — `tools/`, `bin/` and `benchmarks/`. The plugin's own
 tests and the benchmark contour's tests must be part of the same gate the harness applies to
 everyone else: until 021/T003 the benchmark tests had never run on a single commit. CI runs the
 same suite on `windows-latest` and `ubuntu-latest`.
@@ -113,7 +113,7 @@ same suite on `windows-latest` and `ubuntu-latest`.
 reasons, and both are recorded in `DEFECTS.md`. Since CLAUDE.md makes `exit 0` of this command
 the condition for closing a slice, no contributor on a POSIX machine could close one — the
 harness was mechanically closed to everyone but its author. After 024/T002 the same command on
-the same machine returns `117/117, exit 0`.
+the same machine returns `118/118, exit 0`.
 
 The count moved from 112 to 111 in 023/T001 and back to 112 in 023/T003, and the reason is
 recorded rather than absorbed quietly. Spec 022 moved working directories such as `.planning/` out of the shipped tree, and
@@ -132,7 +132,9 @@ log instead of hiding the cause in a file — the three things an unattended age
 has no way around. 024/T010 added a fifth, `elt-dead-checks.test.js`, for 117: three checks
 that looked like working protection and could not fire — two filtering the review queue on a
 `resolved` field nothing writes, and the `--push` certificate guard reading `commitHash` from
-certificates that carry `commit`.
+certificates that carry `commit`. 024/T008 added a sixth, `harness-schema.test.js`, for 118:
+the config is a contract now — eight of the thirty-three fields the code reads were validated,
+and the rest did not reject a typo, they changed how the gate behaves.
 
 The hermetic lock was not the only check that had been promised and never built. Spec 022
 declared **AC3**: no tracked file carries the author's absolute paths. Nothing enforced it, and

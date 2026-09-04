@@ -50,6 +50,21 @@ function collectVersions(root) {
   try { sources.push({ where: 'package.json', version: readJson(pkg).version, file: pkg }); }
   catch (e) { errors.push(`package.json: ${e.message}`); }
 
+  // 024 T007 (корень D28): ШЕСТОЙ источник — фронтматтер скила. Его сверял доктор, но не
+  // `version-check`, а инструкция релиза писалась по охвату `version-check` — поэтому подъём
+  // версии «строго по инструкции» проходил как `ok` и давал четыре красных файла в полном
+  // оракуле. D28 записан с корнем «чинить одним источником списка мест, а не ещё одной
+  // проверкой рядом»: этот список и есть тот единственный источник, поэтому место добавляется
+  // СЮДА. `.elt/components.json` намеренно НЕ здесь: у `elt/core` своя версия, пришпиленная к
+  // коммиту компонента, и совпадать с версией плагина она не обязана.
+  const skill = path.join(root, 'skills', 'elt', 'SKILL.md');
+  try {
+    const text = fs.readFileSync(skill, 'utf8');
+    const m = text.match(/^version:\s*v?(\d+\.\d+\.\d+)\s*$/m);
+    if (!m) errors.push('skills/elt/SKILL.md: не найдено поле version во фронтматтере');
+    else sources.push({ where: 'skills/elt/SKILL.md', version: m[1], file: skill });
+  } catch (e) { errors.push(`skills/elt/SKILL.md: ${e.message}`); }
+
   const changelog = path.join(root, 'CHANGELOG.md');
   try {
     const text = fs.readFileSync(changelog, 'utf8');

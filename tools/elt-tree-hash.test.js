@@ -127,3 +127,81 @@ test('024 T003: маркер задачи нормализуется и в ра�
   const gate = run(root, ['gate'], { ELT_GATE_TRUST_ORACLE: trust });
   assert.equal(gate.status, 0, `маркер задачи в корневом плане обязан прощаться:\n${gate.stdout}${gate.stderr}`);
 });
+
+// ── 024 (ревью) ──────────────────────────────────────────────────────────────
+// Две дыры того же класса, что и исходный дефект: хеш зависел от формы вывода git, а форма
+// настраивается ПОЛЬЗОВАТЕЛЕМ и меняется индексацией.
+
+test('024 (ревью): пруф не слепнет при diff.noprefix в чужом .gitconfig', () => {
+  // `diff.noprefix` (и `diff.mnemonicPrefix`) убирает `a/`…`b/` из заголовка. Разбор блоков
+  // диффа переставал находить хоть один файл, и ВЕСЬ дифф выпадал из хеша — то есть пруф
+  // переставал видеть правки отслеживаемых файлов вовсе, при том что печатал «дерево сверено».
+  const { root } = fixture();
+  git(root, ['config', 'diff.noprefix', 'true']);
+  assert.equal(run(root, ['oracle']).status, 0);
+  const trust = sha256(readProofRaw(root));
+  fs.writeFileSync(path.join(root, 'tracked.txt'), 'СОВСЕМ другое содержимое\n');
+  git(root, ['add', '-A']);
+  const gate = run(root, ['gate'], { ELT_GATE_TRUST_ORACLE: trust });
+  assert.notEqual(gate.status, 0, `правка обязана быть видна и при diff.noprefix:\n${gate.stdout}${gate.stderr}`);
+});
+
+test('024 (ревью): переименование файла не ломает пруф индексацией', () => {
+  // До индексации git видит `D old` + `?? new`; после `git add -A` — одну строку
+  // `R old -> new` плюс rename-блок в диффе. Это ровно та зависимость от индексации, ради
+  // снятия которой писался T003, и слайс с переносом файла был непроходим под своим же хуком.
+  const { root } = fixture();
+  fs.writeFileSync(path.join(root, 'moveme.txt'), 'содержимое для переноса\n');
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-qm', 'add movable file']);
+
+  assert.equal(run(root, ['oracle']).status, 0);
+  const trust = sha256(readProofRaw(root));
+  // Переименование ПОСЛЕ пруфа обязано быть отвергнуто — и до, и после индексации одинаково.
+  fs.renameSync(path.join(root, 'moveme.txt'), path.join(root, 'moved.txt'));
+  const beforeStage = run(root, ['gate'], { ELT_GATE_TRUST_ORACLE: trust });
+  assert.notEqual(beforeStage.status, 0, 'перенос после пруфа — изменение дерева');
+  git(root, ['add', '-A']);
+  const afterStage = run(root, ['gate'], { ELT_GATE_TRUST_ORACLE: trust });
+  assert.notEqual(afterStage.status, 0, 'и после индексации тоже');
+});
+
+test('024 (ревью): слайс с переносом файла коммитится под управляемым хуком', () => {
+  // Обратная сторона: раз перенос виден одинаково до и после `git add -A`, пруф, снятый
+  // ПОСЛЕ переноса, обязан пройти. До канонизации вывода git такой слайс был непроходим.
+  const { root } = fixture();
+  fs.writeFileSync(path.join(root, 'moveme.txt'), 'содержимое для переноса\n');
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-qm', 'add movable file']);
+
+  const posix = (p) => String(p).replace(/\\/g, '/');
+  fs.mkdirSync(path.join(root, '.githooks'), { recursive: true });
+  const hook = path.join(root, '.githooks', 'pre-commit');
+  fs.writeFileSync(hook, `#!/bin/sh\nexec "${posix(process.execPath)}" "${posix(ELT)}" gate\n`, { mode: 0o755 });
+  git(root, ['config', 'core.hooksPath', '.githooks']);
+  fs.chmodSync(hook, 0o755);
+
+  fs.renameSync(path.join(root, 'moveme.txt'), path.join(root, 'moved.txt'));
+  const before = Number(git(root, ['rev-list', '--count', 'HEAD']));
+  const r = run(root, ['commit', '--task', 'T001', '-m', 'feat: T001 move a file']);
+  assert.equal(r.status, 0, `слайс с переносом:\n${r.stdout}${r.stderr}`);
+  assert.equal(Number(git(root, ['rev-list', '--count', 'HEAD'])), before + 1);
+});
+
+test('024 (ревью): содержимое файла с не-ASCII именем входит в хеш', () => {
+  // `core.quotepath` включён по умолчанию, и путь приезжает в C-кавычках
+  // (`"\320\234…"`). Чтение такого файла с диска молча проваливалось — отказ съедался
+  // `catch`, — поэтому путь в хеш попадал, а СОДЕРЖИМОЕ нет: правка такого файла после
+  // пруфа оставалась невидимой для гейта. Тот же класс, что D21.
+  const { root } = fixture();
+  const cyrillic = path.join(root, 'Методология.md');
+  fs.writeFileSync(cyrillic, 'первая версия\n');
+  assert.equal(run(root, ['oracle']).status, 0);
+  const trust = sha256(readProofRaw(root));
+
+  // Имя файла не меняется — меняется только содержимое. Хеш обязан это увидеть.
+  fs.writeFileSync(cyrillic, 'ДРУГАЯ версия, подменённая после пруфа\n');
+  const gate = run(root, ['gate'], { ELT_GATE_TRUST_ORACLE: trust });
+  assert.notEqual(gate.status, 0,
+    `правка файла с кириллическим именем обязана быть видна:\n${gate.stdout}${gate.stderr}`);
+});

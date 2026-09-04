@@ -400,12 +400,22 @@ function checkOracleVerifierContract(inspected, options = {}) {
     // R5: чужие тесты могут писать в БД/сеть — поэтому только по явному флагу и с таймаутом.
     // 024 T001: дефолт — по платформе, а не жёсткий `bash`. Прежняя строка молча выбирала
     // bash для ЛЮБОГО значения кроме 'powershell', включая опечатку и Windows без поля.
-    const shell = require('./shell-run').resolveShell(cfg.shell) || require('./shell-run').defaultShell();
+    // 024 (ревью): опечатка в поле — отчёт об отказе, а не подмена. Глубокая проба
+    // существует, чтобы сказать правду о команде проекта; запуск её ЧУЖИМ интерпретатором
+    // сказал бы неправду убедительнее, чем молчание.
+    const shellRunLib = require('./shell-run');
+    const shell = shellRunLib.resolveShell(cfg.shell);
+    if (!shell) {
+      return {
+        ...base, deep: true, exit: null, timedOut: false,
+        error: `неизвестный shell '${cfg.shell}' в .harness/harness.json — допустимо: ${shellRunLib.SHELLS.join(', ')}`,
+      };
+    }
     // PowerShell сам по себе возвращает 0/1 по успеху пайплайна, а не код нативной команды:
     // без `exit $LASTEXITCODE` красный оракул с exit 3 приезжал бы в отчёт как 1, а
     // несуществующая команда — как 0 ($LASTEXITCODE не выставлен → голый `exit`). Оба случая
     // поймал живой прогон (тест без подменённого раннера); мок их скрывал.
-    const argv = require('./shell-run').shellArgv(value, shell, { psExitCode: true })[1];
+    const argv = shellRunLib.shellArgv(value, shell, { psExitCode: true })[1];
     const timeout = Number(options.deepTimeoutMs) > 0 ? Number(options.deepTimeoutMs) : 600000;
     const completed = runner(shell, argv, { cwd: inspected.root, encoding: 'utf8', timeout, windowsHide: true });
     const exit = completed.status === null || completed.status === undefined ? null : completed.status;

@@ -216,6 +216,49 @@ elt judge run: лог провайдера — .harness/fleet/logs/claude-….lo
 Until 024 this line existed only inside a file nothing printed: the terminal showed
 `"verdict": "dead", "reasons": ["judge dead"]` and exit 4. See D37 in [DEFECTS.md](DEFECTS.md).
 
+## Configuring `.harness/harness.json`
+
+Every field the harness reads, with its type. Anything outside the type is a **hard error** —
+before 024 most of these were not checked at all, and a typo did not get rejected, it changed
+how the gate behaves (`redProof: "OFF"` is not `"off"`, so the circuit stayed on; `specApproval:
+"no"` is a non-empty string, so the approval gate stayed on). An **unknown** key is a warning
+for now; it becomes an error in the next minor version — the counter is `SCHEMA_VERSION` in
+`tools/harness-schema.js`.
+
+| field | type | what it does |
+| --- | --- | --- |
+| `kind` | `code` \| `docs` \| `office` | what this project ships; `code` requires `oracle`, the other two require `artifactVerifier` |
+| `oracle` | non-empty string | the mechanical suite; its exit code is the truth |
+| `artifactVerifier` | non-empty string | the `docs`/`office` equivalent of `oracle` |
+| `smoke` | string | second check, run only after a green oracle |
+| `smokeParallel` | boolean | run smoke alongside the oracle rather than after it |
+| `shell` | `bash` \| `powershell` | interpreter for `oracle`/`smoke`. **Omit it** — the default follows `process.platform`. A hard value here pins every other machine to yours |
+| `verify` | `sync` \| `background` | whether the heavy layers block the commit or run after it |
+| `background.layers` | string[] | which of `suite`, `mutate`, `smoke`, `judge` the background runs |
+| `background.judgeTimeoutMs` | positive number | how long a background judge may take before it is declared dead |
+| `backgroundTimeoutMin` | positive number | silence longer than this is its own incident |
+| `branchPolicy` | `feature` \| `none` | `feature` moves the commit onto an auto-named branch |
+| `push` | boolean | push after a successful commit |
+| `judge.enabled` | boolean | — |
+| `judge.model` | non-empty string | required when enabled |
+| `judge.provider` | `claude` \| `codex` \| `agy` | — |
+| `redProof` | `on` \| `off` | require a proof that the new test was red before the fix |
+| `redProofTimeoutMs` | positive number | — |
+| `testCmd` | non-empty string | how red-proof runs a single test; needed in non-JS projects, where `package.json` detection does not apply |
+| `oracleSelect` | `impact` \| `all` | run only the tests the change can reach, or everything |
+| `batch` | positive number | how many tasks one gate may cover |
+| `specApproval` | boolean | require a signed spec before a code slice |
+| `ctx7Gate` | `warn` \| `block` \| `off` | — |
+| `l0.hotPaths` | string[] | globs L0 treats as sensitive |
+| `l0.knownPackages` | string[] | imports L0 will not call external |
+| `l0.fanInThreshold` | positive number | — |
+| `l0.diffSizeThreshold` | positive number | — |
+
+Retired fields are named as retired rather than reported as typos: `judge.verify` (spec 011 —
+the runtime ignores it and `project-bootstrap apply` removes it), `fleet` and `workers`
+(019/T006). If one is in your config, the harness says so instead of leaving you to debug a
+setting nothing reads.
+
 ### What runs without an agent CLI at all
 
 `elt gate --ci`, `elt oracle [--full]`, `elt status`, `elt stats`, `elt slice next`,
