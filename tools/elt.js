@@ -396,10 +396,15 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   //   определение переименований — до индексации это `D` + `??`, после `git add -A` это одна
   //     строка `R old -> new` плюс rename-блок в диффе, то есть ровно та зависимость от
   //     индексации, ради снятия которой писался T003.
-  // `--no-renames` убирает второе, `-c diff.*=false` — первое, `--no-ext-diff` — внешний
-  // diff-драйвер, который может отдать что угодно. Урок тот же, что у самого дефекта: не
-  // хешировать формат, которым не управляешь.
-  const statusRun = git(['status', '--porcelain', '-uall', '--no-renames'], { raw: true });
+  //   `core.quotepath` (включён по умолчанию) — путь с не-ASCII именем приезжает в
+  //     C-кавычках (`"\320\234…"`), и чтение содержимого такого файла с диска молча
+  //     проваливалось: `path.join(cwd, '"\320\234…"')` не существует, отказ съедался
+  //     `catch`. Путь в хеш попадал, а СОДЕРЖИМОЕ — нет, то есть правка такого файла после
+  //     пруфа оставалась невидимой. Тот же класс, что D21.
+  // `--no-renames` убирает переименования, `-c diff.*=false` — префиксы, `--no-ext-diff` —
+  // внешний diff-драйвер, который может отдать что угодно, `core.quotepath=false` — кавычки.
+  // Урок один: не хешировать формат, которым не управляешь.
+  const statusRun = git(['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '--no-renames'], { raw: true });
   if (statusRun.code !== 0) {
     die(`treeHash: git status не отработал (${statusRun.killed ? 'вывод обрезан/процесс убит' : `exit ${statusRun.code}`})`
       + `${statusRun.err ? `: ${statusRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
@@ -409,7 +414,8 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // попадает в хеш через `??`-строки status.
   const hasHead = git(['rev-parse', '--verify', 'HEAD']).code === 0;
   const diffRun = hasHead
-    ? git(['-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', 'diff', 'HEAD', '--no-renames', '--no-ext-diff'])
+    ? git(['-c', 'core.quotepath=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false',
+      'diff', 'HEAD', '--no-renames', '--no-ext-diff'])
     : { code: 0, out: '', killed: false, err: '' };
   if (diffRun.code !== 0) {
     die(`treeHash: git diff не отработал (${diffRun.killed ? 'вывод обрезан/процесс убит' : `exit ${diffRun.code}`})`

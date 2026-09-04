@@ -187,3 +187,21 @@ test('024 (ревью): слайс с переносом файла коммит
   assert.equal(r.status, 0, `слайс с переносом:\n${r.stdout}${r.stderr}`);
   assert.equal(Number(git(root, ['rev-list', '--count', 'HEAD'])), before + 1);
 });
+
+test('024 (ревью): содержимое файла с не-ASCII именем входит в хеш', () => {
+  // `core.quotepath` включён по умолчанию, и путь приезжает в C-кавычках
+  // (`"\320\234…"`). Чтение такого файла с диска молча проваливалось — отказ съедался
+  // `catch`, — поэтому путь в хеш попадал, а СОДЕРЖИМОЕ нет: правка такого файла после
+  // пруфа оставалась невидимой для гейта. Тот же класс, что D21.
+  const { root } = fixture();
+  const cyrillic = path.join(root, 'Методология.md');
+  fs.writeFileSync(cyrillic, 'первая версия\n');
+  assert.equal(run(root, ['oracle']).status, 0);
+  const trust = sha256(readProofRaw(root));
+
+  // Имя файла не меняется — меняется только содержимое. Хеш обязан это увидеть.
+  fs.writeFileSync(cyrillic, 'ДРУГАЯ версия, подменённая после пруфа\n');
+  const gate = run(root, ['gate'], { ELT_GATE_TRUST_ORACLE: trust });
+  assert.notEqual(gate.status, 0,
+    `правка файла с кириллическим именем обязана быть видна:\n${gate.stdout}${gate.stderr}`);
+});
