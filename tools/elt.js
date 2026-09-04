@@ -46,9 +46,21 @@ function ok(reason, payload, text) {
   else if (text) console.log(text);
   process.exit(0);
 }
+// 024 T008: предупреждения схемы печатаются ОДИН раз за процесс. Неизвестный ключ не валит
+// конфиг (у существующих проектов лежат поля от снятых спек, и отказ на них сломал бы
+// работающие установки), но и молчать о нём нельзя: `oracelSelect: "impact"` выглядит как
+// включённая выборка и не является ею. Отказ на неизвестный ключ включается следующей
+// минорной версией — счётчик в `harness-schema.js:SCHEMA_VERSION`.
+let configWarningsShown = false;
+function showConfigWarnings(warnings) {
+  if (configWarningsShown || !warnings || !warnings.length) return;
+  configWarningsShown = true;
+  for (const w of warnings) console.error(`elt: harness.json — ${w}`);
+}
 function loadConfig() {
   const loaded = readHarnessConfig(cwd);
-  if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
+  if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`, 1, 'config-invalid');
+  showConfigWarnings(loaded.warnings);
   // ELT v3 не исполняет старый verify-on-pass. Не показываем неактивное поле и в status,
   // иначе пользователь видит конфиг, который runtime сознательно не применяет.
   const config = { ...loaded.config };

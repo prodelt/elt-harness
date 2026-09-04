@@ -12,6 +12,7 @@ const JUDGE_PROVIDERS = new Set(['claude', 'codex', 'agy']);
 const VERIFY_MODES = new Set(['sync', 'background']);
 // Список интерпретаторов — из общего диспетчера, а не вторая копия рядом с ним.
 const { SHELLS } = require('./shell-run');
+const { checkSchema } = require('./harness-schema');
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -19,40 +20,22 @@ function nonEmptyString(value) {
 
 function validateHarnessConfig(config) {
   const errors = [];
-  if (!config || typeof config !== 'object' || Array.isArray(config)) return { ok: false, errors: ['config must be an object'] };
+  const warnings = [];
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return { ok: false, errors: ['config must be an object'], warnings };
+  // 024 T008: сперва СХЕМА — форма всех тридцати трёх полей, которые читает код. До неё здесь
+  // проверялось восемь, и остальные при опечатке не отвергались, а меняли поведение гейта:
+  // `specApproval: "no"` включал гейт подписи, `redProof: "OFF"` включал контур, `batch:
+  // "three"` тихо становился тройкой. Правила ниже — про ПРОЕКТ (что обязательно при каком
+  // `kind`), а не про типы, и потому остаются здесь.
+  {
+    const schema = checkSchema(config);
+    errors.push(...schema.errors);
+    warnings.push(...schema.warnings);
+  }
   if (!KINDS.has(config.kind)) errors.push('kind must be code, docs, or office');
   if (config.kind === 'code' && !nonEmptyString(config.oracle)) errors.push('code projects require a non-empty oracle');
   if ((config.kind === 'docs' || config.kind === 'office') && !nonEmptyString(config.artifactVerifier)) {
     errors.push('docs and office projects require a non-empty artifactVerifier');
-  }
-  // 011 T010: smoke опционален (нет поля → слоя нет). Но кривой тип обязан падать на конфиге,
-  // а не молча выключать слой — «пусто» и «я ошибся в формате» это разные вещи.
-  if (config.smoke !== undefined && typeof config.smoke !== 'string') errors.push('smoke must be a string command');
-  // 014 T005: та же дисциплина — опечатка в verify обязана упасть на конфиге, не молча
-  // откатиться на sync (иначе включение фона выглядело бы включённым, а слайсы шли бы sync).
-  if (config.verify !== undefined && !VERIFY_MODES.has(config.verify)) {
-    errors.push(`verify must be one of: ${[...VERIFY_MODES].join(', ')}`);
-  }
-  // 014 T008: сколько ждать фоновый вердикт, прежде чем молчание считать инцидентом. Ноль или
-  // отрицательное значило бы «каждый спекулятивный коммит немедленно bg-silent» — это не
-  // «выключить детектор», а сломать его, поэтому падаем на конфиге.
-  if (config.backgroundTimeoutMin !== undefined
-      && (typeof config.backgroundTimeoutMin !== 'number' || !(config.backgroundTimeoutMin > 0))) {
-    errors.push('backgroundTimeoutMin must be a positive number of minutes');
-  }
-  // 014 T010: строка "true" вместо булева выглядела бы как разрешение и молча им не была.
-  if (config.smokeParallel !== undefined && typeof config.smokeParallel !== 'boolean') {
-    errors.push('smokeParallel must be boolean');
-  }
-  // 024 T001: `shell` не проверялся ВООБЩЕ — единственное поле, задающее интерпретатор гейта.
-  // Опечатка (`bahs`) молча уезжала в bash, а поставочный `"powershell"` на Linux давал
-  // `elt oracle: exit 1 (0s)` без строки причины: `spawnSync` при ENOENT отдаёт `status: null`,
-  // и это превращалось в обычный красный оракул. Список закрыт по той же причине, что и у
-  // `judge.provider`: неверное значение обязано падать на конфиге, а не в рантайме.
-  // Поля нет → дефолт по `process.platform` (см. tools/shell-run.js), поэтому отсутствие
-  // законно, а мусор — нет.
-  if (config.shell !== undefined && !SHELLS.includes(config.shell)) {
-    errors.push(`shell must be one of: ${SHELLS.join(', ')}`);
   }
   if (!config.judge || typeof config.judge !== 'object' || Array.isArray(config.judge)) {
     errors.push('judge must be an object');
@@ -65,7 +48,10 @@ function validateHarnessConfig(config) {
       errors.push(`judge.provider must be one of: ${[...JUDGE_PROVIDERS].join(', ')}`);
     }
   }
-  return { ok: errors.length === 0, errors };
+  // Предупреждения не валят конфиг НАМЕРЕННО: у существующих проектов лежат поля от снятых
+  // спек, и отказ на них сломал бы работающие установки на ровном месте. Отказ на неизвестный
+  // ключ включается следующей минорной версией — см. SCHEMA_VERSION в harness-schema.js.
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 // Кто судит этот проект — ЕДИНЫЙ источник правды для обоих драйверов (fleet и solo).

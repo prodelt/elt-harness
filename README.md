@@ -6,7 +6,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/gate%20accuracy-85.0%25-brightgreen" alt="gate accuracy 85.0%" />
   <img src="https://img.shields.io/badge/false--blocks-0%2F30-brightgreen" alt="false blocks 0 of 30" />
-  <img src="https://img.shields.io/badge/tests-117%2F117-brightgreen" alt="tests 117 of 117" />
+  <img src="https://img.shields.io/badge/tests-118%2F118-brightgreen" alt="tests 118 of 118" />
   <img src="https://img.shields.io/badge/runtime-node%2018%2B-blue" alt="node 18+" />
   <img src="https://img.shields.io/badge/dependencies-0-blue" alt="zero dependencies" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />

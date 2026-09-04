@@ -37,7 +37,7 @@ function installHook(root) {
   // 024 T001: `shell-run.js` — тоже require верхнего уровня (и у elt.js, и у elt-config.js),
   // поэтому он в списке по той же причине, что и остальные: без него чужой чекаут падает
   // `Cannot find module` ещё до разбора argv.
-  for (const name of ['elt.js', 'elt-config.js', 'shell-run.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js',
+  for (const name of ['elt.js', 'elt-config.js', 'shell-run.js', 'harness-schema.js', 'run-log.js', 'elt-stats.js', 'batch-planner.js',
     'graph-compiler.js', 'graph-core.js', 'graph-journal.js', 'graph-state.js', 'task-identity.js']) {
     fs.copyFileSync(path.join(__dirname, name), path.join(toolsDir, name));
   }
