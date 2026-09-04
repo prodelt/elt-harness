@@ -21,7 +21,31 @@ const cwd = process.cwd();
 const HARNESS_DIR = path.join(cwd, '.harness');
 const CONFIG = path.join(HARNESS_DIR, 'harness.json');
 
-function die(msg, code = 1) { console.error('elt: ' + msg); process.exit(code); }
+// 024 T009: у отказа появилась МАШИННАЯ причина. Кодов у харнеса шесть (0/1/3/4/5/10), и код
+// 4 стоит на 44 из 55 отказов сразу: «задача не найдена», «спека не подписана», «пруф протух»
+// и «судья мёртв» приезжают одним числом. Человек читает текст и понимает; серверный агент —
+// ради которого харнес и заявлен ядром — видит только код и не может ветвиться.
+//
+// Переномеровывать 44 места нельзя: существующие драйверы сверяются с `=== 4`. Поэтому
+// различителем становится не код, а slug — стабильная строка, которую печатает `--json`
+// (или `ELT_JSON=1`, канал для случая, когда флаг не долетает через границу процесса).
+// Текстовый вывод не меняется ни на байт: `elt: <msg>` на stderr, как и был.
+const JSON_ERRORS = process.argv.includes('--json') || process.env.ELT_JSON === '1';
+function die(msg, code = 1, reason = null) {
+  if (JSON_ERRORS) {
+    console.log(JSON.stringify({ ok: false, code, reason: reason || `exit-${code}`, message: String(msg) }));
+  }
+  console.error('elt: ' + msg);
+  process.exit(code);
+}
+// Успех в той же форме, что и отказ: одна строка JSON вместо прозы, когда её читает машина.
+// `--json` был у 9 команд из 26 и отсутствовал ровно у тех трёх, вокруг которых крутится
+// автоматика: `commit`, `gate` и `judge run`.
+function ok(reason, payload, text) {
+  if (JSON_ERRORS) console.log(JSON.stringify({ ok: true, code: 0, reason, ...payload }));
+  else if (text) console.log(text);
+  process.exit(0);
+}
 function loadConfig() {
   const loaded = readHarnessConfig(cwd);
   if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
@@ -51,8 +75,8 @@ const ORACLE_MAX_BUFFER = 256 * 1024 * 1024;
 // ниже — вся разница между «десять минут разбора» и «петля перезапусков у серверного агента».
 function sh(cmd, shell) {
   const r = shellRun.runShell(cmd, shell, { maxBuffer: ORACLE_MAX_BUFFER });
-  if (r.unknownShell) die(`shell: ${r.err} (поле "shell" в .harness/harness.json)`, 1);
-  if (r.missing) die(`не удалось запустить команду: ${shellRun.missingShellMessage(shell || shellRun.defaultShell())}`, 1);
+  if (r.unknownShell) die(`shell: ${r.err} (поле "shell" в .harness/harness.json)`, 1, 'shell-unknown');
+  if (r.missing) die(`не удалось запустить команду: ${shellRun.missingShellMessage(shell || shellRun.defaultShell())}`, 1, 'shell-missing');
   const out = r.out + r.err;
   process.stderr.write(out);
   return { code: r.code, out };
@@ -1676,7 +1700,7 @@ if (cmd === 'slice' && sub === 'next') {
       if (flag('--skip-approval')) {
         console.error(`elt slice next: --skip-approval (спека не утверждена: ${gate.status}, ${path.relative(cwd, gate.specDir)})`);
       } else {
-        die(`спека не подписана: elt spec approve --spec ${path.relative(cwd, gate.specDir).split(path.sep).join('/')} (статус: ${gate.status})`, 4);
+        die(`спека не подписана: elt spec approve --spec ${path.relative(cwd, gate.specDir).split(path.sep).join('/')} (статус: ${gate.status})`, 4, 'spec-unapproved');
       }
     }
   }
@@ -1713,7 +1737,7 @@ if (cmd === 'oracle') {
   const l0Block = preOracleL0(cfg);
   if (l0Block) {
     appendRunLog({ task: null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
-    die('L0 заблокировал ДО оракула — чинить причину выше, прогон не нужен', 1);
+    die('L0 заблокировал ДО оракула — чинить причину выше, прогон не нужен', 1, 'l0-block');
   }
   const exit = runOracle(cfg, { full: flag('--full') });
   // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
@@ -1735,7 +1759,7 @@ if (cmd === 'judge' && sub === 'run') {
   // 020 T016: `--repair` — судья второй генерации уже посаженного (и закрытого) батча.
   const judgeRepair = flag('--repair');
   const binding = findTaskBinding(taskId, { includeDone: judgeRepair });
-  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди ${judgeRepair ? 'задач плана' : 'открытых [ ]'}`, 4);
+  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди ${judgeRepair ? 'задач плана' : 'открытых [ ]'}`, 4, 'task-not-found');
   // 020 T023: судье уходит ВЕСЬ блок задачи, а не заголовок. В блоке живёт `[files: …]` —
   // зона scope-триггера L0 и критерии, по которым судья вообще может судить.
   const texts = taskId.split(',').map((id) => {
@@ -1765,7 +1789,7 @@ if (cmd === 'judge' && sub === 'run') {
   const r = spawnSync(process.execPath, [invoke, descPath], { cwd, encoding: 'utf8' });
   let out;
   try { out = JSON.parse((r.stdout || '').trim().split('\n').pop()); } catch { out = null; }
-  if (!out) die(`elt judge run: судья не вернул JSON (exit ${r.status})\n${(r.stderr || '').slice(-2000)}`, 4);
+  if (!out) die(`elt judge run: судья не вернул JSON (exit ${r.status})\n${(r.stderr || '').slice(-2000)}`, 4, 'judge-no-json');
   // runOk:false — судья НЕ отработал (timeout/spawn/limit). Это не вердикт: пишем `dead`,
   // чтобы гейт отказал явной причиной judge-dead, а не молчаливым отсутствием proof.
   // 011 T004: `inconclusive` доезжает до proof как самостоятельный исход. Всё, что не pass и
@@ -1773,6 +1797,25 @@ if (cmd === 'judge' && sub === 'run') {
   const verdict = out.runOk ? (['pass', 'inconclusive'].includes(out.verdict) ? out.verdict : 'block') : 'dead';
   const model = (out.judges && out.judges[0] && out.judges[0].model) || opt('--model', 'unknown');
   const reasons = (out.reasons && out.reasons.length ? out.reasons : [`judge ${verdict}`]).map(String);
+  // 024 T009: `dead` без причины — самый дорогой отказ харнеса. Поле `judgeLog` доезжало
+  // сюда и уходило только в run-log; на экране оставалось `"verdict": "dead", "reasons":
+  // ["judge dead"]` и exit 4. Человек тратил на поиск лога минуты, серверный агент не мог
+  // залогировать вообще ничего — причина существовала только в файле, который никто не
+  // печатал. Теперь на пути отказа печатаются: машинная причина, путь к логу провайдера и
+  // его хвост (там и лежат строки вроде «--dangerously-skip-permissions cannot be used with
+  // root/sudo privileges», ловящие каждый запуск на сервере под root).
+  if (verdict === 'dead') {
+    console.error(`elt judge run: судья не отработал — ${out.failReason || 'причина не названа провайдером'}`);
+    if (out.judgeLog) {
+      console.error(`elt judge run: лог провайдера — ${out.judgeLog}`);
+      try {
+        const tail = fs.readFileSync(out.judgeLog, 'utf8').trim().split('\n').slice(-12).join('\n');
+        if (tail) console.error(`--- хвост лога ---\n${tail}\n------------------`);
+      } catch (e) { console.error(`elt judge run: лог не читается (${e.code || e.message})`); }
+    } else {
+      console.error('elt judge run: провайдер не оставил лога — проверь judge.provider в .harness/harness.json');
+    }
+  }
   const proof = writeJudgeProof({
     taskId, verdict, reasons, model,
     judges: out.judges, grounding: out.grounding, redProof: out.redProof || undefined,
@@ -1933,7 +1976,7 @@ if (cmd === 'spec') {
 if (cmd === 'checkpoint') {
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
   const files = changedFiles();
-  if (!files.length) die('нечего коммитить: дерево чистое', 3);
+  if (!files.length) die('нечего коммитить: дерево чистое', 3, 'tree-clean');
   const blocked = files.filter((file) => !isCheckpointFile(file));
   if (blocked.length) die(`checkpoint разрешён только для .planning/** и specs/**: ${blocked.join(', ')}`, 4);
   if (git(['add', '--', ...files]).code !== 0) die('git add failed');
@@ -1963,9 +2006,9 @@ if (cmd === 'gate') {
   }
 
   const files = changedFiles();
-  if (!files.length) { console.log('elt gate: нечего проверять'); process.exit(0); }
+  if (!files.length) ok('gate-nothing-to-check', {}, 'elt gate: нечего проверять');
   const blocked = files.filter((file) => !isCheckpointFile(file));
-  if (!blocked.length) { console.log('elt gate: только .planning/** и specs/** — judge не нужен'); process.exit(0); }
+  if (!blocked.length) ok('gate-docs-only', { files }, 'elt gate: только .planning/** и specs/** — judge не нужен');
 
   // 020 T009: при `verify:"background"` судейского пруфа на момент коммита НЕТ по построению —
   // тяжёлые слои идут после (014 T005). Пока хук требовал его безусловно, включить
@@ -1994,29 +2037,29 @@ if (cmd === 'gate') {
         // которым не исполнено ни одного файла, не становится доказательством оттого, что
         // его передал свой же `elt commit`.
         const useless = oracleProofUseless(parsed);
-        if (useless) die(`elt gate: ${useless}`, 4);
+        if (useless) die(`elt gate: ${useless}`, 4, 'oracle-proof-unproven');
         const normalized = parsed.hashTaskMarksNormalized;
         if (!normalized) {
           die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4);
         }
         if (normalized !== treeHashNormalizingTaskMarks()) {
-          die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4);
+          die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4, 'oracle-proof-stale');
         }
-        console.log('elt gate: trusted elt commit (дерево сверено, прощён только маркер задачи)');
-        process.exit(0);
+        ok('gate-trusted-oracle', { ran: parsed.ran, cached: parsed.cached },
+          'elt gate: trusted elt commit (дерево сверено, прощён только маркер задачи)');
       }
       const uselessPlain = oracleProofUseless(parsed);
-      if (uselessPlain) die(`elt gate: ${uselessPlain}`, 4);
+      if (uselessPlain) die(`elt gate: ${uselessPlain}`, 4, 'oracle-proof-unproven');
       if (!parsed || parsed.exit !== 0 || parsed.hash !== treeHash()) {
-        die('elt gate: оракул-пруф отсутствует, красный или не про это дерево — коммить через elt commit', 4);
+        die('elt gate: оракул-пруф отсутствует, красный или не про это дерево — коммить через elt commit', 4, 'oracle-proof-stale');
       }
-      console.log('elt gate: оракул-пруф зелёный и привязан к этому дереву');
-      process.exit(0);
+      ok('gate-oracle-proof', { ran: parsed && parsed.ran, cached: parsed && parsed.cached },
+        'elt gate: оракул-пруф зелёный и привязан к этому дереву');
     }
   }
 
   const loaded = readJudgeProof();
-  if (loaded.error) die(`elt gate: judge proof ${loaded.error} — коммить через elt commit`, 4);
+  if (loaded.error) die(`elt gate: judge proof ${loaded.error} — коммить через elt commit`, 4, `judge-proof-${loaded.error}`);
 
   // `elt commit` validates the judge proof BEFORE it marks the task [X] — that
   // edit changes treeHash, so by the time this hook runs (inside its `git
@@ -2025,15 +2068,14 @@ if (cmd === 'gate') {
   // the exact proof bytes it already validated so the hook can trust that
   // specific, unmodified proof instead of re-deriving treeHash post-edit.
   if (process.env.ELT_GATE_TRUST && process.env.ELT_GATE_TRUST === sha256(loaded.raw)) {
-    console.log('elt gate: trusted elt commit (proof already validated pre-markDone)');
-    process.exit(0);
+    ok('gate-trusted-judge', {}, 'elt gate: trusted elt commit (proof already validated pre-markDone)');
   }
 
   const taskId = loaded.proof && loaded.proof.taskId;
   const check = validateJudgeProof({ taskId });
-  if (!check.ok) die(`elt gate: judge proof invalid (${check.reason}) — коммить через elt commit`, 4);
-  console.log(`elt gate: judge proof valid (${taskId}, ${check.proof.verdict})`);
-  process.exit(0);
+  if (!check.ok) die(`elt gate: judge proof invalid (${check.reason}) — коммить через elt commit`, 4, `judge-proof-${check.reason}`);
+  ok('gate-judge-proof', { task: taskId, verdict: check.proof.verdict },
+    `elt gate: judge proof valid (${taskId}, ${check.proof.verdict})`);
 }
 
 if (cmd === 'commit') {
@@ -2065,7 +2107,7 @@ if (cmd === 'commit') {
     const l0Block = preOracleL0(cfg);
     if (l0Block) {
       appendRunLog({ task: taskId || null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
-      die('L0 заблокировал ДО оракула — НЕ коммичу', 1);
+      die('L0 заблокировал ДО оракула — НЕ коммичу', 1, 'l0-block');
     }
     oracleExit = runOracle(cfg, { full: flag('--full') });
     if (oracleExit !== 0) {
@@ -2144,7 +2186,7 @@ if (cmd === 'commit') {
   // синхронны — судейский пруф здесь не требуется, дифф проверяется фоном ПОСЛЕ коммита
   // (spawnBackgroundVerify ниже). sync-ветка не тронута — судья остаётся обязательным.
   const judge = bgVerify ? null : validateJudgeProof({ taskId, repair });
-  if (!bgVerify && !judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
+  if (!bgVerify && !judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4, `judge-proof-${judge.reason}`);
   // Captured now, BEFORE markDone() edits tasks.md and shifts treeHash — the
   // pre-commit hook (triggered by `git commit` below) re-checks the SAME
   // already-validated proof bytes via this hash rather than re-deriving
@@ -2338,8 +2380,20 @@ if (cmd === 'commit') {
     }
   }
   clearGateMarker(); // цепочка гейта закончилась — авто-чекпоинту снова можно писать
-  console.log(`elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`
-    + (pushFailed ? ' — НО push не прошёл, на remote коммита нет' : ''));
+  const commitText = `elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`
+    + (pushFailed ? ' — НО push не прошёл, на remote коммита нет' : '');
+  // Провал push — исход, а не отказ: коммит СОЗДАН и остаётся локально, и именно это человек
+  // обязан прочитать на stdout (020 T009). Поэтому не `die`: канал и текст те же, что были,
+  // а машине добавляется конверт с `ok: false` и причиной.
+  if (JSON_ERRORS) {
+    console.log(JSON.stringify({
+      ok: !pushFailed, code: pushFailed ? 5 : 0, reason: pushFailed ? 'push-failed' : 'committed',
+      commit: sha, branch, task: taskId || null, speculative: bgVerify,
+      ...(pushFailed ? { message: pushFailed } : {}),
+    }));
+  } else {
+    console.log(commitText);
+  }
   process.exit(pushFailed ? 5 : 0);
 }
 // 019 T008: команды `elt harness sync-all` и `elt harness propose` сняты вместе со своими

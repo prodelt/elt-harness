@@ -37,9 +37,9 @@
   },
   "oracle": {
     "command": "node tools/elt-oracle-runner.js --full",
-    "files": 115,
+    "files": 116,
     "roots": "tools/ + bin/ + benchmarks/",
-    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите. 023 T001: 112 → 111, затем T003 → 112 (добавлен release-hygiene.test.js) — сняты d0-smoke-feasibility.test.js и gate-verdict.test.js (проверяли форму одноразовых отчётов в .gitignore-нутом .planning/, кода не защищали), добавлен oracle-hermetic.test.js. 024: 112 → 115 — три регрессии на дыры, у которых её не было: elt-tree-hash.test.js (пруф о дереве не зависит от индексации; до фикса elt commit под собственным хуком был непроходим), supply-exec-bit.test.js (хук гейта поставлялся режимом 100644 и git молча пропускал его на POSIX), shell-run.test.js (поставочный shell=powershell давал elt oracle: exit 1 (0s) без причины вне Windows)."
+    "note": "Третий корень benchmarks/ добавлен 021 T003: тесты замерочного контура лежали вне оракула и не гонялись ни на одном коммите. 023 T001: 112 → 111, затем T003 → 112 (добавлен release-hygiene.test.js) — сняты d0-smoke-feasibility.test.js и gate-verdict.test.js (проверяли форму одноразовых отчётов в .gitignore-нутом .planning/, кода не защищали), добавлен oracle-hermetic.test.js. 024: 112 → 115 — три регрессии на дыры, у которых её не было: elt-tree-hash.test.js (пруф о дереве не зависит от индексации; до фикса elt commit под собственным хуком был непроходим), supply-exec-bit.test.js (хук гейта поставлялся режимом 100644 и git молча пропускал его на POSIX), shell-run.test.js (поставочный shell=powershell давал elt oracle: exit 1 (0s) без причины вне Windows). 024 T009: 115 -> 116 (добавлен elt-machine-readable.test.js — отказ несёт машинную причину, --json у commit/gate/judge run, судья-мертвец печатает лог провайдера)."
   },
   "benchmark": {
     "model": "gemini-3.7-flash-high",

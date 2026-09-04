@@ -64,8 +64,19 @@ async function main() {
 
   // l0 (011 T003) — решение механики «звать ли судью» и список триггеров. Едет наружу as-is:
   // без него `elt judge run` не отличит `l0-clean` от обычного pass и run-log потеряет причину.
+  // 024 T009: при `runOk: false` `reasons` был ПУСТ — `judgeDiff` возвращает причину отказа
+  // провайдера отдельным полем `reason` ('timeout' | 'spawn-error' | 'nonzero-exit' |
+  // 'empty-stdout' | 'unknown-provider' | 'stopped'), и оно здесь молча терялось. Наружу
+  // уезжало `verdict: dead, reasons: ["judge dead"]`, то есть отказ без причины: у человека
+  // это десять минут поиска лога, у серверного агента — нечего залогировать вообще.
+  // Живой случай, поймавший это: судья под root отвечал
+  // `--dangerously-skip-permissions cannot be used with root/sudo privileges`, и строка
+  // лежала в логе провайдера, не показанном никогда.
+  const failReason = r.runOk ? null : (r.reason || 'judge-unavailable');
   process.stdout.write(JSON.stringify({
-    runOk: !!r.runOk, verdict: r.runOk ? verdict : null, reasons, judgeLog: r.judgeLog || null,
+    runOk: !!r.runOk, verdict: r.runOk ? verdict : null,
+    reasons: r.runOk ? reasons : [`судья не отработал: ${failReason}`, ...reasons],
+    failReason, judgeLog: r.judgeLog || null,
     judges, grounding, redProof: redProofResult, l0: r.l0 || null,
   }));
   process.exit(0);
