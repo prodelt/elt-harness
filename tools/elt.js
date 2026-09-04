@@ -13,6 +13,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { readHarnessConfig } = require('./elt-config');
+const shellRun = require('./shell-run');
 const runLog = require('./run-log');
 const eltStats = require('./elt-stats');
 
@@ -20,7 +21,31 @@ const cwd = process.cwd();
 const HARNESS_DIR = path.join(cwd, '.harness');
 const CONFIG = path.join(HARNESS_DIR, 'harness.json');
 
-function die(msg, code = 1) { console.error('elt: ' + msg); process.exit(code); }
+// 024 T009: у отказа появилась МАШИННАЯ причина. Кодов у харнеса шесть (0/1/3/4/5/10), и код
+// 4 стоит на 44 из 55 отказов сразу: «задача не найдена», «спека не подписана», «пруф протух»
+// и «судья мёртв» приезжают одним числом. Человек читает текст и понимает; серверный агент —
+// ради которого харнес и заявлен ядром — видит только код и не может ветвиться.
+//
+// Переномеровывать 44 места нельзя: существующие драйверы сверяются с `=== 4`. Поэтому
+// различителем становится не код, а slug — стабильная строка, которую печатает `--json`
+// (или `ELT_JSON=1`, канал для случая, когда флаг не долетает через границу процесса).
+// Текстовый вывод не меняется ни на байт: `elt: <msg>` на stderr, как и был.
+const JSON_ERRORS = process.argv.includes('--json') || process.env.ELT_JSON === '1';
+function die(msg, code = 1, reason = null) {
+  if (JSON_ERRORS) {
+    console.log(JSON.stringify({ ok: false, code, reason: reason || `exit-${code}`, message: String(msg) }));
+  }
+  console.error('elt: ' + msg);
+  process.exit(code);
+}
+// Успех в той же форме, что и отказ: одна строка JSON вместо прозы, когда её читает машина.
+// `--json` был у 9 команд из 26 и отсутствовал ровно у тех трёх, вокруг которых крутится
+// автоматика: `commit`, `gate` и `judge run`.
+function ok(reason, payload, text) {
+  if (JSON_ERRORS) console.log(JSON.stringify({ ok: true, code: 0, reason, ...payload }));
+  else if (text) console.log(text);
+  process.exit(0);
+}
 function loadConfig() {
   const loaded = readHarnessConfig(cwd);
   if (!loaded.ok) die(`некорректный ${path.relative(cwd, CONFIG)}: ${loaded.errors.join('; ')}`);
@@ -40,14 +65,21 @@ function loadConfig() {
 // (ENOBUFS) — то есть болтливый оракул не просто терял бы хвост, а получал ложный
 // провал. Cap на 8K применяется к сохраняемому хвосту, а не к самому оракулу.
 const ORACLE_MAX_BUFFER = 256 * 1024 * 1024;
+// 024 T001: запуск ушёл в общий `tools/shell-run.js` — пять копий этой функции расходились
+// в поведении, и правка одной не чинила остальные. Здесь остаётся только то, что специфично
+// для гейта: печать вывода и ГРОМКИЙ отказ, когда интерпретатора нет.
+//
+// Отсутствие шелла ≠ красный оракул. До 024 `spawnSync` при ENOENT отдавал `status: null`,
+// это превращалось в `code 1`, и `elt oracle` печатал `exit 1 (0s)` без единого слова
+// причины — на Linux и macOS первый же шаг цепочки гейта отказывал необъяснимо. Сообщение
+// ниже — вся разница между «десять минут разбора» и «петля перезапусков у серверного агента».
 function sh(cmd, shell) {
-  const opts = { encoding: 'utf8', maxBuffer: ORACLE_MAX_BUFFER };
-  const r = shell === 'powershell'
-    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], opts)
-    : spawnSync('bash', ['-c', cmd], opts);
-  const out = (r.stdout || '') + (r.stderr || '');
+  const r = shellRun.runShell(cmd, shell, { maxBuffer: ORACLE_MAX_BUFFER });
+  if (r.unknownShell) die(`shell: ${r.err} (поле "shell" в .harness/harness.json)`, 1, 'shell-unknown');
+  if (r.missing) die(`не удалось запустить команду: ${shellRun.missingShellMessage(shell || shellRun.defaultShell())}`, 1, 'shell-missing');
+  const out = r.out + r.err;
   process.stderr.write(out);
-  return { code: r.status === null ? 1 : r.status, out };
+  return { code: r.code, out };
 }
 // 020 T009: дефолтный `maxBuffer` spawnSync — 1 МиБ, и при переполнении процесс УБИВАЕТСЯ:
 // `status` приходит null, а stdout — ОБРЕЗАННЫМ. Для `git diff HEAD` это не теоретический
@@ -56,7 +88,13 @@ function sh(cmd, shell) {
 // то есть оракул-пруф перестаёт быть привязанным к дереву, ради чего он и существует.
 // Число то же, что в фоне (elt-verify-bg.js:BG_MAX_BUFFER) — одна полоса, один лимит.
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
-function git(args) {
+// 024 T003: `raw: true` отдаёт stdout БЕЗ `.trim()`. Общий trim удобен для `rev-parse` и
+// подобных однострочников, но на `status --porcelain` он ломает разбор: первая строка
+// немодифицированного-в-индексе файла начинается с ПРОБЕЛА (`" M path"`), trim его съедает,
+// и `line.slice(3)` дальше отъедает символ от пути. Ровно из-за этого `planPath()` не узнавал
+// файл плана в первой строке статуса, и нормализация маркера задачи не срабатывала там, где
+// она единственно и нужна. Разбор фиксированной раскладки требует сырых байтов.
+function git(args, { raw = false } = {}) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
   // `status === null` — процесс не завершился сам (убит сигналом или ENOBUFS). Это НЕ «код 0»
   // и не «код 1»: возвращаем 1, но отдельно отдаём `killed`, чтобы вызывающий, которому важна
@@ -64,10 +102,39 @@ function git(args) {
   const killed = r.status === null;
   return {
     code: killed ? 1 : r.status,
-    out: (r.stdout || '').trim(),
+    out: raw ? (r.stdout || '') : (r.stdout || '').trim(),
     err: (r.stderr || '').trim() || (r.error ? String(r.error.code || r.error.message) : ''),
     killed,
   };
+}
+
+// ── 024 T003: разбор `git status --porcelain` по фиксированной раскладке ───────
+// Формат: два символа кода (X — индекс против HEAD, Y — рабочее дерево против индекса),
+// пробел, путь. Для переименования путь приезжает как `old -> new`.
+function parsePorcelain(raw) {
+  return String(raw).split('\n')
+    .filter((line) => line.length >= 4)
+    .map((line) => {
+      const x = line[0];
+      const y = line[1];
+      const field = line.slice(3);
+      const arrow = field.indexOf(' -> ');
+      const p = (arrow >= 0 ? field.slice(arrow + 4) : field).replace(/\\/g, '/');
+      return { x, y, path: p, from: arrow >= 0 ? field.slice(0, arrow) : null };
+    });
+}
+
+// Класс изменения РАБОЧЕГО ДЕРЕВА относительно HEAD — то есть то, что индексация не меняет.
+// Именно здесь жил корень дефекта: в хеш шли сырые коды (`" M"` → `"M "`, `"??"` → `"A "`),
+// поэтому `git add -A`, не тронув ни одного байта содержимого, сдвигал пруф о дереве. Пруф,
+// снятый до индексации, не мог совпасть с пересчётом после неё НИКОГДА — а `elt commit`
+// делает `git add -A` ровно между этими двумя точками.
+function changeClass({ x, y }) {
+  if (x === '?' || y === '?') return 'added';   // untracked
+  if (x === 'A') return 'added';                // тот же файл, уже в индексе
+  if (x === 'R') return 'renamed';
+  if (x === 'D' || y === 'D') return 'deleted';
+  return 'modified';
 }
 
 // ── tasks.md (spec-kit): newest plan is the active plan ───────────────────────
@@ -308,7 +375,7 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // 020 T009: оба вызова обязаны ОТРАБОТАТЬ ПОЛНОСТЬЮ. Молчаливый провал здесь — худший из
   // возможных: хеш посчитается от пустого/обрезанного вывода, два разных дерева совпадут, и
   // `--skip-oracle` проведёт коммит по пруфу от ЧУЖОГО дерева. Отказ громкий, без фолбека.
-  const statusRun = git(['status', '--porcelain', '-uall']);
+  const statusRun = git(['status', '--porcelain', '-uall'], { raw: true });
   if (statusRun.code !== 0) {
     die(`treeHash: git status не отработал (${statusRun.killed ? 'вывод обрезан/процесс убит' : `exit ${statusRun.code}`})`
       + `${statusRun.err ? `: ${statusRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
@@ -326,10 +393,22 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // до markDone он чист, после — модифицирован, и код статуса ('  ' → ' M') сдвигал бы хеш
   // даже при схлопнутом diff. Путь остаётся в строке дословно, поэтому НОВЫЙ файл плана и
   // любой посторонний файл по-прежнему видны и хеш меняют.
-  const planPath = (p) => /^specs\/[^/]+\/tasks\.md$/.test(String(p).replace(/\\/g, '/'));
-  const status = statusRun.out.split('\n')
-    .filter((line) => !runtimeLog(line.slice(3).trim()))
-    .filter((line) => !(normalizeTaskMarks && planPath(line.slice(3).trim())))
+  // 024 T003: множество путей планов — то же, что возвращает `allPlanFiles()`: корневой
+  // `tasks.md`, `specs/tasks.md` и `specs/<dir>/tasks.md`. До этого здесь была только третья
+  // форма, а `findTasks()` принимал все три: в раскладке с корневым планом `[X]` от
+  // `markDone()` оставался в диффе, доверенный путь гейта видел расхождение и отказывал —
+  // задача уже помечена закрытой, а коммит отвергнут.
+  const planPath = (p) => /^(?:tasks\.md|specs\/tasks\.md|specs\/[^/]+\/tasks\.md)$/
+    .test(String(p).replace(/\\/g, '/'));
+  const entries = parsePorcelain(statusRun.out)
+    .filter((e) => !runtimeLog(e.path))
+    .filter((e) => !(normalizeTaskMarks && planPath(e.path)));
+  // В хеш идёт КЛАСС изменения и путь, а не двухсимвольный код: индексация меняет код и не
+  // меняет ни класс, ни путь. Сортировка — своя, чтобы порядок не зависел от того, как git
+  // решил перечислить staged и unstaged.
+  const status = entries
+    .map((e) => `${changeClass(e)}\t${e.from ? `${e.from} -> ${e.path}` : e.path}`)
+    .sort()
     .join('\n');
   // Строки diff, отличающиеся ТОЛЬКО маркером задачи, схлопываются: `- [X] **T001**` и
   // `- [ ] **T001**` дают один и тот же вход хеша. Любая другая правка того же файла
@@ -350,28 +429,47 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
     }
     return out.join('\n');
   };
-  const diffText = normalizeTaskMarks ? dropPlanDiffs(diffRun.out) : diffRun.out;
+  // 024 T003: блоки новых файлов выбрасываются из диффа целиком. `git diff HEAD` для
+  // ИЗМЕНЁННОГО файла одинаков до и после `git add`, а для НОВОГО — до индексации его нет
+  // вовсе, после появляется блок `new file mode`. Это вторая половина того же дефекта.
+  // Содержимое таких файлов ниже всё равно хешируется прямо с диска, поэтому выбрасывание
+  // ничего не теряет: меняется только то, ЧЕРЕЗ КАКОЙ канал байты попадают в хеш.
+  const dropNewFileDiffs = (text) => {
+    const blocks = [];
+    let current = null;
+    let isNew = false;
+    const flush = () => { if (current && !isNew) blocks.push(current.join('\n')); };
+    for (const line of String(text).split('\n')) {
+      if (/^diff --git a\/(.+?) b\/(.+)$/.test(line)) { flush(); current = [line]; isNew = false; continue; }
+      if (!current) continue;
+      if (/^new file mode /.test(line)) isNew = true;
+      current.push(line);
+    }
+    flush();
+    return blocks.join('\n');
+  };
+  const diffText = dropNewFileDiffs(normalizeTaskMarks ? dropPlanDiffs(diffRun.out) : diffRun.out);
   const h = crypto.createHash('sha256');
   h.update(status + '\n' + diffText);
-  const untracked = status.split('\n')
-    .filter((l) => l.startsWith('?? '))
-    .map((l) => l.slice(3).trim())
-    .sort();
-  for (const f of untracked) {
-    try { h.update(fs.readFileSync(path.join(cwd, f))); } catch { /* gone/unreadable — status already captured it */ }
+  // 024 T003: содержимое читается с диска для ВСЕГО, чего нет в HEAD, — и для untracked
+  // (`??`), и для уже проиндексированного нового файла (`A `). Раньше здесь был только первый
+  // случай, и `git add -A` переводил файл из «хешируем содержимое» в «видим блок в диффе»,
+  // то есть менял и канал, и результат. Путь идёт в хеш вместе с байтами: два файла с
+  // одинаковым содержимым — не одно и то же дерево.
+  const addedPaths = [...new Set(entries.filter((e) => changeClass(e) === 'added').map((e) => e.path))].sort();
+  for (const f of addedPaths) {
+    h.update('\0added\0' + f + '\0');
+    try { h.update(fs.readFileSync(path.join(cwd, f))); } catch { /* gone/unreadable — класс уже в хеше */ }
   }
   // Планы участвуют в хеше своим содержимым, а не фактом правки: путь + нормализованные
   // байты. Список берётся с диска целиком, поэтому исчезнувший или новый план видны.
   if (normalizeTaskMarks) {
-    const specsDir = path.join(cwd, 'specs');
-    let dirs = [];
-    try { dirs = fs.readdirSync(specsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); }
-    catch { dirs = []; }
-    for (const dir of dirs) {
-      const planFile = path.join(specsDir, dir, 'tasks.md');
+    // 024 T003: список берётся у `allPlanFiles()` — того же источника, которым пользуется
+    // `findTasks()`. Отдельный обход `specs/*` знал одну форму раскладки из трёх.
+    for (const planFile of allPlanFiles()) {
       let text = null;
       try { text = fs.readFileSync(planFile, 'utf8'); } catch { continue; }
-      h.update('specs/' + dir + '/tasks.md\n');
+      h.update(relPosix(planFile) + '\n');
       h.update(Buffer.from(normalizeMarks(text), 'utf8'));
     }
   }
@@ -523,12 +621,54 @@ function specApprovalGateFor(cfg, specDir) {
 function headSha() {
   return git(['rev-parse', 'HEAD']).out;
 }
-function writeOracleProof(exit, cfg) {
+
+// 024 T003/T004: версия схемы пруфа. Форма `treeHash` изменилась (хешируется класс изменения,
+// а не колонка кода git), поэтому пруф прежней версии сравнивать с новым хешем НЕЛЬЗЯ — он
+// посчитан по правилу, доказанно неверному. Отказ обязан звучать как «перепрогони оракул», а
+// не как загадочное «не про это дерево»: второе отправляет читателя искать несуществующую
+// правку в дереве.
+const PROOF_SCHEMA = 2;
+
+// Пруф, по которому оракул не исполнил ни одного файла, — не доказательство. Возвращает
+// причину отказа или null.
+function oracleProofUseless(proof) {
+  if (!proof) return null;
+  if (proof.proofSchema !== PROOF_SCHEMA) {
+    return `пруф схемы ${proof.proofSchema || 1}, текущая ${PROOF_SCHEMA} (форма хеша дерева изменилась в 024) — перепрогони оракул`;
+  }
+  if (proof.ran === 0 && Number(proof.total) > 0) {
+    return `оракул не исполнил ни одного файла (${proof.cached} из кэша, ${proof.total} в выборке) — это отсутствие проверки, а не зелёный прогон`;
+  }
+  return null;
+}
+// 024 T004: сколько файлов оракул РЕАЛЬНО исполнил, а сколько взял из кэша. Кэш живёт в
+// `.git/` и в `treeHash` не входит по построению, поэтому «112 попаданий, ноль прогонов» и
+// «112 зелёных прогонов» давали побайтово одинаковый пруф и одинаковый exit 0. Раннер
+// оставляет отчёт рядом с пруфом; чужой оракул (в harness.json может стоять что угодно) его
+// не пишет, и тогда поле честно `null` — «неизвестно», а не «ноль».
+function readOracleRunStats(startedAt) {
+  try {
+    const gd = git(['rev-parse', '--absolute-git-dir']).out || path.join(cwd, '.git');
+    const raw = JSON.parse(fs.readFileSync(path.join(gd, 'elt', 'oracle-run.json'), 'utf8'));
+    // Отчёт от ПРОШЛОГО прогона — не отчёт об этом. Без проверки времени подсунуть старый
+    // файл значило бы вернуть ту же дыру с другого входа.
+    if (!Number.isFinite(startedAt) || Date.parse(raw.ts) < startedAt) return null;
+    return { ran: raw.ran, cached: raw.cached, total: raw.total, failed: raw.failed };
+  } catch { return null; }
+}
+function writeOracleProof(exit, cfg, { startedAt = null } = {}) {
   const currentTree = treeHash();
+  const stats = readOracleRunStats(startedAt);
   fs.writeFileSync(oracleProofPath(), JSON.stringify({
     exit,
     hash: currentTree,
     treeHash: currentTree,
+    // 024 T004: `ran: 0` при `total > 0` — «оракул не исполнил ничего». Это не зелёное и не
+    // красное, это ОТСУТСТВИЕ проверки, и гейт обязан отличать её от проверки.
+    ran: stats ? stats.ran : null,
+    cached: stats ? stats.cached : null,
+    total: stats ? stats.total : null,
+    proofSchema: PROOF_SCHEMA,
     // Второй хеш — не дубль: по нему доверенный путь гейта СВЕРЯЕТ дерево вместо того, чтобы
     // пропускать проверку. Без него единственной защитой оставалось значение env, вычислимое
     // из публичного файла пруфа.
@@ -631,7 +771,7 @@ function runOracle(cfg, { full = false } = {}) {
   // Хвост smoke — В ТОТ ЖЕ отчёт: красный smoke без вывода это «что-то сломалось», а с ним —
   // готовая причина. Один файл, потому что читатель у них один.
   writeOracleTail(out + (smoke.ran ? `\n--- smoke: ${smoke.cmd} (exit ${smoke.code}) ---\n${smoke.out}` : ''));
-  writeOracleProof(exit, cfg);
+  writeOracleProof(exit, cfg, { startedAt: started });
   return exit;
 }
 
@@ -1297,7 +1437,12 @@ if (cmd === 'run') {
     journal: snap.journal,
     rejected: snap.rejected,
     statuses: snap.statuses,
-    unresolvedReview: readReviewQueue().filter((r) => !r.resolved).length,
+    // 024 T010: поле `closedAt`, а не `resolved`. `resolved` не пишет НИКТО — строки очереди
+    // закрываются меткой времени (`elt review close`, elt.js:1628), поэтому счётчик никогда
+    // не убывал: `elt run` вечно показывал «очередь разбора: N записей» после того, как все
+    // они разобраны. Проверка, которая не может сработать, хуже отсутствующей — она
+    // выглядит работающей.
+    unresolvedReview: readReviewQueue().filter((r) => !r.closedAt).length,
     ledger: ledgerOpen,
   };
   if (flag('--exec')) {
@@ -1560,7 +1705,7 @@ if (cmd === 'slice' && sub === 'next') {
       if (flag('--skip-approval')) {
         console.error(`elt slice next: --skip-approval (спека не утверждена: ${gate.status}, ${path.relative(cwd, gate.specDir)})`);
       } else {
-        die(`спека не подписана: elt spec approve --spec ${path.relative(cwd, gate.specDir).split(path.sep).join('/')} (статус: ${gate.status})`, 4);
+        die(`спека не подписана: elt spec approve --spec ${path.relative(cwd, gate.specDir).split(path.sep).join('/')} (статус: ${gate.status})`, 4, 'spec-unapproved');
       }
     }
   }
@@ -1597,7 +1742,7 @@ if (cmd === 'oracle') {
   const l0Block = preOracleL0(cfg);
   if (l0Block) {
     appendRunLog({ task: null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
-    die('L0 заблокировал ДО оракула — чинить причину выше, прогон не нужен', 1);
+    die('L0 заблокировал ДО оракула — чинить причину выше, прогон не нужен', 1, 'l0-block');
   }
   const exit = runOracle(cfg, { full: flag('--full') });
   // Зелёный прогон тоже пишется: без него у `oracle-slow` нет ряда для медианы —
@@ -1619,7 +1764,7 @@ if (cmd === 'judge' && sub === 'run') {
   // 020 T016: `--repair` — судья второй генерации уже посаженного (и закрытого) батча.
   const judgeRepair = flag('--repair');
   const binding = findTaskBinding(taskId, { includeDone: judgeRepair });
-  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди ${judgeRepair ? 'задач плана' : 'открытых [ ]'}`, 4);
+  if (!binding) die(`elt judge run: задача ${taskId} не найдена среди ${judgeRepair ? 'задач плана' : 'открытых [ ]'}`, 4, 'task-not-found');
   // 020 T023: судье уходит ВЕСЬ блок задачи, а не заголовок. В блоке живёт `[files: …]` —
   // зона scope-триггера L0 и критерии, по которым судья вообще может судить.
   const texts = taskId.split(',').map((id) => {
@@ -1649,7 +1794,7 @@ if (cmd === 'judge' && sub === 'run') {
   const r = spawnSync(process.execPath, [invoke, descPath], { cwd, encoding: 'utf8' });
   let out;
   try { out = JSON.parse((r.stdout || '').trim().split('\n').pop()); } catch { out = null; }
-  if (!out) die(`elt judge run: судья не вернул JSON (exit ${r.status})\n${(r.stderr || '').slice(-2000)}`, 4);
+  if (!out) die(`elt judge run: судья не вернул JSON (exit ${r.status})\n${(r.stderr || '').slice(-2000)}`, 4, 'judge-no-json');
   // runOk:false — судья НЕ отработал (timeout/spawn/limit). Это не вердикт: пишем `dead`,
   // чтобы гейт отказал явной причиной judge-dead, а не молчаливым отсутствием proof.
   // 011 T004: `inconclusive` доезжает до proof как самостоятельный исход. Всё, что не pass и
@@ -1657,6 +1802,25 @@ if (cmd === 'judge' && sub === 'run') {
   const verdict = out.runOk ? (['pass', 'inconclusive'].includes(out.verdict) ? out.verdict : 'block') : 'dead';
   const model = (out.judges && out.judges[0] && out.judges[0].model) || opt('--model', 'unknown');
   const reasons = (out.reasons && out.reasons.length ? out.reasons : [`judge ${verdict}`]).map(String);
+  // 024 T009: `dead` без причины — самый дорогой отказ харнеса. Поле `judgeLog` доезжало
+  // сюда и уходило только в run-log; на экране оставалось `"verdict": "dead", "reasons":
+  // ["judge dead"]` и exit 4. Человек тратил на поиск лога минуты, серверный агент не мог
+  // залогировать вообще ничего — причина существовала только в файле, который никто не
+  // печатал. Теперь на пути отказа печатаются: машинная причина, путь к логу провайдера и
+  // его хвост (там и лежат строки вроде «--dangerously-skip-permissions cannot be used with
+  // root/sudo privileges», ловящие каждый запуск на сервере под root).
+  if (verdict === 'dead') {
+    console.error(`elt judge run: судья не отработал — ${out.failReason || 'причина не названа провайдером'}`);
+    if (out.judgeLog) {
+      console.error(`elt judge run: лог провайдера — ${out.judgeLog}`);
+      try {
+        const tail = fs.readFileSync(out.judgeLog, 'utf8').trim().split('\n').slice(-12).join('\n');
+        if (tail) console.error(`--- хвост лога ---\n${tail}\n------------------`);
+      } catch (e) { console.error(`elt judge run: лог не читается (${e.code || e.message})`); }
+    } else {
+      console.error('elt judge run: провайдер не оставил лога — проверь judge.provider в .harness/harness.json');
+    }
+  }
   const proof = writeJudgeProof({
     taskId, verdict, reasons, model,
     judges: out.judges, grounding: out.grounding, redProof: out.redProof || undefined,
@@ -1817,7 +1981,7 @@ if (cmd === 'spec') {
 if (cmd === 'checkpoint') {
   if (git(['rev-parse', '--is-inside-work-tree']).code !== 0) die('не git-репозиторий');
   const files = changedFiles();
-  if (!files.length) die('нечего коммитить: дерево чистое', 3);
+  if (!files.length) die('нечего коммитить: дерево чистое', 3, 'tree-clean');
   const blocked = files.filter((file) => !isCheckpointFile(file));
   if (blocked.length) die(`checkpoint разрешён только для .planning/** и specs/**: ${blocked.join(', ')}`, 4);
   if (git(['add', '--', ...files]).code !== 0) die('git add failed');
@@ -1847,9 +2011,9 @@ if (cmd === 'gate') {
   }
 
   const files = changedFiles();
-  if (!files.length) { console.log('elt gate: нечего проверять'); process.exit(0); }
+  if (!files.length) ok('gate-nothing-to-check', {}, 'elt gate: нечего проверять');
   const blocked = files.filter((file) => !isCheckpointFile(file));
-  if (!blocked.length) { console.log('elt gate: только .planning/** и specs/** — judge не нужен'); process.exit(0); }
+  if (!blocked.length) ok('gate-docs-only', { files }, 'elt gate: только .planning/** и specs/** — judge не нужен');
 
   // 020 T009: при `verify:"background"` судейского пруфа на момент коммита НЕТ по построению —
   // тяжёлые слои идут после (014 T005). Пока хук требовал его безусловно, включить
@@ -1874,26 +2038,33 @@ if (cmd === 'gate') {
       // (значение вычислимо из публичных байтов пруфа) больше не проводит постороннюю правку.
       if (process.env.ELT_GATE_TRUST_ORACLE && parsed && parsed.exit === 0
           && process.env.ELT_GATE_TRUST_ORACLE === sha256(oracleRaw)) {
+        // 024 T004: доверие к БАЙТАМ пруфа не распространяется на его содержание. Пруф, под
+        // которым не исполнено ни одного файла, не становится доказательством оттого, что
+        // его передал свой же `elt commit`.
+        const useless = oracleProofUseless(parsed);
+        if (useless) die(`elt gate: ${useless}`, 4, 'oracle-proof-unproven');
         const normalized = parsed.hashTaskMarksNormalized;
         if (!normalized) {
           die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4);
         }
         if (normalized !== treeHashNormalizingTaskMarks()) {
-          die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4);
+          die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4, 'oracle-proof-stale');
         }
-        console.log('elt gate: trusted elt commit (дерево сверено, прощён только маркер задачи)');
-        process.exit(0);
+        ok('gate-trusted-oracle', { ran: parsed.ran, cached: parsed.cached },
+          'elt gate: trusted elt commit (дерево сверено, прощён только маркер задачи)');
       }
+      const uselessPlain = oracleProofUseless(parsed);
+      if (uselessPlain) die(`elt gate: ${uselessPlain}`, 4, 'oracle-proof-unproven');
       if (!parsed || parsed.exit !== 0 || parsed.hash !== treeHash()) {
-        die('elt gate: оракул-пруф отсутствует, красный или не про это дерево — коммить через elt commit', 4);
+        die('elt gate: оракул-пруф отсутствует, красный или не про это дерево — коммить через elt commit', 4, 'oracle-proof-stale');
       }
-      console.log('elt gate: оракул-пруф зелёный и привязан к этому дереву');
-      process.exit(0);
+      ok('gate-oracle-proof', { ran: parsed && parsed.ran, cached: parsed && parsed.cached },
+        'elt gate: оракул-пруф зелёный и привязан к этому дереву');
     }
   }
 
   const loaded = readJudgeProof();
-  if (loaded.error) die(`elt gate: judge proof ${loaded.error} — коммить через elt commit`, 4);
+  if (loaded.error) die(`elt gate: judge proof ${loaded.error} — коммить через elt commit`, 4, `judge-proof-${loaded.error}`);
 
   // `elt commit` validates the judge proof BEFORE it marks the task [X] — that
   // edit changes treeHash, so by the time this hook runs (inside its `git
@@ -1902,15 +2073,14 @@ if (cmd === 'gate') {
   // the exact proof bytes it already validated so the hook can trust that
   // specific, unmodified proof instead of re-deriving treeHash post-edit.
   if (process.env.ELT_GATE_TRUST && process.env.ELT_GATE_TRUST === sha256(loaded.raw)) {
-    console.log('elt gate: trusted elt commit (proof already validated pre-markDone)');
-    process.exit(0);
+    ok('gate-trusted-judge', {}, 'elt gate: trusted elt commit (proof already validated pre-markDone)');
   }
 
   const taskId = loaded.proof && loaded.proof.taskId;
   const check = validateJudgeProof({ taskId });
-  if (!check.ok) die(`elt gate: judge proof invalid (${check.reason}) — коммить через elt commit`, 4);
-  console.log(`elt gate: judge proof valid (${taskId}, ${check.proof.verdict})`);
-  process.exit(0);
+  if (!check.ok) die(`elt gate: judge proof invalid (${check.reason}) — коммить через elt commit`, 4, `judge-proof-${check.reason}`);
+  ok('gate-judge-proof', { task: taskId, verdict: check.proof.verdict },
+    `elt gate: judge proof valid (${taskId}, ${check.proof.verdict})`);
 }
 
 if (cmd === 'commit') {
@@ -1931,9 +2101,10 @@ if (cmd === 'commit') {
   let skipTrusted = false;
   if (flag('--skip-oracle')) {
     const proof = readOracleProof();
-    skipTrusted = !!proof && proof.exit === 0 && proof.hash === treeHash();
+    const useless = oracleProofUseless(proof);
+    skipTrusted = !!proof && !useless && proof.exit === 0 && proof.hash === treeHash();
     if (!skipTrusted) {
-      console.error('elt commit: --skip-oracle без валидного пруфа (дерево изменилось с последнего зелёного оракула) — перепрогоняю оракул.');
+      console.error(`elt commit: --skip-oracle без валидного пруфа (${useless || 'дерево изменилось с последнего зелёного оракула'}) — перепрогоняю оракул.`);
     }
   }
   if (!flag('--skip-oracle') || !skipTrusted) {
@@ -1941,7 +2112,7 @@ if (cmd === 'commit') {
     const l0Block = preOracleL0(cfg);
     if (l0Block) {
       appendRunLog({ task: taskId || null, status: 'l0-block', verdict: 'block', l0: { triggers: l0Block.triggers, judgeNeeded: true, verdict: 'block' } });
-      die('L0 заблокировал ДО оракула — НЕ коммичу', 1);
+      die('L0 заблокировал ДО оракула — НЕ коммичу', 1, 'l0-block');
     }
     oracleExit = runOracle(cfg, { full: flag('--full') });
     if (oracleExit !== 0) {
@@ -2020,7 +2191,7 @@ if (cmd === 'commit') {
   // синхронны — судейский пруф здесь не требуется, дифф проверяется фоном ПОСЛЕ коммита
   // (spawnBackgroundVerify ниже). sync-ветка не тронута — судья остаётся обязательным.
   const judge = bgVerify ? null : validateJudgeProof({ taskId, repair });
-  if (!bgVerify && !judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4);
+  if (!bgVerify && !judge.ok) die(`elt commit: judge proof invalid (${judge.reason}) — НЕ коммичу`, 4, `judge-proof-${judge.reason}`);
   // Captured now, BEFORE markDone() edits tasks.md and shifts treeHash — the
   // pre-commit hook (triggered by `git commit` below) re-checks the SAME
   // already-validated proof bytes via this hash rather than re-deriving
@@ -2200,7 +2371,20 @@ if (cmd === 'commit') {
           if (!cert || !cert.ok) return { ok: false, reason: 'сертификата батча нет (' + ((cert && cert.reason) || 'no-reason') + ')' };
           const c = cert.certificate || cert;
           if (c.v !== certification.BATCH_CERT_SCHEMA) return { ok: false, reason: 'чужая схема сертификата: ' + c.v };
-          if (c.commitHash && c.commitHash !== git(['rev-parse', 'HEAD']).out) return { ok: false, reason: 'сертификат выдан на другой commit' };
+          // 024 T010: привязка к коммиту проверяется по полю, которое у батч-сертификата
+          // РЕАЛЬНО есть. Гард читал `commitHash` — оно только у релизных сертификатов
+          // (certification.js:224); батчевые несут `commit` (там же :162), поэтому условие
+          // всегда было ложным и проверка не срабатывала НИ РАЗУ.
+          //
+          // Наивное переименование переключило бы её в «всегда блокировать»: `elt commit`
+          // отдаёт в сертификат КОРОТКИЙ sha (`rev-parse --short`, elt.js:2259), а сверка
+          // берёт полный. Сравниваем префиксом по длине того, что записано, — короткий
+          // против полного, полный против полного.
+          const certCommit = c.commit || c.commitHash || null;
+          const head = git(['rev-parse', 'HEAD']).out;
+          if (certCommit && !head.startsWith(certCommit)) {
+            return { ok: false, reason: `сертификат выдан на другой commit (${certCommit} ≠ ${head.slice(0, certCommit.length)})` };
+          }
           return { ok: true };
         } catch (e) { return { ok: false, reason: e.message }; }
       })();
@@ -2214,8 +2398,20 @@ if (cmd === 'commit') {
     }
   }
   clearGateMarker(); // цепочка гейта закончилась — авто-чекпоинту снова можно писать
-  console.log(`elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`
-    + (pushFailed ? ' — НО push не прошёл, на remote коммита нет' : ''));
+  const commitText = `elt commit: ${sha} на ${branch}${taskId ? ' — ' + taskId + ' [X]' : ''}`
+    + (pushFailed ? ' — НО push не прошёл, на remote коммита нет' : '');
+  // Провал push — исход, а не отказ: коммит СОЗДАН и остаётся локально, и именно это человек
+  // обязан прочитать на stdout (020 T009). Поэтому не `die`: канал и текст те же, что были,
+  // а машине добавляется конверт с `ok: false` и причиной.
+  if (JSON_ERRORS) {
+    console.log(JSON.stringify({
+      ok: !pushFailed, code: pushFailed ? 5 : 0, reason: pushFailed ? 'push-failed' : 'committed',
+      commit: sha, branch, task: taskId || null, speculative: bgVerify,
+      ...(pushFailed ? { message: pushFailed } : {}),
+    }));
+  } else {
+    console.log(commitText);
+  }
   process.exit(pushFailed ? 5 : 0);
 }
 // 019 T008: команды `elt harness sync-all` и `elt harness propose` сняты вместе со своими

@@ -92,12 +92,20 @@ async function runReview({
   try { lenses = loadLenses(lensesDir); } catch (e) {
     return { status: REVIEW_TERMINAL.dead, verdict: 'dead', reasons: [`линзы не загрузились: ${e.message}`], lenses: [], scorer: { ok: false, reason: 'линзы не загрузились' } };
   }
-  // Набор линз закрыт. Не «хотя бы пять» и не «сколько нашлось»: рецепт называет ровно эти
-  // пять, и любая недостача — это ревью, которое чего-то не смотрело, но выглядит полным.
-  if (lenses.length !== LENS_NAMES.length) {
+  // Набор линз закрыт СНИЗУ, а не сверху. Недостача по-прежнему смертельна: ревью, которое
+  // чего-то не смотрело, выглядит полным — и ради этого правило и написано.
+  //
+  // 024 T010: но сверка была `lenses.length !== LENS_NAMES.length`, то есть ШЕСТАЯ линза
+  // тоже делала судью мёртвым. Форк, добавивший собственную линзу, получал
+  // `verdict: dead` на КАЖДОМ слайсе — то есть единственная объявленная точка расширения
+  // ломала харнес целиком. Требуется присутствие всех объявленных; лишние допускаются и
+  // работают наравне.
+  const present = new Set(lenses.map((l) => l.name));
+  const missing = LENS_NAMES.filter((n) => !present.has(n));
+  if (missing.length) {
     return {
       status: REVIEW_TERMINAL.dead, verdict: 'dead', lenses: [],
-      reasons: [`ожидалось ${LENS_NAMES.length} линз, найдено ${lenses.length}`],
+      reasons: [`не хватает линз: ${missing.join(', ')} (найдено ${lenses.length} из объявленных ${LENS_NAMES.length})`],
       scorer: { ok: false, reason: 'набор линз неполон' },
     };
   }

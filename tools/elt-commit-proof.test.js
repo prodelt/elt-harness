@@ -231,3 +231,65 @@ test('T009 gen2: прямой git commit с кодом в background-проек�
 after(() => {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ── 024 T004 ─────────────────────────────────────────────────────────────────
+// Кэш оракула лежит в `.git/` и в `treeHash` не входит по построению: записать туда ключи,
+// посчитанные на СЛОМАННОМ дереве, значило получить `N/N passed in 0.0s`, exit 0 и зелёный
+// пруф, не исполнив ни одного теста. Воспроизведено живьём. Поэтому пруф теперь несёт, сколько
+// файлов ИСПОЛНЕНО, и «ноль исполнено при непустой выборке» — не зелёный прогон, а отсутствие
+// проверки. Доверие к байтам пруфа на это не распространяется: `elt commit` передаёт хеш
+// пруфа хуку, но содержание пруфа хук всё равно обязан прочесть.
+function patchProof(root, patch) {
+  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']);
+  const file = path.join(gitDir, 'elt-oracle-proof.json');
+  const proof = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...proof, ...patch }));
+  return file;
+}
+
+test('024 T004: пруф, под которым не исполнено ни одного файла, не проводит --skip-oracle', () => {
+  const root = fixture();
+  writeProof(root);
+  patchProof(root, { ran: 0, cached: 42, total: 42 });
+  const before = commitCount(root);
+  // `--skip-oracle` обязан НЕ поверить пруфу; он перепрогонит оракул (в фикстуре зелёный),
+  // и главное — в stderr назовёт причину, а не промолчит.
+  const r = run(root, ['commit', '--task', 'T001', '--skip-oracle', '-m', 'test commit']);
+  const said = `${r.stdout}${r.stderr}`;
+  assert.match(said, /не исполнил ни одного файла/, said);
+  assert.ok(commitCount(root) >= before, said);
+});
+
+// Доверенный оракул-путь гейта живёт только в режиме `verify: "background"` — том самом,
+// который `project-bootstrap apply` ставит чужому проекту по умолчанию.
+function bgFixture() {
+  const root = fixture();
+  const cfgPath = path.join(root, '.harness', 'harness.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  fs.writeFileSync(cfgPath, JSON.stringify({ ...cfg, verify: 'background' }));
+  return root;
+}
+
+test('024 T004: гейт отвергает такой пруф даже на доверенном пути', () => {
+  const root = bgFixture();
+  assert.equal(run(root, ['oracle']).status, 0);
+  const file = patchProof(root, { ran: 0, cached: 7, total: 7 });
+  const trust = crypto.createHash('sha256').update(fs.readFileSync(file, 'utf8')).digest('hex');
+  const gate = spawnSync(process.execPath, [ELT, 'gate'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, ELT_GATE_TRUST_ORACLE: trust },
+  });
+  assert.notEqual(gate.status, 0, `${gate.stdout}${gate.stderr}`);
+  assert.match(`${gate.stdout}${gate.stderr}`, /не исполнил ни одного файла/);
+});
+
+test('024 T003/T004: пруф старой схемы отвергается по имени, а не загадкой про дерево', () => {
+  const root = bgFixture();
+  assert.equal(run(root, ['oracle']).status, 0);
+  const file = patchProof(root, { proofSchema: 1 });
+  const trust = crypto.createHash('sha256').update(fs.readFileSync(file, 'utf8')).digest('hex');
+  const gate = spawnSync(process.execPath, [ELT, 'gate'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, ELT_GATE_TRUST_ORACLE: trust },
+  });
+  assert.notEqual(gate.status, 0);
+  assert.match(`${gate.stdout}${gate.stderr}`, /перепрогони оракул/);
+});

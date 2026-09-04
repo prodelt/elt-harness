@@ -10,6 +10,8 @@ const JUDGE_PROVIDERS = new Set(['claude', 'codex', 'agy']);
 // совместимость). `background` — commit возвращает управление после L0+быстрого оракула,
 // тяжёлые слои уходят в tools/elt-verify-bg.js.
 const VERIFY_MODES = new Set(['sync', 'background']);
+// Список интерпретаторов — из общего диспетчера, а не вторая копия рядом с ним.
+const { SHELLS } = require('./shell-run');
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -41,6 +43,16 @@ function validateHarnessConfig(config) {
   // 014 T010: строка "true" вместо булева выглядела бы как разрешение и молча им не была.
   if (config.smokeParallel !== undefined && typeof config.smokeParallel !== 'boolean') {
     errors.push('smokeParallel must be boolean');
+  }
+  // 024 T001: `shell` не проверялся ВООБЩЕ — единственное поле, задающее интерпретатор гейта.
+  // Опечатка (`bahs`) молча уезжала в bash, а поставочный `"powershell"` на Linux давал
+  // `elt oracle: exit 1 (0s)` без строки причины: `spawnSync` при ENOENT отдаёт `status: null`,
+  // и это превращалось в обычный красный оракул. Список закрыт по той же причине, что и у
+  // `judge.provider`: неверное значение обязано падать на конфиге, а не в рантайме.
+  // Поля нет → дефолт по `process.platform` (см. tools/shell-run.js), поэтому отсутствие
+  // законно, а мусор — нет.
+  if (config.shell !== undefined && !SHELLS.includes(config.shell)) {
+    errors.push(`shell must be one of: ${SHELLS.join(', ')}`);
   }
   if (!config.judge || typeof config.judge !== 'object' || Array.isArray(config.judge)) {
     errors.push('judge must be an object');

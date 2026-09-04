@@ -133,3 +133,82 @@ test('partitionByCache: --full игнорирует кэш целиком', () =
   assert.deepEqual(full.toRun, run, '--full обязан гонять всё, даже при валидном кэше');
   assert.deepEqual(full.hits, []);
 });
+
+// ── 024 T004 ─────────────────────────────────────────────────────────────────
+// Дефект: `computeEntry` звался БЕЗ `scanDirs`, дефолт был `['tools']`, а корней оракула
+// три. Замыкание теста из `bin/` или `benchmarks/` не содержало ни одного исходника оттуда,
+// поэтому правка `bin/l0.js` не двигала ключ `bin/l0.test.js`: кэш отдавал попадание, тест не
+// исполнялся, и оракул печатал зелёное на сломанной точке входа плагина. Воспроизведено на
+// живом репозитории до фикса.
+function multiRootFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'oracle-cache-roots-'));
+  dirs.push(root);
+  const w = (rel, body) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), body);
+  };
+  w('bin/entry.js', 'module.exports = { go: () => 1 };\n');
+  w('bin/entry.test.js', "require('./entry');\nconsole.log('ok');\n");
+  w('benchmarks/runner.js', 'module.exports = { grade: () => 1 };\n');
+  w('benchmarks/runner.test.js', "require('./runner');\nconsole.log('ok');\n");
+  w('tools/noise.js', 'module.exports = {};\n');
+  return root;
+}
+
+test('024 T004: правка исходника в bin/ двигает ключ его собственного теста', () => {
+  const root = multiRootFixture();
+  const key = () => computeEntry({
+    root, testFile: 'bin/entry.test.js', runnerVersion: 'v1', cmd: 'node', readFile: readFileRel(root),
+  }).key;
+  const before = key();
+  fs.appendFileSync(path.join(root, 'bin', 'entry.js'), '\nmodule.exports.broken = true;\n');
+  assert.notEqual(key(), before, 'кэш обязан промахнуться: тест зависит от правленого файла');
+});
+
+test('024 T004: правка исходника в benchmarks/ двигает ключ его собственного теста', () => {
+  const root = multiRootFixture();
+  const key = () => computeEntry({
+    root, testFile: 'benchmarks/runner.test.js', runnerVersion: 'v1', cmd: 'node', readFile: readFileRel(root),
+  }).key;
+  const before = key();
+  fs.appendFileSync(path.join(root, 'benchmarks', 'runner.js'), '\nmodule.exports.broken = true;\n');
+  assert.notEqual(key(), before, 'кэш обязан промахнуться и во втором корне');
+});
+
+test('024 T004: замыкание теста из bin/ содержит его собственный исходник', () => {
+  const root = multiRootFixture();
+  const { closureFiles } = computeEntry({
+    root, testFile: 'bin/entry.test.js', runnerVersion: 'v1', cmd: 'node', readFile: readFileRel(root),
+  });
+  assert.ok(closureFiles.includes('bin/entry.js'), `замыкание пустое по своему корню: ${JSON.stringify(closureFiles)}`);
+});
+
+test('024 T004: дефолт scanDirs совпадает с корнями, которые обходит раннер', () => {
+  const { SCAN_DIRS } = require('./elt-oracle-cache');
+  const { TEST_ROOTS } = require('./elt-oracle-runner');
+  // Две копии одного списка и разошлись — обход знал три корня, замыкание один. Список
+  // обязан быть ОДИН, и этот тест краснеет на любой попытке снова его раздвоить.
+  assert.deepEqual([...TEST_ROOTS].sort(), [...SCAN_DIRS].sort());
+});
+
+test('024 T004: версия раннера инвалидируется правкой правил выборки', () => {
+  const crypto = require('node:crypto');
+  const { RUNNER_VERSION } = require('./elt-oracle-runner');
+  // `needlesFor`, `walkJs` и `INERT` живут в elt-oracle-select.js и ЦЕЛИКОМ определяют
+  // замыкание. Пока их исходник не входил в версию раннера, правка правил оставляла весь
+  // старый кэш валидным — то есть посчитанным по правилам, которых больше нет.
+  const expected = crypto.createHash('sha256')
+    .update(fs.readFileSync(require.resolve('./elt-oracle-runner')))
+    .update(fs.readFileSync(require.resolve('./elt-oracle-cache')))
+    .update(fs.readFileSync(require.resolve('./elt-oracle-select')))
+    .digest('hex');
+  assert.equal(RUNNER_VERSION, expected, 'версия раннера обязана хешировать и правила выборки');
+});
+
+test('024 T004: кэш живёт в .git, а не в рабочем дереве', () => {
+  const { cachePath } = require('./elt-oracle-cache');
+  const root = multiRootFixture();
+  const p = cachePath(root);
+  assert.ok(!p.startsWith(path.join(root, '.harness')), 'кэш в .harness/ невидим для treeHash — там его и подделывали');
+  assert.ok(p.endsWith(path.join('elt', 'oracle-cache.json')), p);
+});

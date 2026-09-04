@@ -154,3 +154,72 @@ verdict — see D8 in [DEFECTS.md](DEFECTS.md).
 unverified state. If work must not reach `main` unchecked, use `"sync"`, and back it with
 protected branches and required CI — the harness disciplines its own CLI path, it does not
 physically hold a `git push` back.
+
+## Running it headless — for CI and for unattended agents
+
+The harness is meant to be driven by an agent on a server as much as by a person at a terminal.
+An unattended caller has two channels and no third: the **exit code** and **stdout**. Both are
+part of the contract.
+
+### Exit codes
+
+| code | meaning |
+| --- | --- |
+| `0` | done — the command did what it says |
+| `1` | the work is wrong: red oracle, L0 block, an unusable environment (missing shell, not a git repo) |
+| `3` | nothing to do — plan closed, tree clean. Not an error; a loop should stop, not retry |
+| `4` | the gate refuses: unsigned spec, stale or unproven proof, dead judge, unknown task |
+| `5` | the local step succeeded but publishing did not — commit exists locally, `git push` failed |
+
+Code `4` covers most refusals on purpose: renumbering them would break drivers that already
+branch on `=== 4`. **The discriminator is the reason slug, not the number.**
+
+### `--json`: one line, machine-first
+
+Pass `--json` (or set `ELT_JSON=1` when the flag cannot cross a process boundary — hooks and
+`harness.json.oracle` are command *strings*, not argv) and every terminal outcome prints a
+single JSON line on stdout. Without the flag the human output is unchanged, byte for byte.
+
+```jsonc
+{"ok": false, "code": 4, "reason": "spec-unapproved", "message": "спека не подписана: …"}
+{"ok": true,  "code": 0, "reason": "committed", "commit": "a1b2c3d", "branch": "feature/t001", "task": "T001"}
+```
+
+Reasons an automated caller is expected to branch on:
+
+| reason | what to do |
+| --- | --- |
+| `spec-unapproved` | run `elt spec approve --spec <dir>` — the plan is not signed |
+| `task-not-found` | the task id is not open in the active plan; re-read `elt slice next` |
+| `l0-block` | mechanical block *before* the oracle — fix the cause, a re-run will not help |
+| `oracle-proof-stale` | the tree moved since the oracle ran — re-run it |
+| `oracle-proof-unproven` | the proof exists but nothing was executed under it (all cache hits) — re-run with `--full` |
+| `judge-proof-missing` / `judge-proof-stale` | run `elt judge run --task …` |
+| `judge-dead` / `judge-no-json` | the judge did not answer; the provider log path is printed on stderr |
+| `shell-missing` / `shell-unknown` | `shell` in `.harness/harness.json` does not exist on this platform |
+| `tree-clean` | nothing to commit |
+| `push-failed` | the commit exists locally; only publishing failed — do not re-run the slice |
+
+### When the judge dies
+
+A dead judge prints the machine reason, the provider log path, and the log's tail on stderr —
+because the cause is almost never in the verdict. The most common one on a server is the
+provider refusing to run as root:
+
+```
+elt judge run: судья не отработал — nonzero-exit
+elt judge run: лог провайдера — .harness/fleet/logs/claude-….log
+--- хвост лога ---
+--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons
+```
+
+Until 024 this line existed only inside a file nothing printed: the terminal showed
+`"verdict": "dead", "reasons": ["judge dead"]` and exit 4. See D37 in [DEFECTS.md](DEFECTS.md).
+
+### What runs without an agent CLI at all
+
+`elt gate --ci`, `elt oracle [--full]`, `elt status`, `elt stats`, `elt slice next`,
+`elt review`, `elt spec lint|status`, `bin/doctor.js` and `bin/l0.js` need no model. Everything
+that produces a verdict — `elt judge run`, and therefore `elt commit` on a code change — needs
+a configured provider. CI can enforce *"the mechanical oracle is green"* on its own; it cannot
+enforce the judgement layers without one.

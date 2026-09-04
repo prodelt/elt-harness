@@ -43,6 +43,13 @@ function collectVersions(root) {
     sources.push({ where: 'marketplace.plugins[elt]', version: entry.version, file: market });
   } catch (e) { errors.push(`marketplace.json: ${e.message}`); }
 
+  // 024 T007: пятый источник. `package.json` появился этой спекой, и версия в нём обязана
+  // ходить вместе с остальными — иначе повторится D28 (версия объявлена в шести местах,
+  // сверялись четыре, релиз прошёл «ok» и оракул дал четыре красных файла).
+  const pkg = path.join(root, 'package.json');
+  try { sources.push({ where: 'package.json', version: readJson(pkg).version, file: pkg }); }
+  catch (e) { errors.push(`package.json: ${e.message}`); }
+
   const changelog = path.join(root, 'CHANGELOG.md');
   try {
     const text = fs.readFileSync(changelog, 'utf8');

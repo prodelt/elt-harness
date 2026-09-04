@@ -169,10 +169,11 @@ function classifyJudge(verdict) {
 // не видит. Третий дефект той же семьи, что T001 и T003: команда уже правильная, а выполнить
 // её фон не мог. Ветка в ветку с sh(): улучшать нельзя — расхождение с синхронным гейтом
 // означало бы, что фон проверяет не то, что человек.
+// 024 T001: та же таблица, что у синхронного гейта, — теперь буквально одна, в
+// `tools/shell-run.js`. Расхождение здесь означало бы, что фон проверяет не то, что человек.
+const shellRun = require('./shell-run');
 function shellArgv(cmd, shell) {
-  return shell === 'powershell'
-    ? ['powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]]
-    : ['bash', ['-c', cmd]];
+  return shellRun.shellArgv(cmd, shellRun.resolveShell(shell) || shellRun.defaultShell());
 }
 // Дефолт spawnSync — 1 МБ, и при переполнении процесс УБИВАЕТСЯ (ENOBUFS, status null → exit 1):
 // болтливый оракул чужого проекта давал бы ложное красное. То же число, что у elt.js.
@@ -256,6 +257,16 @@ async function runJudgeLayer({ cwd, wt, commitHash, taskId, taskText, specFile =
 // 020 T007: судья, который не вернулся НИКОГДА, — не зелёное и не молчание фона: у процесса
 // есть свой предел терпения. Без него `runJudge`, зависший на сетевом вызове, держал бы
 // фоновый процесс до бесконечности, а `bg-silent` T008 срабатывал бы лишь по внешнему таймеру.
+// 024 T002: БЕЗ `timer.unref()`. Он стоял здесь и отменял весь смысл гарда: unref'нутый
+// таймер не держит event loop, поэтому при зависшем `promise` (судья, не вернувшийся
+// НИКОГДА — ровно тот случай, ради которого гард написан) больше ничего ref'нутого не
+// остаётся, Node осушает цикл и выходит ДО срабатывания таймаута. `try/finally` в
+// `runBackgroundVerify` не выполняется: ни `finish()`, ни `appendRunLog`, ни `enqueueBgRed`,
+// плюс осиротевший `.fleet-wt/bg-<hash>` — а процесс возвращает НОЛЬ. На сервере это
+// непроверенный коммит, уехавший молча; у нас это ещё и красный сьют, потому что
+// собственная регрессия гарда (`T007: таймаут судьи`) виснет и уносит 13 тестов за собой.
+// Держать таймер ref'нутым безопасно: `.finally` снимает его на ЛЮБОМ исходе гонки, поэтому
+// лишней задержки выхода он не создаёт — именно ради этого `clearTimeout` там и стоит.
 function withJudgeTimeout(promise, timeoutMs) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
   let timer = null;
@@ -263,7 +274,6 @@ function withJudgeTimeout(promise, timeoutMs) {
     timer = setTimeout(() => resolve({
       verdict: 'timeout', reasons: [`судья не ответил за ${Math.round(timeoutMs / 1000)} c`],
     }), timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
   });
   return Promise.race([promise, guard]).finally(() => { if (timer) clearTimeout(timer); });
 }
@@ -533,9 +543,21 @@ if (require.main === module) {
   // бы полный оракул) читается теперь внутри runBackgroundVerify, вместе с конфигом проекта:
   // одно правило, одно место. Здесь пробрасывать нечего.
   const { specFile, taskText } = bgChildContextFromEnv();
+  // 024 T002: сеть под гардом таймаута. `beforeExit` срабатывает ТОЛЬКО когда цикл осушился
+  // сам — то есть когда фон завис и ни один терминальный путь не отработал; при штатном
+  // завершении ниже зовётся `process.exit()`, а он `beforeExit` не поднимает. Значит эта
+  // ветка недостижима на нормальном прогоне и достижима ровно на том отказе, который до
+  // 024 возвращал ноль. Выход ненулевой: «не смогли проверить» никогда не равно «зелено».
+  let settled = false;
+  process.on('beforeExit', () => {
+    if (settled) return;
+    settled = true;
+    process.stderr.write('elt-verify-bg: фон завершился без терминальной записи (зависший слой) — выход 1\n');
+    process.exit(1);
+  });
   runBackgroundVerify({ cwd: process.cwd(), commitHash, taskId, specFile, taskText })
-    .then(({ exit }) => process.exit(exit))
-    .catch((e) => { process.stderr.write(`elt-verify-bg: ${e.stack || e.message}\n`); process.exit(1); });
+    .then(({ exit }) => { settled = true; process.exit(exit); })
+    .catch((e) => { settled = true; process.stderr.write(`elt-verify-bg: ${e.stack || e.message}\n`); process.exit(1); });
 }
 
 module.exports = {

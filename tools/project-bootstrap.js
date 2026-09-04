@@ -398,14 +398,14 @@ function checkOracleVerifierContract(inspected, options = {}) {
   const base = { kind: cfgKind, command: value };
   if (options.deep === true) {
     // R5: чужие тесты могут писать в БД/сеть — поэтому только по явному флагу и с таймаутом.
-    const shell = cfg.shell === 'powershell' ? 'powershell' : 'bash';
+    // 024 T001: дефолт — по платформе, а не жёсткий `bash`. Прежняя строка молча выбирала
+    // bash для ЛЮБОГО значения кроме 'powershell', включая опечатку и Windows без поля.
+    const shell = require('./shell-run').resolveShell(cfg.shell) || require('./shell-run').defaultShell();
     // PowerShell сам по себе возвращает 0/1 по успеху пайплайна, а не код нативной команды:
     // без `exit $LASTEXITCODE` красный оракул с exit 3 приезжал бы в отчёт как 1, а
     // несуществующая команда — как 0 ($LASTEXITCODE не выставлен → голый `exit`). Оба случая
     // поймал живой прогон (тест без подменённого раннера); мок их скрывал.
-    const argv = shell === 'powershell'
-      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `$ErrorActionPreference='Stop'; ${value}; exit $LASTEXITCODE`]
-      : ['-c', value];
+    const argv = require('./shell-run').shellArgv(value, shell, { psExitCode: true })[1];
     const timeout = Number(options.deepTimeoutMs) > 0 ? Number(options.deepTimeoutMs) : 600000;
     const completed = runner(shell, argv, { cwd: inspected.root, encoding: 'utf8', timeout, windowsHide: true });
     const exit = completed.status === null || completed.status === undefined ? null : completed.status;

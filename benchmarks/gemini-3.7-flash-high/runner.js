@@ -211,8 +211,33 @@ function pytestCommand(testFile) {
   return process.platform === 'win32' ? ['py', ['-3', '-m', 'pytest', testFile, '-q']] : ['python3', ['-m', 'pytest', testFile, '-q']];
 }
 
+// 024 T002: без preflight отсутствие pytest НЕОТЛИЧИМО от неверного решения — `spawnSync`
+// отдаёт `status: null`, а `null === 0` даёт `pass: false`, то есть «интерпретатора нет»
+// приезжает в отчёт как «код не прошёл тесты». Именно так этот файл краснел у каждого, кто
+// не ставил pytest руками: 25/26 с сообщением `false == true` и без единого намёка на
+// причину. CI зависимость ставит (`.github/workflows/test.yml`), поэтому там охват не падает.
+// Проба берёт ровно префикс `-m pytest` из той же самой команды, которой грейдер и гоняет
+// тесты, — иначе проверялся бы один интерпретатор, а работал бы другой (на Windows
+// `pytestCommand` идёт через лаунчер `py -3`, который может резолвиться НЕ в `python` из PATH).
+const PYTEST_PREFIX_LEN = 2; // ['-m', 'pytest'] — дальше в команде идёт путь к тесту
+function pytestAvailable() {
+  const { spawnSync } = require('child_process');
+  const [cmd, cmdArgs] = pytestCommand('');
+  const probe = spawnSync(cmd, [...cmdArgs.slice(0, PYTEST_PREFIX_LEN), '--version'], { encoding: 'utf8', timeout: 30000 });
+  return probe.status === 0;
+}
+
+class PytestUnavailable extends Error {
+  constructor() {
+    const [cmd, cmdArgs] = pytestCommand('');
+    super(`pytest-unavailable: \`${cmd} ${cmdArgs.slice(0, PYTEST_PREFIX_LEN).join(' ')}\` не отработал — грейдер замера требует pytest (см. .github/workflows/test.yml)`);
+    this.code = 'pytest-unavailable';
+  }
+}
+
 async function gradePolyglotWriter({ workDir, item }) {
   const { spawnSync } = require('child_process');
+  if (!pytestAvailable()) throw new PytestUnavailable();
   const [cmd, cmdArgs] = pytestCommand(item.guardPath);
   // PYTHONDONTWRITEBYTECODE: workDir gets sol.py overwritten and re-graded within the
   // same second (fixture rewrite, resubmission after a fix). CPython's import cache keys
@@ -282,6 +307,7 @@ async function main(argv) {
 }
 
 module.exports = {
+  pytestAvailable, PytestUnavailable,
   sha256, seededRandom, seededShuffle, wilsonInterval, classifyFailure,
   appendResultRow, readResultRows, pendingItems, runOneTask, defaultExecAgent,
   itemFromDatasetRow, parseArgs, pytestCommand, gradePolyglotWriter, gradeSweBenchGate,

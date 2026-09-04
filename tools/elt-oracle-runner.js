@@ -33,9 +33,13 @@ const ROOT = path.join(__dirname, '..');
 // 014 T001 — инвалидация кэша по «версии раннера»: хеш собственного исходника + исходника
 // модуля кэша. Правка логики выборки/сравнения обязана сбросить весь кэш, а не оставить старые
 // ключи, посчитанные по старым правилам.
+// 024 T004: третий источник — `elt-oracle-select.js`. Оттуда берутся `needlesFor`, `walkJs`
+// и `INERT`, то есть ВСЕ правила вычисления замыкания. Без него правка правил выборки
+// оставляла весь старый кэш валидным — ровно то, что этот хеш и обязан запрещать.
 const RUNNER_VERSION = crypto.createHash('sha256')
   .update(fs.readFileSync(__filename))
   .update(fs.readFileSync(require.resolve('./elt-oracle-cache')))
+  .update(fs.readFileSync(require.resolve('./elt-oracle-select')))
   .digest('hex');
 
 function harnessOracleCmd(root = ROOT) {
@@ -144,7 +148,11 @@ function partitionByCache(run, root = ROOT, forceFull = false) {
   const hits = [];
   const entries = {};
   for (const file of run) {
-    const { key } = oracleCache.computeEntry({ root, testFile: file, runnerVersion: RUNNER_VERSION, cmd, readFile: read });
+    // 024 T004: `scanDirs` — те же корни, что обходит раннер. Дефолт параметра знал только
+    // `tools`, поэтому замыкание теста из `bin/` или `benchmarks/` не содержало его
+    // собственного исходника: правка `bin/l0.js` не сдвигала ключ `bin/l0.test.js`, кэш
+    // отдавал попадание, и оракул печатал зелёное, не запустив сломанную точку входа.
+    const { key } = oracleCache.computeEntry({ root, testFile: file, scanDirs: TEST_ROOTS, runnerVersion: RUNNER_VERSION, cmd, readFile: read });
     entries[file] = key;
     if (cache[file] && cache[file].key === key) hits.push(file);
     else toRun.push(file);
@@ -161,7 +169,23 @@ function partitionByCache(run, root = ROOT, forceFull = false) {
 // поэтому не гонялись ни разу ни на одном коммите. Замер, чьи регрессы не под гейтом, — это
 // тот же «новый код харнеса вне гейта», ради которого корнем сделали `bin/`. Список корней
 // по-прежнему явный: `specs/`, `demo/` и `vendor/` содержат чужие `*.test.js`.
-const TEST_ROOTS = ['tools', 'bin', 'benchmarks'];
+// 024 T004: список живёт в `elt-oracle-cache.js` и импортируется сюда, а не объявляется
+// дважды. Две копии одного списка и разошлись: обход знал три корня, замыкание кэша — один.
+const TEST_ROOTS = oracleCache.SCAN_DIRS;
+
+// Отчёт о прогоне рядом с оракул-пруфом, в git-каталоге, а не в дереве: `elt.js` кладёт из
+// него в пруф `ran`/`cached`/`total`. Без этого «112/112 passed» и «112 попаданий кэша, ноль
+// исполнено» были ОДНОЙ строкой и одним exit 0, а `--skip-oracle` принимал и то и другое.
+function runStatsPath(root) {
+  return path.join(oracleCache.gitDirOf(root), 'elt', 'oracle-run.json');
+}
+function writeRunStats(root, stats) {
+  try {
+    const full = runStatsPath(root);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, JSON.stringify(stats));
+  } catch { /* не git-репо: отчёт — диагностика, ронять из-за него прогон нельзя */ }
+}
 
 async function main() {
   const files = TEST_ROOTS
@@ -208,6 +232,10 @@ async function main() {
 
   const failed = results.filter((r) => !r.ok);
   const wall = ((Date.now() - started) / 1000).toFixed(1);
+  writeRunStats(ROOT, {
+    ran: ran.length, cached: cached.length, total: run.length, discovered: all.length,
+    failed: failed.length, full: forceFull, mode: pick.mode, ts: new Date().toISOString(),
+  });
   const slow = [...results].sort((a, b) => b.sec - a.sec).slice(0, 3)
     .map((r) => `${r.file} ${r.sec.toFixed(1)}s`).join(', ');
   console.error(`\nelt-oracle-runner: ${run.length - failed.length}/${run.length} passed in ${wall}s (slowest: ${slow})`);
@@ -219,5 +247,5 @@ if (require.main === module) main();
 
 module.exports = {
   discover, SKIP, TEST_ROOTS, jobsFrom, runFile, runAll, changedFiles, oracleSelectMode, slicesSinceFull,
-  partitionByCache, harnessOracleCmd,
+  partitionByCache, harnessOracleCmd, runStatsPath, writeRunStats, RUNNER_VERSION,
 };

@@ -160,7 +160,51 @@ function main() {
   testInteractiveSkillsSearchIsManualOnly();
   testInteractiveSkillsSearchNoSpawn();
   testAttemptedCommandIncludesLibrarySubcommand();
+  testInjectedRunnerNeverMintsProof();
+  testCtx7CoverageIsExactNotSubstring();
   process.stdout.write('context7-cli tests: PASS\n');
+}
+
+// ── 024 T006 ─────────────────────────────────────────────────────────────────
+// Сьют оракула фабриковал ctx7-пруфы в дереве гейтуемого проекта. `runCtx7` писал строку на
+// КАЖДЫЙ успешный вызов, а тесты гоняют его подменённым раннером с `status: 0`; оракул
+// запускает файлы с `cwd` корня репозитория, поэтому каждый прогон дописывал пять фиктивных
+// строк в `.harness/ctx7-proof.jsonl`. Найденный живой реестр — 35 строк, 100 % фабрикации.
+// Через них L0 переставал блокировать новые импорты: гейт выписывал разрешения сам себе.
+function testInjectedRunnerNeverMintsProof() {
+  const fsNode = require('node:fs');
+  const osNode = require('node:os');
+  const pathNode = require('node:path');
+  const dir = fsNode.mkdtempSync(pathNode.join(osNode.tmpdir(), 'ctx7-proof-'));
+  const prev = process.cwd();
+  try {
+    process.chdir(dir);
+    resolveLibrary('vercel-ai', { runner: successRunner('Library: /vercel/ai\n') });
+    queryDocs('/microsoft/playwright-mcp', 'CLI usage', { runner: successRunner('docs') });
+    const proof = pathNode.join(dir, '.harness', 'ctx7-proof.jsonl');
+    assert.equal(fsNode.existsSync(proof), false,
+      'подменённый раннер — тестовый шов, а не полученная документация: пруфа быть не должно');
+  } finally {
+    process.chdir(prev);
+    try { fsNode.rmSync(dir, { recursive: true, force: true }); } catch { /* уборка не гейт */ }
+  }
+}
+
+function testCtx7CoverageIsExactNotSubstring() {
+  const { ctx7Covered } = require('./elt-gate-l0.js');
+  const fresh = new Date().toISOString();
+  const proofs = [{ subcommand: 'docs', library: '/microsoft/playwright-mcp', query: 'CLI usage for coding agents', ts: fresh }];
+  // Ровно те шесть пакетов, которые проходили как «покрытые» через `includes` на живом реестре.
+  for (const pkg of ['ai', 'mcp', 'cli', 'agents', 'micro', 'right']) {
+    assert.equal(ctx7Covered(pkg, proofs, 30), false, `подстрока не должна покрывать пакет ${pkg}`);
+  }
+  // А то, что реально спрашивали, — покрыто: сегмент library-id и слово запроса целиком.
+  assert.equal(ctx7Covered('playwright-mcp', proofs, 30), true, 'сегмент library-id обязан покрывать');
+  assert.equal(ctx7Covered('microsoft', proofs, 30), true, 'org из library-id тоже сегмент');
+  // Проза запроса не покрывает НИЧЕГО: её слова не имена пакетов.
+  assert.equal(ctx7Covered('usage', proofs, 30), false, 'слово из текста запроса — не пакет');
+  assert.equal(ctx7Covered('coding', proofs, 30), false, 'слово из текста запроса — не пакет');
+  assert.equal(ctx7Covered('@types/node', proofs, 30), false, 'скоуп сравнивается целиком');
 }
 
 main();

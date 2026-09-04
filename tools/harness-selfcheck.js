@@ -22,11 +22,9 @@ function loadHarnessConfig(root) {
   catch (_) { return null; }
 }
 
+// 024 T001: четвёртая копия диспетчера снята — запуск идёт через общий `tools/shell-run.js`.
 function defaultRunner(cmd, shell, cwd) {
-  const r = shell === 'powershell'
-    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { cwd, encoding: 'utf8' })
-    : spawnSync('bash', ['-c', cmd], { cwd, encoding: 'utf8' });
-  return r.status === null ? 1 : r.status;
+  return require('./shell-run').runShell(cmd, shell, { cwd }).code;
 }
 
 function nextSelfhealDir(root) {
