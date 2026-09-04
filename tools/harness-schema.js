@@ -63,6 +63,12 @@ const FIELDS = {
   specApproval: T.boolean,                               // elt.js specApprovalGateFor
   ctx7Gate: enumOf('warn', 'block', 'off'),              // project-bootstrap
   l0: T.object,                                          // elt-gate-l0 loadConfig
+  // 024 (ревью): поле читается `judge-core.js:reviewConfigOf` и включает набор линз. Его
+  // отсутствие в схеме давало проекту, который им пользуется, предупреждение «неизвестное
+  // поле» на КАЖДОЙ команде — а следующей минорной, когда неизвестный ключ станет отказом,
+  // сломало бы его совсем. Ровно тот рассинхрон «поле читают, схема не знает», ради запрета
+  // которого таблица и написана; замок на него — тест покрытия ниже.
+  review: T.object,                                      // judge-core reviewConfigOf
 };
 
 const BACKGROUND_FIELDS = {

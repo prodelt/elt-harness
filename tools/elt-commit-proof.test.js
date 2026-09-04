@@ -247,39 +247,39 @@ function patchProof(root, patch) {
   return file;
 }
 
-test('024 T004: пруф, под которым не исполнено ни одного файла, не проводит --skip-oracle', () => {
-  const root = fixture();
-  writeProof(root);
-  patchProof(root, { ran: 0, cached: 42, total: 42 });
-  const before = commitCount(root);
-  // `--skip-oracle` обязан НЕ поверить пруфу; он перепрогонит оракул (в фикстуре зелёный),
-  // и главное — в stderr назовёт причину, а не промолчит.
-  const r = run(root, ['commit', '--task', 'T001', '--skip-oracle', '-m', 'test commit']);
-  const said = `${r.stdout}${r.stderr}`;
-  assert.match(said, /не исполнил ни одного файла/, said);
-  assert.ok(commitCount(root) >= before, said);
-});
-
-// Доверенный оракул-путь гейта живёт только в режиме `verify: "background"` — том самом,
-// который `project-bootstrap apply` ставит чужому проекту по умолчанию.
-function bgFixture() {
-  const root = fixture();
-  const cfgPath = path.join(root, '.harness', 'harness.json');
-  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-  fs.writeFileSync(cfgPath, JSON.stringify({ ...cfg, verify: 'background' }));
-  return root;
-}
-
-test('024 T004: гейт отвергает такой пруф даже на доверенном пути', () => {
+test('024 (ревью): тёплый кэш — законный зелёный прогон, гейт обязан его принять', () => {
+  // Здесь стояло правило «ran === 0 при непустой выборке — не доказательство». Оно неверно:
+  // второй подряд прогон оракула даёт ровно `ran: 0, cached: N, total: N`, потому что
+  // замыкание тестов не изменилось. Правило ломало обычную работу — второй `elt commit`
+  // подряд умирал exit 4, и выходом был только `--full`, о котором сообщение не говорило.
+  // От подделки кэша защищает не эта эвристика (из пруфа подделка и тёплый кэш неотличимы
+  // в принципе), а переезд кэша в `.git/elt/` и `--full` у бэкстопа `elt gate --ci`.
   const root = bgFixture();
   assert.equal(run(root, ['oracle']).status, 0);
-  const file = patchProof(root, { ran: 0, cached: 7, total: 7 });
+  const file = patchProof(root, { ran: 0, cached: 42, total: 42 });
   const trust = crypto.createHash('sha256').update(fs.readFileSync(file, 'utf8')).digest('hex');
   const gate = spawnSync(process.execPath, [ELT, 'gate'], {
     cwd: root, encoding: 'utf8', env: { ...process.env, ELT_GATE_TRUST_ORACLE: trust },
   });
-  assert.notEqual(gate.status, 0, `${gate.stdout}${gate.stderr}`);
-  assert.match(`${gate.stdout}${gate.stderr}`, /не исполнил ни одного файла/);
+  assert.equal(gate.status, 0, `тёплый кэш обязан проходить:\n${gate.stdout}${gate.stderr}`);
+});
+
+test('024 (ревью): elt gate --ci гоняет оракул мимо кэша', () => {
+  // Бэкстоп CI кэшу не доверяет: на границе, где решается «пускать ли в main», подделанный
+  // или протухший кэш проезжал бы там, где проверка дороже всего.
+  const root = fixture();
+  const marker = path.join(root, 'oracle-ran.txt');
+  const cfgPath = path.join(root, '.harness', 'harness.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  // Оракул фикстуры печатает, ВИДИТ ли он ELT_ORACLE_FULL — так проверяется, что --ci
+  // доносит full через границу процесса (shell-строка, а не argv).
+  fs.writeFileSync(cfgPath, JSON.stringify({
+    ...cfg,
+    oracle: `node -e "require('fs').writeFileSync(${JSON.stringify(marker).replace(/"/g, '\\"')}, String(process.env.ELT_ORACLE_FULL))"`,
+  }));
+  const r = run(root, ['gate', '--ci']);
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  assert.equal(fs.readFileSync(marker, 'utf8'), '1', 'gate --ci обязан выставить ELT_ORACLE_FULL=1');
 });
 
 test('024 T003/T004: пруф старой схемы отвергается по имени, а не загадкой про дерево', () => {

@@ -172,8 +172,17 @@ function classifyJudge(verdict) {
 // 024 T001: та же таблица, что у синхронного гейта, — теперь буквально одна, в
 // `tools/shell-run.js`. Расхождение здесь означало бы, что фон проверяет не то, что человек.
 const shellRun = require('./shell-run');
+// 024 (ревью): неизвестный `shell` здесь ОТКАЗ, а не тихая подмена на дефолт. Прежнее
+// `resolveShell(shell) || defaultShell()` означало, что фон судит конфиг, который передний
+// план отвергает: `elt.js:sh()` на том же значении умирает с названием поля. Расхождение
+// фона и синхронного гейта в способе запуска — тот самый класс, ради снятия которого
+// диспетчер сведён в один модуль.
 function shellArgv(cmd, shell) {
-  return shellRun.shellArgv(cmd, shellRun.resolveShell(shell) || shellRun.defaultShell());
+  const resolved = shellRun.resolveShell(shell);
+  if (!resolved) {
+    throw new Error(`неизвестный shell '${shell}' в .harness/harness.json — допустимо: ${shellRun.SHELLS.join(', ')}`);
+  }
+  return shellRun.shellArgv(cmd, resolved);
 }
 // Дефолт spawnSync — 1 МБ, и при переполнении процесс УБИВАЕТСЯ (ENOBUFS, status null → exit 1):
 // болтливый оракул чужого проекта давал бы ложное красное. То же число, что у elt.js.

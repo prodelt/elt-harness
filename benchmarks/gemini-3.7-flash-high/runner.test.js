@@ -12,6 +12,26 @@ const runner = require('./runner.js');
 const datasetLib = require('./build-gate-dataset.js');
 const summarizeLib = require('./summarize.js');
 
+// 024 (ревью): проба живёт ЗДЕСЬ, а не в runner.js. `runner.js` заперт хешем в
+// `preregistration.json` (`immutableAfterFirstResult: true`, и `writer-results.jsonl` уже
+// непуст), поэтому его правка обесценивает предрегистрацию — даже правка безобидная. Тестовый
+// файл под замок не входит: он не участвует в замере, он его проверяет.
+//
+// Зачем проба вообще: без неё отсутствие pytest НЕОТЛИЧИМО от неверного решения — `spawnSync`
+// отдаёт `status: null`, а `null === 0` даёт `pass: false`, и «интерпретатора нет» приезжает
+// в отчёт как «код не прошёл тесты». Именно так этот файл краснел у каждого, кто не ставил
+// pytest руками: 25/26 с сообщением `false == true` и без единого намёка на причину. CI
+// зависимость ставит (`.github/workflows/test.yml`), поэтому там охват не падает.
+const PYTEST_PREFIX_LEN = 2; // ['-m', 'pytest'] — дальше в команде идёт путь к тесту
+function pytestAvailable() {
+  const { spawnSync } = require('child_process');
+  // Тот же резолв, которым грейдер и гоняет тесты: на Windows это лаунчер `py -3`, который
+  // может указывать НЕ на тот Python, что `python` из PATH.
+  const [cmd, cmdArgs] = runner.pytestCommand('');
+  const probe = spawnSync(cmd, [...cmdArgs.slice(0, PYTEST_PREFIX_LEN), '--version'], { encoding: 'utf8', timeout: 30000 });
+  return probe.status === 0;
+}
+
 const tests = [];
 // 024 T002: третий аргумент — причина пропуска (строка) или null. Пропуск ОБЯЗАН называть
 // причину: «не измерено» и «измерено и хорошо» — разные вещи, и без причины в выводе они
@@ -171,7 +191,7 @@ test('gradePolyglotWriter: real pytest pass/fail, not mocked', async () => {
   const failResult = await runner.gradePolyglotWriter({ workDir: dir, item: { guardPath: 'sol_test.py' } });
   assert.equal(failResult.pass, false);
   assert.ok(failResult.detail.length > 0);
-}, runner.pytestAvailable() ? null : 'pytest-unavailable: `python3 -m pytest` не установлен — грейдер замера не проверен (CI ставит его отдельным шагом)');
+}, pytestAvailable() ? null : 'pytest-unavailable: `python3 -m pytest` не установлен — грейдер замера не проверен (CI ставит его отдельным шагом)');
 
 test('graderFor: swebench-gate throws a clear not-implemented error instead of faking a verdict', async () => {
   const grade = runner.graderFor('swebench-gate');

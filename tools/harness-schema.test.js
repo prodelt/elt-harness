@@ -64,7 +64,8 @@ test('024 T008: каждое поле, которое читает код, об�
   // Рассинхрон «поле читают, а схема о нём не знает» и есть дефект, который схема закрывает:
   // такое поле молча выпадает в предупреждение и выглядит опечаткой.
   for (const field of ['kind', 'oracle', 'shell', 'verify', 'redProof', 'oracleSelect', 'batch',
-    'specApproval', 'testCmd', 'branchPolicy', 'push', 'smoke', 'background', 'l0', 'judge']) {
+    'specApproval', 'testCmd', 'branchPolicy', 'push', 'smoke', 'background', 'l0', 'judge',
+    'review']) {
     assert.ok(FIELDS[field], `поле ${field} читается кодом, но не объявлено в схеме`);
   }
 });

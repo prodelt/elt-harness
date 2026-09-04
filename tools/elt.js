@@ -387,7 +387,19 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // 020 T009: оба вызова обязаны ОТРАБОТАТЬ ПОЛНОСТЬЮ. Молчаливый провал здесь — худший из
   // возможных: хеш посчитается от пустого/обрезанного вывода, два разных дерева совпадут, и
   // `--skip-oracle` проведёт коммит по пруфу от ЧУЖОГО дерева. Отказ громкий, без фолбека.
-  const statusRun = git(['status', '--porcelain', '-uall'], { raw: true });
+  // 024 (ревью): вывод git приводится к КАНОНИЧЕСКОЙ форме принудительно, а не принимается
+  // как есть. Форма `git status`/`git diff` настраивается пользователем, и хеш, посчитанный
+  // от неё, зависит от чужого `.gitconfig`:
+  //   `diff.noprefix` / `diff.mnemonicPrefix` — заголовок приезжает без `a/`…`b/`, и разбор
+  //     блоков диффа не находит НИ ОДНОГО файла (весь дифф выпадал из хеша — то есть пруф
+  //     переставал видеть правки отслеживаемых файлов вовсе);
+  //   определение переименований — до индексации это `D` + `??`, после `git add -A` это одна
+  //     строка `R old -> new` плюс rename-блок в диффе, то есть ровно та зависимость от
+  //     индексации, ради снятия которой писался T003.
+  // `--no-renames` убирает второе, `-c diff.*=false` — первое, `--no-ext-diff` — внешний
+  // diff-драйвер, который может отдать что угодно. Урок тот же, что у самого дефекта: не
+  // хешировать формат, которым не управляешь.
+  const statusRun = git(['status', '--porcelain', '-uall', '--no-renames'], { raw: true });
   if (statusRun.code !== 0) {
     die(`treeHash: git status не отработал (${statusRun.killed ? 'вывод обрезан/процесс убит' : `exit ${statusRun.code}`})`
       + `${statusRun.err ? `: ${statusRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
@@ -396,7 +408,9 @@ function treeHash({ normalizeTaskMarks = false } = {}) {
   // резолвится, и это не отказ git, а отсутствие базы. Всё содержимое такого дерева и так
   // попадает в хеш через `??`-строки status.
   const hasHead = git(['rev-parse', '--verify', 'HEAD']).code === 0;
-  const diffRun = hasHead ? git(['diff', 'HEAD']) : { code: 0, out: '', killed: false, err: '' };
+  const diffRun = hasHead
+    ? git(['-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', 'diff', 'HEAD', '--no-renames', '--no-ext-diff'])
+    : { code: 0, out: '', killed: false, err: '' };
   if (diffRun.code !== 0) {
     die(`treeHash: git diff не отработал (${diffRun.killed ? 'вывод обрезан/процесс убит' : `exit ${diffRun.code}`})`
       + `${diffRun.err ? `: ${diffRun.err}` : ''} — пруф о дереве был бы враньём`, 1);
@@ -641,15 +655,24 @@ function headSha() {
 // правку в дереве.
 const PROOF_SCHEMA = 2;
 
-// Пруф, по которому оракул не исполнил ни одного файла, — не доказательство. Возвращает
-// причину отказа или null.
+// Возвращает причину, по которой пруфу нельзя верить, или null.
+//
+// 024 (ревью): здесь стояло ещё правило «`ran === 0` при непустой выборке — не доказательство».
+// Оно НЕВЕРНО, и это моя ошибка, а не полумера. Тёплый кэш даёт ровно `ran: 0, cached: N,
+// total: N` — замер на этом репозитории: второй подряд прогон оракула печатает «118 попаданий,
+// 0 к прогону». Это штатный зелёный прогон, а не подделка: замыкание тестов не изменилось.
+// Правило ломало обычную работу — второй `elt commit` подряд умирал exit 4, и единственным
+// выходом был `--full`, о котором сообщение не говорило.
+//
+// От подделки кэша (audit E17) защищает не эта эвристика — из пруфа тёплый кэш и подделка
+// неотличимы В ПРИНЦИПЕ, — а два других изменения: кэш переехал в `.git/elt/`, где его не
+// примут за часть проекта, и `elt gate --ci`, документированный бэкстоп для CI, гоняет
+// оракул с `--full`, то есть кэш игнорирует целиком. Поля `ran`/`cached`/`total` остаются в
+// пруфе как наблюдаемость: по ним видно, что именно исполнялось.
 function oracleProofUseless(proof) {
   if (!proof) return null;
   if (proof.proofSchema !== PROOF_SCHEMA) {
     return `пруф схемы ${proof.proofSchema || 1}, текущая ${PROOF_SCHEMA} (форма хеша дерева изменилась в 024) — перепрогони оракул`;
-  }
-  if (proof.ran === 0 && Number(proof.total) > 0) {
-    return `оракул не исполнил ни одного файла (${proof.cached} из кэша, ${proof.total} в выборке) — это отсутствие проверки, а не зелёный прогон`;
   }
   return null;
 }
@@ -1366,7 +1389,11 @@ if (cmd === 'init') {
   const cfg = {
     kind: 'code',
     oracle,
-    shell: opt('--shell', 'bash'),
+    // 024 (ревью): `shell` пишется ТОЛЬКО когда его назвали явно. Дефолт `bash` прибивал в
+    // каждый новый проект то самое поле, которое T001 убрал из поставки, и на Windows
+    // порождал конфиг, немедленно умирающий «интерпретатор 'bash' не найден». Без поля
+    // дефолт считается по `process.platform` у того, кто запускает.
+    ...(opt('--shell') ? { shell: opt('--shell') } : {}),
     branchPolicy: opt('--branch-policy', 'feature'),
     push: flag('--push'),
     // ELT v3: один независимый judge + grounding/red-proof. Повторный verify-on-pass снят.
@@ -2013,7 +2040,10 @@ if (cmd === 'gate') {
   if (flag('--ci')) {
     const cfg = loadConfig();
     runLog.runtimeRunLog(cwd);
-    const exit = runOracle(cfg, { full: flag('--full') });
+    // 024 (ревью): бэкстоп CI кэшу не доверяет. Кэш — оптимизация внутреннего цикла; на
+    // границе, где решается «пускать ли в main», он обязан быть выключен, иначе подделанный
+    // или просто протухший кэш проезжает ровно там, где проверка дороже всего.
+    const exit = runOracle(cfg, { full: true });
     if (exit !== 0) {
       appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec, full: lastOracleFull } });
       die(`elt gate --ci: оракул красный (exit ${exit})`, exit, 'oracle-red');
