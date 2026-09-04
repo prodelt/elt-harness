@@ -2016,7 +2016,7 @@ if (cmd === 'gate') {
     const exit = runOracle(cfg, { full: flag('--full') });
     if (exit !== 0) {
       appendRunLog({ task: null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit, durationSec: lastOracleSec, full: lastOracleFull } });
-      die(`elt gate --ci: оракул красный (exit ${exit})`, exit);
+      die(`elt gate --ci: оракул красный (exit ${exit})`, exit, 'oracle-red');
     }
     console.log('elt gate --ci: oracle green');
     process.exit(0);
@@ -2038,7 +2038,7 @@ if (cmd === 'gate') {
     if (bgMode) {
       let oracleRaw = null;
       try { oracleRaw = fs.readFileSync(oracleProofPath(), 'utf8'); } catch { /* нет пруфа — ниже отказ */ }
-      if (!oracleRaw) die('elt gate: нет оракул-пруфа (verify:"background") — коммить через elt commit', 4);
+      if (!oracleRaw) die('elt gate: нет оракул-пруфа (verify:"background") — коммить через elt commit', 4, 'oracle-proof-missing');
       let parsed = null;
       try { parsed = JSON.parse(oracleRaw); } catch { /* битый — отказ ниже */ }
       // Доверие к байтам пруфа снимает ТОЛЬКО проверку дерева (она заведомо не сойдётся: между
@@ -2057,7 +2057,7 @@ if (cmd === 'gate') {
         if (useless) die(`elt gate: ${useless}`, 4, 'oracle-proof-unproven');
         const normalized = parsed.hashTaskMarksNormalized;
         if (!normalized) {
-          die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4);
+          die('elt gate: пруф старой схемы без hashTaskMarksNormalized — перепрогони оракул через elt commit', 4, 'oracle-proof-stale');
         }
         if (normalized !== treeHashNormalizingTaskMarks()) {
           die('elt gate: доверенный пруф не про это дерево — изменения вне маркера задачи', 4, 'oracle-proof-stale');
@@ -2129,7 +2129,7 @@ if (cmd === 'commit') {
     oracleExit = runOracle(cfg, { full: flag('--full') });
     if (oracleExit !== 0) {
       appendRunLog({ task: taskId || null, status: 'red-stop', oracle: { cmd: cfg.oracle, exit: oracleExit, durationSec: lastOracleSec, full: lastOracleFull } });
-      die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit);
+      die(`оракул красный (exit ${oracleExit}) — НЕ коммичу`, oracleExit, 'oracle-red');
     }
   }
 
@@ -2140,7 +2140,7 @@ if (cmd === 'commit') {
   if (!taskId) {
     const nonDocs = changedFiles().filter((f) => !DOC_COMMIT_RE.test(f.replace(/\\/g, '/')));
     if (nonDocs.length) {
-      die(`elt commit: --task Txxx обязателен для коммита с кодом (не документные файлы: ${nonDocs.slice(0, 5).join(', ')}${nonDocs.length > 5 ? ` +${nonDocs.length - 5}` : ''})`, 4);
+      die(`elt commit: --task Txxx обязателен для коммита с кодом (не документные файлы: ${nonDocs.slice(0, 5).join(', ')}${nonDocs.length > 5 ? ` +${nonDocs.length - 5}` : ''})`, 4, 'task-required');
     }
     const msgDocs = opt('-m', 'docs: обновление документации');
     if (git(['add', '-A']).code !== 0) die('git add failed');
@@ -2400,7 +2400,7 @@ if (cmd === 'commit') {
           return { ok: true };
         } catch (e) { return { ok: false, reason: e.message }; }
       })();
-      if (!certOk.ok) die('elt commit --push: publish без terminal certificate — ' + certOk.reason, 4);
+      if (!certOk.ok) die('elt commit --push: publish без terminal certificate — ' + certOk.reason, 4, 'certificate-missing');
     }
     const p = git(['push', '-u', 'origin', branch]);
     if (p.code === 0) console.error('elt commit: pushed');
