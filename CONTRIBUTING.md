@@ -1,5 +1,8 @@
 # Contributing to ELT
 
+> This repository is frozen at v5 and archived. Pull requests are not reviewed. The notes below
+> describe how the project was run while it was active.
+
 Thanks for taking a look. This project is small and opinionated, so this page is short.
 
 ## Before you open a pull request

@@ -4,6 +4,9 @@
 > summary of what the product is and what it measurably does, see the
 > [README](README.md) and [docs/EVIDENCE.md](docs/EVIDENCE.md).
 
+> **Frozen at v5.** The 024 section below is the last change on `main` (2026-09-04) and was never
+> tagged. The `v5.0.1` tag has 112 test files; `main` has 118.
+
 Все заметные изменения ELT. Формат — по фазам пересборки v5, потому что именно фазами она и
 шла: каждая закрывала названный заранее критерий, а не «набор улучшений».
 
@@ -11,7 +14,7 @@
 помечены как versioned snapshots и проверяются через `git show`, а не пересчитываются
 скользящим окном сегодняшней даты.
 
-## [Unreleased] — 024, харнес работает не только на машине автора
+## [Final, untagged] — 024, харнес работает не только на машине автора
 
 Первая спека, у которой замер сделан НЕ на Windows. Он и оказался содержанием: на Linux и
 macOS — единственной серверной платформе, ради которой харнес заявлен как ядро для

@@ -79,7 +79,7 @@ flowchart TD
   парковка `judge-unavailable`, а не судью == воркер. Пункт «НЕ ПРОВЕРЕНО #3» чекпоинта устарел.
   Fleet целиком — вне scope.
 - **Поверхность — 9 проектов, а не 122.** `.harness/harness.json` есть у: `<repo-root>`
-  (мост есть), `Ametryn_protocol_bot` ×3, `<another-project>`, `<another-project>`,
+  (мост есть), `<another-project>` ×3, `<another-project>`, `<another-project>`,
   `<another-project>`, `pdv`, `<another-project>`, `<another-project>` (моста нет).
   122 — это папки чатов, не харнессы.
 - **Замыкание моста — 8 файлов:** `judge-invoke.js` → `fleet/gate.js` →

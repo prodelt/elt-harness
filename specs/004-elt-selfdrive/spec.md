@@ -32,7 +32,7 @@ REJECT-default, run-log реален, драйвер даёт fresh-context per-
   13 ≥250k, 43 ≥150k.** `/clear` 43×, `/effort` 37×, `/model` 34× — это и есть ручной toil,
   который просят автоматизировать. F1 (ротация) и F2 (эффорт) — не nice-to-have, а верх боли.
 - **elt реально принят** (перелом vs исторические аудиты «adoption ~15%»): `/elt` 45×,
-  89 elt-commit, 25 elt-loop, 21 elt-fleet. Pipiline 50 коммитов, reclamaties 17, web-4 8.
+  89 elt-commit, 25 elt-loop, 21 elt-fleet. Pipiline 50 коммитов, <another-project> 17, web-4 8.
 - **Судья: block 159 vs pass 141 (~53% block).** Аномально высоко → часть «блоков» —
   это dead-judge (пустой лог → REJECT-default), НЕ реальные reject. Прямое подтверждение T002.
 - **codegraph почти мёртв:** 24 вызова MCP на 278 сессий (10 `codegraph_context`), при мандате
