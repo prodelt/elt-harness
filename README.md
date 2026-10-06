@@ -3,10 +3,10 @@
   <sub>a harness for Claude Code that keeps unverified work out of <code>main</code></sub>
 </p>
 
+> **Frozen at v5.** I stopped developing ELT in September 2026. Newer Claude models got good enough that stricter gates began to cost more quality than they protected, so I now work with a lighter setup of skills, safety hooks and CI test gates. The code, the benchmark and the write-ups stay here as they were. The repository is archived, and issues and pull requests are not monitored.
+
 <p align="center">
-  <img src="https://img.shields.io/badge/gate%20accuracy-85.0%25-brightgreen" alt="gate accuracy 85.0%" />
-  <img src="https://img.shields.io/badge/false--blocks-0%2F30-brightgreen" alt="false blocks 0 of 30" />
-  <img src="https://img.shields.io/badge/tests-118%2F118-brightgreen" alt="tests 118 of 118" />
+  <img src="https://img.shields.io/badge/test%20files-118%2F118-brightgreen" alt="118 of 118 test files green" />
   <img src="https://img.shields.io/badge/runtime-node%2018%2B-blue" alt="node 18+" />
   <img src="https://img.shields.io/badge/dependencies-0-blue" alt="zero dependencies" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
@@ -51,7 +51,8 @@ service to sign up for.
 
 Measured on a third-party dataset, with the preregistration frozen **before the first result
 row**: 30 SWE-bench Verified instances, each with a correct patch and a deliberately broken one,
-60 live judge calls.
+60 live judge calls. The judge in this run was Gemini 3.7 Flash (`gemini-3.7-flash-high`), not
+Claude Sonnet, which is the plugin's default judge.
 
 ```mermaid
 xychart-beta
@@ -63,12 +64,13 @@ xychart-beta
 
 | | no gate | **with ELT** |
 | --- | --- | --- |
-| correct ship/stop decisions | 50% — everything ships, by definition | **85.0%** [73.9%, 91.9%] |
+| correct ship/stop decisions, Gemini 3.7 Flash judge | 50%, analytic: everything ships | **85.0%** [73.9%, 91.9%] |
 | broken patches caught | 0 of 30 | **21 of 30** |
-| correct patches wrongly rejected | 0 of 30 | **0/30** |
+| correct SWE-bench reference patches wrongly rejected | 0 of 30 | **0/30** |
 
-**Zero false blocks is the number that makes a gate usable.** A gate that stops good work gets
-switched off within a week, and then it protects nothing.
+A gate that stops good work gets switched off within a week, so false blocks matter more than
+catches. The 0 of 30 holds for the SWE-bench reference patches. On real slices in my own
+projects the gate did block some correct work.
 
 <details>
 <summary><strong>And the part that is unflattering — read this before quoting the numbers</strong></summary>
@@ -211,8 +213,8 @@ silently.
 
 ## Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security reports
-go through [SECURITY.md](SECURITY.md).
+The repository is frozen and archived, so issues and pull requests are not monitored. To build
+on ELT, fork it under the MIT license.
 
 ## License
 

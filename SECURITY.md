@@ -9,9 +9,8 @@
 
 ## Reporting a vulnerability
 
-Please report privately through
-[GitHub Security Advisories](https://github.com/prodelt/elt-harness/security/advisories/new)
-rather than a public issue. Expect an initial response within seven days.
+The repository is frozen at v5 and archived, and security reports are no longer monitored. If
+you run ELT, pin the commit you reviewed and treat it as unmaintained.
 
 Include the version, the platform, and the smallest reproduction you have. If it is a bypass of
 the gate, say which of the three barriers it walks past — the mechanical suite, the judge, or
